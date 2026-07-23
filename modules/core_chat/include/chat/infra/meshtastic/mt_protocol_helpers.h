@@ -52,7 +52,22 @@ void fillDecodedPacketCommon(meshtastic_MeshPacket* packet,
                              const meshtastic_Data& decoded,
                              const PacketHeaderWire& header,
                              chat::ChannelId channel_index);
-bool allowPkiForPortnum(uint32_t portnum);
+inline bool allowPkiForPortnum(uint32_t portnum)
+{
+    return portnum != meshtastic_PortNum_NODEINFO_APP &&
+           portnum != meshtastic_PortNum_ROUTING_APP &&
+           portnum != meshtastic_PortNum_POSITION_APP &&
+           portnum != meshtastic_PortNum_TRACEROUTE_APP;
+}
+
+inline bool requirePkiForDirectPort(uint32_t dest_node, uint32_t portnum)
+{
+    // The medium is not the audience: a direct packet can be relayed through
+    // LoRa and MQTT, but its confidentiality policy remains per-recipient.
+    constexpr uint32_t kBroadcastNode = 0xFFFFFFFFUL;
+    return dest_node != kBroadcastNode && allowPkiForPortnum(portnum);
+}
+
 uint32_t djb2HashText(const char* text);
 
 } // namespace meshtastic

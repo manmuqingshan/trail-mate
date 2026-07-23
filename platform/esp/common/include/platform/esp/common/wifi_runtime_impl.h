@@ -65,6 +65,7 @@ constexpr int kWifiRetryMgmtSbufNum = 6;
 constexpr int kWifiRetryRxMgmtBufNum = 5;
 constexpr std::size_t kWifiConnectMinInternalFreeBytes = 32U * 1024U;
 constexpr std::size_t kWifiConnectMinInternalLargestBlockBytes = 8U * 1024U;
+constexpr std::size_t kWifiReconnectReserveBytes = 32U * 1024U;
 constexpr const char* kNetworkTimeSyncServer = "pool.ntp.org";
 constexpr std::time_t kNetworkTimeMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
 constexpr uint32_t kNetworkTimeSyncTimeoutMs = 15000;
@@ -90,6 +91,8 @@ struct RuntimeState
     bool profiles_cached = false;
     bool connected = false;
     bool connecting = false;
+    bool connect_deferred_for_resources = false;
+    bool intentional_disconnect_pending = false;
     bool scanning = false;
     int rssi = -127;
     Config config{};
@@ -105,6 +108,7 @@ struct RuntimeState
     esp_event_handler_instance_t ip_event_handler = nullptr;
     esp_timer_handle_t network_time_sync_timeout_timer = nullptr;
     TaskHandle_t network_time_apply_task = nullptr;
+    void* reconnect_memory_reserve = nullptr;
 };
 
 RuntimeState s_runtime{};
@@ -142,13 +146,40 @@ void log_heap_snapshot(const char* stage)
 void set_status_message(const char* message);
 void cancel_network_time_sync();
 
+void release_reconnect_memory_reserve()
+{
+    if (!s_runtime.reconnect_memory_reserve)
+    {
+        return;
+    }
+    heap_caps_free(s_runtime.reconnect_memory_reserve);
+    s_runtime.reconnect_memory_reserve = nullptr;
+    log_heap_snapshot("released reconnect reserve");
+}
+
+void ensure_reconnect_memory_reserve()
+{
+    if (s_runtime.reconnect_memory_reserve)
+    {
+        return;
+    }
+    s_runtime.reconnect_memory_reserve =
+        heap_caps_malloc(kWifiReconnectReserveBytes,
+                         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    std::printf("[WiFi][MEM] reconnect reserve bytes=%u acquired=%u\n",
+                static_cast<unsigned>(kWifiReconnectReserveBytes),
+                s_runtime.reconnect_memory_reserve ? 1U : 0U);
+}
+
 bool internal_memory_ready_for_wifi_connect(const char* stage)
 {
+    release_reconnect_memory_reserve();
     const std::size_t ram_free = internal_free_bytes();
     const std::size_t ram_largest = internal_largest_block_bytes();
     if (ram_free >= kWifiConnectMinInternalFreeBytes &&
         ram_largest >= kWifiConnectMinInternalLargestBlockBytes)
     {
+        s_runtime.connect_deferred_for_resources = false;
         return true;
     }
 
@@ -158,7 +189,8 @@ bool internal_memory_ready_for_wifi_connect(const char* stage)
                 static_cast<unsigned>(ram_largest),
                 static_cast<unsigned>(kWifiConnectMinInternalFreeBytes),
                 static_cast<unsigned>(kWifiConnectMinInternalLargestBlockBytes));
-    set_status_message("Wi-Fi memory low");
+    s_runtime.connect_deferred_for_resources = true;
+    set_status_message("Wi-Fi waiting for memory");
     return false;
 }
 
@@ -927,7 +959,9 @@ void wifi_event_handler(void*,
             {
                 std::printf("[WiFi] sta connected\n");
             }
-            s_runtime.connecting = false;
+            // Association is only an intermediate state. Keep the attempt
+            // active until DHCP produces GOT_IP or a disconnect event
+            // terminates it.
             break;
         }
         case WIFI_EVENT_STA_DISCONNECTED:
@@ -949,7 +983,24 @@ void wifi_event_handler(void*,
                 std::printf("[WiFi] sta disconnected ssid=%s\n",
                             current_config().ssid[0] ? current_config().ssid : "<unset>");
             }
+            if (s_runtime.intentional_disconnect_pending)
+            {
+                s_runtime.intentional_disconnect_pending = false;
+                std::printf("[WiFi] intentional disconnect completed\n");
+                break;
+            }
+
+            const bool attempt_failed = s_runtime.connecting;
             clear_connection_details();
+            if (attempt_failed && s_runtime.profile_count > 1)
+            {
+                s_runtime.next_profile_index =
+                    (s_runtime.next_profile_index + 1U) %
+                    s_runtime.profile_count;
+                std::printf("[WiFi] connect event failed; next profile=%u/%u\n",
+                            static_cast<unsigned>(s_runtime.next_profile_index + 1U),
+                            static_cast<unsigned>(s_runtime.profile_count));
+            }
             refresh_runtime_status_message();
             break;
         }
@@ -987,6 +1038,7 @@ void wifi_event_handler(void*,
                     s_runtime.ssid[0] ? s_runtime.ssid : current_config().ssid,
                     s_runtime.rssi);
         request_network_time_sync();
+        ensure_reconnect_memory_reserve();
     }
 }
 
@@ -1244,6 +1296,7 @@ bool apply_enabled(bool enabled)
 #endif
         s_runtime.wifi_started = false;
         s_runtime.wifi_initialized = false;
+        release_reconnect_memory_reserve();
         clear_connection_details();
         restore_runtime_ble_after_wifi("Wi-Fi disabled");
         set_status_message("Wi-Fi disabled");
@@ -1265,28 +1318,35 @@ bool apply_enabled(bool enabled)
     return true;
 }
 
-static bool connect_single_profile(const Config& config)
+enum class ConnectStartResult : uint8_t
+{
+    Started,
+    DeferredForResources,
+    Failed,
+};
+
+static ConnectStartResult connect_single_profile(const Config& config)
 {
     if (!config.enabled)
     {
         set_status_message("Enable Wi-Fi first");
-        return false;
+        return ConnectStartResult::Failed;
     }
 
     if (!has_saved_credentials(config))
     {
         set_status_message("SSID is not set");
-        return false;
+        return ConnectStartResult::Failed;
     }
 
     if (!ensure_wifi_started())
     {
-        return false;
+        return ConnectStartResult::Failed;
     }
 
     if (!internal_memory_ready_for_wifi_connect("before esp_wifi_connect"))
     {
-        return false;
+        return ConnectStartResult::DeferredForResources;
     }
 
     wifi_config_t wifi_config{};
@@ -1304,143 +1364,39 @@ static bool connect_single_profile(const Config& config)
     if (esp_wifi_set_config(WIFI_IF_STA, &wifi_config) != ESP_OK)
     {
         set_status_message("Set Wi-Fi config failed");
-        return false;
+        return ConnectStartResult::Failed;
     }
 
-    cache_config(config);
-    clear_connection_details();
-    s_runtime.connecting = true;
-    refresh_runtime_status_message();
-
-    if (esp_wifi_disconnect() != ESP_OK)
+    const bool replacing_active_attempt =
+        s_runtime.connected || s_runtime.connecting;
+    const esp_err_t disconnect_err =
+        replacing_active_attempt ? esp_wifi_disconnect() : ESP_ERR_WIFI_NOT_CONNECT;
+    s_runtime.intentional_disconnect_pending =
+        replacing_active_attempt && disconnect_err == ESP_OK;
+    if (disconnect_err != ESP_OK)
     {
         // Ignore disconnect failures before a fresh connect attempt.
     }
+    cache_config(config);
+    clear_connection_details();
+    s_runtime.connect_deferred_for_resources = false;
+    s_runtime.connecting = true;
+    refresh_runtime_status_message();
     if (esp_wifi_connect() != ESP_OK)
     {
         s_runtime.connecting = false;
         set_status_message("Wi-Fi connect failed");
-        return false;
+        return ConnectStartResult::Failed;
     }
-
-    constexpr int kConnectTimeoutMs = 15000;
-    constexpr int kPollMs = 100;
-    int waited_ms = 0;
-    while (waited_ms < kConnectTimeoutMs)
-    {
-        if (s_runtime.connected)
-        {
-            refresh_runtime_status_message();
-            return true;
-        }
-        vTaskDelay(pdMS_TO_TICKS(kPollMs));
-        waited_ms += kPollMs;
-    }
-
-    s_runtime.connecting = false;
-    set_status_message("Wi-Fi connect timeout");
-    return false;
-}
-
-bool select_auto_profile_from_scan(std::size_t& out_index)
-{
-    out_index = s_runtime.next_profile_index;
-    if (s_runtime.profile_count == 0)
-    {
-        return false;
-    }
-    if (!ensure_wifi_started())
-    {
-        return false;
-    }
-    if (!internal_memory_ready_for_wifi_connect("before auto scan"))
-    {
-        return false;
-    }
-
-    s_runtime.scanning = true;
-    refresh_runtime_status_message();
-
-    wifi_scan_config_t scan_config{};
-    const esp_err_t scan_err = esp_wifi_scan_start(&scan_config, true);
-    s_runtime.scanning = false;
-    if (scan_err != ESP_OK)
-    {
-        std::printf("[WiFi] auto scan skipped err=0x%x\n",
-                    static_cast<unsigned>(scan_err));
-        refresh_runtime_status_message();
-        return false;
-    }
-
-    uint16_t ap_count = 0;
-    if (esp_wifi_scan_get_ap_num(&ap_count) != ESP_OK || ap_count == 0)
-    {
-        std::printf("[WiFi] auto scan no networks profiles=%u\n",
-                    static_cast<unsigned>(s_runtime.profile_count));
-        refresh_runtime_status_message();
-        return false;
-    }
-
-    uint16_t record_count = std::min<uint16_t>(ap_count, kWifiAutoScanMaxRecords);
-    for (wifi_ap_record_t& record : s_runtime.auto_scan_records)
-    {
-        record = wifi_ap_record_t{};
-    }
-    if (esp_wifi_scan_get_ap_records(&record_count, s_runtime.auto_scan_records) != ESP_OK)
-    {
-        std::printf("[WiFi] auto scan read failed aps=%u\n",
-                    static_cast<unsigned>(ap_count));
-        refresh_runtime_status_message();
-        return false;
-    }
-
-    int best_index = -1;
-    int8_t best_rssi = -128;
-    for (uint16_t i = 0; i < record_count; ++i)
-    {
-        const wifi_ap_record_t& record = s_runtime.auto_scan_records[i];
-        if (record.ssid[0] == 0)
-        {
-            continue;
-        }
-        const int index = profile_index_for_ssid(reinterpret_cast<const char*>(record.ssid));
-        if (index < 0)
-        {
-            continue;
-        }
-        if (best_index < 0 || record.rssi > best_rssi)
-        {
-            best_index = index;
-            best_rssi = record.rssi;
-        }
-    }
-
-    refresh_runtime_status_message();
-    if (best_index < 0)
-    {
-        std::printf("[WiFi] auto scan no saved match aps=%u read=%u profiles=%u\n",
-                    static_cast<unsigned>(ap_count),
-                    static_cast<unsigned>(record_count),
-                    static_cast<unsigned>(s_runtime.profile_count));
-        return false;
-    }
-
-    out_index = static_cast<std::size_t>(best_index);
-    s_runtime.next_profile_index = out_index;
-    std::printf("[WiFi] auto scan matched profile index=%u/%u ssid=%s rssi=%d aps=%u\n",
-                static_cast<unsigned>(out_index + 1U),
-                static_cast<unsigned>(s_runtime.profile_count),
-                s_runtime.profiles[out_index].ssid,
-                static_cast<int>(best_rssi),
-                static_cast<unsigned>(record_count));
-    return true;
+    return ConnectStartResult::Started;
 }
 
 bool connect(const Config* override_config)
 {
     if (override_config)
     {
-        return connect_single_profile(*override_config);
+        return connect_single_profile(*override_config) ==
+               ConnectStartResult::Started;
     }
 
     Config config{};
@@ -1456,23 +1412,33 @@ bool connect(const Config* override_config)
         return false;
     }
 
-    std::size_t index = s_runtime.next_profile_index % s_runtime.profile_count;
-    (void)select_auto_profile_from_scan(index);
+    if (s_runtime.connected || s_runtime.connecting)
+    {
+        return true;
+    }
+
+    // Automatic connection is event-driven. The old blocking scan and
+    // 15-second wait ran in the LVGL owner and made resource deferral look
+    // like a bad profile.
+    const std::size_t index =
+        s_runtime.next_profile_index % s_runtime.profile_count;
     Config candidate = s_runtime.profiles[index];
     candidate.enabled = config.enabled;
     std::printf("[WiFi] auto connect profile index=%u/%u ssid=%s\n",
                 static_cast<unsigned>(index + 1U),
                 static_cast<unsigned>(s_runtime.profile_count),
                 candidate.ssid);
-    const bool connected = connect_single_profile(candidate);
-    if (connected)
+    const ConnectStartResult result = connect_single_profile(candidate);
+    if (result == ConnectStartResult::Started)
     {
-        const bool saved = save_config(candidate);
-        s_runtime.next_profile_index = 0;
-        std::printf("[WiFi] auto connect profile selected ssid=%s saved=%u\n",
-                    candidate.ssid,
-                    saved ? 1U : 0U);
         return true;
+    }
+    if (result == ConnectStartResult::DeferredForResources)
+    {
+        std::printf("[WiFi] auto connect deferred profile index=%u/%u reason=resources\n",
+                    static_cast<unsigned>(index + 1U),
+                    static_cast<unsigned>(s_runtime.profile_count));
+        return false;
     }
     s_runtime.next_profile_index = (index + 1U) % s_runtime.profile_count;
     std::printf("[WiFi] auto connect profile failed index=%u/%u next=%u\n",
@@ -1593,6 +1559,15 @@ Status status()
     {
         out.state = ConnectionState::Connecting;
         copy_bounded(out.message, sizeof(out.message), "Connecting...");
+        return out;
+    }
+
+    if (s_runtime.connect_deferred_for_resources)
+    {
+        out.state = ConnectionState::ResourceDeferred;
+        copy_bounded(out.message,
+                     sizeof(out.message),
+                     "Wi-Fi waiting for memory");
         return out;
     }
 

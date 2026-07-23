@@ -422,14 +422,6 @@ void fillDecodedPacketCommon(meshtastic_MeshPacket* packet,
     packet->decoded = decoded;
 }
 
-bool allowPkiForPortnum(uint32_t portnum)
-{
-    return portnum != meshtastic_PortNum_NODEINFO_APP &&
-           portnum != meshtastic_PortNum_ROUTING_APP &&
-           portnum != meshtastic_PortNum_POSITION_APP &&
-           portnum != meshtastic_PortNum_TRACEROUTE_APP;
-}
-
 uint32_t djb2HashText(const char* text)
 {
     if (!text)

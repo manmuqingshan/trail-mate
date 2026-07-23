@@ -49,7 +49,7 @@ struct RuntimeState
     bool saw_screen_sample = false;
     bool last_sleeping = false;
     bool last_saver = false;
-    std::uint32_t last_connect_attempt_ms[kClientCount] = {};
+    std::uint32_t last_connect_attempt_ms = 0;
 };
 
 RuntimeState s_state{};
@@ -195,13 +195,13 @@ ScreenPhase sample_screen_phase(std::uint32_t now_ms)
 
 bool mark_connect_attempt(Client client, std::uint32_t now_ms)
 {
-    const std::size_t index = client_index(client);
+    (void)client;
     bool allowed = false;
     portENTER_CRITICAL(&s_lock);
-    const std::uint32_t last = s_state.last_connect_attempt_ms[index];
+    const std::uint32_t last = s_state.last_connect_attempt_ms;
     if (last == 0 || (now_ms - last) >= kConnectBackoffMs)
     {
-        s_state.last_connect_attempt_ms[index] = now_ms;
+        s_state.last_connect_attempt_ms = now_ms;
         allowed = true;
     }
     portEXIT_CRITICAL(&s_lock);
@@ -731,7 +731,11 @@ bool ensure_connected(const Request& request, Decision* out_decision)
         }
         else if (!::platform::ui::wifi::connect(nullptr))
         {
-            decision = Decision::ConnectFailed;
+            decision =
+                ::platform::ui::wifi::status().state ==
+                        ::platform::ui::wifi::ConnectionState::ResourceDeferred
+                    ? Decision::ConnectDeferredForResources
+                    : Decision::ConnectFailed;
         }
         else
         {
@@ -1157,6 +1161,8 @@ const char* decision_name(Decision decision)
         return "wifi_disconnected";
     case Decision::ConnectDeferredForWake:
         return "connect_deferred_for_wake";
+    case Decision::ConnectDeferredForResources:
+        return "connect_deferred_for_resources";
     case Decision::ConnectBackoff:
         return "connect_backoff";
     case Decision::ConnectFailed:

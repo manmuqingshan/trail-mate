@@ -95,3 +95,4 @@ void init_tile_context(TileContext& ctx,
                        bool* has_map_data,
                        bool* has_visible_map_data);
 void cleanup_tiles(TileContext& ctx);
+void release_tile_context(TileContext& ctx);

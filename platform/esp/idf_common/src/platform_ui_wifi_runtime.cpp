@@ -37,8 +37,6 @@ constexpr uint32_t kWifiFeatureMask = TM_C6_FEATURE_WIFI_STA | TM_C6_FEATURE_WIF
 #if defined(TRAIL_MATE_WIFI_RUNTIME_C6_ASYNC_SCAN)
 constexpr uint32_t kC6ScanWaitTimeoutMs = 10000;
 constexpr uint32_t kC6ScanPollIntervalMs = 100;
-constexpr uint32_t kC6ConnectWaitTimeoutMs = 15000;
-constexpr uint32_t kC6ConnectPollIntervalMs = 100;
 #endif
 
 struct RuntimeState
@@ -96,22 +94,6 @@ void profile_key(char* out, std::size_t out_len, const char* field, std::size_t 
 bool same_ssid(const Config& lhs, const Config& rhs)
 {
     return std::strncmp(lhs.ssid, rhs.ssid, sizeof(lhs.ssid)) == 0;
-}
-
-int profile_index_for_ssid(const char* ssid)
-{
-    if (!ssid || ssid[0] == '\0')
-    {
-        return -1;
-    }
-    for (std::size_t i = 0; i < s_runtime.profile_count; ++i)
-    {
-        if (std::strncmp(s_runtime.profiles[i].ssid, ssid, sizeof(s_runtime.profiles[i].ssid)) == 0)
-        {
-            return static_cast<int>(i);
-        }
-    }
-    return -1;
 }
 
 void clear_profiles()
@@ -429,27 +411,6 @@ std::size_t copy_scan_results(ScanResult* out_results,
     return count;
 }
 
-int best_profile_index_for_scan_results(const ScanResult* results, std::size_t count, int& out_rssi)
-{
-    int best_index = -1;
-    int best_rssi = -128;
-    for (std::size_t i = 0; i < count; ++i)
-    {
-        const int index = profile_index_for_ssid(results[i].ssid);
-        if (index < 0)
-        {
-            continue;
-        }
-        if (best_index < 0 || results[i].rssi > best_rssi)
-        {
-            best_index = index;
-            best_rssi = results[i].rssi;
-        }
-    }
-    out_rssi = best_rssi;
-    return best_index;
-}
-
 bool wait_for_c6_scan(ScanResult* out_results, std::size_t capacity, std::size_t& out_count)
 {
     out_count = 0;
@@ -496,102 +457,6 @@ bool c6_wifi_ready_for_config(const c6::C6CompanionStatus& status, const Config&
     }
     return status.wifi_ssid[0] == '\0' ||
            std::strncmp(status.wifi_ssid, config.ssid, sizeof(status.wifi_ssid)) == 0;
-}
-
-bool wait_for_c6_connection(const Config& config, uint32_t baseline_event_count)
-{
-#if defined(ESP_PLATFORM) && defined(TRAIL_MATE_WIFI_RUNTIME_C6_ASYNC_SCAN)
-    const TickType_t start_ticks = xTaskGetTickCount();
-    const TickType_t timeout_ticks = pdMS_TO_TICKS(kC6ConnectWaitTimeoutMs);
-
-    while ((xTaskGetTickCount() - start_ticks) < timeout_ticks)
-    {
-        const auto status = c6::get_c6_companion_status();
-        if (!status.present)
-        {
-            std::printf("[WiFi][C6] connect wait failed reason=companion_unavailable\n");
-            return false;
-        }
-        if (status.wifi_event_count != baseline_event_count &&
-            c6_wifi_ready_for_config(status, config))
-        {
-            char ip[16] = {};
-            format_ipv4(status.wifi_ipv4_addr, ip, sizeof(ip));
-            std::printf("[WiFi][C6] connected ssid=%s ip=%s events=%lu\n",
-                        status.wifi_ssid[0] != '\0' ? status.wifi_ssid : config.ssid,
-                        ip[0] != '\0' ? ip : "<none>",
-                        static_cast<unsigned long>(status.wifi_event_count));
-            return true;
-        }
-        if (status.wifi_event_count != baseline_event_count && status.wifi_error != TM_C6_OK)
-        {
-            std::printf("[WiFi][C6] connect wait failed reason=wifi_error error=%u events=%lu\n",
-                        static_cast<unsigned>(status.wifi_error),
-                        static_cast<unsigned long>(status.wifi_event_count));
-            return false;
-        }
-        vTaskDelay(pdMS_TO_TICKS(kC6ConnectPollIntervalMs));
-    }
-
-    const auto status = c6::get_c6_companion_status();
-    std::printf("[WiFi][C6] connect wait timeout connected=%u ipv4=0x%08lX error=%u events=%lu\n",
-                status.wifi_connected ? 1U : 0U,
-                static_cast<unsigned long>(status.wifi_ipv4_addr),
-                static_cast<unsigned>(status.wifi_error),
-                static_cast<unsigned long>(status.wifi_event_count));
-    return false;
-#else
-    (void)config;
-    (void)baseline_event_count;
-    return false;
-#endif
-}
-
-bool select_auto_profile_from_scan(std::size_t& out_index)
-{
-    out_index = s_runtime.next_profile_index;
-    if (s_runtime.profile_count == 0 || !c6_present())
-    {
-        return false;
-    }
-
-    std::size_t result_count =
-        copy_scan_results(s_runtime.scan_results, kWifiProfileCapacity, c6::get_c6_companion_status());
-    if (result_count == 0)
-    {
-        const bool sent = c6::c6_companion().sendWifiControl(make_control(c6::WifiCommand::Scan));
-        if (!sent)
-        {
-            return false;
-        }
-#if defined(TRAIL_MATE_WIFI_RUNTIME_C6_ASYNC_SCAN)
-        if (!wait_for_c6_scan(s_runtime.scan_results, kWifiProfileCapacity, result_count))
-        {
-            return false;
-        }
-#endif
-    }
-
-    int best_rssi = -128;
-    const int best_index =
-        best_profile_index_for_scan_results(s_runtime.scan_results, result_count, best_rssi);
-    if (best_index < 0)
-    {
-        std::printf("[WiFi][C6] auto scan no saved match results=%u profiles=%u\n",
-                    static_cast<unsigned>(result_count),
-                    static_cast<unsigned>(s_runtime.profile_count));
-        return false;
-    }
-
-    out_index = static_cast<std::size_t>(best_index);
-    s_runtime.next_profile_index = out_index;
-    std::printf("[WiFi][C6] auto scan matched profile index=%u/%u ssid=%s rssi=%d results=%u\n",
-                static_cast<unsigned>(out_index + 1U),
-                static_cast<unsigned>(s_runtime.profile_count),
-                s_runtime.profiles[out_index].ssid,
-                best_rssi,
-                static_cast<unsigned>(result_count));
-    return true;
 }
 
 } // namespace
@@ -652,7 +517,6 @@ bool connect(const Config* override_config)
     if (!override_config && s_runtime.profile_count > 0)
     {
         std::size_t index = s_runtime.next_profile_index % s_runtime.profile_count;
-        (void)select_auto_profile_from_scan(index);
         config = s_runtime.profiles[index];
         config.enabled = true;
         std::printf("[WiFi][C6] auto connect profile index=%u/%u ssid=%s\n",
@@ -716,7 +580,9 @@ bool connect(const Config* override_config)
                 after.wifi_connected ? 1U : 0U,
                 static_cast<unsigned>(after.wifi_error),
                 static_cast<unsigned long>(after.wifi_event_count));
-    return sent && wait_for_c6_connection(config, before.wifi_event_count);
+    // Connection completion is observed through status(); never wait for C6
+    // events in the LVGL caller.
+    return sent;
 }
 
 void disconnect()

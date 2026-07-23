@@ -61,6 +61,7 @@ enum class Decision : std::uint8_t
     OtaExclusive,
     CallExclusive,
     NonPreemptibleBusy,
+    ConnectDeferredForResources,
 };
 
 enum class ExclusiveOwner : std::uint8_t

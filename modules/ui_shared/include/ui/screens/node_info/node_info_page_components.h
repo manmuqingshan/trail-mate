@@ -55,6 +55,8 @@ struct NodeInfoWidgets
     lv_obj_t* zoom_status_label = nullptr;
     lv_obj_t* layer_btn = nullptr;
     lv_obj_t* layer_label = nullptr;
+    lv_obj_t* help_btn = nullptr;
+    lv_obj_t* help_label = nullptr;
 
     lv_obj_t* info_labels[kNodeInfoInfoLineCount]{};
     ::ui::widgets::map::Widgets map_viewport{};
@@ -74,6 +76,12 @@ void destroy();
  * @brief Access last created widgets.
  */
 const NodeInfoWidgets& widgets();
+
+/**
+ * Register the complete NodeInfo interaction surface in navigation order.
+ * Callers no longer need to know which map controls are focusable.
+ */
+void bind_input_group(lv_group_t* group);
 
 /**
  * @brief Update UI widgets with NodeInfo data.

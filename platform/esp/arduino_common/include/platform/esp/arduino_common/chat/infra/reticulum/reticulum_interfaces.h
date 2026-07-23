@@ -17,6 +17,7 @@
 #include <cstdint>
 
 #if __has_include(<WiFi.h>)
+#include "platform/esp/arduino_common/net/async_tcp_connector.h"
 #include <WiFi.h>
 #define TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE 1
 #else
@@ -132,7 +133,6 @@ class WifiGatewayReticulumInterface
     static constexpr uint8_t kHdlcEscape = 0x7D;
     static constexpr uint8_t kHdlcEscapeMask = 0x20;
     static constexpr uint32_t kReconnectIntervalMs = 10000;
-    static constexpr uint32_t kWifiConnectIntervalMs = 60000;
     static constexpr uint32_t kRxStatsLogIntervalMs = 5000;
     static constexpr int32_t kSocketConnectTimeoutMs = 5000;
 
@@ -145,7 +145,6 @@ class WifiGatewayReticulumInterface
     bool socket_online_ = false;
     bool socket_open_pending_ = false;
     uint32_t last_reconnect_ms_ = 0;
-    uint32_t last_wifi_connect_ms_ = 0;
     uint32_t last_socket_read_ms_ = 0;
     bool hdlc_in_frame_ = false;
     bool hdlc_escape_ = false;
@@ -166,13 +165,11 @@ class WifiGatewayReticulumInterface
 
 #if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE
     WiFiClient client_;
+    platform::esp::arduino_common::net::AsyncTcpConnector connector_;
 #endif
 
     void stop();
     bool connected() const;
-#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE
-    bool resolveHost(IPAddress* out);
-#endif
     void syncSocketState();
     bool ensureSocket();
     void readAvailable();
@@ -238,7 +235,6 @@ class AutoReticulumInterface
     uint8_t discovery_token_[reticulum::kFullHashSize] = {};
     uint32_t last_announce_ms_ = 0;
     uint32_t last_socket_attempt_ms_ = 0;
-    uint32_t last_wifi_connect_ms_ = 0;
     std::array<Peer, kMaxPeers> peers_{};
     RxPacket rx_scratch_{};
     sys::RingBuffer<RxPacket, kRxQueueDepth> rx_queue_;

@@ -971,6 +971,22 @@ class MapTileEventQueue final : public ui::map_tiles::IMapTileEventSink
         return ok;
     }
 
+    void clear()
+    {
+        if (!ensureMutex() ||
+            xSemaphoreTake(mutex_, pdMS_TO_TICKS(20)) != pdTRUE)
+        {
+            return;
+        }
+        ui::map_tiles::MapTileAsyncEvent event{};
+        while (queue_.pop(event))
+        {
+            release_tile_payload(event);
+            event = {};
+        }
+        xSemaphoreGive(mutex_);
+    }
+
   private:
     bool ensureMutex()
     {
@@ -1415,6 +1431,23 @@ ui::map_tiles::FilesystemMapTileSource& worker_tile_source()
 class MapTileAsyncHost final
 {
   public:
+    void acquire()
+    {
+        portENTER_CRITICAL(&lock_);
+        ++lease_count_;
+        portEXIT_CRITICAL(&lock_);
+    }
+
+    void release()
+    {
+        portENTER_CRITICAL(&lock_);
+        if (lease_count_ > 0)
+        {
+            --lease_count_;
+        }
+        portEXIT_CRITICAL(&lock_);
+    }
+
     bool request(const ui::map_tiles::MapTileRef& ref,
                  uint32_t generation,
                  ui::map_tiles::MapTileInteractionMode mode)
@@ -1471,15 +1504,50 @@ class MapTileAsyncHost final
                 vTaskDelay(kMapTileWorkerPostCommandYieldTicks);
                 continue;
             }
+            bool idle = false;
+            portENTER_CRITICAL(&lock_);
+            if (lease_count_ == 0)
+            {
+                stopping_ = true;
+                idle = true;
+            }
+            portEXIT_CRITICAL(&lock_);
+            if (idle)
+            {
+                events_.clear();
+                delete worker_;
+                worker_ = nullptr;
+                if (scratch_ != nullptr)
+                {
+                    heap_caps_free(scratch_);
+                    scratch_ = nullptr;
+                }
+                portENTER_CRITICAL(&lock_);
+                task_ = nullptr;
+                started_ = false;
+                stopping_ = false;
+                portEXIT_CRITICAL(&lock_);
+                std::printf("[GPS][MAP][worker] stopped reason=no_viewports\n");
+                vTaskDelete(nullptr);
+                return;
+            }
             vTaskDelay(pdMS_TO_TICKS(5));
         }
     }
 
     bool ensureStarted()
     {
-        if (started_)
+        portENTER_CRITICAL(&lock_);
+        const bool started = started_;
+        const bool stopping = stopping_;
+        portEXIT_CRITICAL(&lock_);
+        if (started)
         {
             return true;
+        }
+        if (stopping)
+        {
+            return false;
         }
 
         if (scratch_ == nullptr)
@@ -1533,7 +1601,9 @@ class MapTileAsyncHost final
             }
             return false;
         }
+        portENTER_CRITICAL(&lock_);
         started_ = true;
+        portEXIT_CRITICAL(&lock_);
         return true;
     }
 
@@ -1549,8 +1619,11 @@ class MapTileAsyncHost final
     ui::map_tiles::MapTileRuntime runtime_{async_runtime_, state_machine_};
     TaskHandle_t task_ = nullptr;
     bool started_ = false;
+    bool stopping_ = false;
     bool scratch_alloc_failed_logged_ = false;
     bool task_start_failed_logged_ = false;
+    std::size_t lease_count_ = 0;
+    portMUX_TYPE lock_ = portMUX_INITIALIZER_UNLOCKED;
 };
 
 MapTileAsyncHost& map_tile_async_host()
@@ -3603,6 +3676,11 @@ void init_tile_context(TileContext& ctx, lv_obj_t* map_container, MapAnchor* anc
                        ui::map_tiles::MapTileRenderQueue* render_queue,
                        bool* has_map_data, bool* has_visible_map_data)
 {
+    if (!ctx.runtime_acquired)
+    {
+        map_tile_async_host().acquire();
+        ctx.runtime_acquired = true;
+    }
     ctx.map_container = map_container;
     ctx.anchor = anchor;
     ctx.tiles = tiles;
@@ -3662,4 +3740,14 @@ void cleanup_tiles(TileContext& ctx)
     {
         ctx.render_queue->clear();
     }
+}
+
+void release_tile_context(TileContext& ctx)
+{
+    if (!ctx.runtime_acquired)
+    {
+        return;
+    }
+    ctx.runtime_acquired = false;
+    map_tile_async_host().release();
 }

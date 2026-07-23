@@ -2517,9 +2517,9 @@ static void open_reticulum_node_info_screen(const chat::contacts::PeerDirectoryI
     {
         g_contacts_state.node_info_group = lv_group_create();
     }
-    lv_group_remove_all_objs(g_contacts_state.node_info_group);
     g_contacts_state.node_info_prev_group = lv_group_get_default();
     set_default_group(g_contacts_state.node_info_group);
+    node_info::ui::bind_input_group(g_contacts_state.node_info_group);
     if (s_reticulum_node_info_top_bar.back_btn)
     {
         lv_group_add_obj(g_contacts_state.node_info_group, s_reticulum_node_info_top_bar.back_btn);
@@ -2637,17 +2637,22 @@ static void open_node_info_screen_for_node(uint32_t node_id)
 
     if (widgets.back_btn)
     {
-        lv_group_add_obj(g_contacts_state.node_info_group, widgets.back_btn);
-        lv_group_focus_obj(widgets.back_btn);
         lv_obj_add_event_cb(widgets.back_btn, on_node_info_back_clicked, LV_EVENT_CLICKED, nullptr);
         lv_obj_add_event_cb(widgets.back_btn, on_node_info_key, LV_EVENT_KEY, nullptr);
         CONTACTS_NODE_INFO_LOG("back button wired and focused back_btn=%p\n", widgets.back_btn);
     }
-    if (widgets.layer_btn)
+    lv_obj_t* node_info_controls[] = {
+        widgets.zoom_out_btn,
+        widgets.zoom_in_btn,
+        widgets.layer_btn,
+        widgets.help_btn,
+    };
+    for (lv_obj_t* control : node_info_controls)
     {
-        lv_group_add_obj(g_contacts_state.node_info_group, widgets.layer_btn);
-        lv_obj_add_event_cb(widgets.layer_btn, on_node_info_key, LV_EVENT_KEY, nullptr);
-        CONTACTS_NODE_INFO_LOG("layer button added layer_btn=%p\n", widgets.layer_btn);
+        if (control)
+        {
+            lv_obj_add_event_cb(control, on_node_info_key, LV_EVENT_KEY, nullptr);
+        }
     }
 
     if (g_contacts_state.root)

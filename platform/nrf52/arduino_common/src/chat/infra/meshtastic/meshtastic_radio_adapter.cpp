@@ -61,18 +61,12 @@ using ::chat::meshtastic::isZeroKey;
 using ::chat::meshtastic::keyVerificationStage;
 using ::chat::meshtastic::makeEncryptedPacketFromWire;
 using ::chat::meshtastic::readPbString;
+using ::chat::meshtastic::requirePkiForDirectPort;
 using ::chat::meshtastic::shouldSetAirWantAck;
 using ::chat::meshtastic::toHex;
 
 void logMeshtasticRx(const char* format, ...);
 uint32_t nowSeconds();
-
-bool shouldRequireDirectPki(uint8_t encrypt_mode, ::chat::NodeId dest_node, uint32_t portnum)
-{
-    return encrypt_mode != 0 &&
-           dest_node != kBroadcastNode &&
-           allowPkiForPortnum(portnum);
-}
 
 ::chat::delivery::SendFailureKind failureKindFromRoutingError(
     meshtastic_Routing_Error reason)
@@ -507,9 +501,8 @@ bool MeshtasticRadioAdapter::sendTextWithId(::chat::ChannelId channel, const std
         out_channel = ::chat::ChannelId::PRIMARY;
     }
 
-    if (shouldRequireDirectPki(encrypt_mode_,
-                               (peer == 0) ? kBroadcastNode : peer,
-                               meshtastic_PortNum_TEXT_MESSAGE_APP))
+    if (requirePkiForDirectPort((peer == 0) ? kBroadcastNode : peer,
+                                meshtastic_PortNum_TEXT_MESSAGE_APP))
     {
         const ::chat::MessageId packet_id = (forced_msg_id != 0) ? forced_msg_id : next_packet_id_;
         const bool ok = sendAppData(out_channel,
@@ -665,7 +658,7 @@ bool MeshtasticRadioAdapter::sendAppData(::chat::ChannelId channel, uint32_t por
     bool use_pki = false;
     bool wire_want_ack = send_policy.wire_want_ack;
     bool track_ack = send_policy.track_ack;
-    if (shouldRequireDirectPki(encrypt_mode_, wire_dest, portnum))
+    if (requirePkiForDirectPort(wire_dest, portnum))
     {
         if (!pki_ready_ || !allowPkiForPortnum(portnum) || !hasPkiKey(wire_dest))
         {

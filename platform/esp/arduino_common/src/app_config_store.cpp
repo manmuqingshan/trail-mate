@@ -8,6 +8,7 @@
 #include <memory>
 #include <new>
 
+#include "platform/ui/setting_sensitivity.h"
 #include "platform/ui/settings_store.h"
 
 namespace app
@@ -290,7 +291,9 @@ String get_string_logged(Preferences& prefs,
                       safe_label(key),
                       exists ? "stored" : "default",
                       static_cast<unsigned long>(value.length()),
-                      safe_label(value.c_str()));
+                      ::platform::ui::settings::diagnostic_value(
+                          key,
+                          value.c_str()));
     }
     return value;
 }
@@ -459,7 +462,9 @@ bool put_string_logged(Preferences& prefs,
                       safe_label(key),
                       static_cast<unsigned long>(expected),
                       bool_label(ok),
-                      safe_value);
+                      ::platform::ui::settings::diagnostic_value(
+                          key,
+                          safe_value));
     }
     return ok;
 }

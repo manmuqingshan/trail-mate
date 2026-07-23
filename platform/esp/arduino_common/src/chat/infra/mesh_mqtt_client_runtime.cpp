@@ -19,9 +19,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <lwip/netdb.h>
 #include <pb_decode.h>
 
+#include "platform/esp/arduino_common/net/async_tcp_connector.h"
 #ifndef TRAIL_MATE_ENABLE_BLE
 #define TRAIL_MATE_ENABLE_BLE 0
 #endif
@@ -45,7 +45,6 @@ namespace
 constexpr uint16_t kDefaultMqttPort = 1883;
 constexpr uint16_t kMqttKeepaliveSeconds = 60;
 constexpr uint32_t kConfigRefreshMs = 5000;
-constexpr uint32_t kWifiConnectIntervalMs = 30000;
 constexpr uint32_t kMqttReconnectIntervalMs = 15000;
 constexpr uint32_t kMqttPingIntervalMs = 30000;
 constexpr int32_t kMqttSocketConnectTimeoutMs = 5000;
@@ -314,7 +313,6 @@ class PlainMqttRuntime
     bool logged_plaintext_forced_ = false;
     uint16_t packet_id_ = 1;
     uint32_t last_config_refresh_ms_ = 0;
-    uint32_t last_wifi_connect_ms_ = 0;
     uint32_t last_mqtt_reconnect_ms_ = 0;
     uint32_t last_io_ms_ = 0;
     char address_scratch_[80] = {};
@@ -336,6 +334,7 @@ class PlainMqttRuntime
 
 #if TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
     WiFiClient client_;
+    platform::esp::arduino_common::net::AsyncTcpConnector connector_{};
 #endif
 
     const char* protocolTag() const
@@ -453,6 +452,9 @@ class PlainMqttRuntime
             const bool was_configured = config_.configured;
             config_ = next;
             have_config_ = true;
+#if TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+            connector_.cancel();
+#endif
             logged_tls_unsupported_ = false;
             logged_plaintext_forced_ = false;
             stop("config");
@@ -674,14 +676,12 @@ class PlainMqttRuntime
         if (!status.enabled)
         {
             stop("wifi_disabled");
-            last_wifi_connect_ms_ = 0;
             logWifiGate(status, WifiGateState::Disabled);
             return false;
         }
         if (!status.has_credentials)
         {
             stop("wifi_no_credentials");
-            last_wifi_connect_ms_ = 0;
             logWifiGate(status, WifiGateState::NoCredentials);
             return false;
         }
@@ -691,12 +691,6 @@ class PlainMqttRuntime
             return true;
         }
 
-        if (!elapsed(now_ms, last_wifi_connect_ms_, kWifiConnectIntervalMs))
-        {
-            logWifiGate(status, WifiGateState::WaitingForConnection);
-            return false;
-        }
-        last_wifi_connect_ms_ = now_ms;
         std::printf("[%s][MQTT] requesting Wi-Fi access for MQTT ssid=%s\n",
                     protocolTag(),
                     status.ssid[0] ? status.ssid : "<unset>");
@@ -786,7 +780,10 @@ class PlainMqttRuntime
         {
             return true;
         }
-        if (!elapsed(now_ms, last_mqtt_reconnect_ms_, kMqttReconnectIntervalMs))
+        if (!connector_.pending() &&
+            connector_.status().phase !=
+                platform::esp::arduino_common::net::TcpConnectPhase::Connected &&
+            !elapsed(now_ms, last_mqtt_reconnect_ms_, kMqttReconnectIntervalMs))
         {
             return false;
         }
@@ -795,8 +792,6 @@ class PlainMqttRuntime
             return false;
         }
 
-        last_mqtt_reconnect_ms_ = now_ms;
-        resetConnectionState();
         if (config_.host[0] == '\0')
         {
             return false;
@@ -827,29 +822,62 @@ class PlainMqttRuntime
             return false;
         }
 
-        IPAddress remote_ip{};
-        if (!resolveHost(&remote_ip))
+        using platform::esp::arduino_common::net::TcpConnectPhase;
+        if (!connector_.pending() &&
+            connector_.status().phase != TcpConnectPhase::Connected)
         {
-            return false;
-        }
-
-        client_.stop();
-        client_.setNoDelay(true);
-        std::printf("[%s][MQTT] broker connect host=%s port=%u client=%s\n",
-                    protocolTag(),
-                    config_.host,
-                    static_cast<unsigned>(config_.port),
-                    config_.client_id);
-        if (!client_.connect(remote_ip, config_.port, kMqttSocketConnectTimeoutMs))
-        {
-            std::printf("[%s][MQTT] broker connect failed host=%s port=%u\n",
+            last_mqtt_reconnect_ms_ = now_ms;
+            resetConnectionState();
+            client_.stop();
+            std::printf("[%s][MQTT] broker connect start host=%s port=%u client=%s\n",
                         protocolTag(),
                         config_.host,
-                        static_cast<unsigned>(config_.port));
-            client_.stop();
+                        static_cast<unsigned>(config_.port),
+                        config_.client_id);
+            if (!connector_.start(config_.host,
+                                  config_.port,
+                                  now_ms,
+                                  static_cast<uint32_t>(
+                                      kMqttSocketConnectTimeoutMs)))
+            {
+                const auto status = connector_.status();
+                std::printf("[%s][MQTT] broker connect failed host=%s port=%u stage=%s err=%d\n",
+                            protocolTag(),
+                            config_.host,
+                            static_cast<unsigned>(config_.port),
+                            platform::esp::arduino_common::net::
+                                tcpConnectFailureName(status.failure),
+                            status.detail);
+                return false;
+            }
+        }
+
+        const auto connect_status = connector_.poll(now_ms);
+        if (connect_status.phase == TcpConnectPhase::Resolving ||
+            connect_status.phase == TcpConnectPhase::Connecting)
+        {
+            return false;
+        }
+        if (connect_status.phase != TcpConnectPhase::Connected)
+        {
+            std::printf("[%s][MQTT] broker connect failed host=%s port=%u stage=%s err=%d\n",
+                        protocolTag(),
+                        config_.host,
+                        static_cast<unsigned>(config_.port),
+                        platform::esp::arduino_common::net::
+                            tcpConnectFailureName(connect_status.failure),
+                        connect_status.detail);
+            connector_.cancel();
             return false;
         }
 
+        const int socket = connector_.takeSocket();
+        if (socket < 0)
+        {
+            return false;
+        }
+        client_ = WiFiClient(socket);
+        client_.setNoDelay(true);
         if (!sendConnect())
         {
             client_.stop();
@@ -861,70 +889,10 @@ class PlainMqttRuntime
 #endif
     }
 
-#if TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
-    bool resolveHost(IPAddress* out)
-    {
-        if (!out || config_.host[0] == '\0')
-        {
-            return false;
-        }
-
-        IPAddress parsed{};
-        if (parsed.fromString(config_.host))
-        {
-            *out = parsed;
-            return true;
-        }
-
-        addrinfo hints{};
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_STREAM;
-
-        addrinfo* results = nullptr;
-        const int err = getaddrinfo(config_.host, nullptr, &hints, &results);
-        if (err != 0 || !results)
-        {
-            std::printf("[%s][MQTT] broker resolve failed host=%s err=%d\n",
-                        protocolTag(),
-                        config_.host,
-                        err);
-            if (results)
-            {
-                freeaddrinfo(results);
-            }
-            return false;
-        }
-
-        bool resolved = false;
-        for (addrinfo* item = results; item != nullptr; item = item->ai_next)
-        {
-            if (item->ai_family != AF_INET || !item->ai_addr)
-            {
-                continue;
-            }
-
-            const auto* addr = reinterpret_cast<const sockaddr_in*>(item->ai_addr);
-            uint8_t bytes[4] = {};
-            std::memcpy(bytes, &addr->sin_addr.s_addr, sizeof(bytes));
-            *out = IPAddress(bytes);
-            resolved = true;
-            break;
-        }
-
-        freeaddrinfo(results);
-        if (!resolved)
-        {
-            std::printf("[%s][MQTT] broker resolve no_ipv4 host=%s\n",
-                        protocolTag(),
-                        config_.host);
-        }
-        return resolved;
-    }
-#endif
-
     void stop(const char* reason)
     {
 #if TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+        connector_.cancel();
         if (client_.connected())
         {
             std::printf("[%s][MQTT] broker stop reason=%s\n",

@@ -20,6 +20,7 @@ enum class ConnectionState : uint8_t
     Connecting,
     Connected,
     Error,
+    ResourceDeferred,
 };
 
 struct Config

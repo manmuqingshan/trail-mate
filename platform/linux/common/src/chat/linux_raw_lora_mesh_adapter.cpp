@@ -72,14 +72,6 @@ std::uint32_t now_seconds()
             .count());
 }
 
-bool should_require_direct_pki(std::uint8_t encrypt_mode,
-                               std::uint32_t dest_node,
-                               std::uint32_t portnum)
-{
-    return encrypt_mode != 0 && dest_node != kBroadcastNodeId &&
-           ::chat::meshtastic::allowPkiForPortnum(portnum);
-}
-
 bool secure_random_bytes(std::uint8_t* out, std::size_t len)
 {
     if (out == nullptr || len == 0)
@@ -1737,7 +1729,7 @@ bool LinuxRawLoraMeshAdapter::sendMeshtasticPayload(
     bool air_want_ack =
         ::chat::meshtastic::shouldSetAirWantAck(dest, want_ack);
 
-    if (should_require_direct_pki(encrypt_mode_, dest, portnum))
+    if (::chat::meshtastic::requirePkiForDirectPort(dest, portnum))
     {
         const bool have_dest_key =
             node_public_keys_.find(dest) != node_public_keys_.end();

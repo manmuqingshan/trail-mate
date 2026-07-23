@@ -838,6 +838,7 @@ void destroy(Runtime& runtime)
     }
 
     cleanup_tiles(impl->tile_ctx);
+    release_tile_context(impl->tile_ctx);
 
     if (impl->widgets.root && lv_obj_is_valid(impl->widgets.root))
     {

@@ -61,7 +61,6 @@ constexpr uint8_t kDefaultPskIndex = 1;
 constexpr uint8_t kBitfieldWantResponseMask = 0x02;
 constexpr uint32_t kBroadcastNodeId = 0xFFFFFFFFu;
 
-using chat::meshtastic::allowPkiForPortnum;
 using chat::meshtastic::computeHopsAway;
 using chat::meshtastic::computeKeyVerificationHashes;
 using chat::meshtastic::decryptPkiAesCcm;
@@ -71,6 +70,7 @@ using chat::meshtastic::hashSharedKey;
 using chat::meshtastic::initPkiNonce;
 using chat::meshtastic::makeEncryptedPacketFromWire;
 using chat::meshtastic::readPbString;
+using chat::meshtastic::requirePkiForDirectPort;
 using chat::meshtastic::shouldSetAirWantAck;
 
 static const char* portName(uint32_t portnum)
@@ -110,15 +110,6 @@ static const char* portName(uint32_t portnum)
     default:
         return "UNKNOWN";
     }
-}
-
-bool shouldRequireDirectPki(uint8_t encrypt_mode, uint32_t dest_node, uint32_t portnum)
-{
-    // Match upstream Meshtastic: direct unicast app traffic uses PKI outside
-    // cleartext/Ham-style operation, and must not silently fall back to channel crypto.
-    return encrypt_mode != 0 &&
-           dest_node != kBroadcastNodeId &&
-           allowPkiForPortnum(portnum);
 }
 
 chat::delivery::SendFailureKind failureKindFromRoutingError(
@@ -581,7 +572,7 @@ bool MtAdapter::sendAppDataNow(ChannelId channel, uint32_t portnum,
     const uint8_t* out_payload = data_buffer.data();
     size_t out_len = data_size;
     bool use_pki = false;
-    if (shouldRequireDirectPki(encrypt_mode_, dest_node, portnum))
+    if (requirePkiForDirectPort(dest_node, portnum))
     {
         const bool have_dest_key = findPkiNodeKey(dest_node) != nullptr;
         if (!pki_ready_ || !have_dest_key)
@@ -3123,7 +3114,7 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
     const uint8_t* psk = nullptr;
     size_t psk_len = 0;
     bool use_pki = false;
-    if (shouldRequireDirectPki(encrypt_mode_, dest, pending.portnum))
+    if (requirePkiForDirectPort(dest, pending.portnum))
     {
         const bool have_dest_key = findPkiNodeKey(dest) != nullptr;
         if (!pki_ready_ || !have_dest_key)
@@ -3517,20 +3508,14 @@ void MtAdapter::updateChannelKeys()
         computeChannelHash(secondary_name,
                            (secondary_psk_len_ > 0) ? secondary_psk_ : nullptr,
                            secondary_psk_len_);
-    std::string primary_psk_hex = toHex(primary_psk_, primary_psk_len_, primary_psk_len_);
-    std::string secondary_psk_hex = toHex(secondary_psk_, secondary_psk_len_, secondary_psk_len_);
-    if (primary_psk_hex.empty()) primary_psk_hex = "-";
-    if (secondary_psk_hex.empty()) secondary_psk_hex = "-";
-    LORA_LOG("[LORA] channel primary='%s' hash=0x%02X psk=%u hex=%s\n",
+    LORA_LOG("[LORA] channel primary='%s' hash=0x%02X psk=%u key=<redacted>\n",
              primary_name,
              primary_channel_hash_,
-             (unsigned)primary_psk_len_,
-             primary_psk_hex.c_str());
-    LORA_LOG("[LORA] channel secondary='%s' hash=0x%02X psk=%u hex=%s\n",
+             (unsigned)primary_psk_len_);
+    LORA_LOG("[LORA] channel secondary='%s' hash=0x%02X psk=%u key=<redacted>\n",
              secondary_name,
              secondary_channel_hash_,
-             (unsigned)secondary_psk_len_,
-             secondary_psk_hex.c_str());
+             (unsigned)secondary_psk_len_);
 }
 
 void MtAdapter::startRadioReceive()

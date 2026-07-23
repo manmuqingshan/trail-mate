@@ -23,7 +23,6 @@
 #include <cmath>
 #include <cstring>
 #include <fcntl.h>
-#include <lwip/netdb.h>
 #include <lwip/netif.h>
 #include <lwip/sockets.h>
 
@@ -272,7 +271,6 @@ void WifiGatewayReticulumInterface::setTransportEnabled(bool enabled)
     {
         stop();
         last_reconnect_ms_ = 0;
-        last_wifi_connect_ms_ = 0;
     }
 }
 
@@ -437,6 +435,7 @@ bool WifiGatewayReticulumInterface::pollPacket(RxPacket* out)
 void WifiGatewayReticulumInterface::stop()
 {
 #if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE
+    connector_.cancel();
     client_.stop();
 #elif TRAIL_MATE_RETICULUM_C6_TCP_AVAILABLE
     if (socket_online_ || socket_open_pending_)
@@ -452,64 +451,6 @@ bool WifiGatewayReticulumInterface::connected() const
 {
     return socket_online_;
 }
-
-#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE
-bool WifiGatewayReticulumInterface::resolveHost(IPAddress* out)
-{
-    if (!out || host_[0] == '\0')
-    {
-        return false;
-    }
-
-    IPAddress parsed{};
-    if (parsed.fromString(host_))
-    {
-        *out = parsed;
-        return true;
-    }
-
-    addrinfo hints{};
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-
-    addrinfo* results = nullptr;
-    const int err = getaddrinfo(host_, nullptr, &hints, &results);
-    if (err != 0 || !results)
-    {
-        Serial.printf("[Reticulum][IF][WiFi] gateway resolve failed host=%s err=%d\n",
-                      host_,
-                      err);
-        if (results)
-        {
-            freeaddrinfo(results);
-        }
-        return false;
-    }
-
-    bool resolved = false;
-    for (addrinfo* item = results; item != nullptr; item = item->ai_next)
-    {
-        if (item->ai_family != AF_INET || !item->ai_addr)
-        {
-            continue;
-        }
-
-        const auto* addr = reinterpret_cast<const sockaddr_in*>(item->ai_addr);
-        uint8_t bytes[4] = {};
-        std::memcpy(bytes, &addr->sin_addr.s_addr, sizeof(bytes));
-        *out = IPAddress(bytes);
-        resolved = true;
-        break;
-    }
-
-    freeaddrinfo(results);
-    if (!resolved)
-    {
-        Serial.printf("[Reticulum][IF][WiFi] gateway resolve no_ipv4 host=%s\n", host_);
-    }
-    return resolved;
-}
-#endif
 
 void WifiGatewayReticulumInterface::syncSocketState()
 {
@@ -575,7 +516,16 @@ bool WifiGatewayReticulumInterface::ensureSocket()
     return false;
 #else
     const uint32_t now_ms = millis();
-    if (last_reconnect_ms_ != 0 &&
+    const bool socket_connect_pending =
+#if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE
+        connector_.pending();
+#elif TRAIL_MATE_RETICULUM_C6_TCP_AVAILABLE
+        socket_open_pending_;
+#else
+        false;
+#endif
+    if (!socket_connect_pending &&
+        last_reconnect_ms_ != 0 &&
         (now_ms - last_reconnect_ms_) < kReconnectIntervalMs)
     {
         return false;
@@ -584,11 +534,8 @@ bool WifiGatewayReticulumInterface::ensureSocket()
     platform::ui::wifi::Status wifi_status = platform::ui::wifi::status();
     if (!wifi_status.connected)
     {
-        if (auto_connect_wifi_ &&
-            (last_wifi_connect_ms_ == 0 ||
-             (now_ms - last_wifi_connect_ms_) >= kWifiConnectIntervalMs))
+        if (auto_connect_wifi_)
         {
-            last_wifi_connect_ms_ = now_ms;
             Serial.printf("[Reticulum][IF][WiFi] requesting station before gateway host=%s:%u\n",
                           host_,
                           static_cast<unsigned>(port_));
@@ -636,29 +583,57 @@ bool WifiGatewayReticulumInterface::ensureSocket()
     }
 
 #if TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE
-    client_.stop();
-
-    IPAddress remote_ip{};
-    if (!resolveHost(&remote_ip))
+    using platform::esp::arduino_common::net::TcpConnectPhase;
+    if (!connector_.pending() &&
+        connector_.status().phase != TcpConnectPhase::Connected)
     {
-        socket_online_ = false;
         client_.stop();
-        return false;
-    }
-
-    Serial.printf("[Reticulum][IF][WiFi] gateway connect host=%s port=%u\n",
-                  host_,
-                  static_cast<unsigned>(port_));
-    if (!client_.connect(remote_ip, port_, kSocketConnectTimeoutMs))
-    {
-        socket_online_ = false;
-        client_.stop();
-        Serial.printf("[Reticulum][IF][WiFi] gateway connect failed host=%s port=%u\n",
+        Serial.printf("[Reticulum][IF][WiFi] gateway connect start host=%s port=%u\n",
                       host_,
                       static_cast<unsigned>(port_));
+        if (!connector_.start(host_,
+                              port_,
+                              now_ms,
+                              static_cast<uint32_t>(kSocketConnectTimeoutMs)))
+        {
+            const auto status = connector_.status();
+            Serial.printf("[Reticulum][IF][WiFi] gateway connect failed host=%s port=%u stage=%s err=%d\n",
+                          host_,
+                          static_cast<unsigned>(port_),
+                          platform::esp::arduino_common::net::
+                              tcpConnectFailureName(status.failure),
+                          status.detail);
+            return false;
+        }
+    }
+
+    const auto connect_status = connector_.poll(now_ms);
+    if (connect_status.phase == TcpConnectPhase::Resolving ||
+        connect_status.phase == TcpConnectPhase::Connecting)
+    {
+        socket_open_pending_ = true;
+        return true;
+    }
+    if (connect_status.phase != TcpConnectPhase::Connected)
+    {
+        connector_.cancel();
+        socket_open_pending_ = false;
+        Serial.printf("[Reticulum][IF][WiFi] gateway connect failed host=%s port=%u stage=%s err=%d\n",
+                      host_,
+                      static_cast<unsigned>(port_),
+                      platform::esp::arduino_common::net::
+                          tcpConnectFailureName(connect_status.failure),
+                      connect_status.detail);
         return false;
     }
 
+    const int socket = connector_.takeSocket();
+    if (socket < 0)
+    {
+        socket_open_pending_ = false;
+        return false;
+    }
+    client_ = WiFiClient(socket);
     client_.setNoDelay(true);
     socket_online_ = true;
     hdlc_in_frame_ = false;
@@ -958,7 +933,6 @@ void AutoReticulumInterface::applyConfig(
     {
         stop();
         last_socket_attempt_ms_ = 0;
-        last_wifi_connect_ms_ = 0;
         rx_queue_.clear();
     }
     Serial.printf("[Reticulum][IF][Auto] enabled=%s group=%s discovery=%u data=%u available=%s\n",
@@ -988,11 +962,8 @@ void AutoReticulumInterface::maintain()
 
     platform::ui::wifi::Status wifi_status = platform::ui::wifi::status();
     const uint32_t now_ms = millis();
-    if (!wifi_status.connected && auto_connect_wifi_ &&
-        (last_wifi_connect_ms_ == 0 ||
-         now_ms - last_wifi_connect_ms_ >= 60000U))
+    if (!wifi_status.connected && auto_connect_wifi_)
     {
-        last_wifi_connect_ms_ = now_ms;
         platform::ui::wifi_access::Request request{};
         request.client = platform::ui::wifi_access::Client::ReticulumGateway;
         request.kind = platform::ui::wifi_access::AccessKind::WifiConnect;

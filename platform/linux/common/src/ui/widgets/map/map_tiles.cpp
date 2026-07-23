@@ -1473,3 +1473,8 @@ void cleanup_tiles(TileContext& ctx)
         ctx.render_queue->clear();
     }
 }
+
+void release_tile_context(TileContext&)
+{
+    // Linux tile loading has no dedicated worker lease.
+}

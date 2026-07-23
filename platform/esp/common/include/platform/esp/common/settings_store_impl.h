@@ -1,5 +1,6 @@
 #pragma once
 
+#include "platform/ui/setting_sensitivity.h"
 #include "platform/ui/settings_store.h"
 
 #include <cstdarg>
@@ -318,7 +319,7 @@ bool put_string(const char* ns, const char* key, const char* value)
          safe_label(key),
          safe_label(storage_key),
          static_cast<unsigned long>(std::strlen(value)),
-         safe_label(value),
+         ::platform::ui::settings::diagnostic_value(key, value),
          bool_label(ok));
     return ok;
 }
@@ -557,7 +558,7 @@ bool get_string(const char* ns, const char* key, std::string& out)
          safe_label(key),
          safe_label(storage_key),
          static_cast<unsigned long>(out.size()),
-         safe_label(out.c_str()));
+         ::platform::ui::settings::diagnostic_value(key, out.c_str()));
     return true;
 }
 

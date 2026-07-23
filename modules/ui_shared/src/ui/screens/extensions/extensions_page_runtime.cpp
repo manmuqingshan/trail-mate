@@ -890,8 +890,19 @@ void on_connect_wifi_clicked(lv_event_t* event)
         return;
     }
 
-    ::ui::feedback::show_notice(::ui::i18n::tr("Wi-Fi connected"), 2000);
-    refresh_catalog_and_render();
+    const platform::ui::wifi::Status wifi = platform::ui::wifi::status();
+    if (wifi.connected)
+    {
+        ::ui::feedback::show_notice(::ui::i18n::tr("Wi-Fi connected"), 2000);
+        refresh_catalog_and_render();
+        return;
+    }
+
+    const char* text =
+        wifi.message[0] ? wifi.message : ::ui::i18n::tr("Wi-Fi connecting");
+    set_status_text(text);
+    ::ui::feedback::show_notice(text, 2500);
+    update_top_bar_status();
 }
 
 void show_message_body(const char* text)

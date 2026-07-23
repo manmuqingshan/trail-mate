@@ -166,13 +166,11 @@ void logTeamTransferLeader(const team::proto::TeamTransferLeader& msg, const cha
 
 void logTeamKeyDist(const team::proto::TeamKeyDist& msg, const char* dir)
 {
-    std::string psk_hex = toHex(msg.channel_psk.data(), msg.channel_psk_len, msg.channel_psk_len);
-    TEAM_LOG("[TEAM] %s KeyDist team_id=%s key_id=%lu psk_len=%u psk_hex=%s\n",
+    TEAM_LOG("[TEAM] %s KeyDist team_id=%s key_id=%lu psk_len=%u psk=<redacted>\n",
              dir,
              hexFromArray(msg.team_id).c_str(),
              static_cast<unsigned long>(msg.key_id),
-             static_cast<unsigned>(msg.channel_psk_len),
-             psk_hex.c_str());
+             static_cast<unsigned>(msg.channel_psk_len));
 }
 
 void logTeamKeyRequest(const team::proto::TeamKeyRequest& msg, const char* dir)

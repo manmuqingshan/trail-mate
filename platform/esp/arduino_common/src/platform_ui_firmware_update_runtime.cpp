@@ -154,6 +154,8 @@ const char* wifi_state_name(::platform::ui::wifi::ConnectionState state)
         return "scanning";
     case ::platform::ui::wifi::ConnectionState::Connecting:
         return "connecting";
+    case ::platform::ui::wifi::ConnectionState::ResourceDeferred:
+        return "resource_deferred";
     case ::platform::ui::wifi::ConnectionState::Connected:
         return "connected";
     case ::platform::ui::wifi::ConnectionState::Error:
