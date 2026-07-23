@@ -422,5 +422,28 @@ int main()
     assert(summary.color_tokens >= 7);
     assert(summary.unknown_tags >= 1);
     assert(summary.saw_unicode_text);
+
+    const FixtureSummary message_board = summarize_fixture(read_text_file(
+        repo_root() + "docs/reticulum/pages/corpus/nomadnet-messageboard.mu"));
+    assert(message_board.header_colors == 2);
+    assert(message_board.headings >= 1);
+    assert(message_board.tables == 1);
+    assert(message_board.table_rows >= 2);
+
+    const FixtureSummary forms = summarize_fixture(read_text_file(
+        repo_root() + "docs/reticulum/pages/corpus/nomadnet-forms.mu"));
+    assert(forms.header_colors == 2);
+    assert(forms.fields >= 6);
+    assert(forms.submit_links == 2);
+    assert(forms.page_links == 2);
+
+    const FixtureSummary resilience = summarize_fixture(read_text_file(
+        repo_root() + "docs/reticulum/pages/corpus/nomadnet-resilience.mu"));
+    assert(resilience.anchor_links >= 1);
+    assert(resilience.page_links >= 1);
+    assert(resilience.resource_links >= 1);
+    assert(resilience.page_partials == 1);
+    assert(resilience.literal_lines >= 1);
+    assert(resilience.unknown_tags >= 1);
     return 0;
 }

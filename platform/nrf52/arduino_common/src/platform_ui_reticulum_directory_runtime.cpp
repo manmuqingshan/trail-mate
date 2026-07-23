@@ -1,5 +1,6 @@
 #include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/reticulum_page_runtime.h"
+#include "platform/ui/reticulum_receive_runtime.h"
 
 #include <cstdio>
 #include <cstring>
@@ -156,6 +157,10 @@ void bind_request_start_handler(RequestStartHandler, void*)
 {
 }
 
+void bind_request_cancel_handler(RequestCancelHandler, void*)
+{
+}
+
 bool normalize_path(const char* path, char* out_path, std::size_t out_len)
 {
     if (!out_path || out_len == 0)
@@ -204,6 +209,19 @@ Status request_page(const char*, const char*)
     return unsupported("Nomad page fetch unsupported", kPagesPath);
 }
 
+Status request_page_with_data(const char*,
+                              const char*,
+                              const uint8_t*,
+                              std::size_t)
+{
+    return unsupported("Nomad form submit unsupported", kPagesPath);
+}
+
+Status cancel_request(const char*, const char*)
+{
+    return unsupported("Nomad page cancel unsupported", kPagesPath);
+}
+
 RequestProgress get_request_progress(const char*, const char*)
 {
     return {};
@@ -225,3 +243,13 @@ void clear_request_progress(const char*, const char*)
 }
 
 } // namespace platform::ui::reticulum_page
+
+namespace platform::ui::reticulum_receive
+{
+void bind_cancel_handler(CancelHandler, void*) {}
+void begin(const uint8_t[kHashSize], const uint8_t[32], uint32_t, uint32_t) {}
+void update(const uint8_t[32], uint32_t, uint32_t) {}
+void complete(const uint8_t[32]) {}
+Snapshot snapshot() { return {}; }
+bool cancel() { return false; }
+} // namespace platform::ui::reticulum_receive

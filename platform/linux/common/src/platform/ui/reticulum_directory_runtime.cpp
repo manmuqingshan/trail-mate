@@ -1,5 +1,6 @@
 #include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/reticulum_page_runtime.h"
+#include "platform/ui/reticulum_receive_runtime.h"
 
 #include "chat/infra/mesh_peer_directory_core.h"
 #include "platform/linux/runtime_paths.h"
@@ -1427,6 +1428,8 @@ constexpr const char* kDefaultPagePath = "/page/index.mu";
 
 RequestStartHandler s_request_handler = nullptr;
 void* s_request_context = nullptr;
+RequestCancelHandler s_request_cancel_handler = nullptr;
+void* s_request_cancel_context = nullptr;
 constexpr std::size_t kPageProgressDepth = 4;
 
 struct PageCacheLoadSnapshot
@@ -1703,6 +1706,12 @@ void bind_request_start_handler(RequestStartHandler handler, void* context)
 {
     s_request_handler = handler;
     s_request_context = context;
+}
+
+void bind_request_cancel_handler(RequestCancelHandler handler, void* context)
+{
+    s_request_cancel_handler = handler;
+    s_request_cancel_context = context;
 }
 
 bool normalize_path(const char* path, char* out_path, std::size_t out_len)
@@ -2027,13 +2036,22 @@ Status clear_cached_page(const char* destination_hash, const char* path)
 
 Status request_page(const char* destination_hash, const char* path)
 {
+    return request_page_with_data(destination_hash, path, nullptr, 0);
+}
+
+Status request_page_with_data(const char* destination_hash,
+                              const char* path,
+                              const uint8_t* request_data,
+                              std::size_t request_data_len)
+{
     Status out{};
     out.supported = s_request_handler != nullptr;
     out.sd_present = true;
     char destination[kReticulumPageDestinationTextSize] = {};
     char normalized_path[kReticulumPagePathSize] = {};
     if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
-        !normalize_path(path, normalized_path, sizeof(normalized_path)))
+        !normalize_path(path, normalized_path, sizeof(normalized_path)) ||
+        (request_data_len != 0 && !request_data))
     {
         set_status(out, "Invalid Nomad page address", kPagesLogicalDir);
         return out;
@@ -2053,8 +2071,48 @@ Status request_page(const char* destination_hash, const char* path)
     }
 
     const RequestStartResult result =
-        s_request_handler(destination_bytes, normalized_path, s_request_context);
+        s_request_handler(destination_bytes,
+                          normalized_path,
+                          request_data,
+                          request_data_len,
+                          s_request_context);
     set_request_status(out, result, normalized_path);
+    return out;
+}
+
+Status cancel_request(const char* destination_hash, const char* path)
+{
+    Status out{};
+    out.supported = s_request_cancel_handler != nullptr;
+    char destination[kReticulumPageDestinationTextSize] = {};
+    char normalized_path[kReticulumPagePathSize] = {};
+    if (!normalize_destination(destination_hash, destination, sizeof(destination)) ||
+        !normalize_path(path, normalized_path, sizeof(normalized_path)))
+    {
+        set_status(out, "Invalid Nomad page address", kPagesLogicalDir);
+        return out;
+    }
+    if (!s_request_cancel_handler)
+    {
+        set_status(out, "Nomad page cancel unavailable", normalized_path);
+        return out;
+    }
+    uint8_t destination_bytes[kReticulumPageDestinationTextSize / 2U] = {};
+    if (!destination_to_bytes(destination, destination_bytes))
+    {
+        set_status(out, "Invalid Nomad page address", kPagesLogicalDir);
+        return out;
+    }
+    out.cancelled = s_request_cancel_handler(
+        destination_bytes, normalized_path, s_request_cancel_context);
+    set_status(out,
+               out.cancelled ? "Nomad page request cancelled"
+                             : "Nomad page request not active",
+               normalized_path);
+    if (out.cancelled)
+    {
+        clear_request_progress(destination, normalized_path);
+    }
     return out;
 }
 
@@ -2139,3 +2197,83 @@ void clear_request_progress(const char* destination_hash, const char* path)
 }
 
 } // namespace platform::ui::reticulum_page
+
+namespace platform::ui::reticulum_receive
+{
+namespace
+{
+Snapshot s_receive_snapshot{};
+CancelHandler s_receive_cancel_handler = nullptr;
+void* s_receive_cancel_context = nullptr;
+} // namespace
+
+void bind_cancel_handler(CancelHandler handler, void* context)
+{
+    s_receive_cancel_handler = handler;
+    s_receive_cancel_context = context;
+}
+
+void begin(const uint8_t link_id[kHashSize],
+           const uint8_t resource_hash[32],
+           uint32_t total_parts,
+           uint32_t total_bytes)
+{
+    if (!link_id || !resource_hash || total_parts == 0)
+    {
+        return;
+    }
+    s_receive_snapshot = Snapshot{};
+    s_receive_snapshot.active = true;
+    s_receive_snapshot.cancellable = true;
+    std::memcpy(s_receive_snapshot.link_id, link_id, kHashSize);
+    std::memcpy(s_receive_snapshot.resource_hash, resource_hash, 32);
+    s_receive_snapshot.total_parts = total_parts;
+    s_receive_snapshot.total_bytes = total_bytes;
+    s_receive_snapshot.progress_percent = 0;
+}
+
+void update(const uint8_t resource_hash[32],
+            uint32_t received_parts,
+            uint32_t received_bytes)
+{
+    if (resource_hash && s_receive_snapshot.active &&
+        std::memcmp(s_receive_snapshot.resource_hash, resource_hash, 32) == 0)
+    {
+        s_receive_snapshot.received_parts = received_parts;
+        s_receive_snapshot.received_bytes = received_bytes;
+        s_receive_snapshot.progress_percent = static_cast<int>(
+            (received_parts * 100U) / s_receive_snapshot.total_parts);
+    }
+}
+
+void complete(const uint8_t resource_hash[32])
+{
+    if (resource_hash && s_receive_snapshot.active &&
+        std::memcmp(s_receive_snapshot.resource_hash, resource_hash, 32) == 0)
+    {
+        s_receive_snapshot = Snapshot{};
+    }
+}
+
+Snapshot snapshot()
+{
+    return s_receive_snapshot;
+}
+
+bool cancel()
+{
+    Snapshot current{};
+    CancelHandler handler = nullptr;
+    void* context = nullptr;
+    current = s_receive_snapshot;
+    handler = s_receive_cancel_handler;
+    context = s_receive_cancel_context;
+    if (!current.active || !handler ||
+        !handler(current.link_id, current.resource_hash, context))
+    {
+        return false;
+    }
+    complete(current.resource_hash);
+    return true;
+}
+} // namespace platform::ui::reticulum_receive

@@ -123,7 +123,7 @@ Transition handleCallerSignal(State& state,
         state.remote_status = signal;
         enterPhase(state, Phase::CallerNegotiating, now_ms);
         transition.accepted = true;
-        appendAction(transition, Action::SendPreferredProfile);
+        appendAction(transition, Action::SendPreferences);
         return transition;
     }
 
@@ -207,6 +207,7 @@ State makeCaller(uint16_t profile, uint32_t now_ms)
     state.role = Role::Caller;
     state.phase = Phase::CallerAwaitingLink;
     state.profile = profile;
+    state.mode = kDefaultMode;
     state.local_status = kStatusCalling;
     state.remote_status = kStatusCalling;
     state.phase_started_ms = now_ms;
@@ -219,6 +220,7 @@ State makeCallee(uint16_t profile, uint32_t now_ms)
     state.role = Role::Callee;
     state.phase = Phase::CalleeAwaitingLink;
     state.profile = profile;
+    state.mode = kDefaultMode;
     state.local_status = kStatusCalling;
     state.remote_status = kStatusCalling;
     state.phase_started_ms = now_ms;
@@ -255,6 +257,22 @@ Transition dispatch(State* state, const Event& event, uint32_t now_ms)
         }
         return transition;
     }
+    if (event.type == EventType::LocalModeSwitch)
+    {
+        if (state->phase != Phase::Active ||
+            (event.signal != kModeFullDuplex &&
+             event.signal != kModeHalfDuplex))
+        {
+            return transition;
+        }
+        transition.accepted = true;
+        if (state->mode != event.signal)
+        {
+            state->mode = event.signal;
+            appendAction(transition, Action::SendPreferredMode);
+        }
+        return transition;
+    }
     if (event.type == EventType::LocalHangup ||
         event.type == EventType::OperationFailed ||
         event.type == EventType::Timeout)
@@ -280,6 +298,17 @@ Transition dispatch(State* state, const Event& event, uint32_t now_ms)
         {
             return handlePreferredProfile(*state,
                                           event.signal - kPreferredProfile);
+        }
+        if (event.signal >= kPreferredMode)
+        {
+            const uint16_t mode = event.signal - kPreferredMode;
+            if (mode != kModeFullDuplex && mode != kModeHalfDuplex)
+            {
+                return transition;
+            }
+            state->mode = mode;
+            transition.accepted = true;
+            return transition;
         }
         return state->role == Role::Caller
                    ? handleCallerSignal(*state, event.signal, now_ms)

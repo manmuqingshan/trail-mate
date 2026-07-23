@@ -37,6 +37,7 @@ class LxstTelephonyClient
                                     uint16_t profile,
                                     uint32_t now_ms);
     uint16_t profile(const LinkSession& session) const;
+    uint16_t mode(const LinkSession& session) const;
     reticulum::lxst::call::Phase phase(const LinkSession& session) const;
     const reticulum::lxst::call::State& state(
         const LinkSession& session) const;
@@ -49,6 +50,10 @@ class LxstTelephonyClient
     bool encodeSignal(uint16_t signal,
                       uint8_t** out_payload,
                       std::size_t* out_len);
+    bool encodeSignals(const uint16_t* signals,
+                       std::size_t signal_count,
+                       uint8_t** out_payload,
+                       std::size_t* out_len);
 
   private:
     uint8_t scratch_[reticulum::kReticulumMtu] = {};

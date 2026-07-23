@@ -42,6 +42,10 @@ enum class Action : uint8_t
     Answer,
     Hangup,
     Decline,
+    ToggleMode,
+    ToggleMicrophone,
+    ToggleSpeaker,
+    TogglePtt,
 };
 
 struct PageState
@@ -54,6 +58,11 @@ struct PageState
     lv_obj_t* answer_btn = nullptr;
     lv_obj_t* hangup_btn = nullptr;
     lv_obj_t* decline_btn = nullptr;
+    lv_obj_t* controls = nullptr;
+    lv_obj_t* mode_btn = nullptr;
+    lv_obj_t* microphone_btn = nullptr;
+    lv_obj_t* speaker_btn = nullptr;
+    lv_obj_t* ptt_btn = nullptr;
     lv_group_t* group = nullptr;
     bool presented = false;
     uint32_t activation_armed_ms = 0;
@@ -237,6 +246,33 @@ void perform_action(Action action)
     case Action::Decline:
         call::reject();
         break;
+    case Action::ToggleMode:
+    {
+        const call::Snapshot snapshot = call::snapshot();
+        (void)call::set_duplex_mode(
+            snapshot.duplex_mode == call::DuplexMode::Full
+                ? call::DuplexMode::Half
+                : call::DuplexMode::Full);
+        break;
+    }
+    case Action::ToggleMicrophone:
+    {
+        const call::Snapshot snapshot = call::snapshot();
+        call::set_microphone_muted(!snapshot.microphone_muted);
+        break;
+    }
+    case Action::ToggleSpeaker:
+    {
+        const call::Snapshot snapshot = call::snapshot();
+        call::set_speaker_muted(!snapshot.speaker_muted);
+        break;
+    }
+    case Action::TogglePtt:
+    {
+        const call::Snapshot snapshot = call::snapshot();
+        call::set_ptt_pressed(!snapshot.ptt_pressed);
+        break;
+    }
     }
 }
 
@@ -412,6 +448,37 @@ void enter_page(lv_obj_t* parent)
                                               kHeaderBg,
                                               0xC98118);
 
+    s_page.controls = lv_obj_create(s_page.root);
+    lv_obj_remove_style_all(s_page.controls);
+    lv_obj_set_width(s_page.controls, LV_PCT(100));
+    lv_obj_set_height(s_page.controls,
+                      ::ui::page_profile::resolve_control_button_height() + 4);
+    lv_obj_set_flex_flow(s_page.controls, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(s_page.controls,
+                          LV_FLEX_ALIGN_SPACE_EVENLY,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    s_page.mode_btn = create_action_button(s_page.controls,
+                                           "FDX",
+                                           Action::ToggleMode,
+                                           kHeaderBg,
+                                           0xC98118);
+    s_page.microphone_btn = create_action_button(s_page.controls,
+                                                 "Mic",
+                                                 Action::ToggleMicrophone,
+                                                 kAccept,
+                                                 kAcceptPressed);
+    s_page.speaker_btn = create_action_button(s_page.controls,
+                                              "Speaker",
+                                              Action::ToggleSpeaker,
+                                              kAccept,
+                                              kAcceptPressed);
+    s_page.ptt_btn = create_action_button(s_page.controls,
+                                          "PTT",
+                                          Action::TogglePtt,
+                                          kHeaderBg,
+                                          0xC98118);
+
     s_page.shortcut_hint = lv_label_create(s_page.root);
     lv_obj_set_width(s_page.shortcut_hint, LV_PCT(100));
     lv_obj_set_style_text_align(s_page.shortcut_hint,
@@ -559,11 +626,21 @@ void update_page(const call::Snapshot& snapshot)
     }
     else if (active)
     {
+        const uint32_t elapsed_s =
+            snapshot.active_since_ms == 0
+                ? 0
+                : (lv_tick_get() - snapshot.active_since_ms) / 1000U;
         std::snprintf(status,
                       sizeof(status),
-                      "RX %lu  TX %lu",
+                      "%02lu:%02lu RX %lu/%luB TX %lu/%luB drop %lu/%lu",
+                      static_cast<unsigned long>(elapsed_s / 60U),
+                      static_cast<unsigned long>(elapsed_s % 60U),
                       static_cast<unsigned long>(snapshot.rx_packets),
-                      static_cast<unsigned long>(snapshot.tx_packets));
+                      static_cast<unsigned long>(snapshot.rx_bytes),
+                      static_cast<unsigned long>(snapshot.tx_packets),
+                      static_cast<unsigned long>(snapshot.tx_bytes),
+                      static_cast<unsigned long>(snapshot.rx_dropped),
+                      static_cast<unsigned long>(snapshot.tx_dropped));
     }
     else
     {
@@ -571,6 +648,39 @@ void update_page(const call::Snapshot& snapshot)
     }
     set_label(s_page.status, status, kTextDim, caption_font());
     update_shortcut_hint();
+
+    if (active)
+    {
+        lv_obj_clear_flag(s_page.controls, LV_OBJ_FLAG_HIDDEN);
+        set_label(lv_obj_get_child(s_page.mode_btn, 0),
+                  snapshot.duplex_mode == call::DuplexMode::Full ? "FDX" : "HDX",
+                  0xFFFFFF,
+                  caption_font());
+        set_label(lv_obj_get_child(s_page.microphone_btn, 0),
+                  snapshot.microphone_muted ? "Mic off" : "Mic on",
+                  0xFFFFFF,
+                  caption_font());
+        set_label(lv_obj_get_child(s_page.speaker_btn, 0),
+                  snapshot.speaker_muted ? "Spk off" : "Spk on",
+                  0xFFFFFF,
+                  caption_font());
+        set_label(lv_obj_get_child(s_page.ptt_btn, 0),
+                  snapshot.ptt_pressed ? "TX on" : "PTT",
+                  0xFFFFFF,
+                  caption_font());
+        if (snapshot.duplex_mode == call::DuplexMode::Full)
+        {
+            lv_obj_add_flag(s_page.ptt_btn, LV_OBJ_FLAG_HIDDEN);
+        }
+        else
+        {
+            lv_obj_clear_flag(s_page.ptt_btn, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    else
+    {
+        lv_obj_add_flag(s_page.controls, LV_OBJ_FLAG_HIDDEN);
+    }
 
     if (identifying)
     {

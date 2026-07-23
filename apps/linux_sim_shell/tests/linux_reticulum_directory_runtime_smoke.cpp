@@ -1,5 +1,6 @@
 #include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/reticulum_page_runtime.h"
+#include "platform/ui/reticulum_receive_runtime.h"
 
 #include <cassert>
 #include <cstdint>
@@ -11,6 +12,7 @@
 
 namespace rtdir = platform::ui::reticulum_directory;
 namespace rtpage = platform::ui::reticulum_page;
+namespace rtreceive = platform::ui::reticulum_receive;
 
 namespace
 {
@@ -80,6 +82,56 @@ void format_hash_hex(const uint8_t* hash, char* out, std::size_t out_len)
         out[(i * 2U) + 1U] = kHex[hash[i] & 0x0FU];
     }
     out[rtdir::kReticulumHashSize * 2U] = '\0';
+}
+
+struct RequestHarness
+{
+    int starts = 0;
+    int cancels = 0;
+    uint8_t data[256] = {};
+    std::size_t data_len = 0;
+    char path[rtpage::kReticulumPagePathSize] = {};
+};
+
+rtpage::RequestStartResult start_page_request(
+    const uint8_t*,
+    const char* path,
+    const uint8_t* request_data,
+    std::size_t request_data_len,
+    void* context)
+{
+    auto* harness = static_cast<RequestHarness*>(context);
+    assert(harness != nullptr);
+    assert(request_data_len <= sizeof(harness->data));
+    ++harness->starts;
+    std::snprintf(harness->path, sizeof(harness->path), "%s", path);
+    if (request_data_len != 0)
+    {
+        assert(request_data != nullptr);
+        std::memcpy(harness->data, request_data, request_data_len);
+        harness->data_len = request_data_len;
+    }
+    return {rtpage::RequestStartCode::Started, 0};
+}
+
+bool cancel_page_request(const uint8_t*, const char* path, void* context)
+{
+    auto* harness = static_cast<RequestHarness*>(context);
+    assert(harness != nullptr);
+    assert(std::strcmp(path, harness->path) == 0);
+    ++harness->cancels;
+    return true;
+}
+
+bool cancel_receive(const uint8_t link_id[rtreceive::kHashSize],
+                    const uint8_t resource_hash[32],
+                    void* context)
+{
+    auto* calls = static_cast<int*>(context);
+    assert(link_id[0] == 0x10);
+    assert(resource_hash[0] == 0x80);
+    ++(*calls);
+    return true;
 }
 
 } // namespace
@@ -245,6 +297,44 @@ int main()
     page_status = rtpage::request_page(alpha_destination, "/page/index.mu");
     assert(!page_status.request_started);
     assert(std::strcmp(page_status.message, "Nomad page fetch unavailable") == 0);
+
+    RequestHarness request_harness{};
+    rtpage::bind_request_start_handler(start_page_request, &request_harness);
+    rtpage::bind_request_cancel_handler(cancel_page_request, &request_harness);
+    const uint8_t form_data[] = {0x81, 0xA9, 'f', 'i', 'e', 'l', 'd', '_', 'i', 'd', 0xA2, '4', '2'};
+    page_status = rtpage::request_page_with_data(alpha_destination,
+                                                 "/page/form.mu",
+                                                 form_data,
+                                                 sizeof(form_data));
+    assert(page_status.request_started);
+    assert(request_harness.starts == 1);
+    assert(std::strcmp(request_harness.path, "/page/form.mu") == 0);
+    assert(request_harness.data_len == sizeof(form_data));
+    assert(std::memcmp(request_harness.data, form_data, sizeof(form_data)) == 0);
+    page_status = rtpage::cancel_request(alpha_destination, "/page/form.mu");
+    assert(page_status.cancelled);
+    assert(request_harness.cancels == 1);
+    rtpage::bind_request_start_handler(nullptr, nullptr);
+    rtpage::bind_request_cancel_handler(nullptr, nullptr);
+
+    uint8_t receive_link[rtreceive::kHashSize] = {};
+    uint8_t receive_resource[32] = {};
+    receive_link[0] = 0x10;
+    receive_resource[0] = 0x80;
+    int receive_cancels = 0;
+    rtreceive::bind_cancel_handler(cancel_receive, &receive_cancels);
+    rtreceive::begin(receive_link, receive_resource, 4, 1024);
+    auto receive_status = rtreceive::snapshot();
+    assert(receive_status.active);
+    assert(receive_status.progress_percent == 0);
+    rtreceive::update(receive_resource, 2, 512);
+    receive_status = rtreceive::snapshot();
+    assert(receive_status.progress_percent == 50);
+    assert(receive_status.received_bytes == 512);
+    assert(rtreceive::cancel());
+    assert(receive_cancels == 1);
+    assert(!rtreceive::snapshot().active);
+    rtreceive::bind_cancel_handler(nullptr, nullptr);
 
     rtdir::Status status = rtdir::record_lxmf_address(alpha);
     assert(status.saved);

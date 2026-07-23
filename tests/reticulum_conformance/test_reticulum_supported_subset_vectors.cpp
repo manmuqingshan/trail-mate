@@ -458,6 +458,23 @@ void expectLxmfEnvelopeVectors()
     lxst_wire.resize(lxst_wire_len);
     expectBytes(lxst_wire.data(), lxst_wire.size(), kLxstPreferredLowSignal);
 
+    const uint16_t lxst_preferences[] = {
+        static_cast<uint16_t>(lxst::kPreferredProfile +
+                              lxst::kProfileBandwidthLow),
+        static_cast<uint16_t>(lxst::kPreferredMode + lxst::kModeHalfDuplex),
+    };
+    lxst_wire.assign(32, 0);
+    lxst_wire_len = lxst_wire.size();
+    assert(lxst::encodeSignalling(lxst_preferences,
+                                  2,
+                                  lxst_wire.data(),
+                                  &lxst_wire_len));
+    lxst_wire.resize(lxst_wire_len);
+    assert(lxst::decodePacket(lxst_wire.data(), lxst_wire.size(), &lxst_packet));
+    assert(lxst_packet.signal_count == 2);
+    assert(lxst_packet.signals[0] == lxst_preferences[0]);
+    assert(lxst_packet.signals[1] == lxst_preferences[1]);
+
     const uint8_t codec2_frames[] = {0xAA, 0xBB, 0xCC};
     lxst_wire.assign(32, 0);
     lxst_wire_len = lxst_wire.size();
@@ -990,8 +1007,7 @@ void expectLxstCallStateMachine()
         &caller,
         lxst_call::Event::remoteSignal(lxst::kStatusRinging),
         ++now_ms);
-    assert(hasAction(transition,
-                     lxst_call::Action::SendPreferredProfile));
+    assert(hasAction(transition, lxst_call::Action::SendPreferences));
     assert(caller.phase == lxst_call::Phase::CallerNegotiating);
 
     transition = lxst_call::dispatch(
@@ -1015,6 +1031,20 @@ void expectLxstCallStateMachine()
         ++now_ms);
     assert(hasAction(transition, lxst_call::Action::ActivateMedia));
     assert(caller.phase == lxst_call::Phase::Active);
+    transition = lxst_call::dispatch(
+        &caller,
+        {lxst_call::EventType::LocalModeSwitch, lxst::kModeHalfDuplex},
+        ++now_ms);
+    assert(transition.accepted);
+    assert(hasAction(transition, lxst_call::Action::SendPreferredMode));
+    assert(caller.mode == lxst::kModeHalfDuplex);
+    transition = lxst_call::dispatch(
+        &caller,
+        lxst_call::Event::remoteSignal(lxst::kPreferredMode +
+                                       lxst::kModeFullDuplex),
+        ++now_ms);
+    assert(transition.accepted);
+    assert(caller.mode == lxst::kModeFullDuplex);
     assert(!lxst_call::dispatch(
                 &caller,
                 lxst_call::Event::remoteSignal(lxst::kStatusRinging),

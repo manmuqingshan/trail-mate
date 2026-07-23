@@ -845,15 +845,25 @@ int main()
 
     NetworkPageClient page_client{};
     PendingNomadPageRequest* page_request = nullptr;
+    const uint8_t form_request[] = {
+        0x82, 0xAE, 'f', 'i', 'e', 'l', 'd', '_', 'c', 'a', 'l', 'l', 's', 'i', 'g', 'n',
+        0xA2, 'T', 'M', 0xAA, 'v', 'a', 'r', '_', 'a', 'c', 't', 'i', 'o', 'n',
+        0xA4, 's', 'a', 'v', 'e'};
     assert(page_client.empty());
     assert(page_client.queue(manager_destination.data(),
                              "/",
+                             form_request,
+                             sizeof(form_request),
                              100,
                              1,
                              sizeof(PendingNomadPageRequest::path),
                              &page_request) == NetworkPageQueueResult::Queued);
     assert(page_request != nullptr);
     assert(page_client.size() == 1);
+    assert(page_request->request_data_len == sizeof(form_request));
+    assert(std::memcmp(page_request->request_data,
+                       form_request,
+                       sizeof(form_request)) == 0);
     copy_hash(page_request->request_id, manager_destination);
     assert(page_client.findByRequestId(manager_destination.data(),
                                        manager_destination.data(),
@@ -887,12 +897,30 @@ int main()
            page_request);
     assert(page_client.queue(manager_destination.data(),
                              "/",
+                             nullptr,
+                             0,
                              200,
                              1,
                              sizeof(PendingNomadPageRequest::path),
                              &page_request) == NetworkPageQueueResult::Duplicate);
-    page_client.eraseAt(0);
+    PendingNomadPageRequest removed_page{};
+    assert(page_client.erasePage(manager_destination.data(),
+                                 "/",
+                                 &removed_page));
+    assert(removed_page.request_data_len == sizeof(form_request));
+    assert(std::memcmp(removed_page.request_data,
+                       form_request,
+                       sizeof(form_request)) == 0);
     assert(page_client.empty());
+    uint8_t oversized_form[PendingNomadPageRequest::kMaxRequestDataBytes + 1U] = {};
+    assert(page_client.queue(manager_destination.data(),
+                             "/page/form.mu",
+                             oversized_form,
+                             sizeof(oversized_form),
+                             201,
+                             1,
+                             sizeof(PendingNomadPageRequest::path),
+                             &page_request) == NetworkPageQueueResult::Invalid);
 
     PropagationClient propagation_client{};
     assert(!propagation_client.state().has_active_node);
@@ -1339,6 +1367,20 @@ int main()
     assert(!maintenance.close_timeout);
     assert(maintenance.marked_stale);
     assert(links.sessions.front().state == LinkState::Active);
+
+    // RNS 1.4 keepalive semantics consider each direction independently: an
+    // initiator that is receiving continuously must still transmit a keepalive
+    // once its outbound side has been silent for one interval.
+    links.sessions.front().last_inbound_ms = 290;
+    links.sessions.front().last_outbound_ms = 200;
+    links.sessions.front().last_keepalive_ms = 0;
+    maintenance = advanceLinkSessionLifecycle(links.sessions.front(), 300, link_limits);
+    assert(maintenance.send_keepalive);
+    links.sessions.front().last_outbound_ms = 290;
+    maintenance = advanceLinkSessionLifecycle(links.sessions.front(), 300, link_limits);
+    assert(!maintenance.send_keepalive);
+    links.sessions.front().last_inbound_ms = 100;
+    links.sessions.front().last_outbound_ms = 120;
     markLinkSessionStale(links.sessions.front());
     assert(links.sessions.front().state == LinkState::Stale);
 
@@ -1464,6 +1506,50 @@ int main()
     assert(incoming_resource.received_bitmap.size() == 3);
     assert(incoming_resource.map_hash_known[2] == 0);
     assert(incoming_resource.waiting_for_hashmap);
+
+    LinkResourceTransfer rejected_resource{};
+    assert(!initialiseIncomingResourceTransfer(
+        rejected_resource,
+        packet_hash.data(),
+        random_hash.data(),
+        original_hash.data(),
+        incoming_request_id,
+        sizeof(incoming_request_id),
+        first_hashmap.data(),
+        first_hashmap.size(),
+        kMaxAdvertisedResourceBytes + 1U,
+        9,
+        3,
+        1,
+        1,
+        0x40,
+        true,
+        false,
+        false,
+        false,
+        500,
+        2));
+    assert(!initialiseIncomingResourceTransfer(
+        rejected_resource,
+        packet_hash.data(),
+        random_hash.data(),
+        original_hash.data(),
+        incoming_request_id,
+        sizeof(incoming_request_id),
+        first_hashmap.data(),
+        first_hashmap.size(),
+        6,
+        9,
+        kMaxIncomingResourceParts + 1U,
+        1,
+        1,
+        0x40,
+        true,
+        false,
+        false,
+        false,
+        500,
+        2));
 
     ResourceWindowRequest window = buildNextResourceWindowRequest(incoming_resource);
     assert(window.valid);

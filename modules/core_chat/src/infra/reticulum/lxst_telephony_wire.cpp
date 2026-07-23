@@ -461,17 +461,35 @@ bool encodeSignalling(uint16_t signal,
                       uint8_t* out,
                       std::size_t* inout_len)
 {
-    if (!out || !inout_len)
+    return encodeSignalling(&signal, 1, out, inout_len);
+}
+
+bool encodeSignalling(const uint16_t* signals,
+                      std::size_t signal_count,
+                      uint8_t* out,
+                      std::size_t* inout_len)
+{
+    if (!signals || signal_count == 0 ||
+        signal_count > DecodedPacket::kMaxSignals || !out || !inout_len)
     {
         return false;
     }
     std::size_t used = 0;
     if (!appendByte(0x81, out, *inout_len, used) ||
         !appendUint(kFieldSignalling, out, *inout_len, used) ||
-        !appendByte(0x91, out, *inout_len, used) ||
-        !appendUint(signal, out, *inout_len, used))
+        !appendByte(static_cast<uint8_t>(0x90U | signal_count),
+                    out,
+                    *inout_len,
+                    used))
     {
         return false;
+    }
+    for (std::size_t index = 0; index < signal_count; ++index)
+    {
+        if (!appendUint(signals[index], out, *inout_len, used))
+        {
+            return false;
+        }
     }
     *inout_len = used;
     return true;

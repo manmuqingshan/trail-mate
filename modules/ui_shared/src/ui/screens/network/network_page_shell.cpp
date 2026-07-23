@@ -78,6 +78,9 @@ constexpr std::size_t kInitialPageLinks = 8;
 constexpr std::size_t kMaxPageLinks = 32;
 constexpr std::size_t kInitialPageAnchors = 8;
 constexpr std::size_t kMaxPageAnchors = 32;
+constexpr std::size_t kMaxFormFields = 12;
+constexpr std::size_t kMaxFormPairs = 15;
+constexpr std::size_t kMaxFormPayloadBytes = 256;
 constexpr std::size_t kMaxHistoryEntries = 8;
 constexpr std::size_t kAddressTextLen = 160;
 constexpr std::size_t kSearchTextLen = 32;
@@ -121,7 +124,23 @@ struct DirectoryRowContext
 struct LinkContext
 {
     char target[kAddressTextLen] = {};
+    char request_fields[96] = {};
     lv_obj_t* source = nullptr;
+};
+
+enum class FormFieldKind : uint8_t
+{
+    Text,
+    Checkbox,
+    Radio,
+};
+
+struct FormFieldContext
+{
+    char name[32] = {};
+    char value[64] = {};
+    lv_obj_t* object = nullptr;
+    FormFieldKind kind = FormFieldKind::Text;
 };
 
 struct MicronAnchor
@@ -214,8 +233,10 @@ struct NetworkPageState
     lv_obj_t* browser_body = nullptr;
     lv_obj_t* browser_rail = nullptr;
     lv_obj_t* browser_back_btn = nullptr;
+    lv_obj_t* browser_forward_btn = nullptr;
     lv_obj_t* home_btn = nullptr;
     lv_obj_t* refresh_btn = nullptr;
+    lv_obj_t* cancel_btn = nullptr;
     lv_obj_t* rail_directory_btn = nullptr;
     lv_obj_t* rail_search_btn = nullptr;
     lv_obj_t* address_area = nullptr;
@@ -231,6 +252,7 @@ struct NetworkPageState
     LinkContext* link_contexts = nullptr;
     MicronAnchor* page_anchors = nullptr;
     std::array<HistoryEntry, kMaxHistoryEntries> history{};
+    std::array<FormFieldContext, kMaxFormFields> form_fields{};
     std::array<char, rtpage::kReticulumPageBodyMaxBytes + 1U> page_body{};
     std::size_t announce_count = 0;
     std::size_t address_count = 0;
@@ -240,6 +262,7 @@ struct NetworkPageState
     std::size_t link_context_capacity = 0;
     std::size_t link_context_count = 0;
     std::size_t history_count = 0;
+    std::size_t form_field_count = 0;
     std::size_t history_pos = 0;
     DirectoryMode directory_mode = DirectoryMode::Announces;
     bool immersive = false;
@@ -1215,6 +1238,11 @@ void push_history(const char* address)
     {
         return;
     }
+    if (g_state.history_count != 0 &&
+        g_state.history_pos + 1U < g_state.history_count)
+    {
+        g_state.history_count = g_state.history_pos + 1U;
+    }
     if (g_state.history_count < g_state.history.size())
     {
         ++g_state.history_count;
@@ -1404,8 +1432,10 @@ void reset_state_after_destroy()
     g_state.browser_body = nullptr;
     g_state.browser_rail = nullptr;
     g_state.browser_back_btn = nullptr;
+    g_state.browser_forward_btn = nullptr;
     g_state.home_btn = nullptr;
     g_state.refresh_btn = nullptr;
+    g_state.cancel_btn = nullptr;
     g_state.rail_directory_btn = nullptr;
     g_state.rail_search_btn = nullptr;
     g_state.address_area = nullptr;
@@ -1561,8 +1591,10 @@ void add_browser_focusables()
     if (!g_state.immersive)
     {
         add_visible_to_group(g_state.browser_back_btn);
+        add_visible_to_group(g_state.browser_forward_btn);
         add_visible_to_group(g_state.home_btn);
         add_visible_to_group(g_state.refresh_btn);
+        add_visible_to_group(g_state.cancel_btn);
         add_visible_to_group(g_state.rail_directory_btn);
         add_visible_to_group(g_state.rail_search_btn);
     }
@@ -1691,6 +1723,190 @@ void resolve_link_target(const char* target, char* out, std::size_t out_len)
     copy_text(out, out_len, target);
 }
 
+struct FormPair
+{
+    char key[40] = {};
+    char value[72] = {};
+};
+
+bool append_form_pair(FormPair* pairs,
+                      std::size_t* pair_count,
+                      const char* key,
+                      const char* value)
+{
+    if (!pairs || !pair_count || !key || key[0] == '\0' ||
+        *pair_count >= kMaxFormPairs)
+    {
+        return false;
+    }
+    FormPair& pair = pairs[(*pair_count)++];
+    copy_text(pair.key, sizeof(pair.key), key);
+    copy_text(pair.value, sizeof(pair.value), value ? value : "");
+    return true;
+}
+
+bool form_field_selected(const char* selectors, const char* name)
+{
+    if (!selectors || !name)
+    {
+        return false;
+    }
+    const char* cursor = selectors;
+    while (*cursor != '\0')
+    {
+        const char* end = std::strchr(cursor, '|');
+        const std::size_t len = end ? static_cast<std::size_t>(end - cursor)
+                                    : std::strlen(cursor);
+        if ((len == 1 && cursor[0] == '*') ||
+            (std::strlen(name) == len && std::strncmp(cursor, name, len) == 0))
+        {
+            return true;
+        }
+        cursor = end ? end + 1 : cursor + len;
+    }
+    return false;
+}
+
+bool collect_form_pairs(const char* selectors,
+                        FormPair* pairs,
+                        std::size_t* pair_count)
+{
+    if (!selectors || !pairs || !pair_count)
+    {
+        return false;
+    }
+    *pair_count = 0;
+    for (std::size_t index = 0; index < g_state.form_field_count; ++index)
+    {
+        const FormFieldContext& field = g_state.form_fields[index];
+        if (!field.object || !lv_obj_is_valid(field.object) ||
+            !form_field_selected(selectors, field.name))
+        {
+            continue;
+        }
+        if (field.kind == FormFieldKind::Text)
+        {
+            char key[40] = {};
+            std::snprintf(key, sizeof(key), "field_%s", field.name);
+            if (!append_form_pair(pairs,
+                                  pair_count,
+                                  key,
+                                  lv_textarea_get_text(field.object)))
+            {
+                return false;
+            }
+        }
+        else if (lv_obj_has_state(field.object, LV_STATE_CHECKED))
+        {
+            char key[40] = {};
+            std::snprintf(key, sizeof(key), "field_%s", field.name);
+            FormPair* existing = nullptr;
+            for (std::size_t pair_index = 0; pair_index < *pair_count; ++pair_index)
+            {
+                if (std::strcmp(pairs[pair_index].key, key) == 0)
+                {
+                    existing = &pairs[pair_index];
+                    break;
+                }
+            }
+            if (existing)
+            {
+                const std::size_t used = std::strlen(existing->value);
+                std::snprintf(existing->value + used,
+                              sizeof(existing->value) - used,
+                              ",%s",
+                              field.value[0] != '\0' ? field.value : "1");
+            }
+            else if (!append_form_pair(pairs,
+                                       pair_count,
+                                       key,
+                                       field.value[0] != '\0' ? field.value : "1"))
+            {
+                return false;
+            }
+        }
+    }
+
+    const char* cursor = selectors;
+    while (*cursor != '\0')
+    {
+        const char* end = std::strchr(cursor, '|');
+        const std::size_t len = end ? static_cast<std::size_t>(end - cursor)
+                                    : std::strlen(cursor);
+        const char* equal = static_cast<const char*>(std::memchr(cursor, '=', len));
+        if (equal && equal != cursor && equal + 1 < cursor + len)
+        {
+            char key[40] = "var_";
+            copy_range(key + 4,
+                       sizeof(key) - 4,
+                       cursor,
+                       static_cast<std::size_t>(equal - cursor));
+            char value[72] = {};
+            copy_range(value,
+                       sizeof(value),
+                       equal + 1,
+                       static_cast<std::size_t>((cursor + len) - equal - 1));
+            if (!append_form_pair(pairs, pair_count, key, value))
+            {
+                return false;
+            }
+        }
+        cursor = end ? end + 1 : cursor + len;
+    }
+    return true;
+}
+
+bool append_msgpack_text(const char* value,
+                         uint8_t* out,
+                         std::size_t capacity,
+                         std::size_t* used)
+{
+    const std::size_t len = value ? std::strlen(value) : 0;
+    const std::size_t header = len <= 31U ? 1U : 2U;
+    if (!out || !used || len > 255U || *used + header + len > capacity)
+    {
+        return false;
+    }
+    out[(*used)++] = len <= 31U ? static_cast<uint8_t>(0xA0U | len) : 0xD9U;
+    if (len > 31U)
+    {
+        out[(*used)++] = static_cast<uint8_t>(len);
+    }
+    if (len != 0)
+    {
+        std::memcpy(out + *used, value, len);
+        *used += len;
+    }
+    return true;
+}
+
+bool encode_form_payload(const char* selectors,
+                         uint8_t* out,
+                         std::size_t capacity,
+                         std::size_t* out_len)
+{
+    FormPair pairs[kMaxFormPairs] = {};
+    std::size_t pair_count = 0;
+    if (!out || !out_len || capacity == 0 ||
+        !collect_form_pairs(selectors, pairs, &pair_count) ||
+        pair_count > 15U)
+    {
+        return false;
+    }
+    std::size_t used = 0;
+    out[used++] = static_cast<uint8_t>(0x80U | pair_count);
+    for (std::size_t index = 0; index < pair_count; ++index)
+    {
+        if (!append_msgpack_text(pairs[index].key, out, capacity, &used) ||
+            !append_msgpack_text(pairs[index].value, out, capacity, &used))
+        {
+            return false;
+        }
+    }
+    *out_len = used;
+    return true;
+}
+
 void link_event_cb(lv_event_t* event)
 {
     if (!activation_event(event))
@@ -1717,6 +1933,38 @@ void link_event_cb(lv_event_t* event)
     }
     char resolved[kAddressTextLen] = {};
     resolve_link_target(context->target, resolved, sizeof(resolved));
+    if (context->request_fields[0] != '\0')
+    {
+        RemotePageAddress page_address{};
+        uint8_t payload[kMaxFormPayloadBytes] = {};
+        std::size_t payload_len = 0;
+        if (!parse_remote_page_address(resolved, page_address) ||
+            !encode_form_payload(context->request_fields,
+                                 payload,
+                                 sizeof(payload),
+                                 &payload_len))
+        {
+            ::ui::feedback::show_notice("Form data exceeds device limits", 1800);
+            lv_event_stop_processing(event);
+            return;
+        }
+        (void)rtpage::clear_cached_page(page_address.destination,
+                                        page_address.path);
+        clear_loaded_page_body();
+        const rtpage::Status status = rtpage::request_page_with_data(
+            page_address.destination,
+            page_address.path,
+            payload,
+            payload_len);
+        if (!status.request_started)
+        {
+            ::ui::feedback::show_notice(
+                status.message[0] != '\0' ? status.message : "Form submit failed",
+                1800);
+            lv_event_stop_processing(event);
+            return;
+        }
+    }
     navigate_to_address(resolved, true);
     lv_event_stop_processing(event);
 }
@@ -1732,6 +1980,7 @@ void clear_viewport()
     lv_obj_clean(g_state.viewport);
     release_micron_anchor_registry();
     release_link_context_pool();
+    g_state.form_field_count = 0;
 }
 
 lv_obj_t* add_terminal_label(const char* text,
@@ -2189,7 +2438,7 @@ void emit_micron_link(lv_obj_t* row,
                       const char* target,
                       const char* label,
                       MicronRenderState& state,
-                      bool request_fields)
+                      const char* request_fields)
 {
     if (!row || !target || target[0] == '\0')
     {
@@ -2257,6 +2506,9 @@ void emit_micron_link(lv_obj_t* row,
     }
 
     normalize_micron_link_target(target, context->target, sizeof(context->target));
+    copy_text(context->request_fields,
+              sizeof(context->request_fields),
+              request_fields);
     context->source = row;
 
     lv_obj_t* btn = lv_btn_create(row);
@@ -2292,21 +2544,46 @@ void emit_micron_link(lv_obj_t* row,
                                     visible,
                                     style.bold ? body_font() : caption_font());
     lv_obj_center(text);
+}
 
-    if (request_fields)
+void form_field_event_cb(lv_event_t* event)
+{
+    if (!event || lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED)
     {
-        MicronStyle note_style = style;
-        note_style.fg = kTerminalDim;
-        note_style.bg = default_bg;
-        note_style.bold = false;
-        note_style.underline = false;
-        emit_micron_text(row,
-                         " [no submit]",
-                         note_style,
-                         default_bg,
-                         tiny_font(),
-                         &state);
+        return;
     }
+    auto* selected = static_cast<FormFieldContext*>(lv_event_get_user_data(event));
+    if (!selected || selected->kind != FormFieldKind::Radio ||
+        !lv_obj_has_state(selected->object, LV_STATE_CHECKED))
+    {
+        return;
+    }
+    for (std::size_t index = 0; index < g_state.form_field_count; ++index)
+    {
+        FormFieldContext& field = g_state.form_fields[index];
+        if (&field != selected && field.kind == FormFieldKind::Radio &&
+            std::strcmp(field.name, selected->name) == 0 && field.object &&
+            lv_obj_is_valid(field.object))
+        {
+            lv_obj_clear_state(field.object, LV_STATE_CHECKED);
+        }
+    }
+}
+
+FormFieldContext* claim_form_field(const char* name,
+                                   const char* value,
+                                   FormFieldKind kind)
+{
+    if (!name || name[0] == '\0' || g_state.form_field_count >= kMaxFormFields)
+    {
+        return nullptr;
+    }
+    FormFieldContext& field = g_state.form_fields[g_state.form_field_count++];
+    field = FormFieldContext{};
+    copy_text(field.name, sizeof(field.name), name);
+    copy_text(field.value, sizeof(field.value), value);
+    field.kind = kind;
+    return &field;
 }
 
 void emit_micron_field(lv_obj_t* row,
@@ -2392,7 +2669,6 @@ void emit_micron_field(lv_obj_t* row,
         lv_obj_set_style_text_color(cb, lv_color_hex(style.fg), LV_PART_MAIN);
         lv_obj_set_style_text_font(cb, caption_font(), LV_PART_MAIN);
         lv_obj_set_style_text_opa(cb, LV_OPA_70, LV_PART_MAIN);
-        lv_obj_set_style_text_opa(cb, LV_OPA_60, LV_PART_MAIN | LV_STATE_DISABLED);
         lv_obj_set_style_border_width(cb, 1, LV_PART_INDICATOR);
         lv_obj_set_style_border_color(cb, lv_color_hex(kTerminalDim), LV_PART_INDICATOR);
         lv_obj_set_style_bg_color(cb, lv_color_hex(0x101010), LV_PART_INDICATOR);
@@ -2401,9 +2677,23 @@ void emit_micron_field(lv_obj_t* row,
                                   lv_color_hex(kTerminalDim),
                                   LV_PART_INDICATOR | LV_STATE_CHECKED);
         lv_obj_set_style_bg_opa(cb, LV_OPA_70, LV_PART_INDICATOR | LV_STATE_CHECKED);
-        lv_obj_clear_flag(cb, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_clear_flag(cb, LV_OBJ_FLAG_CLICK_FOCUSABLE);
-        lv_obj_add_state(cb, LV_STATE_DISABLED);
+        FormFieldContext* field_context = claim_form_field(
+            name,
+            value_buf[0] != '\0' ? value_buf : "1",
+            radio ? FormFieldKind::Radio : FormFieldKind::Checkbox);
+        if (field_context)
+        {
+            field_context->object = cb;
+            lv_obj_add_event_cb(cb,
+                                form_field_event_cb,
+                                LV_EVENT_VALUE_CHANGED,
+                                field_context);
+            add_to_group(cb);
+        }
+        else
+        {
+            lv_obj_add_state(cb, LV_STATE_DISABLED);
+        }
         if (style.bg != default_bg)
         {
             lv_obj_set_style_bg_color(cb, lv_color_hex(style.bg), LV_PART_MAIN);
@@ -2438,12 +2728,19 @@ void emit_micron_field(lv_obj_t* row,
     lv_obj_set_style_radius(field, 2, LV_PART_MAIN);
     lv_obj_set_style_text_color(field, lv_color_hex(style.fg), LV_PART_MAIN);
     lv_obj_set_style_text_opa(field, LV_OPA_70, LV_PART_MAIN);
-    lv_obj_set_style_text_opa(field, LV_OPA_60, LV_PART_MAIN | LV_STATE_DISABLED);
     lv_obj_set_style_text_font(field, caption_font(), LV_PART_MAIN);
     lv_obj_set_style_pad_all(field, 1, LV_PART_MAIN);
-    lv_obj_clear_flag(field, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(field, LV_OBJ_FLAG_CLICK_FOCUSABLE);
-    lv_obj_add_state(field, LV_STATE_DISABLED);
+    FormFieldContext* field_context = claim_form_field(
+        name, data, FormFieldKind::Text);
+    if (field_context)
+    {
+        field_context->object = field;
+        add_to_group(field);
+    }
+    else
+    {
+        lv_obj_add_state(field, LV_STATE_DISABLED);
+    }
 }
 
 void flush_micron_part(lv_obj_t* row,
@@ -2547,8 +2844,11 @@ bool parse_micron_link(lv_obj_t* row,
         state.saw_submit_links = true;
     }
 
-    emit_micron_link(
-        row, navigation_target, label, state, link_fields.submits_fields);
+    emit_micron_link(row,
+                     navigation_target,
+                     label,
+                     state,
+                     link_fields.submits_fields ? fields : nullptr);
     *consumed = static_cast<std::size_t>(close - (line + start)) + 1U;
     (void)line_len;
     return true;
@@ -2959,7 +3259,7 @@ void render_micron_line(const char* line, MicronRenderState& state)
                              state.default_bg,
                              caption_font(),
                              &state);
-            emit_micron_link(row, partial.target, "Open partial", state, false);
+            emit_micron_link(row, partial.target, "Open partial", state, nullptr);
         }
         return;
     }
@@ -3221,11 +3521,11 @@ void render_micron_notices(const MicronRenderState& state)
     }
     if (state.saw_fields)
     {
-        add_micron_notice("fields are display-only");
+        add_micron_notice("editable form fields are limited to 12");
     }
     if (state.saw_submit_links)
     {
-        add_micron_notice("form submit not supported");
+        add_micron_notice("form submission is limited to 15 values / 256 bytes");
     }
     if (state.unsupported_resource_links > 0)
     {
@@ -3485,6 +3785,17 @@ void render_remote_page_shell(const char* address,
                               const rtpage::Status* request_status,
                               const rtpage::RequestProgress* progress)
 {
+    if (g_state.cancel_btn)
+    {
+        if (progress && progress->active)
+        {
+            lv_obj_clear_flag(g_state.cancel_btn, LV_OBJ_FLAG_HIDDEN);
+        }
+        else
+        {
+            lv_obj_add_flag(g_state.cancel_btn, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
     const bool preserve_scroll =
         address && address[0] != '\0' &&
         std::strcmp(g_state.rendered_shell_address, address) == 0;
@@ -3630,6 +3941,10 @@ void render_current_page()
     if (!g_state.viewport)
     {
         return;
+    }
+    if (g_state.cancel_btn)
+    {
+        lv_obj_add_flag(g_state.cancel_btn, LV_OBJ_FLAG_HIDDEN);
     }
 
     const char* address = g_state.current_address;
@@ -4195,6 +4510,22 @@ void browser_back_event_cb(lv_event_t* event)
     lv_event_stop_processing(event);
 }
 
+void browser_forward_event_cb(lv_event_t* event)
+{
+    if (!activation_event(event))
+    {
+        return;
+    }
+    if (g_state.history_pos + 1U < g_state.history_count)
+    {
+        ++g_state.history_pos;
+        g_state.suppress_history = true;
+        navigate_to_address(g_state.history[g_state.history_pos].address, false);
+        g_state.suppress_history = false;
+    }
+    lv_event_stop_processing(event);
+}
+
 void home_event_cb(lv_event_t* event)
 {
     if (!activation_event(event))
@@ -4213,6 +4544,27 @@ void refresh_event_cb(lv_event_t* event)
     }
     refresh_all(true);
     ::ui::feedback::show_notice(safe_tr("Network refreshed"), 1200);
+    lv_event_stop_processing(event);
+}
+
+void cancel_request_event_cb(lv_event_t* event)
+{
+    if (!activation_event(event))
+    {
+        return;
+    }
+    RemotePageAddress page_address{};
+    if (parse_remote_page_address(g_state.current_address, page_address))
+    {
+        const rtpage::Status status = rtpage::cancel_request(
+            page_address.destination, page_address.path);
+        ::ui::feedback::show_notice(
+            safe_tr(status.message[0] != '\0' ? status.message
+                                              : "No active page request"),
+            1600);
+        stop_page_load_timer();
+        render_current_page();
+    }
     lv_event_stop_processing(event);
 }
 
@@ -5149,6 +5501,10 @@ void create_browser_panel(lv_obj_t* parent)
                                                   LV_SYMBOL_LEFT,
                                                   browser_back_event_cb,
                                                   rail_button_size);
+    g_state.browser_forward_btn = create_icon_button(g_state.browser_rail,
+                                                     LV_SYMBOL_RIGHT,
+                                                     browser_forward_event_cb,
+                                                     rail_button_size);
     g_state.home_btn = create_icon_button(g_state.browser_rail,
                                           LV_SYMBOL_HOME,
                                           home_event_cb,
@@ -5157,6 +5513,11 @@ void create_browser_panel(lv_obj_t* parent)
                                              LV_SYMBOL_REFRESH,
                                              refresh_event_cb,
                                              rail_button_size);
+    g_state.cancel_btn = create_icon_button(g_state.browser_rail,
+                                            "X",
+                                            cancel_request_event_cb,
+                                            rail_button_size);
+    lv_obj_add_flag(g_state.cancel_btn, LV_OBJ_FLAG_HIDDEN);
     g_state.rail_directory_btn = create_icon_button(g_state.browser_rail,
                                                     LV_SYMBOL_LIST,
                                                     directory_rail_event_cb,

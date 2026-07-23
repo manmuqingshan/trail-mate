@@ -74,6 +74,8 @@ void NetworkPageClient::clear()
 NetworkPageQueueResult NetworkPageClient::queue(
     const uint8_t destination_hash[reticulum::kTruncatedHashSize],
     const char* path,
+    const uint8_t* request_data,
+    std::size_t request_data_len,
     uint32_t now_ms,
     std::size_t max_pending,
     std::size_t max_path_len,
@@ -86,6 +88,8 @@ NetworkPageQueueResult NetworkPageClient::queue(
     if (!destination_hash ||
         isZeroBytes(destination_hash, reticulum::kTruncatedHashSize) ||
         !path || path[0] == '\0' ||
+        (request_data_len != 0 && !request_data) ||
+        request_data_len > PendingNomadPageRequest::kMaxRequestDataBytes ||
         std::strlen(path) >= max_path_len ||
         max_path_len > sizeof(PendingNomadPageRequest::path))
     {
@@ -118,6 +122,11 @@ NetworkPageQueueResult NetworkPageClient::queue(
              sizeof(request.destination_hash));
     std::snprintf(request.path, sizeof(request.path), "%s", path);
     request.created_ms = now_ms;
+    if (request_data_len != 0)
+    {
+        std::memcpy(request.request_data, request_data, request_data_len);
+        request.request_data_len = request_data_len;
+    }
     pending_.push_back(request);
     if (out_request)
     {
@@ -142,6 +151,34 @@ void NetworkPageClient::eraseAt(std::size_t index)
     {
         pending_.erase(pending_.begin() + static_cast<std::ptrdiff_t>(index));
     }
+}
+
+bool NetworkPageClient::erasePage(
+    const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+    const char* path,
+    PendingNomadPageRequest* out_removed)
+{
+    if (!destination_hash || !path)
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < pending_.size(); ++index)
+    {
+        const PendingNomadPageRequest& request = pending_[index];
+        if (hashesEqual(request.destination_hash,
+                        destination_hash,
+                        reticulum::kTruncatedHashSize) &&
+            std::strcmp(request.path, path) == 0)
+        {
+            if (out_removed)
+            {
+                *out_removed = request;
+            }
+            eraseAt(index);
+            return true;
+        }
+    }
+    return false;
 }
 
 PendingNomadPageRequest* NetworkPageClient::findByRequestId(

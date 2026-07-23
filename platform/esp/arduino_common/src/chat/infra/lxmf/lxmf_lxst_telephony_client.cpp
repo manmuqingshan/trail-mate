@@ -83,6 +83,11 @@ uint16_t LxstTelephonyClient::profile(const LinkSession& session) const
     return session.lxst_call.profile;
 }
 
+uint16_t LxstTelephonyClient::mode(const LinkSession& session) const
+{
+    return session.lxst_call.mode;
+}
+
 reticulum::lxst::call::Phase LxstTelephonyClient::phase(
     const LinkSession& session) const
 {
@@ -130,6 +135,21 @@ bool LxstTelephonyClient::encodeSignal(uint16_t signal,
     *out_payload = scratch_;
     *out_len = sizeof(scratch_);
     return reticulum::lxst::encodeSignalling(signal, scratch_, out_len);
+}
+
+bool LxstTelephonyClient::encodeSignals(const uint16_t* signals,
+                                        std::size_t signal_count,
+                                        uint8_t** out_payload,
+                                        std::size_t* out_len)
+{
+    if (!out_payload || !out_len)
+    {
+        return false;
+    }
+    *out_payload = scratch_;
+    *out_len = sizeof(scratch_);
+    return reticulum::lxst::encodeSignalling(
+        signals, signal_count, scratch_, out_len);
 }
 
 } // namespace chat::lxmf::runtime

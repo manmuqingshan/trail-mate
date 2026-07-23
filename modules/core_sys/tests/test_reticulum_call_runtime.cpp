@@ -311,6 +311,46 @@ void test_outgoing_hard_preempt_waits_for_link()
     assert(snapshot.media_active);
     assert(g.media_start_count == starts_before + 1);
 
+    using platform::ui::reticulum_call::DuplexMode;
+    assert(platform::ui::reticulum_call::set_duplex_mode(DuplexMode::Half));
+    DuplexMode requested_mode = DuplexMode::Full;
+    assert(platform::ui::reticulum_call::consume_duplex_mode_request(
+        &requested_mode));
+    assert(requested_mode == DuplexMode::Half);
+    const uint8_t audio[] = {0x01, 0x02, 0x03};
+    assert(platform::ui::reticulum_call::enqueue_outbound_audio(
+        peer.link_id, audio, sizeof(audio)));
+    platform::ui::reticulum_call::AudioPacket packet{};
+    assert(!platform::ui::reticulum_call::dequeue_outbound_audio(&packet));
+    snapshot = platform::ui::reticulum_call::snapshot();
+    assert(snapshot.tx_dropped == 1);
+
+    platform::ui::reticulum_call::set_ptt_pressed(true);
+    assert(platform::ui::reticulum_call::enqueue_outbound_audio(
+        peer.link_id, audio, sizeof(audio)));
+    assert(platform::ui::reticulum_call::dequeue_outbound_audio(&packet));
+    assert(packet.len == sizeof(audio));
+    platform::ui::reticulum_call::note_tx_sent(packet.len);
+    snapshot = platform::ui::reticulum_call::snapshot();
+    assert(snapshot.ptt_pressed);
+    assert(snapshot.tx_packets == 1);
+    assert(snapshot.tx_bytes == sizeof(audio));
+
+    platform::ui::reticulum_call::set_microphone_muted(true);
+    assert(platform::ui::reticulum_call::enqueue_outbound_audio(
+        peer.link_id, audio, sizeof(audio)));
+    assert(!platform::ui::reticulum_call::dequeue_outbound_audio(&packet));
+    platform::ui::reticulum_call::set_speaker_muted(true);
+    assert(platform::ui::reticulum_call::enqueue_inbound_audio(
+        peer.link_id, audio, sizeof(audio)));
+    assert(!platform::ui::reticulum_call::dequeue_inbound_audio(&packet));
+    snapshot = platform::ui::reticulum_call::snapshot();
+    assert(snapshot.microphone_muted);
+    assert(snapshot.speaker_muted);
+    assert(snapshot.rx_packets == 1);
+    assert(snapshot.rx_dropped == 1);
+    assert(snapshot.rx_bytes == sizeof(audio));
+
     platform::ui::reticulum_call::notify_media_failed();
     snapshot = platform::ui::reticulum_call::snapshot();
     assert(snapshot.state == platform::ui::reticulum_call::State::Failed);

@@ -19,6 +19,7 @@ struct Status
     bool loaded = false;
     bool saved = false;
     bool request_started = false;
+    bool cancelled = false;
     bool busy = false;
     bool truncated = false;
     int progress_percent = -1;
@@ -65,6 +66,12 @@ struct RequestStartResult
 using RequestStartHandler = RequestStartResult (*)(
     const std::uint8_t destination_hash[kReticulumPageDestinationTextSize / 2U],
     const char* path,
+    const std::uint8_t* request_data,
+    std::size_t request_data_len,
+    void* context);
+using RequestCancelHandler = bool (*)(
+    const std::uint8_t destination_hash[kReticulumPageDestinationTextSize / 2U],
+    const char* path,
     void* context);
 
 const char* cache_root_path();
@@ -72,6 +79,7 @@ const char* cache_root_path();
 bool normalize_path(const char* path, char* out_path, std::size_t out_len);
 
 void bind_request_start_handler(RequestStartHandler handler, void* context);
+void bind_request_cancel_handler(RequestCancelHandler handler, void* context);
 
 Status load_cached_page(const char* destination_hash,
                         const char* path,
@@ -97,6 +105,11 @@ Status store_cached_page_now(const char* destination_hash,
 Status clear_cached_page(const char* destination_hash, const char* path);
 
 Status request_page(const char* destination_hash, const char* path);
+Status request_page_with_data(const char* destination_hash,
+                              const char* path,
+                              const std::uint8_t* request_data,
+                              std::size_t request_data_len);
+Status cancel_request(const char* destination_hash, const char* path);
 
 RequestProgress get_request_progress(const char* destination_hash,
                                      const char* path);

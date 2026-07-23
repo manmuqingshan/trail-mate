@@ -27,6 +27,7 @@ struct RuntimeState
     RealtimeHooks realtime_hooks;
     bool hangup_requested = false;
     bool closing_keep_exclusive = false;
+    bool duplex_mode_request_pending = false;
     bool sleep_wake_lease = false;
     bool sleep_wake_lease_applied = false;
     sys::RingBuffer<AudioPacket, kQueueDepth> inbound;
@@ -243,6 +244,7 @@ void close_call(State final_state, bool request_remote_close)
         s_state.snapshot.accepted = false;
         s_state.snapshot.link_active = false;
         s_state.snapshot.state = final_state;
+        s_state.duplex_mode_request_pending = false;
         s_state.snapshot.updated_ms = now_ms();
         s_state.hangup_requested = request_remote_close &&
                                    !hash_is_empty(s_state.snapshot.link_id);
@@ -296,6 +298,26 @@ bool enqueue_packet(sys::RingBuffer<AudioPacket, kQueueDepth>& queue,
         return false;
     }
 
+    if ((inbound && s_state.snapshot.speaker_muted) ||
+        (!inbound &&
+         (s_state.snapshot.microphone_muted ||
+          (s_state.snapshot.duplex_mode == DuplexMode::Half &&
+           !s_state.snapshot.ptt_pressed))))
+    {
+        if (inbound)
+        {
+            ++s_state.snapshot.rx_packets;
+            ++s_state.snapshot.rx_dropped;
+            s_state.snapshot.rx_bytes += static_cast<uint32_t>(len);
+        }
+        else
+        {
+            ++s_state.snapshot.tx_dropped;
+        }
+        s_state.snapshot.updated_ms = now_ms();
+        return true;
+    }
+
     AudioPacket packet{};
     copy_hash(packet.link_id, link_id);
     std::memcpy(packet.data, data, len);
@@ -305,6 +327,7 @@ bool enqueue_packet(sys::RingBuffer<AudioPacket, kQueueDepth>& queue,
     if (inbound)
     {
         ++s_state.snapshot.rx_packets;
+        s_state.snapshot.rx_bytes += static_cast<uint32_t>(len);
         if (dropped)
         {
             ++s_state.snapshot.rx_dropped;
@@ -351,6 +374,69 @@ void set_speaker_volume(uint8_t volume_percent)
     }
 }
 
+void set_microphone_muted(bool muted)
+{
+    std::lock_guard<std::mutex> lock(s_state.mutex);
+    s_state.snapshot.microphone_muted = muted;
+    s_state.snapshot.updated_ms = now_ms();
+}
+
+void set_speaker_muted(bool muted)
+{
+    std::lock_guard<std::mutex> lock(s_state.mutex);
+    s_state.snapshot.speaker_muted = muted;
+    s_state.snapshot.updated_ms = now_ms();
+}
+
+void set_ptt_pressed(bool pressed)
+{
+    std::lock_guard<std::mutex> lock(s_state.mutex);
+    s_state.snapshot.ptt_pressed = pressed;
+    s_state.snapshot.updated_ms = now_ms();
+}
+
+bool set_duplex_mode(DuplexMode mode)
+{
+    std::lock_guard<std::mutex> lock(s_state.mutex);
+    if (s_state.snapshot.state != State::Active)
+    {
+        return false;
+    }
+    if (s_state.snapshot.duplex_mode == mode)
+    {
+        return true;
+    }
+    s_state.snapshot.duplex_mode = mode;
+    s_state.snapshot.ptt_pressed = false;
+    s_state.snapshot.updated_ms = now_ms();
+    s_state.duplex_mode_request_pending = true;
+    return true;
+}
+
+void apply_remote_duplex_mode(DuplexMode mode)
+{
+    std::lock_guard<std::mutex> lock(s_state.mutex);
+    s_state.snapshot.duplex_mode = mode;
+    s_state.snapshot.ptt_pressed = false;
+    s_state.snapshot.updated_ms = now_ms();
+}
+
+bool consume_duplex_mode_request(DuplexMode* out_mode)
+{
+    if (!out_mode)
+    {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(s_state.mutex);
+    if (!s_state.duplex_mode_request_pending)
+    {
+        return false;
+    }
+    *out_mode = s_state.snapshot.duplex_mode;
+    s_state.duplex_mode_request_pending = false;
+    return true;
+}
+
 void set_realtime_hooks(const RealtimeHooks& hooks)
 {
     std::lock_guard<std::mutex> lock(s_state.mutex);
@@ -392,6 +478,7 @@ bool begin_incoming_identifying(const Peer& peer)
             return hashes_equal(s_state.snapshot.link_id, peer.link_id);
         }
         s_state.snapshot = Snapshot{};
+        s_state.duplex_mode_request_pending = false;
         s_state.snapshot.supported = true;
         s_state.snapshot.incoming = true;
         s_state.snapshot.state = State::Incoming;
@@ -490,6 +577,7 @@ bool begin_outgoing(const Peer& peer)
         else
         {
             s_state.snapshot = Snapshot{};
+            s_state.duplex_mode_request_pending = false;
             s_state.snapshot.supported = true;
             s_state.snapshot.incoming = false;
             s_state.snapshot.accepted = true;
@@ -600,6 +688,10 @@ bool mark_call_active(const uint8_t link_id[kHashSize])
     s_state.snapshot.state = State::Active;
     s_state.snapshot.realtime_phase = RealtimePhase::ActiveCall;
     s_state.snapshot.updated_ms = now_ms();
+    if (s_state.snapshot.active_since_ms == 0)
+    {
+        s_state.snapshot.active_since_ms = s_state.snapshot.updated_ms;
+    }
     return true;
 }
 
@@ -843,10 +935,11 @@ bool dequeue_outbound_audio(AudioPacket* out)
     return s_state.outbound.popOldest(out);
 }
 
-void note_tx_sent()
+void note_tx_sent(std::size_t bytes)
 {
     std::lock_guard<std::mutex> lock(s_state.mutex);
     ++s_state.snapshot.tx_packets;
+    s_state.snapshot.tx_bytes += static_cast<uint32_t>(bytes);
     s_state.snapshot.updated_ms = now_ms();
 }
 

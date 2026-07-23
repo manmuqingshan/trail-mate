@@ -49,6 +49,7 @@ enum class EventType : uint8_t
     Timeout,
     LinkClosed,
     ControlRetry,
+    LocalModeSwitch,
 };
 
 struct Event
@@ -69,6 +70,8 @@ enum class Action : uint8_t
     BeginRinging,
     SendRinging,
     SendPreferredProfile,
+    SendPreferences,
+    SendPreferredMode,
     SendConnecting,
     PrepareMedia,
     SendEstablished,
@@ -92,6 +95,7 @@ struct State
     Role role = Role::Caller;
     Phase phase = Phase::Idle;
     uint16_t profile = 0;
+    uint16_t mode = 0;
     uint16_t local_status = 0;
     uint16_t remote_status = 0;
     uint32_t phase_started_ms = 0;

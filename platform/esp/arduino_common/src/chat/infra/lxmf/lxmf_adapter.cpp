@@ -26,6 +26,7 @@
 #include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/reticulum_network_config_runtime.h"
 #include "platform/ui/reticulum_page_runtime.h"
+#include "platform/ui/reticulum_receive_runtime.h"
 #include "platform/ui/screen_runtime.h"
 #include "sys/event_bus.h"
 
@@ -3096,7 +3097,9 @@ MeshActionResult LxmfAdapter::persistReticulumPeer(
 
 MeshActionResult LxmfAdapter::requestNomadPage(
     const uint8_t destination_hash[reticulum::kTruncatedHashSize],
-    const char* path)
+    const char* path,
+    const uint8_t* request_data,
+    std::size_t request_data_len)
 {
     char destination_text[(reticulum::kTruncatedHashSize * 2U) + 1U] = {};
     formatHashHex(destination_hash,
@@ -3112,7 +3115,9 @@ MeshActionResult LxmfAdapter::requestNomadPage(
     if (!destination_hash ||
         isZeroBytes(destination_hash, reticulum::kTruncatedHashSize) ||
         !path || path[0] == '\0' ||
-        std::strlen(path) >= kNomadPagePathMaxLen)
+        std::strlen(path) >= kNomadPagePathMaxLen ||
+        (request_data_len != 0 && !request_data) ||
+        request_data_len > PendingNomadPageRequest::kMaxRequestDataBytes)
     {
         LXMF_NOMAD_PAGE_LOG("queue reject reason=invalid_input dest=%s path=%s\n",
                             destination_text,
@@ -3131,6 +3136,8 @@ MeshActionResult LxmfAdapter::requestNomadPage(
     const runtime::NetworkPageQueueResult queue_result =
         network_page_client_.queue(destination_hash,
                                    path,
+                                   request_data,
+                                   request_data_len,
                                    millis(),
                                    kMaxPendingNomadPageRequests,
                                    kNomadPagePathMaxLen,
@@ -3183,6 +3190,81 @@ MeshActionResult LxmfAdapter::requestNomadPage(
                         static_cast<unsigned>(network_page_client_.size()));
     pumpNomadPageRequests();
     return MeshActionResult::success();
+}
+
+bool LxmfAdapter::cancelNomadPage(
+    const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+    const char* path)
+{
+    PendingNomadPageRequest removed{};
+    if (!network_page_client_.erasePage(destination_hash, path, &removed))
+    {
+        return false;
+    }
+
+    LinkSession* session = link_manager_.findOpenSessionByDestination(
+        destination_hash, LocalDestinationKind::NomadPage);
+    if (!session)
+    {
+        return true;
+    }
+
+    for (std::size_t index = session->incoming_resources.size(); index > 0; --index)
+    {
+        const LinkResourceTransfer& resource =
+            session->incoming_resources[index - 1U];
+        if (!removed.request_sent ||
+            resource.request_id.size() != sizeof(removed.request_id) ||
+            std::memcmp(resource.request_id.data(),
+                        removed.request_id,
+                        sizeof(removed.request_id)) != 0)
+        {
+            continue;
+        }
+        uint8_t resource_hash[reticulum::kFullHashSize] = {};
+        copyHash(resource_hash, resource.resource_hash, sizeof(resource_hash));
+        (void)sendLinkPacket(*session,
+                             reticulum::PacketType::Data,
+                             reticulum::PacketContext::ResourceRcl,
+                             resource_hash,
+                             sizeof(resource_hash),
+                             true);
+        (void)link_manager_.eraseIncomingResource(*session, resource_hash);
+    }
+    session->pending_requests.erase(
+        std::remove_if(
+            session->pending_requests.begin(),
+            session->pending_requests.end(),
+            [&removed](const LinkPendingRequest& request)
+            {
+                return removed.request_sent &&
+                       request.request_id.size() == sizeof(removed.request_id) &&
+                       std::memcmp(request.request_id.data(),
+                                   removed.request_id,
+                                   sizeof(removed.request_id)) == 0;
+            }),
+        session->pending_requests.end());
+    return true;
+}
+
+bool LxmfAdapter::cancelIncomingResource(
+    const uint8_t link_id[reticulum::kTruncatedHashSize],
+    const uint8_t resource_hash[reticulum::kFullHashSize])
+{
+    LinkSession* session = findLinkSession(link_id);
+    if (!session || session->destination != LocalDestinationKind::Delivery ||
+        !link_manager_.findIncomingResource(*session, resource_hash))
+    {
+        return false;
+    }
+    const bool sent = sendLinkPacket(*session,
+                                     reticulum::PacketType::Data,
+                                     reticulum::PacketContext::ResourceRcl,
+                                     resource_hash,
+                                     reticulum::kFullHashSize,
+                                     true);
+    const bool erased = link_manager_.eraseIncomingResource(*session, resource_hash);
+    return sent && erased;
 }
 
 void LxmfAdapter::applyConfig(const MeshConfig& config)
@@ -5540,7 +5622,30 @@ bool LxmfAdapter::handleLinkResourceAdvertisement(LinkSession& session,
                                             kResourceWindowSize);
     if (!incoming_resource)
     {
-        return false;
+        Serial.printf("[LXMF][ResourceRX] adv_reject reason=limits_or_capacity resource=%s "
+                      "parts=%u seg=%u/%u transfer=%u data=%u\n",
+                      resource_prefix,
+                      static_cast<unsigned>(advertisement.part_count),
+                      static_cast<unsigned>(advertisement.segment_index),
+                      static_cast<unsigned>(advertisement.total_segments),
+                      static_cast<unsigned>(advertisement.transfer_size),
+                      static_cast<unsigned>(advertisement.data_size));
+        (void)sendLinkPacket(session,
+                             reticulum::PacketType::Data,
+                             reticulum::PacketContext::ResourceRcl,
+                             advertisement.resource_hash,
+                             reticulum::kFullHashSize,
+                             true);
+        return true;
+    }
+
+    if (session.destination == LocalDestinationKind::Delivery)
+    {
+        ::platform::ui::reticulum_receive::begin(
+            session.link_id,
+            incoming_resource->resource_hash,
+            incoming_resource->part_count,
+            incoming_resource->data_size);
     }
 
     if (session.destination == LocalDestinationKind::NomadPage &&
@@ -5924,6 +6029,25 @@ bool LxmfAdapter::handleLinkResourcePart(LinkSession& session,
                 }
             }
 
+            if (session.destination == LocalDestinationKind::Delivery)
+            {
+                uint32_t received_count = 0;
+                uint32_t received_bytes = 0;
+                for (std::size_t part_index = 0;
+                     part_index < resource.parts.size();
+                     ++part_index)
+                {
+                    if (resource.received_bitmap[part_index] != 0)
+                    {
+                        ++received_count;
+                        received_bytes += static_cast<uint32_t>(
+                            resource.parts[part_index].size());
+                    }
+                }
+                ::platform::ui::reticulum_receive::update(
+                    resource.resource_hash, received_count, received_bytes);
+            }
+
             if (!complete)
             {
                 (void)requestNextResourceWindow(session, resource);
@@ -6149,7 +6273,11 @@ bool LxmfAdapter::handleLinkResourcePart(LinkSession& session,
             else if (session.destination == LocalDestinationKind::Delivery &&
                      !delivery_preaccepted)
             {
-                (void)acceptVerifiedEnvelope(payload_data.data(), payload_data.size(), nullptr, 0);
+                delivery_preaccepted =
+                    acceptVerifiedEnvelope(payload_data.data(),
+                                           payload_data.size(),
+                                           nullptr,
+                                           0);
             }
             else if (session.destination == LocalDestinationKind::Propagation)
             {
@@ -6159,6 +6287,13 @@ bool LxmfAdapter::handleLinkResourcePart(LinkSession& session,
                                                  payload_data.data(),
                                                  payload_data.size());
                 }
+            }
+
+            if (session.destination == LocalDestinationKind::Delivery &&
+                delivery_preaccepted)
+            {
+                ::platform::ui::reticulum_receive::complete(
+                    resource.resource_hash);
             }
 
             handled_resource_part = true;
@@ -7911,9 +8046,9 @@ bool LxmfAdapter::sendNomadPageRequestPacket(
     size_t request_payload_len = sizeof(scratch_.nomad_page_request_payload);
     if (!encodeLinkRequestPayload(static_cast<double>(currentTimestampSeconds()),
                                   path_hash,
-                                  nullptr,
-                                  0,
-                                  true,
+                                  request.request_data,
+                                  request.request_data_len,
+                                  request.request_data_len == 0,
                                   scratch_.nomad_page_request_payload,
                                   &request_payload_len) ||
         request_payload_len > session.mdu)

@@ -165,6 +165,31 @@ bool LxmfAdapter::sendLxstSignal(LinkSession& session,
     return sent;
 }
 
+bool LxmfAdapter::sendLxstSignals(LinkSession& session,
+                                  const uint16_t* signals,
+                                  std::size_t signal_count,
+                                  bool call_admission_control)
+{
+    if (!lxst_telephony_client_.isSidebandSession(session))
+    {
+        return false;
+    }
+    uint8_t* scratch = nullptr;
+    size_t payload_len = 0;
+    if (!lxst_telephony_client_.encodeSignals(
+            signals, signal_count, &scratch, &payload_len))
+    {
+        return false;
+    }
+    return sendLinkPacket(session,
+                          reticulum::PacketType::Data,
+                          reticulum::PacketContext::None,
+                          scratch,
+                          payload_len,
+                          true,
+                          call_admission_control);
+}
+
 bool LxmfAdapter::dispatchLxstCallEvent(
     LinkSession& session,
     const reticulum::lxst::call::Event& event)
@@ -245,6 +270,25 @@ bool LxmfAdapter::dispatchLxstCallEvent(
                 session,
                 reticulum::lxst::kPreferredProfile +
                     lxst_telephony_client_.profile(session),
+                true);
+            break;
+        case reticulum::lxst::call::Action::SendPreferences:
+        {
+            const uint16_t preferences[] = {
+                static_cast<uint16_t>(reticulum::lxst::kPreferredProfile +
+                                      lxst_telephony_client_.profile(session)),
+                static_cast<uint16_t>(reticulum::lxst::kPreferredMode +
+                                      lxst_telephony_client_.mode(session)),
+            };
+            action_ok = sendLxstSignals(
+                session, preferences, 2, true);
+            break;
+        }
+        case reticulum::lxst::call::Action::SendPreferredMode:
+            action_ok = sendLxstSignal(
+                session,
+                reticulum::lxst::kPreferredMode +
+                    lxst_telephony_client_.mode(session),
                 true);
             break;
         case reticulum::lxst::call::Action::SendConnecting:
@@ -328,11 +372,24 @@ bool LxmfAdapter::handleLxstPacket(LinkSession& session,
         (void)dispatchLxstCallEvent(
             session,
             reticulum::lxst::call::Event::remoteSignal(signal));
-        if (signal >= reticulum::lxst::kPreferredProfile)
+        if (signal >= reticulum::lxst::kPreferredMode)
         {
             updateCallRuntimePeer(
                 session,
                 destination_registry_.findByIdentityHash(session.remote_identity_hash));
+        }
+        if (signal >= reticulum::lxst::kPreferredMode &&
+            signal < reticulum::lxst::kPreferredProfile)
+        {
+            const uint16_t mode = signal - reticulum::lxst::kPreferredMode;
+            if (mode == reticulum::lxst::kModeFullDuplex ||
+                mode == reticulum::lxst::kModeHalfDuplex)
+            {
+                ::platform::ui::reticulum_call::apply_remote_duplex_mode(
+                    mode == reticulum::lxst::kModeHalfDuplex
+                        ? ::platform::ui::reticulum_call::DuplexMode::Half
+                        : ::platform::ui::reticulum_call::DuplexMode::Full);
+            }
         }
     }
 
@@ -524,6 +581,21 @@ void LxmfAdapter::pumpReticulumAudioCall()
         return;
     }
 
+    ::platform::ui::reticulum_call::DuplexMode requested_mode{};
+    if (::platform::ui::reticulum_call::consume_duplex_mode_request(
+            &requested_mode))
+    {
+        LinkSession* session = findLinkSession(call_snapshot.link_id);
+        if (session &&
+            session->call_wire_profile == ReticulumCallWireProfile::SidebandLxst)
+        {
+            (void)dispatchLxstCallEvent(
+                *session,
+                {reticulum::lxst::call::EventType::LocalModeSwitch,
+                 static_cast<uint16_t>(requested_mode)});
+        }
+    }
+
     uint8_t sent_packets = 0;
     ::platform::ui::reticulum_call::AudioPacket audio{};
     while (sent_packets < 2 &&
@@ -539,7 +611,7 @@ void LxmfAdapter::pumpReticulumAudioCall()
 
         if (sendCallAudioPacket(*session, audio.data, audio.len))
         {
-            ::platform::ui::reticulum_call::note_tx_sent();
+            ::platform::ui::reticulum_call::note_tx_sent(audio.len);
             ++sent_packets;
         }
     }

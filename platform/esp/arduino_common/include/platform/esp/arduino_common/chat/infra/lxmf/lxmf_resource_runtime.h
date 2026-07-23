@@ -15,6 +15,12 @@ namespace chat::lxmf::runtime
 {
 
 constexpr std::size_t kResourceMapHashLen = 4;
+// RNS 1.4 rejects advertisements above three times MAX_EFFICIENT_SIZE.
+// Keep the same wire ceiling and a separate allocation ceiling for ESP.
+constexpr uint32_t kMaxAdvertisedResourceBytes = 3U * 1024U * 1024U;
+constexpr uint32_t kMaxIncomingResourceParts = 8192U;
+constexpr uint32_t kMaxIncomingResourceSegments = 256U;
+constexpr uint32_t kMaxIncomingResourceWindow = 64U;
 
 struct ResourceRuntimeLimits
 {

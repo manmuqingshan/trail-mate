@@ -84,7 +84,15 @@ class LxmfAdapter : public IMeshAdapter, private runtime::IPeerProjectionSink
         bool favorite) override;
     MeshActionResult requestNomadPage(
         const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+        const char* path,
+        const uint8_t* request_data = nullptr,
+        std::size_t request_data_len = 0);
+    bool cancelNomadPage(
+        const uint8_t destination_hash[reticulum::kTruncatedHashSize],
         const char* path);
+    bool cancelIncomingResource(
+        const uint8_t link_id[reticulum::kTruncatedHashSize],
+        const uint8_t resource_hash[reticulum::kFullHashSize]);
     void applyConfig(const MeshConfig& config) override;
     void setUserInfo(const char* long_name, const char* short_name) override;
     bool setWifiTransportEnabled(bool enabled) override;
@@ -405,6 +413,10 @@ class LxmfAdapter : public IMeshAdapter, private runtime::IPeerProjectionSink
     bool sendLxstSignal(LinkSession& session,
                         uint16_t signal,
                         bool call_admission_control = false);
+    bool sendLxstSignals(LinkSession& session,
+                         const uint16_t* signals,
+                         std::size_t signal_count,
+                         bool call_admission_control = false);
     bool dispatchLxstCallEvent(
         LinkSession& session,
         const reticulum::lxst::call::Event& event);

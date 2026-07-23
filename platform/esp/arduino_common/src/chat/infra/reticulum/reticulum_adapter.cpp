@@ -6,6 +6,7 @@
 #include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_adapter.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_adapter.h"
 #include "platform/ui/reticulum_page_runtime.h"
+#include "platform/ui/reticulum_receive_runtime.h"
 
 namespace chat::reticulum
 {
@@ -47,6 +48,8 @@ rtpage::RequestStartCode pageRequestCodeFromFailure(MeshOperationFailure failure
 rtpage::RequestStartResult startNomadPageRequest(
     const uint8_t destination_hash[rtpage::kReticulumPageDestinationTextSize / 2U],
     const char* path,
+    const uint8_t* request_data,
+    std::size_t request_data_len,
     void* context)
 {
     rtpage::RequestStartResult out{};
@@ -58,7 +61,10 @@ rtpage::RequestStartResult startNomadPageRequest(
     }
 
     const MeshActionResult result =
-        service->requestNomadPage(destination_hash, path);
+        service->requestNomadPage(destination_hash,
+                                  path,
+                                  request_data,
+                                  request_data_len);
     if (result.ok)
     {
         out.code = result.detail == 1 ? rtpage::RequestStartCode::AlreadyPending
@@ -72,6 +78,24 @@ rtpage::RequestStartResult startNomadPageRequest(
     return out;
 }
 
+bool cancelNomadPageRequest(
+    const uint8_t destination_hash[rtpage::kReticulumPageDestinationTextSize / 2U],
+    const char* path,
+    void* context)
+{
+    auto* service = static_cast<lxmf::LxmfAdapter*>(context);
+    return service && service->cancelNomadPage(destination_hash, path);
+}
+
+bool cancelIncomingResource(
+    const uint8_t link_id[::platform::ui::reticulum_receive::kHashSize],
+    const uint8_t resource_hash[32],
+    void* context)
+{
+    auto* service = static_cast<lxmf::LxmfAdapter*>(context);
+    return service && service->cancelIncomingResource(link_id, resource_hash);
+}
+
 } // namespace
 
 ReticulumAdapter::ReticulumAdapter(LoraBoard& board,
@@ -79,11 +103,16 @@ ReticulumAdapter::ReticulumAdapter(LoraBoard& board,
     : service_(new lxmf::LxmfAdapter(board, peer_directory))
 {
     rtpage::bind_request_start_handler(startNomadPageRequest, service_.get());
+    rtpage::bind_request_cancel_handler(cancelNomadPageRequest, service_.get());
+    ::platform::ui::reticulum_receive::bind_cancel_handler(
+        cancelIncomingResource, service_.get());
 }
 
 ReticulumAdapter::~ReticulumAdapter()
 {
     rtpage::bind_request_start_handler(nullptr, nullptr);
+    rtpage::bind_request_cancel_handler(nullptr, nullptr);
+    ::platform::ui::reticulum_receive::bind_cancel_handler(nullptr, nullptr);
 }
 
 MeshCapabilities ReticulumAdapter::getCapabilities() const

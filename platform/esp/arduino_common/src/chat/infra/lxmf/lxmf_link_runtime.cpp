@@ -222,11 +222,17 @@ LinkRuntimeMaintenance advanceLinkSessionLifecycle(LinkSession& session,
 
     if (session.state == LinkState::Active)
     {
+        const uint32_t outbound_age_ms = ageSince(now_ms, session.last_outbound_ms);
         maintenance.flush_deferred_payloads = true;
+        // RNS 1.4 initiators keep the link alive when either receive or send
+        // traffic has been quiet for one keepalive interval. Checking only
+        // inbound traffic lets a chatty responder mask an otherwise silent
+        // initiator and eventually time the responder out.
         maintenance.send_keepalive =
             session.initiator &&
             session.keepalive_interval_ms != 0 &&
-            inbound_age_ms >= session.keepalive_interval_ms &&
+            (inbound_age_ms >= session.keepalive_interval_ms ||
+             outbound_age_ms >= session.keepalive_interval_ms) &&
             (session.last_keepalive_ms == 0 ||
              ageSince(now_ms, session.last_keepalive_ms) >= session.keepalive_interval_ms);
 

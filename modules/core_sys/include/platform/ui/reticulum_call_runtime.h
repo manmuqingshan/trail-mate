@@ -49,6 +49,12 @@ enum class WireProfile : uint8_t
     MeshChatCallAudio = 1,
 };
 
+enum class DuplexMode : uint8_t
+{
+    Full = 1,
+    Half = 2,
+};
+
 struct Peer
 {
     uint8_t link_id[kHashSize] = {};
@@ -73,6 +79,10 @@ struct Snapshot
     WireProfile wire_profile = WireProfile::SidebandLxst;
     Codec2Mode codec2_mode = Codec2Mode::Mode3200;
     RealtimePhase realtime_phase = RealtimePhase::Idle;
+    DuplexMode duplex_mode = DuplexMode::Full;
+    bool microphone_muted = false;
+    bool speaker_muted = false;
+    bool ptt_pressed = false;
     uint8_t link_id[kHashSize] = {};
     uint8_t peer_destination_hash[kHashSize] = {};
     uint8_t peer_identity_hash[kHashSize] = {};
@@ -82,6 +92,9 @@ struct Snapshot
     uint32_t tx_packets = 0;
     uint32_t rx_dropped = 0;
     uint32_t tx_dropped = 0;
+    uint32_t rx_bytes = 0;
+    uint32_t tx_bytes = 0;
+    uint32_t active_since_ms = 0;
 };
 
 struct AudioPacket
@@ -114,6 +127,12 @@ void set_media_hooks(const MediaHooks& hooks);
 void set_realtime_hooks(const RealtimeHooks& hooks);
 uint8_t speaker_volume();
 void set_speaker_volume(uint8_t volume_percent);
+void set_microphone_muted(bool muted);
+void set_speaker_muted(bool muted);
+void set_ptt_pressed(bool pressed);
+bool set_duplex_mode(DuplexMode mode);
+void apply_remote_duplex_mode(DuplexMode mode);
+bool consume_duplex_mode_request(DuplexMode* out_mode);
 void set_wifi_ready(bool ready);
 
 bool begin_incoming(const Peer& peer);
@@ -151,6 +170,6 @@ bool enqueue_outbound_audio(const uint8_t link_id[kHashSize],
                             const uint8_t* data,
                             std::size_t len);
 bool dequeue_outbound_audio(AudioPacket* out);
-void note_tx_sent();
+void note_tx_sent(std::size_t bytes = 0);
 
 } // namespace platform::ui::reticulum_call

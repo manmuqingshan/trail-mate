@@ -182,6 +182,7 @@ class UiController : public IChatUiRefreshSink
     ::ui::chat::ChatWorkspaceSnapshot team_chat_snapshot_buffer_{};
     bool conversation_list_dirty_ = true;
     bool conversation_list_loaded_ = false;
+    bool receive_status_visible_ = false;
 
     static void key_verify_submit_event_cb(lv_event_t* e);
     static void key_verify_close_event_cb(lv_event_t* e);

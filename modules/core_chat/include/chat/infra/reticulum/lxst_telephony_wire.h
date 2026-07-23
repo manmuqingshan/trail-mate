@@ -20,7 +20,12 @@ constexpr uint16_t kStatusAvailable = 0x03;
 constexpr uint16_t kStatusRinging = 0x04;
 constexpr uint16_t kStatusConnecting = 0x05;
 constexpr uint16_t kStatusEstablished = 0x06;
+constexpr uint16_t kPreferredMode = 0xF0;
 constexpr uint16_t kPreferredProfile = 0xFF;
+
+constexpr uint16_t kModeFullDuplex = 0x01;
+constexpr uint16_t kModeHalfDuplex = 0x02;
+constexpr uint16_t kDefaultMode = kModeFullDuplex;
 
 constexpr uint16_t kProfileBandwidthUltraLow = 0x10;
 constexpr uint16_t kProfileBandwidthVeryLow = 0x20;
@@ -61,6 +66,10 @@ bool codec2ModeToProfile(audio_call::Codec2Mode mode,
                          uint16_t* out_profile);
 
 bool encodeSignalling(uint16_t signal,
+                      uint8_t* out,
+                      std::size_t* inout_len);
+bool encodeSignalling(const uint16_t* signals,
+                      std::size_t signal_count,
                       uint8_t* out,
                       std::size_t* inout_len);
 bool encodeCodec2Frames(audio_call::Codec2Mode mode,

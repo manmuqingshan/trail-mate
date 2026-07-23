@@ -198,9 +198,17 @@ bool initialiseIncomingResourceTransfer(
     uint32_t now_ms,
     uint32_t window_size)
 {
+    const uint32_t effective_segments = total_segments == 0 ? 1U : total_segments;
     if (!resource_hash || !random_hash || !original_hash || part_count == 0 ||
         (request_id_len != 0 && !request_id) || !hashmap || hashmap_len == 0 ||
-        (hashmap_len % kResourceMapHashLen) != 0)
+        (hashmap_len % kResourceMapHashLen) != 0 ||
+        data_size > kMaxAdvertisedResourceBytes ||
+        transfer_size > kMaxAdvertisedResourceBytes ||
+        part_count > kMaxIncomingResourceParts ||
+        hashmap_len > static_cast<std::size_t>(part_count) * kResourceMapHashLen ||
+        effective_segments > kMaxIncomingResourceSegments ||
+        segment_index == 0 || segment_index > effective_segments || window_size == 0 ||
+        window_size > kMaxIncomingResourceWindow)
     {
         return false;
     }

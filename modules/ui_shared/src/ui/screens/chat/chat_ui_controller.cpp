@@ -11,6 +11,7 @@
 #include "chat/usecase/contact_service.h"
 #include "chat_presentation_adapters/chat_conversation_mapper.h"
 #include "platform/ui/reticulum_directory_runtime.h"
+#include "platform/ui/reticulum_receive_runtime.h"
 #include "platform/ui/screen_runtime.h"
 #include "sys/event_bus.h"
 #include "ui/app_runtime.h"
@@ -784,6 +785,24 @@ void UiController::update()
 {
     // Refresh UI only when an event marks the conversation list dirty.
     refreshUnreadCounts(false);
+    const auto receive = ::platform::ui::reticulum_receive::snapshot();
+    if (state_ == State::Conversation && conversation_ &&
+        (receive.active || receive_status_visible_))
+    {
+        char status[40] = {};
+        if (receive.active)
+        {
+            std::snprintf(status,
+                          sizeof(status),
+                          "RX %d%% C:cancel",
+                          receive.progress_percent >= 0
+                              ? receive.progress_percent
+                              : 0);
+        }
+        const std::string title = resolveConversationDisplayName(current_conv_);
+        conversation_->setHeaderText(title.c_str(), status);
+        receive_status_visible_ = receive.active;
+    }
 }
 
 void UiController::onChannelClicked(chat::ConversationId conv)
@@ -848,7 +867,17 @@ void UiController::onInput(const sys::InputEvent& event)
         break;
 
     case State::Conversation:
-        if (event.input_type == sys::InputEvent::KeyPress && event.value == 27)
+        if (event.input_type == sys::InputEvent::KeyPress &&
+            (event.value == 'c' || event.value == 'C') &&
+            ::platform::ui::reticulum_receive::snapshot().active)
+        {
+            const bool cancelled = ::platform::ui::reticulum_receive::cancel();
+            ::ui::feedback::show_notice(
+                cancelled ? "Incoming message cancelled"
+                          : "Unable to cancel incoming message",
+                1600);
+        }
+        else if (event.input_type == sys::InputEvent::KeyPress && event.value == 27)
         {
             // ESC - return to channel list
             switchToChannelList();

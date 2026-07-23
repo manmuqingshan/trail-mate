@@ -17,6 +17,7 @@ namespace chat::lxmf::runtime
 
 struct PendingNomadPageRequest
 {
+    static constexpr std::size_t kMaxRequestDataBytes = 256;
     uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
     uint8_t request_id[reticulum::kTruncatedHashSize] = {};
     char path[64] = {};
@@ -26,6 +27,8 @@ struct PendingNomadPageRequest
     bool path_requested = false;
     bool link_started = false;
     bool request_sent = false;
+    uint8_t request_data[kMaxRequestDataBytes] = {};
+    std::size_t request_data_len = 0;
 };
 
 using PendingNomadPageRequestList =
@@ -56,6 +59,8 @@ class NetworkPageClient
     NetworkPageQueueResult queue(
         const uint8_t destination_hash[reticulum::kTruncatedHashSize],
         const char* path,
+        const uint8_t* request_data,
+        std::size_t request_data_len,
         uint32_t now_ms,
         std::size_t max_pending,
         std::size_t max_path_len,
@@ -64,6 +69,10 @@ class NetworkPageClient
     PendingNomadPageRequest* at(std::size_t index);
     const PendingNomadPageRequest* at(std::size_t index) const;
     void eraseAt(std::size_t index);
+    bool erasePage(
+        const uint8_t destination_hash[reticulum::kTruncatedHashSize],
+        const char* path,
+        PendingNomadPageRequest* out_removed = nullptr);
 
     PendingNomadPageRequest* findByRequestId(
         const uint8_t destination_hash[reticulum::kTruncatedHashSize],
