@@ -19,17 +19,42 @@ bool envFlag(const char* name, bool fallback)
            text == "on" || text == "ON";
 }
 
+int envInt(const char* name, int fallback)
+{
+    const char* value = std::getenv(name);
+    if (value == nullptr || *value == '\0')
+    {
+        return fallback;
+    }
+    try
+    {
+        return std::stoi(value);
+    }
+    catch (...)
+    {
+        return fallback;
+    }
+}
+
 } // namespace
 
 int main()
 {
+    const bool fullscreen =
+        envFlag("TRAIL_MATE_UCONSOLE_FULLSCREEN", false);
+    const int width = envInt("TRAIL_MATE_UCONSOLE_WIDTH", 1280);
+    // The Wayland desktop reserves the panel and native titlebar outside the
+    // SDL client area. Fit the logical canvas to the remaining 658px so the
+    // shell footer remains visible on the 1280x720 uConsole output.
+    const int height = envInt("TRAIL_MATE_UCONSOLE_HEIGHT",
+                              fullscreen ? 720 : 658);
     trailmate::uconsole::desktop::SdlWindowPresenter window{
-        {.width = 1280,
-         .height = 720,
+        {.width = width,
+         .height = height,
          .scale = 1,
-         .fullscreen = envFlag("TRAIL_MATE_UCONSOLE_FULLSCREEN", false),
+         .fullscreen = fullscreen,
          .title = "Trail Mate uConsole"}};
     trailmate::uconsole::runUConsoleShell(
-        window, {.width = 1280, .height = 720, .frame_time_ms = 16});
+        window, {.width = width, .height = height, .frame_time_ms = 16});
     return 0;
 }
