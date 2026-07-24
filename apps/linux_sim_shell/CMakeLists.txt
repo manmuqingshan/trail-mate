@@ -935,6 +935,14 @@ if(BUILD_TESTING)
              COMMAND trailmate_boot_network_independence_contract_smoke
                      "${TRAIL_MATE_REPO_ROOT}")
 
+    add_executable(trailmate_screen_sleep_wake_race_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_screen_sleep_wake_race_contract.cpp")
+    target_compile_features(trailmate_screen_sleep_wake_race_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_screen_sleep_wake_race_contract_smoke
+             COMMAND trailmate_screen_sleep_wake_race_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
     add_executable(trailmate_network_micron_markup_contract_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_network_micron_markup_contract.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/screens/network/micron_markup_contract.cpp")

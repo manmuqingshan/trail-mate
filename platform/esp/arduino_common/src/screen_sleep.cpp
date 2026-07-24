@@ -41,6 +41,46 @@ uint8_t s_saved_keyboard_brightness = 127;
 bool s_screen_saver_active = false;
 lv_timer_t* s_screen_saver_timer = nullptr;
 
+enum class ScreenHardwareActionKind : uint8_t
+{
+    None,
+    EnterSleep,
+    ExitSleep,
+};
+
+struct ScreenHardwareAction
+{
+    ScreenHardwareActionKind kind = ScreenHardwareActionKind::None;
+    uint8_t screen_brightness = 0;
+    uint8_t keyboard_brightness = 0;
+    bool has_keyboard = false;
+};
+
+void apply_screen_hardware_action(const ScreenHardwareAction& action)
+{
+    switch (action.kind)
+    {
+    case ScreenHardwareActionKind::EnterSleep:
+        if (action.has_keyboard)
+        {
+            board.keyboardSetBrightness(0);
+        }
+        board.setBrightness(0);
+        board.enterScreenSleep();
+        break;
+    case ScreenHardwareActionKind::ExitSleep:
+        board.exitScreenSleep();
+        board.setBrightness(action.screen_brightness);
+        if (action.has_keyboard)
+        {
+            board.keyboardSetBrightness(action.keyboard_brightness);
+        }
+        break;
+    case ScreenHardwareActionKind::None:
+        break;
+    }
+}
+
 uint32_t readPersistedScreenTimeoutMs()
 {
     const uint32_t value =
@@ -138,22 +178,20 @@ void refresh_active_screen()
 
 void screen_saver_timer_cb(lv_timer_t* /*timer*/)
 {
+    ScreenHardwareAction action{};
     if (s_activity_mutex != nullptr)
     {
-        if (xSemaphoreTake(s_activity_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
+        if (xSemaphoreTake(s_activity_mutex, portMAX_DELAY) == pdTRUE)
         {
             s_screen_saver_active = false;
             s_screen_sleeping = true;
+            action.kind = ScreenHardwareActionKind::EnterSleep;
+            action.has_keyboard = board.hasKeyboard();
             xSemaphoreGive(s_activity_mutex);
         }
     }
     hide_screen_saver_layer();
-    if (board.hasKeyboard())
-    {
-        board.keyboardSetBrightness(0);
-    }
-    board.setBrightness(0);
-    board.enterScreenSleep();
+    apply_screen_hardware_action(action);
 }
 
 void screenSleepTask(void* pvParameters)
@@ -164,60 +202,64 @@ void screenSleepTask(void* pvParameters)
 
     while (true)
     {
+        ScreenHardwareAction action{};
+        bool sample_sleep_brightness = false;
+        const uint32_t current_time = millis();
+        const uint32_t current_timeout = getScreenSleepTimeout();
+
         if (s_activity_mutex != nullptr)
         {
-            if (xSemaphoreTake(s_activity_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
+            if (xSemaphoreTake(s_activity_mutex, portMAX_DELAY) == pdTRUE)
             {
-                const uint32_t current_time = millis();
                 const uint32_t time_since_activity = current_time - s_last_user_activity_time;
-                const uint32_t current_timeout = getScreenSleepTimeout();
-
                 const bool sleep_disabled = s_screen_sleep_disable_depth > 0;
                 if (sleep_disabled)
                 {
                     if (s_screen_sleeping && !s_screen_saver_active)
                     {
                         s_screen_sleeping = false;
-                        board.exitScreenSleep();
-                        board.setBrightness(s_saved_screen_brightness);
-                        if (board.hasKeyboard())
-                        {
-                            board.keyboardSetBrightness(s_saved_keyboard_brightness);
-                        }
+                        action.kind = ScreenHardwareActionKind::ExitSleep;
+                        action.screen_brightness = s_saved_screen_brightness;
+                        action.keyboard_brightness = s_saved_keyboard_brightness;
+                        action.has_keyboard = board.hasKeyboard();
                     }
-                    xSemaphoreGive(s_activity_mutex);
                 }
-                else
+                else if (!s_screen_sleeping && time_since_activity >= current_timeout)
                 {
-                    if (!s_screen_sleeping && time_since_activity >= current_timeout)
-                    {
-                        s_screen_sleeping = true;
-                        if (board.hasKeyboard())
-                        {
-                            s_saved_keyboard_brightness = board.keyboardGetBrightness();
-                            board.keyboardSetBrightness(0);
-                        }
-                        s_saved_screen_brightness = board.getBrightness();
-                        board.setBrightness(0);
-                        board.enterScreenSleep();
-                    }
-                    else if (s_screen_sleeping && !s_screen_saver_active &&
-                             time_since_activity < current_timeout)
-                    {
-                        s_screen_sleeping = false;
-                        board.exitScreenSleep();
-                        board.setBrightness(s_saved_screen_brightness);
-                        if (board.hasKeyboard())
-                        {
-                            board.keyboardSetBrightness(s_saved_keyboard_brightness);
-                        }
-                    }
-
-                    xSemaphoreGive(s_activity_mutex);
+                    sample_sleep_brightness = true;
                 }
+                xSemaphoreGive(s_activity_mutex);
             }
         }
 
+        if (sample_sleep_brightness)
+        {
+            const bool has_keyboard = board.hasKeyboard();
+            const uint8_t screen_brightness = board.getBrightness();
+            const uint8_t keyboard_brightness =
+                has_keyboard ? board.keyboardGetBrightness() : 0;
+
+            if (xSemaphoreTake(s_activity_mutex, portMAX_DELAY) == pdTRUE)
+            {
+                const uint32_t verified_time_since_activity =
+                    millis() - s_last_user_activity_time;
+                const bool still_sleep_eligible =
+                    s_screen_sleep_disable_depth == 0 &&
+                    !s_screen_sleeping &&
+                    verified_time_since_activity >= getScreenSleepTimeout();
+                if (still_sleep_eligible)
+                {
+                    s_screen_sleeping = true;
+                    s_saved_screen_brightness = screen_brightness;
+                    s_saved_keyboard_brightness = keyboard_brightness;
+                    action.kind = ScreenHardwareActionKind::EnterSleep;
+                    action.has_keyboard = has_keyboard;
+                }
+                xSemaphoreGive(s_activity_mutex);
+            }
+        }
+
+        apply_screen_hardware_action(action);
         vTaskDelayUntil(&last_wake_time, check_interval);
     }
 }
@@ -331,26 +373,29 @@ bool isScreenSaverActive()
 
 void wakeScreenSaver()
 {
-    if (s_screen_sleep_disable_depth > 0)
+    if (s_activity_mutex == nullptr)
     {
-        updateUserActivity();
         return;
     }
 
     bool was_sleeping = false;
-    if (s_activity_mutex != nullptr)
+    if (xSemaphoreTake(s_activity_mutex, portMAX_DELAY) == pdTRUE)
     {
-        if (xSemaphoreTake(s_activity_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
+        if (s_screen_sleep_disable_depth > 0)
         {
-            was_sleeping = s_screen_sleeping;
-            s_screen_saver_active = true;
-            // Keep the runtime in the logical sleep state while the transient
-            // saver is visible. This matches the 0.1.13 behavior: waking only
-            // shows the saver shell, and if the user does nothing for 3s we go
-            // right back to sleep instead of being treated as fully awake.
-            s_screen_sleeping = true;
+            s_last_user_activity_time = millis();
             xSemaphoreGive(s_activity_mutex);
+            return;
         }
+
+        was_sleeping = s_screen_sleeping;
+        s_screen_saver_active = true;
+        // Keep the runtime in the logical sleep state while the transient
+        // saver is visible. This matches the 0.1.13 behavior: waking only
+        // shows the saver shell, and if the user does nothing for 3s we go
+        // right back to sleep instead of being treated as fully awake.
+        s_screen_sleeping = true;
+        xSemaphoreGive(s_activity_mutex);
     }
 
     if (was_sleeping)
@@ -412,6 +457,7 @@ void wakeScreenForModal()
 void disableScreenSleep()
 {
     bool hide_saver = false;
+    ScreenHardwareAction action{};
     if (s_activity_mutex != nullptr)
     {
         if (xSemaphoreTake(s_activity_mutex, portMAX_DELAY) == pdTRUE)
@@ -430,11 +476,10 @@ void disableScreenSleep()
             if (!was_disabled && s_screen_sleeping)
             {
                 s_screen_sleeping = false;
-                board.setBrightness(s_saved_screen_brightness);
-                if (board.hasKeyboard())
-                {
-                    board.keyboardSetBrightness(s_saved_keyboard_brightness);
-                }
+                action.kind = ScreenHardwareActionKind::ExitSleep;
+                action.screen_brightness = s_saved_screen_brightness;
+                action.keyboard_brightness = s_saved_keyboard_brightness;
+                action.has_keyboard = board.hasKeyboard();
             }
             xSemaphoreGive(s_activity_mutex);
         }
@@ -443,6 +488,7 @@ void disableScreenSleep()
     {
         hide_screen_saver_layer();
     }
+    apply_screen_hardware_action(action);
 }
 
 void enableScreenSleep()
@@ -483,9 +529,10 @@ void updateUserActivity()
     bool woke_from_sleep = false;
     bool hide_saver = false;
     bool restore_sleep_state = false;
+    ScreenHardwareAction action{};
     if (s_activity_mutex != nullptr)
     {
-        if (xSemaphoreTake(s_activity_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
+        if (xSemaphoreTake(s_activity_mutex, portMAX_DELAY) == pdTRUE)
         {
             s_last_user_activity_time = millis();
             if (s_screen_saver_active)
@@ -498,6 +545,10 @@ void updateUserActivity()
                 s_screen_saver_active = true;
                 woke_from_sleep = true;
                 restore_sleep_state = true;
+                action.kind = ScreenHardwareActionKind::ExitSleep;
+                action.screen_brightness = s_saved_screen_brightness;
+                action.keyboard_brightness = s_saved_keyboard_brightness;
+                action.has_keyboard = board.hasKeyboard();
             }
             xSemaphoreGive(s_activity_mutex);
         }
@@ -509,12 +560,7 @@ void updateUserActivity()
     }
     if (restore_sleep_state)
     {
-        board.exitScreenSleep();
-        board.setBrightness(s_saved_screen_brightness);
-        if (board.hasKeyboard())
-        {
-            board.keyboardSetBrightness(s_saved_keyboard_brightness);
-        }
+        apply_screen_hardware_action(action);
     }
     if (woke_from_sleep)
     {
