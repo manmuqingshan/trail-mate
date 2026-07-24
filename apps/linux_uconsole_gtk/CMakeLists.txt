@@ -15,10 +15,15 @@ set(TRAIL_MATE_UCONSOLE_PACKAGE_VERSION "0.1.0"
     CACHE STRING "Debian package version for trailmate-uconsole")
 option(TRAIL_MATE_UCONSOLE_BUILD_REAL_GTK_UI
     "Build the restored uConsole GTK executable when Linux GTK4 is available."
-    ON)
+    OFF)
 option(TRAIL_MATE_UCONSOLE_BUILD_SDL_SCREENSHOT_CAPTURE
     "Build the SDL-rendered uConsole screenshot capture tool."
     OFF)
+option(TRAIL_MATE_UCONSOLE_BUILD_SDL_UI
+    "Build the SDL-rendered uConsole desktop executable."
+    ON)
+set(TRAIL_MATE_SDL3_SOURCE_DIR ""
+    CACHE PATH "Optional SDL3 source tree used when SDL3 is not installed.")
 
 set(TRAIL_MATE_UCONSOLE_REAL_GTK_SOURCES
     src/platform/gtk/gtk_uconsole_app.cpp
@@ -104,7 +109,7 @@ if(TRAIL_MATE_UCONSOLE_BUILD_REAL_GTK_UI AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
             PUBLIC trailmate_uconsole_linux_common)
         trailmate_apply_linux_common_warnings(trailmate_uconsole_runtime_models)
 
-        add_executable(trailmate_uconsole
+        add_executable(trailmate_uconsole_gtk
             ${TRAIL_MATE_UCONSOLE_REAL_GTK_SOURCES}
             src/targets/uconsole_main.cpp)
         target_include_directories(trailmate_uconsole
@@ -117,8 +122,8 @@ if(TRAIL_MATE_UCONSOLE_BUILD_REAL_GTK_UI AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
                 trailmate_uconsole_runtime_models
                 trailmate_linux_uconsole_gtk_shell)
         target_compile_features(trailmate_uconsole PRIVATE cxx_std_20)
-        set_target_properties(trailmate_uconsole
-            PROPERTIES OUTPUT_NAME "trailmate-uconsole")
+        set_target_properties(trailmate_uconsole_gtk
+            PROPERTIES OUTPUT_NAME "trailmate-uconsole-gtk")
 
         add_executable(trailmate_sx1262_probe
             tools/sx1262_probe.cpp)
@@ -165,7 +170,7 @@ if(TRAIL_MATE_UCONSOLE_BUILD_REAL_GTK_UI AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
                      COMMAND trailmate_uconsole_chat_sqlite_store_smoke)
         endif()
 
-        install(TARGETS trailmate_uconsole trailmate_sx1262_probe
+        install(TARGETS trailmate_uconsole_gtk trailmate_sx1262_probe
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
         install(FILES README.md
             DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/trailmate-uconsole")
@@ -201,7 +206,17 @@ else()
     message(STATUS "Restored uConsole GTK executable is enabled only on Linux GTK4 hosts.")
 endif()
 
-if(TRAIL_MATE_UCONSOLE_BUILD_SDL_SCREENSHOT_CAPTURE)
+if(TRAIL_MATE_UCONSOLE_BUILD_SDL_UI OR
+   TRAIL_MATE_UCONSOLE_BUILD_SDL_SCREENSHOT_CAPTURE)
+    if(NOT TARGET SDL3::SDL3 AND
+       TRAIL_MATE_SDL3_SOURCE_DIR AND
+       EXISTS "${TRAIL_MATE_SDL3_SOURCE_DIR}/CMakeLists.txt")
+        set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+        set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+        add_subdirectory("${TRAIL_MATE_SDL3_SOURCE_DIR}"
+                         "${CMAKE_BINARY_DIR}/SDL3"
+                         EXCLUDE_FROM_ALL)
+    endif()
     find_package(Threads REQUIRED)
     find_package(SDL3 CONFIG REQUIRED)
 
@@ -255,6 +270,22 @@ if(TRAIL_MATE_UCONSOLE_BUILD_SDL_SCREENSHOT_CAPTURE)
             trailmate_uconsole_sdl_linux_common)
     trailmate_apply_linux_common_warnings(trailmate_uconsole_sdl_shell)
 
+    if(TRAIL_MATE_UCONSOLE_BUILD_SDL_UI)
+        add_executable(trailmate_uconsole
+            src/platform/desktop/sdl_window_presenter.cpp
+            src/targets/uconsole_sdl_main.cpp)
+        target_include_directories(trailmate_uconsole
+            PRIVATE "${CMAKE_CURRENT_LIST_DIR}/src")
+        target_compile_features(trailmate_uconsole PRIVATE cxx_std_20)
+        target_link_libraries(trailmate_uconsole
+            PRIVATE SDL3::SDL3 trailmate_uconsole_sdl_shell)
+        set_target_properties(trailmate_uconsole
+            PROPERTIES OUTPUT_NAME "trailmate-uconsole")
+        install(TARGETS trailmate_uconsole
+            RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+    endif()
+
+if(TRAIL_MATE_UCONSOLE_BUILD_SDL_SCREENSHOT_CAPTURE)
     add_executable(trailmate_uconsole_sdl_screenshot_capture
         src/platform/desktop/sdl_window_presenter.cpp
         tools/uconsole_sdl_screenshot_capture.cpp)
@@ -266,6 +297,7 @@ if(TRAIL_MATE_UCONSOLE_BUILD_SDL_SCREENSHOT_CAPTURE)
         PRIVATE
             SDL3::SDL3
             trailmate_uconsole_sdl_shell)
+endif()
 endif()
 
 if(BUILD_TESTING)
