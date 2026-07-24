@@ -589,6 +589,12 @@ class UConsoleDesktopShell
             return true;
         }
 
+        if (active_section_ == Section::Map &&
+            handleMapShortcut(key))
+        {
+            return true;
+        }
+
         switch (key)
         {
         case 'h':
@@ -646,6 +652,93 @@ class UConsoleDesktopShell
         default:
             return false;
         }
+    }
+
+    bool handleMapShortcut(char key)
+    {
+        const auto snapshot = map_model_.snapshot();
+        constexpr int kMapDisplayWidth = 750;
+        constexpr int kMapDisplayHeight = 450;
+        constexpr double kPanStep = 64.0;
+
+        switch (key)
+        {
+        case 'w':
+            map_model_.panByDisplayDelta(0.0,
+                                         kPanStep,
+                                         kMapDisplayWidth,
+                                         kMapDisplayHeight,
+                                         snapshot.lat,
+                                         snapshot.lon,
+                                         snapshot.zoom,
+                                         true);
+            break;
+        case 'a':
+            map_model_.panByDisplayDelta(kPanStep,
+                                         0.0,
+                                         kMapDisplayWidth,
+                                         kMapDisplayHeight,
+                                         snapshot.lat,
+                                         snapshot.lon,
+                                         snapshot.zoom,
+                                         true);
+            break;
+        case 's':
+            map_model_.panByDisplayDelta(0.0,
+                                         -kPanStep,
+                                         kMapDisplayWidth,
+                                         kMapDisplayHeight,
+                                         snapshot.lat,
+                                         snapshot.lon,
+                                         snapshot.zoom,
+                                         true);
+            break;
+        case 'd':
+            map_model_.panByDisplayDelta(-kPanStep,
+                                         0.0,
+                                         kMapDisplayWidth,
+                                         kMapDisplayHeight,
+                                         snapshot.lat,
+                                         snapshot.lon,
+                                         snapshot.zoom,
+                                         true);
+            break;
+        case 'q':
+            map_model_.zoomOut();
+            break;
+        case 'e':
+            map_model_.zoomIn();
+            break;
+        case 'c':
+            map_model_.clearManualCenter();
+            break;
+        case 'l':
+            if (snapshot.source_label == "OSM")
+            {
+                map_model_.setSource(
+                    ::platform::linux_runtime::MapBaseSource::Terrain);
+            }
+            else if (snapshot.source_label == "Terrain")
+            {
+                map_model_.setSource(
+                    ::platform::linux_runtime::MapBaseSource::Satellite);
+            }
+            else
+            {
+                map_model_.setSource(
+                    ::platform::linux_runtime::MapBaseSource::Osm);
+            }
+            break;
+        case 'o':
+            map_model_.setContourEnabled(!snapshot.contour_enabled);
+            break;
+        default:
+            return false;
+        }
+
+        rebuildDesktopPage();
+        refreshFooter();
+        return true;
     }
 
     void cycleSection(int delta)
@@ -832,20 +925,83 @@ class UConsoleDesktopShell
         lv_obj_t* card = lv_obj_create(shortcut_overlay_);
         applyPanel(card, embedded_palette::kSurface,
                    embedded_palette::kBorder);
-        lv_obj_set_size(card, 690, 430);
-        lv_obj_set_style_pad_all(card, 18, 0);
-        lv_obj_set_style_pad_row(card, 14, 0);
+        lv_obj_set_size(card, 760, 560);
+        lv_obj_set_style_pad_all(card, 10, 0);
+        lv_obj_set_style_pad_row(card, 4, 0);
         lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START,
                               LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
         lv_obj_center(card);
 
         createLabel(card, "uConsole keyboard shortcuts",
-                    &lv_font_montserrat_20, embedded_palette::kText);
+                    &lv_font_montserrat_16, embedded_palette::kText);
         createLabel(card,
                     "Global shortcuts are disabled while typing in the chat "
                     "composer.",
                     &lv_font_montserrat_12, embedded_palette::kTextMuted);
+
+        auto addKeycap = [](lv_obj_t* parent,
+                            const char* text,
+                            lv_coord_t width)
+        {
+            lv_obj_t* keycap = lv_label_create(parent);
+            lv_obj_set_size(keycap, width, 18);
+            lv_obj_set_style_bg_color(keycap, lv_color_hex(0xF8E6C3), 0);
+            lv_obj_set_style_bg_opa(keycap, LV_OPA_COVER, 0);
+            lv_obj_set_style_border_width(keycap, 1, 0);
+            lv_obj_set_style_border_color(keycap, lv_color_hex(0x8A6E43), 0);
+            lv_obj_set_style_radius(keycap, 3, 0);
+            lv_obj_set_style_text_font(keycap, &lv_font_montserrat_10, 0);
+            lv_obj_set_style_text_color(keycap, lv_color_hex(0x25170D), 0);
+            lv_obj_set_style_text_align(keycap, LV_TEXT_ALIGN_CENTER, 0);
+            lv_label_set_long_mode(keycap, LV_LABEL_LONG_CLIP);
+            lv_label_set_text(keycap, text ? text : "");
+            return keycap;
+        };
+
+        auto addHelpRow = [this, &addKeycap](lv_obj_t* parent,
+                                             const char* primary,
+                                             const char* secondary,
+                                             const char* description)
+        {
+            lv_obj_t* row = lv_obj_create(parent);
+            resetBox(row);
+            lv_obj_set_width(row, LV_PCT(100));
+            lv_obj_set_height(row, 22);
+            lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+            lv_obj_set_flex_align(row,
+                                  LV_FLEX_ALIGN_START,
+                                  LV_FLEX_ALIGN_CENTER,
+                                  LV_FLEX_ALIGN_CENTER);
+            lv_obj_set_style_pad_column(row, 4, 0);
+
+            lv_obj_t* keys = lv_obj_create(row);
+            resetBox(keys);
+            lv_obj_set_size(keys, 112, 20);
+            lv_obj_set_style_pad_column(keys, 3, 0);
+            lv_obj_set_flex_flow(keys, LV_FLEX_FLOW_ROW);
+            lv_obj_set_flex_align(keys,
+                                  LV_FLEX_ALIGN_START,
+                                  LV_FLEX_ALIGN_CENTER,
+                                  LV_FLEX_ALIGN_CENTER);
+            if (secondary != nullptr && secondary[0] != '\0')
+            {
+                addKeycap(keys, primary, 52);
+                addKeycap(keys, secondary, 52);
+            }
+            else
+            {
+                addKeycap(keys, primary, 106);
+            }
+
+            lv_obj_t* text = lv_label_create(row);
+            lv_obj_set_width(text, 0);
+            lv_obj_set_flex_grow(text, 1);
+            lv_obj_set_style_text_font(text, &lv_font_montserrat_12, 0);
+            lv_obj_set_style_text_color(text, lv_color_hex(0x3E2B18), 0);
+            lv_label_set_long_mode(text, LV_LABEL_LONG_DOT);
+            lv_label_set_text(text, description ? description : "");
+        };
 
         lv_obj_t* columns = lv_obj_create(card);
         applyTransparent(columns);
@@ -862,18 +1018,16 @@ class UConsoleDesktopShell
         lv_obj_set_flex_flow(navigation, LV_FLEX_FLOW_COLUMN);
         createLabel(navigation, "NAVIGATION", &lv_font_montserrat_12,
                     embedded_palette::kTextDim);
-        lv_obj_t* navigation_help = createLabel(
-            navigation,
-            "Up / Down / Tab   Move focus\n"
-            "Enter / Right     Open or activate\n"
-            "Esc               Return to overview\n"
-            "[ / ]             Previous / next workspace\n"
-            "\\                 Collapse navigation\n"
-            "F1 / H            Toggle this help",
-            &lv_font_montserrat_14, embedded_palette::kText,
-            LV_LABEL_LONG_WRAP);
-        lv_obj_set_width(navigation_help, LV_PCT(100));
-        lv_obj_set_style_text_line_space(navigation_help, 9, 0);
+        addHelpRow(navigation, "Up", "Down", "Move focus");
+        addHelpRow(navigation, "Tab", nullptr, "Next focus target");
+        addHelpRow(navigation, "Enter", "Right", "Open or activate");
+        addHelpRow(navigation, "Esc", nullptr, "Return to overview");
+        addHelpRow(navigation, "[", "]", "Previous / next workspace");
+        addHelpRow(navigation, "\\", nullptr, "Collapse navigation");
+        addHelpRow(navigation, "F1", "H", "Toggle this help");
+        addHelpRow(navigation, "F11", nullptr, "Toggle fullscreen");
+        addHelpRow(navigation, "Ctrl-M", nullptr, "Minimize window");
+        addHelpRow(navigation, "Ctrl-Q", nullptr, "Quit application");
 
         lv_obj_t* workspaces = lv_obj_create(columns);
         applyTransparent(workspaces);
@@ -881,24 +1035,18 @@ class UConsoleDesktopShell
         lv_obj_set_flex_grow(workspaces, 1);
         lv_obj_set_style_pad_row(workspaces, 10, 0);
         lv_obj_set_flex_flow(workspaces, LV_FLEX_FLOW_COLUMN);
-        createLabel(workspaces, "DIRECT WORKSPACES", &lv_font_montserrat_12,
+        createLabel(workspaces, "MAP PAGE", &lv_font_montserrat_12,
                     embedded_palette::kTextDim);
-        lv_obj_t* workspace_help = createLabel(
-            workspaces,
-            "O  Overview      C  Chat\n"
-            "M  Map           N  Contacts\n"
-            "G  GPS           T  Team\n"
-            "K  Tracker       R  Radio tools\n"
-            "W  Hardware      D  Data & maps\n"
-            "E  Extensions    L  Logs\n"
-            "S  Settings",
-            &lv_font_montserrat_14, embedded_palette::kText,
-            LV_LABEL_LONG_WRAP);
-        lv_obj_set_width(workspace_help, LV_PCT(100));
-        lv_obj_set_style_text_line_space(workspace_help, 9, 0);
+        addHelpRow(workspaces, "WASD", nullptr, "Pan map");
+        addHelpRow(workspaces, "Q", "E", "Zoom out / in");
+        addHelpRow(workspaces, "C", nullptr, "Recenter map");
+        addHelpRow(workspaces, "L", nullptr, "Cycle base layer");
+        addHelpRow(workspaces, "O", nullptr, "Toggle contours");
+        addHelpRow(workspaces, "F1", nullptr, "Open / close help");
+        addHelpRow(workspaces, "[", "]", "Previous / next workspace");
 
         createLabel(card,
-                    "Shortcut model follows the keyboard-first Pager/T-Deck "
+                    "Virtual keycaps follow the Pager/T-Deck keyboard-first "
                     "interaction style.",
                     &lv_font_montserrat_12, embedded_palette::kTextMuted);
 
@@ -912,8 +1060,8 @@ class UConsoleDesktopShell
         case Section::Chat:
             return "\\ Nav | Tab Focus | Enter | F11 Full | ^M Min | ^Q Quit";
         case Section::Map:
-            return "\\ Nav | M Map | [ ] Page | F1 Help | F11 Full | ^M Min | "
-                   "^Q Quit";
+            return "WASD Pan | Q/E Zoom | C Center | L Layer | O Contour | "
+                   "F1 Help";
         case Section::Overview:
             return "\\ Nav | C Chat | M Map | [ ] Page | F11 Full | ^Q Quit";
         default:
