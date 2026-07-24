@@ -192,6 +192,7 @@ set(TRAILMATE_ESP_IDF_UI_SHARED_SOURCES
     "${TRAILMATE_ROOT}/modules/ui_map_runtime/src/map_overlay_snapshot_source.cpp"
     "${TRAILMATE_ROOT}/modules/ui_map_runtime/src/map_overlay/map_overlay_projector.cpp"
     "${TRAILMATE_ROOT}/modules/ui_map_runtime/src/map_tiles/filesystem_map_tile_source.cpp"
+    "${TRAILMATE_ROOT}/modules/ui_map_runtime/src/map_tiles/map_tile_geometry.cpp"
     "${TRAILMATE_ROOT}/modules/ui_map_runtime/src/map_tiles/map_tile_async_runtime.cpp"
     "${TRAILMATE_ROOT}/modules/ui_map_runtime/src/map_tiles/map_tile_render_queue.cpp"
     "${TRAILMATE_ROOT}/modules/ui_map_runtime/src/map_tiles/map_tile_resolver.cpp"

@@ -8,6 +8,7 @@
 #include "lvgl.h"
 
 #include "ui_map_runtime/map_tiles/filesystem_map_tile_source.h"
+#include "ui_map_runtime/map_tiles/map_tile_geometry.h"
 
 #include <algorithm>
 #include <cctype>
@@ -1095,33 +1096,12 @@ void set_map_render_options(uint8_t map_source, bool contour_enabled)
 
 void normalize_tile(int z, int& x, int& y)
 {
-    const int tiles = 1 << std::clamp(z, 0, 18);
-    if (tiles <= 0)
-    {
-        x = 0;
-        y = 0;
-        return;
-    }
-
-    x %= tiles;
-    if (x < 0)
-    {
-        x += tiles;
-    }
-    y = std::clamp(y, 0, tiles - 1);
+    ::ui::map_tiles::normalizeTile(z, x, y);
 }
 
 void latLngToTile(double lat, double lng, int zoom, int& tile_x, int& tile_y)
 {
-    const double tiles = world_tiles(zoom);
-    const double clamped_lat = clamp_lat(lat);
-    const double lat_rad = clamped_lat * kPi / 180.0;
-    const double x = (lng + 180.0) / 360.0 * tiles;
-    const double y = (1.0 - std::log(std::tan(lat_rad) + 1.0 / std::cos(lat_rad)) / kPi) / 2.0 * tiles;
-
-    tile_x = static_cast<int>(std::floor(x));
-    tile_y = static_cast<int>(std::floor(y));
-    normalize_tile(zoom, tile_x, tile_y);
+    ::ui::map_tiles::latLngToTile(lat, lng, zoom, tile_x, tile_y);
 }
 
 void tileToLatLng(int tile_x, int tile_y, int zoom, double& lat, double& lng)

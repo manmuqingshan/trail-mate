@@ -150,6 +150,7 @@ set(TRAIL_MATE_LINUX_COMMON_SOURCES
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/linux/map_contour_tile_generator.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/linux/map_diagnostics.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/linux/map_tile_cache.cpp"
+    "${TRAIL_MATE_UI_MAP_RUNTIME_SRC_ROOT}/map_tiles/map_tile_geometry.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/mesh/linux_mesh_runtime_shell.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/mesh/linux_sqlite_mesh_identity_store.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/linux/runtime_packet_log.cpp"

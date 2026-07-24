@@ -19,6 +19,7 @@
 #include "ui_map_runtime/map_tiles/filesystem_map_tile_source.h"
 #include "ui_map_runtime/map_tiles/map_tile_async_runtime.h"
 #include "ui_map_runtime/map_tiles/map_tile_decoder_cache.h"
+#include "ui_map_runtime/map_tiles/map_tile_geometry.h"
 
 #include <algorithm>
 #include <cmath>
@@ -2005,15 +2006,7 @@ static bool cache_matches_ref(const DecodedTileCache& cache,
  */
 void normalize_tile(int z, int& x, int& y)
 {
-    int n = 1 << z; // z<=18 OK, n = 2^z
-    if (n <= 0) return;
-
-    // Wrap x coordinate (longitude wraps around)
-    x = ((x % n) + n) % n;
-
-    // Clamp y coordinate (latitude is bounded)
-    if (y < 0) y = 0;
-    if (y >= n) y = n - 1;
+    ::ui::map_tiles::normalizeTile(z, x, y);
 }
 
 /**
@@ -2022,22 +2015,7 @@ void normalize_tile(int z, int& x, int& y)
  */
 void latLngToTile(double lat, double lng, int zoom, int& tile_x, int& tile_y)
 {
-    // Clamp latitude to WebMercator valid range to avoid pole issues
-    const double MAX_LAT = 85.05112878;
-    if (lat > MAX_LAT) lat = MAX_LAT;
-    if (lat < -MAX_LAT) lat = -MAX_LAT;
-
-    // Wrap longitude to [-180, 180) to handle GPS errors and date line crossing
-    while (lng < -180.0) lng += 360.0;
-    while (lng >= 180.0) lng -= 360.0;
-
-    double n = pow(2.0, zoom);
-    double lat_rad = lat * M_PI / 180.0;
-    tile_x = (int)((lng + 180.0) / 360.0 * n);
-    tile_y = (int)((1.0 - log(tan(lat_rad) + 1.0 / cos(lat_rad)) / M_PI) / 2.0 * n);
-
-    // Use normalize_tile for consistency
-    normalize_tile(zoom, tile_x, tile_y);
+    ::ui::map_tiles::latLngToTile(lat, lng, zoom, tile_x, tile_y);
 }
 
 /**
