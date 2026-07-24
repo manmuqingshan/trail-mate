@@ -1380,6 +1380,9 @@ class UConsoleDesktopShell
     void buildMapPreview()
     {
         const auto snapshot = map_model_.snapshot();
+        map_tile_cells_.fill(nullptr);
+        map_tile_images_.fill(nullptr);
+        map_tile_paths_.fill(std::string{});
         lv_obj_t* map = createPreviewPanel(
             desktop_page_panel_, "Field map", 0, embedded_palette::kMapBg,
             true);
