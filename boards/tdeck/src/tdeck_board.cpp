@@ -6,9 +6,7 @@
 #include "platform/esp/arduino_common/storage/persistence_bus_gate.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/common/shared_spi_bus_arbiter.h"
-#include "platform/ui/audio/pager_notification_tone.h"
 #include "sys/bus_access_scope.h"
-#include <AudioOutputI2S.h>
 #include <Wire.h>
 #include <ctime>
 #include <driver/gpio.h>
@@ -45,8 +43,6 @@ constexpr uint8_t kGpsProfileAuto = 0;
 constexpr uint8_t kGpsProfileNmeaPassive = 1;
 constexpr uint8_t kGpsProfileUbxLegacy = 2;
 constexpr uint8_t kGpsProfileUbxModern = 3;
-constexpr size_t kMessageToneMinDmaHeapBytes = 24 * 1024;
-constexpr size_t kMessageToneMinInternalHeapBytes = 48 * 1024;
 uint8_t s_backlight_level = 0;
 uint32_t s_last_radio_spi_lock_timeout_log_ms = 0;
 uint32_t s_suppressed_radio_spi_lock_timeout_logs = 0;
@@ -400,6 +396,7 @@ uint32_t TDeckBoard::begin(uint32_t disable_hw_init)
     delay(50);
     Serial.println("[TDeckBoard] poweron=HIGH");
 #endif
+    audio_runtime_.begin();
 
     // Follow LilyGo T-Deck examples: de-conflict shared SPI bus early.
 #ifdef SD_CS
@@ -1372,95 +1369,9 @@ int TDeckBoard::getNavKey(uint32_t* key)
 void TDeckBoard::playMessageTone()
 {
 #if defined(DAC_I2S_BCK) && defined(DAC_I2S_WS) && defined(DAC_I2S_DOUT)
-    if (message_tone_volume_ == 0)
-    {
-        return;
-    }
-
-    static bool s_playing = false;
-    static uint32_t s_last_play_ms = 0;
-
-    if (s_playing)
-    {
-        return;
-    }
-
-    const uint32_t now = millis();
-    if ((now - s_last_play_ms) < 240)
-    {
-        return;
-    }
-
-    s_playing = true;
-    s_last_play_ms = now;
-
-    if (heap_caps_get_free_size(MALLOC_CAP_DMA) < kMessageToneMinDmaHeapBytes ||
-        heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) <
-            kMessageToneMinInternalHeapBytes)
-    {
-        std::printf("[TDeck] message tone skipped: low heap dma=%u internal=%u\n",
-                    static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_DMA)),
-                    static_cast<unsigned>(
-                        heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
-        s_playing = false;
-        return;
-    }
-
-    static constexpr size_t kFramesPerChunk = 128;
-    namespace pager_tone = ::platform::ui::audio::pager_notification;
-
-    AudioOutputI2S audio_out(1, AudioOutputI2S::EXTERNAL_I2S);
-#if defined(DAC_I2S_MCLK)
-    audio_out.SetPinout(DAC_I2S_BCK, DAC_I2S_WS, DAC_I2S_DOUT, DAC_I2S_MCLK);
-#else
-    audio_out.SetPinout(DAC_I2S_BCK, DAC_I2S_WS, DAC_I2S_DOUT);
-#endif
-    audio_out.SetRate(pager_tone::kPlaybackSampleRateHz);
-    audio_out.SetBitsPerSample(16);
-    audio_out.SetChannels(pager_tone::kChannels);
-    float gain = static_cast<float>(message_tone_volume_) / 250.0f;
-    if (gain < 0.0f)
-    {
-        gain = 0.0f;
-    }
-    if (gain > 0.40f)
-    {
-        gain = 0.40f;
-    }
-    audio_out.SetGain(gain);
-
-    if (audio_out.begin())
-    {
-        const uint32_t deadline = millis() + 1600U;
-        int16_t pcm[kFramesPerChunk * pager_tone::kChannels];
-        pager_tone::AdpcmPlaybackState tone_state{};
-        while (pager_tone::hasMore(tone_state) && millis() < deadline)
-        {
-            const uint16_t frames = pager_tone::fillStereoInterleaved(
-                tone_state, pcm, static_cast<uint16_t>(kFramesPerChunk));
-            if (frames == 0U)
-            {
-                break;
-            }
-
-            uint16_t written = 0U;
-            while (written < frames && millis() < deadline)
-            {
-                const uint16_t consumed =
-                    audio_out.ConsumeSamples(&pcm[written * pager_tone::kChannels],
-                                             static_cast<uint16_t>(frames - written));
-                if (consumed == 0U)
-                {
-                    delay(1);
-                    continue;
-                }
-                written = static_cast<uint16_t>(written + consumed);
-            }
-        }
-        audio_out.flush();
-    }
-    audio_out.stop();
-    s_playing = false;
+    std::printf("[TDeck][Audio] message tone requested volume=%u\n",
+                static_cast<unsigned>(message_tone_volume_));
+    audio_runtime_.requestMessageTone(message_tone_volume_);
 #endif
 }
 

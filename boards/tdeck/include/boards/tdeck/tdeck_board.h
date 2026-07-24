@@ -12,6 +12,7 @@
 #include "board/MotionBoard.h"
 #include "board/SdBoard.h"
 #include "board/TLoRaPagerTypes.h"
+#include "boards/tdeck/tdeck_audio_runtime.h"
 #include "display/DisplayInterface.h"
 #include "pins_arduino.h"
 #include "platform/esp/arduino_common/gps/GPS.h"
@@ -172,6 +173,7 @@ class TDeckBoard : public BoardBase,
     uint8_t down_count_ = 0;
     uint8_t click_count_ = 0;
     uint8_t message_tone_volume_ = 45;
+    TDeckAudioRuntime audio_runtime_{};
     bool left_latched_ = false;
     bool right_latched_ = false;
     bool up_latched_ = false;

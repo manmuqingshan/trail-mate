@@ -7,6 +7,7 @@
 #include "freertos/task.h"
 #include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/gps/gps_service.h"
+#include "platform/esp/common/memory_budget.h"
 
 namespace platform::esp::arduino_common::memory_diag
 {
@@ -39,12 +40,19 @@ void log_named_task(const char* label, TaskHandle_t handle)
 
 void logHeapSnapshot(const char* stage)
 {
-    Serial.printf("[Mem][Heap] stage=%s ram_free=%u ram_largest=%u psram_free=%u psram_largest=%u tasks=%u\n",
+    const auto snapshot = ::platform::esp::common::memory::capture();
+    Serial.printf("[Mem][Heap] stage=%s ram_free=%u ram_largest=%u dma_free=%u dma_largest=%u "
+                  "psram_free=%u psram_largest=%u min_ram=%u min_dma=%u min_psram=%u tasks=%u\n",
                   safe_text(stage),
-                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-                  static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
-                  static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)),
+                  static_cast<unsigned>(snapshot.internal_free),
+                  static_cast<unsigned>(snapshot.internal_largest),
+                  static_cast<unsigned>(snapshot.dma_free),
+                  static_cast<unsigned>(snapshot.dma_largest),
+                  static_cast<unsigned>(snapshot.psram_free),
+                  static_cast<unsigned>(snapshot.psram_largest),
+                  static_cast<unsigned>(snapshot.minimum_internal_free),
+                  static_cast<unsigned>(snapshot.minimum_dma_free),
+                  static_cast<unsigned>(snapshot.minimum_psram_free),
                   static_cast<unsigned>(uxTaskGetNumberOfTasks()));
 }
 

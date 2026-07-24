@@ -19,9 +19,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #include <pb_decode.h>
 
 #include "platform/esp/arduino_common/net/async_tcp_connector.h"
+#include "platform/esp/common/memory_budget.h"
 #ifndef TRAIL_MATE_ENABLE_BLE
 #define TRAIL_MATE_ENABLE_BLE 0
 #endif
@@ -1621,9 +1623,23 @@ class PlainMqttRuntime
     }
 };
 
-PlainMqttRuntime& runtime()
+PlainMqttRuntime* createRuntime()
 {
-    static PlainMqttRuntime instance;
+    void* storage =
+        ::platform::esp::common::memory::allocatePreferred("mqtt_runtime",
+                                                           sizeof(PlainMqttRuntime));
+    if (!storage)
+    {
+        std::printf("[MT][MQTT][Mem] runtime unavailable bytes=%u\n",
+                    static_cast<unsigned>(sizeof(PlainMqttRuntime)));
+        return nullptr;
+    }
+    return new (storage) PlainMqttRuntime();
+}
+
+PlainMqttRuntime* runtime()
+{
+    static PlainMqttRuntime* instance = createRuntime();
     return instance;
 }
 
@@ -1631,17 +1647,26 @@ PlainMqttRuntime& runtime()
 
 bool wantsStandaloneMode(app::IAppFacade& app_context)
 {
-    return runtime().wantsStandaloneMode(app_context);
+    PlainMqttRuntime* instance = runtime();
+    return instance && instance->wantsStandaloneMode(app_context);
 }
 
 void setWifiTransportEnabled(bool enabled)
 {
-    runtime().setWifiTransportEnabled(enabled);
+    PlainMqttRuntime* instance = runtime();
+    if (instance)
+    {
+        instance->setWifiTransportEnabled(enabled);
+    }
 }
 
 void update(app::IAppFacade& app_context)
 {
-    runtime().update(app_context);
+    PlainMqttRuntime* instance = runtime();
+    if (instance)
+    {
+        instance->update(app_context);
+    }
 }
 
 } // namespace platform::esp::arduino_common::mesh_mqtt

@@ -2,6 +2,7 @@
 
 #include "app/app_facade_access.h"
 #include "platform/esp/boards/board_runtime.h"
+#include "platform/esp/common/memory_budget.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/wifi_access_runtime.h"
 #include "platform/ui/wifi_runtime.h"
@@ -135,12 +136,19 @@ std::size_t psram_largest_block_bytes()
 
 void log_heap_snapshot(const char* stage)
 {
-    std::printf("[WiFi][MEM] stage=%s ram_free=%u ram_largest=%u psram_free=%u psram_largest=%u\n",
+    const auto snapshot = ::platform::esp::common::memory::capture();
+    std::printf("[WiFi][MEM] stage=%s ram_free=%u ram_largest=%u dma_free=%u dma_largest=%u "
+                "psram_free=%u psram_largest=%u min_ram=%u min_dma=%u min_psram=%u\n",
                 stage ? stage : "state",
-                static_cast<unsigned>(internal_free_bytes()),
-                static_cast<unsigned>(internal_largest_block_bytes()),
-                static_cast<unsigned>(psram_free_bytes()),
-                static_cast<unsigned>(psram_largest_block_bytes()));
+                static_cast<unsigned>(snapshot.internal_free),
+                static_cast<unsigned>(snapshot.internal_largest),
+                static_cast<unsigned>(snapshot.dma_free),
+                static_cast<unsigned>(snapshot.dma_largest),
+                static_cast<unsigned>(snapshot.psram_free),
+                static_cast<unsigned>(snapshot.psram_largest),
+                static_cast<unsigned>(snapshot.minimum_internal_free),
+                static_cast<unsigned>(snapshot.minimum_dma_free),
+                static_cast<unsigned>(snapshot.minimum_psram_free));
 }
 
 void set_status_message(const char* message);
