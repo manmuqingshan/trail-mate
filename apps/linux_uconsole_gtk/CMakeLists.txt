@@ -26,28 +26,7 @@ set(TRAIL_MATE_SDL3_SOURCE_DIR ""
     CACHE PATH "Optional SDL3 source tree used when SDL3 is not installed.")
 
 set(TRAIL_MATE_UCONSOLE_REAL_GTK_SOURCES
-    src/platform/gtk/gtk_uconsole_app.cpp
-    src/platform/gtk/gtk_uconsole_chat_layout.cpp
-    src/platform/gtk/gtk_uconsole_chat_logic.cpp
-    src/platform/gtk/gtk_uconsole_data_layout.cpp
-    src/platform/gtk/gtk_uconsole_data_logic.cpp
-    src/platform/gtk/gtk_uconsole_field_pages.cpp
-    src/platform/gtk/gtk_uconsole_hardware_layout.cpp
-    src/platform/gtk/gtk_uconsole_hardware_logic.cpp
-    src/platform/gtk/gtk_uconsole_logs_layout.cpp
-    src/platform/gtk/gtk_uconsole_logs_logic.cpp
-    src/platform/gtk/gtk_uconsole_map_layout.cpp
-    src/platform/gtk/gtk_uconsole_map_logic.cpp
-    src/platform/gtk/gtk_uconsole_mqtt_settings.cpp
-    src/platform/gtk/gtk_uconsole_overview_layout.cpp
-    src/platform/gtk/gtk_uconsole_overview_logic.cpp
-    src/platform/gtk/gtk_uconsole_pages.cpp
-    src/platform/gtk/gtk_uconsole_radio_tools.cpp
-    src/platform/gtk/gtk_uconsole_settings_layout.cpp
-    src/platform/gtk/gtk_uconsole_settings_logic.cpp
-    src/platform/gtk/gtk_uconsole_shell.cpp
-    src/platform/gtk/gtk_uconsole_style.cpp
-    src/platform/gtk/gtk_uconsole_widgets.cpp)
+    src/platform/gtk/gtk_canvas_presenter.cpp)
 
 add_library(trailmate_linux_uconsole_gtk_shell
     src/linux_uconsole_gtk_app_shell.cpp
@@ -109,6 +88,56 @@ if(TRAIL_MATE_UCONSOLE_BUILD_REAL_GTK_UI AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
             PUBLIC trailmate_uconsole_linux_common)
         trailmate_apply_linux_common_warnings(trailmate_uconsole_runtime_models)
 
+        if(NOT TARGET lvgl)
+            set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+            set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
+            set(LV_BUILD_CONF_DIR
+                "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/include"
+                CACHE PATH "LVGL configuration directory for the GTK canvas shell"
+                FORCE)
+            set(TRAIL_MATE_LOCAL_LVGL_DIR
+                "${TRAIL_MATE_REPO_ROOT}/managed_components/lvgl__lvgl")
+            if(EXISTS "${TRAIL_MATE_LOCAL_LVGL_DIR}/CMakeLists.txt")
+                add_subdirectory(
+                    "${TRAIL_MATE_LOCAL_LVGL_DIR}"
+                    "${CMAKE_BINARY_DIR}/managed_components/lvgl__lvgl"
+                    EXCLUDE_FROM_ALL)
+            else()
+                message(FATAL_ERROR
+                    "The uConsole GTK canvas shell requires managed_components/lvgl__lvgl")
+            endif()
+        endif()
+
+        target_sources(trailmate_uconsole_linux_common
+            PRIVATE
+                "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_message_ledger.cpp"
+                "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_outbox_service.cpp"
+                "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_peer_directory_core.cpp"
+                "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/read/chat_read_state_ledger.cpp"
+                "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/runtime/meshtastic_position_core.cpp"
+                "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/runtime/meshtastic_waypoint_core.cpp")
+
+        add_library(trailmate_uconsole_canvas_shell
+            "${TRAIL_MATE_REPO_ROOT}/platform/linux/uconsole/src/uconsole_chat_workspace_model.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/platform/linux/uconsole/src/uconsole_dashboard_model.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/platform/linux/uconsole/src/uconsole_desktop_shell.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/platform/linux/uconsole/src/uconsole_hardware_probe.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/platform/linux/uconsole/src/uconsole_map_workspace_model.cpp")
+        target_include_directories(trailmate_uconsole_canvas_shell
+            PUBLIC
+                "${TRAIL_MATE_REPO_ROOT}/platform/linux/uconsole/include"
+                "${TRAIL_MATE_LINUX_COMMON_INCLUDE_ROOT}"
+                "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}")
+        target_compile_features(trailmate_uconsole_canvas_shell PUBLIC cxx_std_20)
+        target_compile_definitions(trailmate_uconsole_canvas_shell
+            PRIVATE TRAIL_MATE_UCONSOLE_LINUX=1)
+        target_link_libraries(trailmate_uconsole_canvas_shell
+            PUBLIC
+                lvgl
+                trailmate_uconsole_linux_common
+                trailmate_uconsole_runtime_models)
+        trailmate_apply_linux_common_warnings(trailmate_uconsole_canvas_shell)
+
         add_executable(trailmate_uconsole
             ${TRAIL_MATE_UCONSOLE_REAL_GTK_SOURCES}
             src/targets/uconsole_main.cpp)
@@ -120,7 +149,7 @@ if(TRAIL_MATE_UCONSOLE_BUILD_REAL_GTK_UI AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
             PRIVATE
                 PkgConfig::GTK4
                 trailmate_uconsole_runtime_models
-                trailmate_linux_uconsole_gtk_shell)
+                trailmate_uconsole_canvas_shell)
         target_compile_features(trailmate_uconsole PRIVATE cxx_std_20)
         set_target_properties(trailmate_uconsole
             PROPERTIES OUTPUT_NAME "trailmate-uconsole")
