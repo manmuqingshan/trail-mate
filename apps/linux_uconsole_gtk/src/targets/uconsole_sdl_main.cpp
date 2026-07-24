@@ -53,7 +53,9 @@ int main()
          .height = height,
          .scale = 1,
          .fullscreen = fullscreen,
-         .title = "Trail Mate uConsole"}};
+         .title = "Trail Mate uConsole",
+         .initial_nav_steps =
+             envInt("TRAIL_MATE_UCONSOLE_INITIAL_NAV_STEPS", 0)}};
     trailmate::uconsole::runUConsoleShell(
         window, {.width = width, .height = height, .frame_time_ms = 16});
     return 0;
