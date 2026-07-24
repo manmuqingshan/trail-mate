@@ -55,8 +55,8 @@ struct LaunchOptions
 {
     Backend backend = Backend::GtkWindow;
     std::string framebuffer = "/dev/fb0";
-    int width = 1180;
-    int height = 600;
+    int width = 1280;
+    int height = 720;
     int window_scale = 1;
     bool fullscreen = false;
 };
@@ -89,7 +89,7 @@ LaunchOptions parseOptions(int argc, char** argv)
                                                 : 1280;
     const int default_height =
         options.backend == Backend::Framebuffer ? 720
-        : options.backend == Backend::GtkWindow ? 600
+        : options.backend == Backend::GtkWindow ? 720
                                                 : 720;
     options.width = envInt("TRAIL_MATE_UCONSOLE_WIDTH", default_width);
     options.height = envInt("TRAIL_MATE_UCONSOLE_HEIGHT", default_height);

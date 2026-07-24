@@ -10,6 +10,40 @@ window {
   background: #e8ebe5;
   color: #1b211e;
 }
+.uconsole-titlebar {
+  background: #1d2221;
+  color: #f6f8f4;
+  min-height: 30px;
+  padding: 0 5px;
+  border-bottom: 1px solid #39413e;
+}
+.titlebar-title {
+  color: #f6f8f4;
+  font-size: 12px;
+  font-weight: 700;
+}
+.titlebar-button {
+  min-width: 32px;
+  min-height: 26px;
+  padding: 0 7px;
+  margin: 2px 0 2px 2px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #dce3de;
+  font-size: 15px;
+}
+.titlebar-button:hover,
+.titlebar-button:focus-visible {
+  background: #2a312f;
+  border-color: #52615a;
+}
+.titlebar-close:hover,
+.titlebar-close:focus-visible {
+  background: #a84635;
+  border-color: #d56e5b;
+  color: #ffffff;
+}
 .navigation-rail {
   background: #1d2221;
   color: #f6f8f4;
