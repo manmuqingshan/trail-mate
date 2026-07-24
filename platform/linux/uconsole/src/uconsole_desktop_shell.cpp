@@ -911,7 +911,7 @@ class UConsoleDesktopShell
         footer_context_label_ =
             createLabel(bar, "Overview", &lv_font_montserrat_12,
                         embedded_palette::kTextWarm);
-        lv_obj_set_width(footer_context_label_, 190);
+        lv_obj_set_width(footer_context_label_, 130);
 
         footer_status_label_ =
             createLabel(bar, "Starting services...", &lv_font_montserrat_12,
