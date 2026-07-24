@@ -24,6 +24,7 @@ struct GtkCanvasPresenter::Impl
     PointerState pointer{};
     int frame_width = 0;
     int frame_height = 0;
+    int presented_frames = 0;
     std::vector<std::uint32_t> frame{};
     std::vector<InputEvent> input{};
 };
@@ -237,6 +238,25 @@ void GtkCanvasPresenter::present(const Canvas& canvas)
             (static_cast<std::uint32_t>(pixel.r) << 16U) |
             (static_cast<std::uint32_t>(pixel.g) << 8U) |
             static_cast<std::uint32_t>(pixel.b);
+    }
+    ++impl_->presented_frames;
+    if (!impl_->options.screenshot_path.empty() &&
+        impl_->presented_frames >=
+            std::max(1, impl_->options.screenshot_after_frames))
+    {
+        cairo_surface_t* surface = cairo_image_surface_create_for_data(
+            reinterpret_cast<unsigned char*>(impl_->frame.data()),
+            CAIRO_FORMAT_ARGB32,
+            impl_->frame_width,
+            impl_->frame_height,
+            impl_->frame_width * static_cast<int>(sizeof(std::uint32_t)));
+        if (cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS)
+        {
+            cairo_surface_write_to_png(surface,
+                                       impl_->options.screenshot_path.c_str());
+        }
+        cairo_surface_destroy(surface);
+        impl_->options.screenshot_path.clear();
     }
     gtk_widget_queue_draw(GTK_WIDGET(impl_->drawing_area));
 }

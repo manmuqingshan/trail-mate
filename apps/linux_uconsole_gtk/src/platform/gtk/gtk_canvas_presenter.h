@@ -14,6 +14,8 @@ struct GtkCanvasPresenterOptions
     int height = 720;
     bool fullscreen = true;
     std::string title = "Trail Mate uConsole";
+    std::string screenshot_path{};
+    int screenshot_after_frames = 45;
 };
 
 class GtkCanvasPresenter final

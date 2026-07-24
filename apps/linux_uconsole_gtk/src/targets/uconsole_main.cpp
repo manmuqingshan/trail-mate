@@ -10,6 +10,15 @@
 namespace
 {
 
+std::string envString(const char* name, const char* fallback)
+{
+    if (const char* value = std::getenv(name))
+    {
+        if (*value != '\0') return value;
+    }
+    return fallback;
+}
+
 int envInt(const char* name, int fallback)
 {
     if (const char* value = std::getenv(name))
@@ -76,7 +85,11 @@ int main(int argc, char** argv)
             {.width = options.width,
              .height = options.height,
              .fullscreen = options.fullscreen,
-             .title = "Trail Mate uConsole"}};
+             .title = "Trail Mate uConsole",
+             .screenshot_path =
+                 envString("TRAIL_MATE_UCONSOLE_SCREENSHOT", ""),
+             .screenshot_after_frames =
+                 envInt("TRAIL_MATE_UCONSOLE_SCREENSHOT_AFTER_FRAMES", 45)}};
         trailmate::uconsole::UConsoleShellOptions shell{};
         shell.width = options.width;
         shell.height = options.height;
