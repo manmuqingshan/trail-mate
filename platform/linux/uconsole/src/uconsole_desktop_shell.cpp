@@ -912,7 +912,8 @@ class UConsoleDesktopShell
         case Section::Chat:
             return "\\ Nav | Tab Focus | Enter | F11 Full | ^M Min | ^Q Quit";
         case Section::Map:
-            return "\\ Nav | M Map | [ ] Page | F11 Full | ^M Min | ^Q Quit";
+            return "\\ Nav | M Map | [ ] Page | F1 Help | F11 Full | ^M Min | "
+                   "^Q Quit";
         case Section::Overview:
             return "\\ Nav | C Chat | M Map | [ ] Page | F11 Full | ^Q Quit";
         default:
