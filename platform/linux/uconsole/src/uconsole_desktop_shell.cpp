@@ -916,7 +916,7 @@ class UConsoleDesktopShell
         footer_status_label_ =
             createLabel(bar, "Starting services...", &lv_font_montserrat_12,
                         embedded_palette::kTextMuted);
-        lv_obj_set_width(footer_status_label_, 240);
+        lv_obj_set_width(footer_status_label_, 260);
         lv_obj_set_style_text_align(footer_status_label_,
                                     LV_TEXT_ALIGN_CENTER, 0);
 
@@ -1021,10 +1021,10 @@ class UConsoleDesktopShell
         case Section::Map:
             addFooterShortcut("WASD", nullptr, "Pan");
             addFooterShortcut("Q", "E", "Zoom");
-            addFooterShortcut("C", nullptr, "Center");
+            addFooterShortcut("C", nullptr, "Ctr");
             addFooterShortcut("L", nullptr, "Layer");
-            addFooterShortcut("O", nullptr, "Contour");
-            addFooterShortcut("M", nullptr, "Measure");
+            addFooterShortcut("O", nullptr, "Cnt");
+            addFooterShortcut("M", nullptr, "Meas");
             addFooterShortcut("F1", nullptr, "Help");
             break;
         case Section::Overview:
