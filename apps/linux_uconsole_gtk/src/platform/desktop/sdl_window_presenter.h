@@ -30,6 +30,8 @@ class SdlWindowPresenter : public cardputer_zero::platform::SurfacePresenter
 
     [[nodiscard]] bool pump() override;
     [[nodiscard]] std::vector<cardputer_zero::app::InputEvent> drainInput() override;
+    [[nodiscard]] bool supportsPointer() const noexcept override;
+    [[nodiscard]] PointerState pointerState() const noexcept override;
     void present(const cardputer_zero::core::Canvas& canvas) override;
 
   private:

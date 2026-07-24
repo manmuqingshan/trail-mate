@@ -2409,8 +2409,12 @@ class UConsoleDesktopShell
 class UConsoleLvglHost
 {
   public:
-    UConsoleLvglHost(UConsoleDesktopShell& shell, UConsoleShellOptions options)
+    UConsoleLvglHost(UConsoleDesktopShell& shell,
+                     ::trailmate::cardputer_zero::platform::SurfacePresenter&
+                         presenter,
+                     UConsoleShellOptions options)
         : shell_(shell),
+          presenter_(presenter),
           options_(validateOptions(options)),
           canvas_(options_.width, options_.height),
           frame_buffer_(static_cast<std::size_t>(options_.width) *
@@ -2457,6 +2461,20 @@ class UConsoleLvglHost
             lv_indev_set_group(keypad_, shell_.inputGroup());
         }
 
+        if (presenter_.supportsPointer())
+        {
+            pointer_ = lv_indev_create();
+            if (pointer_ == nullptr)
+            {
+                throw std::runtime_error(
+                    "Failed to create pointer input for uConsole shell.");
+            }
+            lv_indev_set_type(pointer_, LV_INDEV_TYPE_POINTER);
+            lv_indev_set_display(pointer_, display_);
+            lv_indev_set_user_data(pointer_, this);
+            lv_indev_set_read_cb(pointer_, readPointerCb);
+        }
+
         tick();
     }
 
@@ -2466,6 +2484,11 @@ class UConsoleLvglHost
         {
             lv_indev_delete(keypad_);
             keypad_ = nullptr;
+        }
+        if (pointer_ != nullptr)
+        {
+            lv_indev_delete(pointer_);
+            pointer_ = nullptr;
         }
         shell_.releaseLvglObjects();
         if (display_ != nullptr)
@@ -2520,6 +2543,19 @@ class UConsoleLvglHost
         data->continue_reading = host->shell_.hasPendingKeyEvent();
     }
 
+    static void readPointerCb(lv_indev_t* indev, lv_indev_data_t* data)
+    {
+        auto* host =
+            static_cast<UConsoleLvglHost*>(lv_indev_get_user_data(indev));
+        if (host == nullptr || data == nullptr) return;
+
+        const auto pointer = host->presenter_.pointerState();
+        data->point.x = pointer.x;
+        data->point.y = pointer.y;
+        data->state = pointer.pressed ? LV_INDEV_STATE_PRESSED
+                                      : LV_INDEV_STATE_RELEASED;
+    }
+
   private:
     void copyFrameBufferToCanvas()
     {
@@ -2535,9 +2571,11 @@ class UConsoleLvglHost
     }
 
     UConsoleDesktopShell& shell_;
+    ::trailmate::cardputer_zero::platform::SurfacePresenter& presenter_;
     UConsoleShellOptions options_{};
     lv_display_t* display_ = nullptr;
     lv_indev_t* keypad_ = nullptr;
+    lv_indev_t* pointer_ = nullptr;
     Canvas canvas_;
     std::vector<std::uint16_t> frame_buffer_{};
     bool dirty_ = true;
@@ -2550,7 +2588,7 @@ void runUConsoleShell(::trailmate::cardputer_zero::platform::SurfacePresenter& p
 {
     options = validateOptions(options);
     UConsoleDesktopShell shell;
-    UConsoleLvglHost host{shell, options};
+    UConsoleLvglHost host{shell, presenter, options};
 
     auto next_frame = clock::now();
     const auto frame_time = std::chrono::milliseconds(options.frame_time_ms);

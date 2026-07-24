@@ -231,6 +231,7 @@ struct SdlWindowPresenter::Impl
     int window_width = 0;
     int window_height = 0;
     int presented_frames = 0;
+    cardputer_zero::platform::SurfacePresenter::PointerState pointer{};
     bool startup_inputs_queued = false;
     bool startup_shortcut_queued = false;
     std::vector<std::uint32_t> staging{};
@@ -329,6 +330,28 @@ bool SdlWindowPresenter::pump()
             handleTextInput(impl_->input_queue, event.text);
             continue;
         }
+        if (event.type == SDL_EVENT_MOUSE_MOTION)
+        {
+            impl_->pointer.x = static_cast<int>(event.motion.x);
+            impl_->pointer.y = static_cast<int>(event.motion.y);
+            continue;
+        }
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+            event.button.button == SDL_BUTTON_LEFT)
+        {
+            impl_->pointer.x = static_cast<int>(event.button.x);
+            impl_->pointer.y = static_cast<int>(event.button.y);
+            impl_->pointer.pressed = true;
+            continue;
+        }
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
+            event.button.button == SDL_BUTTON_LEFT)
+        {
+            impl_->pointer.x = static_cast<int>(event.button.x);
+            impl_->pointer.y = static_cast<int>(event.button.y);
+            impl_->pointer.pressed = false;
+            continue;
+        }
         if (event.type == SDL_EVENT_WINDOW_RESIZED)
         {
             impl_->window_width = event.window.data1;
@@ -344,6 +367,17 @@ std::vector<cardputer_zero::app::InputEvent> SdlWindowPresenter::drainInput()
     auto drained = std::move(impl_->input_queue);
     impl_->input_queue.clear();
     return drained;
+}
+
+bool SdlWindowPresenter::supportsPointer() const noexcept
+{
+    return true;
+}
+
+cardputer_zero::platform::SurfacePresenter::PointerState
+SdlWindowPresenter::pointerState() const noexcept
+{
+    return impl_->pointer;
 }
 
 void SdlWindowPresenter::present(const core::Canvas& canvas)
