@@ -16,6 +16,8 @@ struct GtkCanvasPresenterOptions
     std::string title = "Trail Mate uConsole";
     std::string screenshot_path{};
     int screenshot_after_frames = 45;
+    int initial_nav_steps = 0;
+    char initial_shortcut = '\0';
 };
 
 class GtkCanvasPresenter final

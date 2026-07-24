@@ -89,7 +89,15 @@ int main(int argc, char** argv)
              .screenshot_path =
                  envString("TRAIL_MATE_UCONSOLE_SCREENSHOT", ""),
              .screenshot_after_frames =
-                 envInt("TRAIL_MATE_UCONSOLE_SCREENSHOT_AFTER_FRAMES", 45)}};
+                 envInt("TRAIL_MATE_UCONSOLE_SCREENSHOT_AFTER_FRAMES", 45),
+             .initial_nav_steps =
+                 envInt("TRAIL_MATE_UCONSOLE_INITIAL_NAV_STEPS", 0),
+             .initial_shortcut =
+                 envString("TRAIL_MATE_UCONSOLE_INITIAL_SHORTCUT", "")
+                         .empty()
+                     ? '\0'
+                     : envString("TRAIL_MATE_UCONSOLE_INITIAL_SHORTCUT", "")
+                           .front()}};
         trailmate::uconsole::UConsoleShellOptions shell{};
         shell.width = options.width;
         shell.height = options.height;

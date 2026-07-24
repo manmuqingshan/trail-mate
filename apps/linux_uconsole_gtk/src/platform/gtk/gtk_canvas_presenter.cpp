@@ -21,6 +21,8 @@ struct GtkCanvasPresenter::Impl
     GtkDrawingArea* drawing_area = nullptr;
     GtkEventController* key_controller = nullptr;
     bool running = true;
+    bool startup_inputs_queued = false;
+    bool startup_shortcut_queued = false;
     PointerState pointer{};
     int frame_width = 0;
     int frame_height = 0;
@@ -198,6 +200,27 @@ GtkCanvasPresenter::~GtkCanvasPresenter()
 
 bool GtkCanvasPresenter::pump()
 {
+    if (!impl_->startup_inputs_queued)
+    {
+        for (int step = 0; step < impl_->options.initial_nav_steps; ++step)
+        {
+            queueSpecial(impl_->input, InputKey::Tab, "TAB");
+        }
+        if (impl_->options.initial_nav_steps > 0)
+        {
+            queueSpecial(impl_->input, InputKey::Enter, "OK");
+        }
+        impl_->startup_inputs_queued = true;
+    }
+    else if (!impl_->startup_shortcut_queued &&
+             impl_->presented_frames >= 5 &&
+             impl_->options.initial_shortcut != '\0')
+    {
+        impl_->input.push_back(::trailmate::cardputer_zero::app::
+                                   makeCharacterInput(
+                                       impl_->options.initial_shortcut));
+        impl_->startup_shortcut_queued = true;
+    }
     while (g_main_context_pending(nullptr))
     {
         g_main_context_iteration(nullptr, FALSE);
