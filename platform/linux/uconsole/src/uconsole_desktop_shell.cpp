@@ -1743,9 +1743,10 @@ class UConsoleDesktopShell
                                       tile_colors.size()]),
                     0);
                 lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
-                lv_obj_set_style_border_color(
-                    tile, color(embedded_palette::kBorder), 0);
-                lv_obj_set_style_border_width(tile, 1, 0);
+                // Tile cells are a compositing grid, not cards.  Keep their
+                // edges transparent so adjacent 256px images share the exact
+                // boundary produced by the common map-tile geometry.
+                lv_obj_set_style_border_width(tile, 0, 0);
                 map_tile_cells_[static_cast<std::size_t>(tile_index)] = tile;
                 lv_obj_t* placeholder =
                     createLabel(tile, "", &lv_font_montserrat_10,
