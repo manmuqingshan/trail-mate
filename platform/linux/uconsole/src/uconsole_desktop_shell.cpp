@@ -916,7 +916,7 @@ class UConsoleDesktopShell
         footer_status_label_ =
             createLabel(bar, "Starting services...", &lv_font_montserrat_12,
                         embedded_palette::kTextMuted);
-        lv_obj_set_width(footer_status_label_, 320);
+        lv_obj_set_width(footer_status_label_, 280);
         lv_obj_set_style_text_align(footer_status_label_,
                                     LV_TEXT_ALIGN_CENTER, 0);
 
@@ -926,10 +926,10 @@ class UConsoleDesktopShell
         lv_obj_set_width(footer_shortcuts_row_, 0);
         lv_obj_set_height(footer_shortcuts_row_, LV_PCT(100));
         lv_obj_set_flex_grow(footer_shortcuts_row_, 1);
-        lv_obj_set_style_pad_column(footer_shortcuts_row_, 2, 0);
+        lv_obj_set_style_pad_column(footer_shortcuts_row_, 0, 0);
         lv_obj_set_flex_flow(footer_shortcuts_row_, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(footer_shortcuts_row_,
-                              LV_FLEX_ALIGN_END,
+                              LV_FLEX_ALIGN_START,
                               LV_FLEX_ALIGN_CENTER,
                               LV_FLEX_ALIGN_CENTER);
     }
@@ -966,7 +966,7 @@ class UConsoleDesktopShell
         resetBox(group);
         applyTransparent(group);
         lv_obj_set_height(group, 22);
-        lv_obj_set_style_pad_column(group, 1, 0);
+        lv_obj_set_style_pad_column(group, 0, 0);
         lv_obj_set_flex_flow(group, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(group,
                               LV_FLEX_ALIGN_START,
@@ -978,19 +978,19 @@ class UConsoleDesktopShell
             for (const char key : std::string("WASD"))
             {
                 char label[2] = {key, '\0'};
-                createFooterKeycap(group, label, 17);
+                createFooterKeycap(group, label, 16);
             }
         }
         else
         {
             const lv_coord_t primary_width =
-                primary != nullptr && std::strlen(primary) > 2 ? 30 : 17;
+                primary != nullptr && std::strlen(primary) > 2 ? 28 : 16;
             createFooterKeycap(group, primary, primary_width);
         }
         if (secondary != nullptr && secondary[0] != '\0')
         {
             const lv_coord_t secondary_width =
-                std::strlen(secondary) > 2 ? 30 : 17;
+                std::strlen(secondary) > 2 ? 28 : 16;
             createFooterKeycap(group, secondary, secondary_width);
         }
 
