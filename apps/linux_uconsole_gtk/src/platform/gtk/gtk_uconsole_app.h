@@ -9,7 +9,7 @@ struct GtkUConsoleOptions
 {
     int width = 1280;
     int height = 720;
-    bool fullscreen = false;
+    bool fullscreen = true;
     std::string title = "Trail Mate uConsole";
 };
 

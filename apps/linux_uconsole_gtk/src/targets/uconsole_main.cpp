@@ -58,7 +58,7 @@ struct LaunchOptions
     int width = 1280;
     int height = 720;
     int window_scale = 1;
-    bool fullscreen = false;
+    bool fullscreen = true;
 };
 
 LaunchOptions parseOptions(int argc, char** argv)
@@ -121,6 +121,10 @@ LaunchOptions parseOptions(int argc, char** argv)
         else if (current == "--fullscreen")
         {
             options.fullscreen = true;
+        }
+        else if (current == "--windowed")
+        {
+            options.fullscreen = false;
         }
     }
 
