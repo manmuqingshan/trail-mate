@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <deque>
+#include <future>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -19,6 +20,7 @@
 #include "lvgl.h"
 #include "uconsole/uconsole_chat_workspace_model.h"
 #include "uconsole/uconsole_dashboard_model.h"
+#include "uconsole/uconsole_map_workspace_model.h"
 
 namespace trailmate::uconsole
 {
@@ -349,7 +351,8 @@ class UConsoleDesktopShell
     UConsoleDesktopShell()
         : services_(),
           dashboard_model_(services_),
-          chat_model_(services_)
+          chat_model_(services_),
+          map_model_(services_)
     {
     }
 
@@ -390,6 +393,7 @@ class UConsoleDesktopShell
         if (!initialized_) return;
 
         services_.tick();
+        refreshMapPreview(false);
         const auto now = clock::now();
         if ((now - last_refresh_) >= std::chrono::milliseconds(500))
         {
@@ -1260,11 +1264,11 @@ class UConsoleDesktopShell
         return panel;
     }
 
-    void addPreviewRow(lv_obj_t* parent,
-                       const char* title,
-                       const char* detail,
-                       std::uint32_t accent =
-                           embedded_palette::kStatusGreen)
+    lv_obj_t* addPreviewRow(lv_obj_t* parent,
+                            const char* title,
+                            const char* detail,
+                            std::uint32_t accent =
+                                embedded_palette::kStatusGreen)
     {
         lv_obj_t* row = lv_obj_create(parent);
         applyPanel(row, embedded_palette::kPanelBg,
@@ -1284,6 +1288,7 @@ class UConsoleDesktopShell
             row, detail, &lv_font_montserrat_12,
             embedded_palette::kTextMuted, LV_LABEL_LONG_DOT);
         lv_obj_set_width(meta, LV_PCT(100));
+        return meta;
     }
 
     lv_obj_t* addActionPill(lv_obj_t* parent,
@@ -1319,8 +1324,61 @@ class UConsoleDesktopShell
                               LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     }
 
+    static std::string mapSummary(const MapWorkspaceSnapshot& snapshot)
+    {
+        char line[160] = {};
+        if (snapshot.has_center)
+        {
+            std::snprintf(line, sizeof(line),
+                          "%.4f N  /  %.4f E  /  zoom %d  /  %s",
+                          snapshot.lat, snapshot.lon, snapshot.zoom,
+                          snapshot.source_label.c_str());
+        }
+        else
+        {
+            std::snprintf(line, sizeof(line), "No map center  /  %s",
+                          snapshot.fix_label.c_str());
+        }
+        return line;
+    }
+
+    static std::string mapCacheSummary(const MapWorkspaceSnapshot& snapshot)
+    {
+        char line[128] = {};
+        std::snprintf(line, sizeof(line), "%llu tiles / %llu KB",
+                      static_cast<unsigned long long>(
+                          snapshot.cache_stats.cached_tiles),
+                      static_cast<unsigned long long>(
+                          snapshot.cache_stats.total_bytes / 1024U));
+        return line;
+    }
+
+    static std::string mapDownloadSummary(
+        const MapWorkspaceSnapshot& snapshot)
+    {
+        std::size_t missing = 0;
+        for (const auto& tile : snapshot.tiles)
+        {
+            if (!tile.available) ++missing;
+        }
+        char line[128] = {};
+        std::snprintf(line, sizeof(line), "%zu visible / %zu pending",
+                      snapshot.tiles.size() - missing, missing);
+        return line;
+    }
+
+    static std::string mapNodeSummary(const MapWorkspaceSnapshot& snapshot)
+    {
+        char line[128] = {};
+        std::snprintf(line, sizeof(line), "%zu nodes / %zu via MQTT",
+                      snapshot.visible_node_count,
+                      snapshot.visible_mqtt_node_count);
+        return line;
+    }
+
     void buildMapPreview()
     {
+        const auto snapshot = map_model_.snapshot();
         lv_obj_t* map = createPreviewPanel(
             desktop_page_panel_, "Field map", 0, embedded_palette::kMapBg,
             true);
@@ -1376,38 +1434,38 @@ class UConsoleDesktopShell
                 lv_obj_set_style_border_color(
                     tile, color(embedded_palette::kBorder), 0);
                 lv_obj_set_style_border_width(tile, 1, 0);
-                if (tile_index == 4)
-                {
-                    lv_obj_t* marker =
-                        addActionPill(tile, "YOU",
-                                      embedded_palette::kStatusGreen,
-                                      embedded_palette::kWhite);
-                    lv_obj_center(marker);
-                }
-                else if (tile_index == 2 || tile_index == 6)
-                {
-                    lv_obj_t* marker = addActionPill(
-                        tile, tile_index == 2 ? "SCOUT" : "BASE",
-                        embedded_palette::kSoftAmber,
-                        embedded_palette::kText);
-                    lv_obj_center(marker);
-                }
+                map_tile_cells_[static_cast<std::size_t>(tile_index)] = tile;
+                const bool available =
+                    tile_index < static_cast<int>(snapshot.tiles.size()) &&
+                    snapshot.tiles[static_cast<std::size_t>(tile_index)]
+                        .available;
+                lv_obj_set_style_bg_color(
+                    tile,
+                    color(available
+                              ? tile_colors[static_cast<std::size_t>(tile_index)]
+                              : embedded_palette::kSurfaceAlt),
+                    0);
             }
         }
-        createLabel(map,
-                    "31.2304 N  /  121.4737 E  /  zoom 14  /  Terrain",
-                    &lv_font_montserrat_12, embedded_palette::kTextMuted);
+        map_meta_label_ = createLabel(
+            map, mapSummary(snapshot), &lv_font_montserrat_12,
+            embedded_palette::kTextMuted);
 
         lv_obj_t* download = createPreviewPanel(
             desktop_page_panel_, "Map downloads", 220,
             embedded_palette::kSurface);
-        addPreviewRow(download, "Cache", "2,418 tiles / 386 MB",
-                      embedded_palette::kStatusGreen);
-        addPreviewRow(download, "Downloading", "4 workers / visible area",
-                      embedded_palette::kAccentDark);
-        addPreviewRow(download, "Retries", "2 queued / backoff active",
-                      embedded_palette::kWarn);
+        map_cache_label_ =
+            addPreviewRow(download, "Cache", mapCacheSummary(snapshot).c_str(),
+                          embedded_palette::kStatusGreen);
+        map_download_label_ =
+            addPreviewRow(download, "Visible tiles",
+                          mapDownloadSummary(snapshot).c_str(),
+                          embedded_palette::kAccentDark);
+        map_retry_label_ =
+            addPreviewRow(download, "Nodes", mapNodeSummary(snapshot).c_str(),
+                          embedded_palette::kStatusBlue);
         addActionPill(download, "Open cache directory");
+        requestMissingMapTiles(snapshot);
     }
 
     void buildGpsPreview()
@@ -1733,6 +1791,51 @@ class UConsoleDesktopShell
                         embedded_palette::kTextMuted);
         lv_obj_set_width(receiver_meta, LV_PCT(100));
         addActionPill(receiver, "Open map");
+    }
+
+    void requestMissingMapTiles(const MapWorkspaceSnapshot& snapshot)
+    {
+        if (map_download_jobs_.size() >= 6U) return;
+        for (const auto& tile : snapshot.tiles)
+        {
+            if (tile.available || map_download_jobs_.size() >= 6U) continue;
+            map_download_jobs_.push_back(std::async(
+                std::launch::async,
+                [this, id = tile.id]()
+                {
+                    return map_model_.ensureTile(id);
+                }));
+        }
+    }
+
+    void refreshMapPreview(bool force)
+    {
+        for (auto it = map_download_jobs_.begin();
+             it != map_download_jobs_.end();)
+        {
+            if (it->wait_for(std::chrono::milliseconds(0)) ==
+                std::future_status::ready)
+            {
+                it = map_download_jobs_.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        if (map_meta_label_ == nullptr) return;
+        if (!force && active_section_ != Section::Map) return;
+
+        const auto snapshot = map_model_.snapshot();
+        setLabel(map_meta_label_, mapSummary(snapshot));
+        setLabel(map_cache_label_, mapCacheSummary(snapshot));
+        setLabel(map_download_label_, mapDownloadSummary(snapshot));
+        setLabel(map_retry_label_, mapNodeSummary(snapshot));
+        if (map_download_jobs_.empty())
+        {
+            requestMissingMapTiles(snapshot);
+        }
     }
 
     void buildRadioToolsPreview()
@@ -2349,6 +2452,7 @@ class UConsoleDesktopShell
     linux_app::LinuxAppServices services_;
     UConsoleDashboardModel dashboard_model_;
     UConsoleChatWorkspaceModel chat_model_;
+    UConsoleMapWorkspaceModel map_model_;
     bool initialized_ = false;
     bool sidebar_collapsed_ = false;
     bool shortcuts_visible_ = false;
@@ -2379,6 +2483,13 @@ class UConsoleDesktopShell
     lv_obj_t* chat_input_ = nullptr;
     lv_obj_t* chat_send_button_ = nullptr;
     lv_obj_t* chat_status_label_ = nullptr;
+    lv_obj_t* map_meta_label_ = nullptr;
+    lv_obj_t* map_cache_label_ = nullptr;
+    lv_obj_t* map_download_label_ = nullptr;
+    lv_obj_t* map_retry_label_ = nullptr;
+    std::array<lv_obj_t*, 9> map_tile_cells_{};
+    std::vector<std::future<::platform::linux_runtime::MapTileResult>>
+        map_download_jobs_{};
 
     std::array<NavBinding, kNavLabels.size()> nav_bindings_{};
     std::array<lv_obj_t*, kNavLabels.size()> nav_buttons_{};
