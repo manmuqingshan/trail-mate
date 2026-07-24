@@ -276,17 +276,17 @@ if(TRAIL_MATE_UCONSOLE_BUILD_SDL_UI OR
     trailmate_apply_linux_common_warnings(trailmate_uconsole_sdl_shell)
 
     if(TRAIL_MATE_UCONSOLE_BUILD_SDL_UI)
-        add_executable(trailmate_uconsole
+        add_executable(trailmate_uconsole_sdl
             src/platform/desktop/sdl_window_presenter.cpp
             src/targets/uconsole_sdl_main.cpp)
-        target_include_directories(trailmate_uconsole
+        target_include_directories(trailmate_uconsole_sdl
             PRIVATE "${CMAKE_CURRENT_LIST_DIR}/src")
-        target_compile_features(trailmate_uconsole PRIVATE cxx_std_20)
-        target_link_libraries(trailmate_uconsole
+        target_compile_features(trailmate_uconsole_sdl PRIVATE cxx_std_20)
+        target_link_libraries(trailmate_uconsole_sdl
             PRIVATE SDL3::SDL3 trailmate_uconsole_sdl_shell)
-        set_target_properties(trailmate_uconsole
-            PROPERTIES OUTPUT_NAME "trailmate-uconsole")
-        install(TARGETS trailmate_uconsole
+        set_target_properties(trailmate_uconsole_sdl
+            PROPERTIES OUTPUT_NAME "trailmate-uconsole-sdl")
+        install(TARGETS trailmate_uconsole_sdl
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
     endif()
 
