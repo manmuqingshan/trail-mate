@@ -966,6 +966,137 @@ window {
   font-family: monospace;
   font-weight: 700;
 }
+/* uConsole embedded visual language: warm paper surfaces and amber focus. */
+window,
+.body,
+.workbench,
+.chat-root {
+  background: #fff3df;
+  color: #3a2a1a;
+}
+.uconsole-titlebar {
+  background: #f0d3a4;
+  color: #2a1a05;
+  border-bottom-color: #d9b06a;
+}
+.titlebar-title,
+.titlebar-button {
+  color: #2a1a05;
+}
+.titlebar-button:hover,
+.titlebar-button:focus-visible {
+  background: #e8b45f;
+  border-color: #c98118;
+}
+.titlebar-close:hover,
+.titlebar-close:focus-visible {
+  background: #c94c2c;
+  border-color: #a53b24;
+}
+.navigation-rail {
+  background: #fff0d3;
+  color: #3a2a1a;
+  border-right-color: #d9b06a;
+}
+.navigation-subtitle,
+.navigation-section-label {
+  color: #8a6a3a;
+}
+.menu-title {
+  color: #2a1a05;
+}
+.menu-button {
+  color: #3a2a1a;
+  background: #fff7e9;
+  border-color: #f0d3a4;
+}
+.menu-button:hover {
+  background: #f3d39c;
+  border-color: #d9b06a;
+}
+.panel,
+.pane,
+.overview-summary-panel,
+.overview-recent-panel,
+.row,
+.recent-contact-row,
+.chat-main,
+.chat-titlebar,
+.log-entry,
+.settings-section {
+  background: #fff7e9;
+  border-color: #d9b06a;
+  color: #3a2a1a;
+}
+.pane-primary,
+.overview-location-panel,
+.overview-messages-panel {
+  background: #fffaf1;
+}
+.pane-heading,
+.overview-panel-title,
+.row-title,
+.summary-title,
+.chat-title-line {
+  color: #2a1a05;
+}
+.pane-caption,
+.row-meta,
+.summary-detail,
+.navigation-footer-title,
+.log-time,
+.settings-status {
+  color: #6a5646;
+}
+.nav-button-active,
+.source-button-active {
+  background: #eba341;
+  color: #2a1a05;
+  border-color: #c98118;
+}
+.statusbar {
+  background: #f0d3a4;
+  color: #3a2a1a;
+  border-top: 1px solid #d9b06a;
+}
+.status-chip {
+  background: #f3d39c;
+  color: #3a2a1a;
+}
+.status-ok {
+  background: #dcefd8;
+  color: #245c2b;
+}
+.status-alert {
+  background: #f5d9d1;
+  color: #8b2e1d;
+}
+.map-side-panel,
+.map-tools-panel,
+.rail-pane,
+.inspector-pane,
+.settings-sidebar,
+.log-toolbar {
+  background: #faf0d8;
+  border-color: #d9b06a;
+}
+.map-canvas,
+.map-grid,
+.location-map,
+.gnss-skyplot {
+  background: #f6e7c8;
+  border-color: #d9b06a;
+}
+.metric-strip {
+  background: #f0d3a4;
+  border-color: #d9b06a;
+}
+.metric-card,
+.hardware-card,
+.settings-row {
+  background: #fff7e9;
+  border-color: #e8d2ab;
+}
 button.send {
   border-radius: 6px;
   padding: 6px 13px;
