@@ -218,7 +218,9 @@ if(TRAIL_MATE_UCONSOLE_BUILD_SDL_UI OR
                          EXCLUDE_FROM_ALL)
     endif()
     find_package(Threads REQUIRED)
-    find_package(SDL3 CONFIG REQUIRED)
+    if(NOT TARGET SDL3::SDL3)
+        find_package(SDL3 CONFIG REQUIRED)
+    endif()
 
     if(NOT TARGET lvgl)
         set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
