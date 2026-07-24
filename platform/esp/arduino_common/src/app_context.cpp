@@ -163,6 +163,11 @@ void AppContext::initChatRuntime(bool use_mock_adapter)
         return;
     }
 
+    deferred_storage_starter_ = chat_services.start_deferred_storage;
+    deferred_storage_store_context_ =
+        chat_services.deferred_storage_store_context;
+    deferred_storage_peer_context_ =
+        chat_services.deferred_storage_peer_context;
     chat_model_ = std::move(chat_services.model);
     chat_store_ = std::move(chat_services.store);
     mesh_peer_directory_ = std::move(chat_services.mesh_peer_directory);
@@ -499,6 +504,7 @@ bool AppContext::isBleEnabled() const
 bool AppContext::init(BoardBase& board, LoraBoard* lora_board, GpsBoard* gps_board, MotionBoard* motion_board,
                       bool use_mock_adapter, uint32_t disable_hw_init)
 {
+    const uint32_t init_started_ms = millis();
     if (!platform_bindings_.isValid())
     {
         Serial.printf("[AppContext] ERROR: platform bindings not configured\n");
@@ -520,29 +526,70 @@ bool AppContext::init(BoardBase& board, LoraBoard* lora_board, GpsBoard* gps_boa
         platform_bindings_.load_app_config(config_);
     }
     sync_reticulum_group_config(config_);
+    const uint32_t after_config_ms = millis();
+    Serial.printf("[AppContext] phase=load_config elapsed_ms=%lu total_ms=%lu\n",
+                  static_cast<unsigned long>(after_config_ms - init_started_ms),
+                  static_cast<unsigned long>(after_config_ms - init_started_ms));
     platform::esp::arduino_common::memory_diag::logHeapSnapshot("appctx.after_load_config");
     ::ui::boot::set_log_line("Initializing GPS services...");
     initGpsRuntime(disable_hw_init);
+    const uint32_t after_gps_ms = millis();
+    Serial.printf("[AppContext] phase=gps elapsed_ms=%lu total_ms=%lu\n",
+                  static_cast<unsigned long>(after_gps_ms - after_config_ms),
+                  static_cast<unsigned long>(after_gps_ms - init_started_ms));
     platform::esp::arduino_common::memory_diag::logHeapSnapshot("appctx.after_gps_runtime");
     initTrackRecorder();
+    const uint32_t after_track_ms = millis();
+    Serial.printf("[AppContext] phase=track elapsed_ms=%lu total_ms=%lu\n",
+                  static_cast<unsigned long>(after_track_ms - after_gps_ms),
+                  static_cast<unsigned long>(after_track_ms - init_started_ms));
     platform::esp::arduino_common::memory_diag::logHeapSnapshot("appctx.after_track_recorder");
     ::ui::boot::set_log_line("Initializing chat runtime...");
     initChatRuntime(use_mock_adapter);
+    const uint32_t after_chat_ms = millis();
+    Serial.printf("[AppContext] phase=chat elapsed_ms=%lu total_ms=%lu\n",
+                  static_cast<unsigned long>(after_chat_ms - after_track_ms),
+                  static_cast<unsigned long>(after_chat_ms - init_started_ms));
     platform::esp::arduino_common::memory_diag::logHeapSnapshot("appctx.after_chat_runtime");
     ::ui::boot::set_log_line("Initializing team services...");
     initTeamServices();
+    const uint32_t after_team_ms = millis();
+    Serial.printf("[AppContext] phase=team elapsed_ms=%lu total_ms=%lu\n",
+                  static_cast<unsigned long>(after_team_ms - after_chat_ms),
+                  static_cast<unsigned long>(after_team_ms - init_started_ms));
     platform::esp::arduino_common::memory_diag::logHeapSnapshot("appctx.after_team_services");
     ::ui::boot::set_log_line("Initializing contacts...");
     initContactServices();
+    const uint32_t after_contacts_ms = millis();
+    Serial.printf("[AppContext] phase=contacts elapsed_ms=%lu total_ms=%lu\n",
+                  static_cast<unsigned long>(after_contacts_ms - after_team_ms),
+                  static_cast<unsigned long>(after_contacts_ms - init_started_ms));
     platform::esp::arduino_common::memory_diag::logHeapSnapshot("appctx.after_contact_services");
     if (platform_bindings_.finalize_startup)
     {
         ::ui::boot::set_log_line("Finalizing startup...");
         platform_bindings_.finalize_startup(*this);
     }
+    Serial.printf("[AppContext] phase=finalize total_ms=%lu\n",
+                  static_cast<unsigned long>(millis() - init_started_ms));
     platform::esp::arduino_common::memory_diag::logHeapSnapshot("appctx.after_finalize_startup");
 
     return true;
+}
+
+void AppContext::startDeferredStorage()
+{
+    if (deferred_storage_started_)
+    {
+        return;
+    }
+    deferred_storage_started_ = true;
+    if (deferred_storage_starter_)
+    {
+        deferred_storage_starter_(deferred_storage_store_context_,
+                                  deferred_storage_peer_context_,
+                                  config_.mesh_protocol);
+    }
 }
 
 bool AppContext::switchMeshProtocol(chat::MeshProtocol protocol, bool persist)

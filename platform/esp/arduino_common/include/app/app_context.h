@@ -71,6 +71,7 @@ class AppContext final : public IAppBleFacade
 
     bool init(BoardBase& board, LoraBoard* lora_board = nullptr, GpsBoard* gps_board = nullptr,
               MotionBoard* motion_board = nullptr, bool use_mock_adapter = true, uint32_t disable_hw_init = 0);
+    void startDeferredStorage();
 
     chat::ChatService& getChatService() override
     {
@@ -284,6 +285,11 @@ class AppContext final : public IAppBleFacade
     bool config_save_pending_ = false;
     bool config_save_busy_ = false;
     bool config_save_failed_ = false;
+    bool deferred_storage_started_ = false;
+    app::ChatServicesBundle::DeferredStorageStarter deferred_storage_starter_ =
+        nullptr;
+    void* deferred_storage_store_context_ = nullptr;
+    void* deferred_storage_peer_context_ = nullptr;
 
     BoardBase* board_ = nullptr;
     LoraBoard* lora_board_ = nullptr;

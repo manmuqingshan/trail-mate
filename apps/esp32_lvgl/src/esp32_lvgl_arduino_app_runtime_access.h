@@ -12,6 +12,7 @@ struct Status
 };
 
 bool initialize(bool use_mock);
+void startDeferredStorage();
 void tick();
 const Status& status();
 

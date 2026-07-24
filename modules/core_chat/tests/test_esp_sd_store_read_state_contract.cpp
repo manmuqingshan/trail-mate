@@ -76,6 +76,12 @@ int main(int argc, char** argv)
     const std::string bindings = readFile(
         repo_root /
         "platform/esp/arduino_common/src/app_context_platform_bindings.cpp");
+    const std::string startup = readFile(
+        repo_root /
+        "apps/esp32_lvgl/src/esp32_lvgl_arduino_startup_runtime.cpp");
+    const std::string storage_runtime = readFile(
+        repo_root /
+        "platform/esp/arduino_common/src/storage/storage_runtime.cpp");
 
     assert(contains(header, "kRoot = \"/data/v2\""));
     assert(contains(header, "kMeshtasticRoot = \"/data/v2/mt/chat\""));
@@ -176,7 +182,31 @@ int main(int argc, char** argv)
         "bool SdStore::ensureLayout");
     assert(contains(flush_body, "projection_dirty_"));
     assert(contains(flush_body, "kProjectionRetryIntervalMs"));
-    assert(contains(flush_body, "BackgroundWorkerBounded"));
+
+    const std::string constructor_body = bodyBetween(
+        source,
+        "SdStore::SdStore()",
+        "SdStore::~SdStore()");
+    assert(!contains(constructor_body, "ensureLayout()"));
+    assert(!contains(constructor_body, "loadRuntimeState()"));
+    assert(!contains(constructor_body, "compactProtocolProjections"));
+    assert(contains(constructor_body, "hydration=pending"));
+
+    const std::string begin_body = bodyBetween(
+        peer_source,
+        "MeshPeerDirectoryStatus SdProtocolPeerRepository::begin()",
+        "MeshPeerDirectoryStatus SdProtocolPeerRepository::hydrateFromStorage()");
+    assert(!contains(begin_body, "ensureLayout()"));
+    assert(!contains(begin_body, "loadProtocol"));
+    assert(!contains(begin_body, "compactProtocolAtBoot"));
+    assert(contains(begin_body, "hydration=pending"));
+
+    assert(positionOf(startup, "initializeShell()") <
+           positionOf(startup, "startDeferredStorage()"));
+    assert(contains(storage_runtime, "xTaskCreatePinnedToCore"));
+    assert(contains(storage_runtime, "vTaskDelete(nullptr)"));
+    assert(contains(storage_runtime, "memory::admit"));
+    assert(contains(storage_runtime, "storage_worker"));
 
     return 0;
 }

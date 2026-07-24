@@ -150,23 +150,7 @@ SdStore::SdStore()
     read_state_.reserve(64);
     statuses_.reserve(256);
     seen_hot_.reserve(256);
-    ready_ = mutex_ && ensureLayout() && loadRuntimeState();
-    if (ready_)
-    {
-        for (MeshProtocol protocol : kProtocols)
-        {
-            if (!compactProtocolProjections(protocol))
-            {
-                projection_dirty_[protocolIndex(protocol)] = true;
-            }
-        }
-    }
-    CHAT_STORE_LOG("[ChatStoreV2] ready=%u root=%s conversations=%u statuses=%u seen_hot=%u\n",
-                   ready_ ? 1U : 0U,
-                   kRoot,
-                   static_cast<unsigned>(catalog_.size()),
-                   static_cast<unsigned>(statuses_.size()),
-                   static_cast<unsigned>(seen_hot_.size()));
+    CHAT_STORE_LOG("[ChatStoreV2] constructed ready=0 hydration=pending root=%s\n", kRoot);
 }
 
 SdStore::~SdStore()
@@ -176,6 +160,62 @@ SdStore::~SdStore()
         vSemaphoreDelete(mutex_);
         mutex_ = nullptr;
     }
+}
+
+bool SdStore::hydrateFromStorage()
+{
+    if (ready_.load(std::memory_order_acquire))
+    {
+        return true;
+    }
+    if (hydrating_.exchange(true, std::memory_order_acq_rel))
+    {
+        return false;
+    }
+
+    const uint32_t started_ms = millis();
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_, portMAX_DELAY);
+    const bool ok = state_lock.locked() && storage_runtime::sd_card_ready() &&
+                    ensureLayout() && loadRuntimeState();
+    if (ok)
+    {
+        ready_.store(true, std::memory_order_release);
+    }
+    hydrating_.store(false, std::memory_order_release);
+    CHAT_STORE_LOG("[ChatStoreV2] hydration ready=%u elapsed_ms=%lu conversations=%u statuses=%u seen_hot=%u\n",
+                   ok ? 1U : 0U,
+                   static_cast<unsigned long>(millis() - started_ms),
+                   static_cast<unsigned>(catalog_.size()),
+                   static_cast<unsigned>(statuses_.size()),
+                   static_cast<unsigned>(seen_hot_.size()));
+    return ok;
+}
+
+bool SdStore::compactDeferred()
+{
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return false;
+    }
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_, portMAX_DELAY);
+    if (!state_lock.locked())
+    {
+        return false;
+    }
+    const uint32_t started_ms = millis();
+    bool ok = true;
+    for (MeshProtocol protocol : kProtocols)
+    {
+        if (!compactProtocolProjections(protocol))
+        {
+            projection_dirty_[protocolIndex(protocol)] = true;
+            ok = false;
+        }
+    }
+    CHAT_STORE_LOG("[ChatStoreV2] deferred_compaction ok=%u elapsed_ms=%lu\n",
+                   ok ? 1U : 0U,
+                   static_cast<unsigned long>(millis() - started_ms));
+    return ok;
 }
 
 void SdStore::append(const ChatMessage& msg)
@@ -190,16 +230,28 @@ void SdStore::append(const ChatMessage& msg)
 
 bool SdStore::appendDurably(const ChatMessage& msg)
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return false;
+    }
     return appendInternal(msg, false);
 }
 
 bool SdStore::appendIncomingDurably(const ChatMessage& msg)
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return false;
+    }
     return appendInternal(msg, true);
 }
 
 bool SdStore::appendInternal(const ChatMessage& input, bool incoming_commit)
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return false;
+    }
     storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
     if (!state_lock.locked() || !ready_)
     {
@@ -296,6 +348,10 @@ bool SdStore::appendInternal(const ChatMessage& input, bool incoming_commit)
 std::vector<ChatMessage> SdStore::loadRecent(const ConversationId& conv,
                                              std::size_t n)
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return {};
+    }
     return loadPageFromLatest(conv, 0, n, nullptr);
 }
 
@@ -305,6 +361,14 @@ std::vector<ChatMessage> SdStore::loadPageFromLatest(
     std::size_t limit,
     std::size_t* total)
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        if (total)
+        {
+            *total = 0U;
+        }
+        return {};
+    }
     storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
     if (!state_lock.locked() || !ready_)
     {
@@ -347,6 +411,14 @@ std::vector<ConversationMeta> SdStore::loadConversationPage(
     std::size_t limit,
     std::size_t* total)
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        if (total)
+        {
+            *total = 0U;
+        }
+        return {};
+    }
     storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
     if (!state_lock.locked() || !ready_)
     {
@@ -394,6 +466,14 @@ std::vector<ConversationMeta> SdStore::loadConversationPageForProtocol(
     std::size_t limit,
     std::size_t* total)
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        if (total)
+        {
+            *total = 0U;
+        }
+        return {};
+    }
     storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
     if (!state_lock.locked() || !ready_)
     {
@@ -438,6 +518,10 @@ std::vector<ConversationMeta> SdStore::loadConversationPageForProtocol(
 
 bool SdStore::setUnread(const ConversationId& input, int unread)
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return false;
+    }
     storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
     if (!state_lock.locked() || !ready_)
     {
@@ -480,6 +564,10 @@ bool SdStore::setUnread(const ConversationId& input, int unread)
 
 int SdStore::getUnread(const ConversationId& input) const
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return 0;
+    }
     storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
     if (!state_lock.locked() || !ready_)
     {
@@ -494,6 +582,10 @@ int SdStore::getUnread(const ConversationId& input) const
 
 void SdStore::clearConversation(const ConversationId& input)
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return;
+    }
     storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
     if (!state_lock.locked() || !ready_)
     {
@@ -545,6 +637,10 @@ void SdStore::clearConversation(const ConversationId& input)
 
 void SdStore::clearAll()
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return;
+    }
     storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
     if (!state_lock.locked())
     {
@@ -564,6 +660,10 @@ void SdStore::clearAll()
 
 bool SdStore::updateMessageStatus(MessageId msg_id, MessageStatus status)
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return false;
+    }
     ChatMessage message{};
     if (!getMessage(msg_id, &message))
     {
@@ -576,6 +676,10 @@ bool SdStore::updateMessageStatusForProtocol(MessageId msg_id,
                                              MeshProtocol protocol,
                                              MessageStatus status)
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return false;
+    }
     storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
     if (!state_lock.locked() || !ready_)
     {
@@ -637,6 +741,10 @@ bool SdStore::updateMessageStatusForProtocol(MessageId msg_id,
 
 bool SdStore::getMessage(MessageId msg_id, ChatMessage* out) const
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return false;
+    }
     storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
     if (!state_lock.locked() || !ready_)
     {
@@ -656,6 +764,10 @@ bool SdStore::getMessageForProtocol(MessageId msg_id,
                                     MeshProtocol protocol,
                                     ChatMessage* out) const
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return false;
+    }
     storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
     if (!state_lock.locked() || !ready_)
     {
@@ -696,6 +808,10 @@ bool SdStore::getMessageForProtocol(MessageId msg_id,
 
 bool SdStore::hasReticulumLxmfMessageHash(const uint8_t* hash) const
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return false;
+    }
     storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
     if (!state_lock.locked() || !ready_)
     {
@@ -752,8 +868,12 @@ bool SdStore::hasReticulumLxmfMessageHash(const uint8_t* hash) const
 
 void SdStore::flush()
 {
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return;
+    }
     storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
-    if (!state_lock.locked() || !ready_)
+    if (!state_lock.locked())
     {
         return;
     }

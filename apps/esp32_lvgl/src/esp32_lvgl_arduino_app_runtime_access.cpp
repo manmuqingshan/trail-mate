@@ -71,6 +71,15 @@ bool initialize(bool use_mock)
     return true;
 }
 
+void startDeferredStorage()
+{
+    if (!s_status.initialized || !s_status.app_context_bound)
+    {
+        return;
+    }
+    app::AppContext::getInstance().startDeferredStorage();
+}
+
 void tick()
 {
     const uint32_t now_ms = millis();

@@ -17,6 +17,7 @@
 #include "platform/esp/arduino_common/gps/gps_service.h"
 #include "platform/esp/arduino_common/gps/track_recorder.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/arduino_common/storage/storage_runtime.h"
 #include "platform/esp/arduino_common/team/crypto/team_crypto.h"
 #include "platform/esp/arduino_common/team/event/team_app_data_event_bus_bridge.h"
 #include "platform/esp/arduino_common/team/event/team_event_bus_sink.h"
@@ -113,18 +114,26 @@ void set_team_mode_active(bool active)
     gps::GpsService::getInstance().setTeamModeActive(active);
 }
 
-std::unique_ptr<chat::IChatStore> create_chat_store()
+std::unique_ptr<chat::IChatStore> create_chat_store(void** deferred_context)
 {
+    if (deferred_context)
+    {
+        *deferred_context = nullptr;
+    }
     if (::platform::esp::arduino_common::storage::sd_card_ready())
     {
         std::unique_ptr<chat::SdStore> sd_store(new chat::SdStore());
-        if (sd_store && sd_store->isReady())
+        if (sd_store)
         {
-            Serial.printf("[AppContext] chat store=SdStore backend=%s layout=/data/v2/{mt,mc,rt}/chat\n",
+            if (deferred_context)
+            {
+                *deferred_context = sd_store.get();
+            }
+            Serial.printf("[AppContext] chat store=SdStore hydration=pending backend=%s layout=/data/v2/{mt,mc,rt}/chat\n",
                           ::platform::esp::arduino_common::storage::sd_card_backend_name());
             return std::unique_ptr<chat::IChatStore>(sd_store.release());
         }
-        Serial.printf("[AppContext] chat store=RamStore reason=sd_store_unavailable\n");
+        Serial.printf("[AppContext] chat store=RamStore reason=sd_store_alloc_failed\n");
         return std::unique_ptr<chat::IChatStore>(new chat::RamStore());
     }
 
@@ -133,16 +142,25 @@ std::unique_ptr<chat::IChatStore> create_chat_store()
 }
 
 std::unique_ptr<chat::IProtocolPeerRepository> create_mesh_peer_directory(
-    chat::IChatStore& chat_store)
+    chat::IChatStore& chat_store,
+    void** deferred_context)
 {
+    if (deferred_context)
+    {
+        *deferred_context = nullptr;
+    }
     std::unique_ptr<chat::IProtocolPeerRepository> repository(
         new (std::nothrow) chat::SdProtocolPeerRepository(chat_store));
     if (!repository)
     {
         return repository;
     }
+    if (deferred_context)
+    {
+        *deferred_context = repository.get();
+    }
     const auto status = repository->begin();
-    Serial.printf("[PeerStoreV2] backend=sd root=/data/v2 status=%u\n",
+    Serial.printf("[PeerStoreV2] backend=sd root=/data/v2 status=%u hydration=pending\n",
                   static_cast<unsigned>(status.code));
     return repository;
 }
@@ -173,6 +191,16 @@ std::unique_ptr<chat::ChatService::IncomingMessageObserver> create_chat_message_
     return std::unique_ptr<chat::ChatService::IncomingMessageObserver>(new chat::infra::ChatEventBusBridge(service));
 }
 
+void start_deferred_storage(void* store_context,
+                            void* peer_directory_context,
+                            chat::MeshProtocol active_protocol)
+{
+    ::platform::esp::arduino_common::storage::start_deferred_storage(
+        static_cast<chat::SdStore*>(store_context),
+        static_cast<chat::SdProtocolPeerRepository*>(peer_directory_context),
+        active_protocol);
+}
+
 app::ChatServicesBundle create_chat_services(const app::AppConfig& config,
                                              LoraBoard* lora_board,
                                              bool use_mock_adapter)
@@ -187,12 +215,14 @@ app::ChatServicesBundle create_chat_services(const app::AppConfig& config,
     }
     bundle.model->setPolicy(config.chat_policy);
 
-    bundle.store = create_chat_store();
+    bundle.store = create_chat_store(&bundle.deferred_storage_store_context);
     if (!bundle.store)
     {
         return bundle;
     }
-    bundle.mesh_peer_directory = create_mesh_peer_directory(*bundle.store);
+    bundle.mesh_peer_directory =
+        create_mesh_peer_directory(*bundle.store,
+                                   &bundle.deferred_storage_peer_context);
     bundle.mesh_runtime = create_mesh_runtime();
     if (!bundle.store || !bundle.mesh_peer_directory || !bundle.mesh_runtime)
     {
@@ -223,6 +253,11 @@ app::ChatServicesBundle create_chat_services(const app::AppConfig& config,
     }
 
     bundle.incoming_message_observer = create_chat_message_observer(*bundle.service);
+    if (bundle.deferred_storage_store_context ||
+        bundle.deferred_storage_peer_context)
+    {
+        bundle.start_deferred_storage = start_deferred_storage;
+    }
     return bundle;
 }
 

@@ -13,6 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -35,7 +36,16 @@ class SdStore final : public IChatStore
     SdStore();
     ~SdStore() override;
 
-    bool isReady() const { return ready_; }
+    bool isReady() const { return ready_.load(std::memory_order_acquire); }
+    bool isHydrating() const
+    {
+        return hydrating_.load(std::memory_order_acquire);
+    }
+
+    // Construction is intentionally empty. Disk recovery is an explicit
+    // background lifecycle step so AppContext can become interactive first.
+    bool hydrateFromStorage();
+    bool compactDeferred();
 
     void append(const ChatMessage& msg) override;
     bool appendDurably(const ChatMessage& msg) override;
@@ -216,7 +226,8 @@ class SdStore final : public IChatStore
     bool projection_dirty_[3] = {};
     uint8_t flush_protocol_cursor_ = 0;
     uint32_t last_projection_retry_ms_ = 0;
-    bool ready_ = false;
+    std::atomic<bool> ready_{false};
+    std::atomic<bool> hydrating_{false};
 };
 
 } // namespace chat

@@ -150,6 +150,7 @@ void run()
 
     ui::startup_shell::setBootLogLine("Building main menu...");
     initializeShell();
+    trailmate::apps::esp32_lvgl::arduino_app_runtime_access::startDeferredStorage();
     ui::startup_shell::setBootLogLine("Startup complete");
     finishStartup(waking_from_sleep);
     platform::esp::arduino_common::debug::append_line("[Setup] Startup complete");

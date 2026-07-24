@@ -87,17 +87,39 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::begin()
         return MeshPeerDirectoryStatus::success();
     }
 
-    if (!ensureLayout())
+    begun_ = true;
+    Serial.printf("[PeerStoreV2] begun=1 hydration=pending root=%s\n", kRoot);
+    return MeshPeerDirectoryStatus::success();
+}
+
+MeshPeerDirectoryStatus SdProtocolPeerRepository::hydrateFromStorage()
+{
+    ScopedRepositoryLock lock(mutex_, portMAX_DELAY);
+    if (!lock.locked() || !begun_)
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::StorageUnavailable);
+    }
+    if (hydrated_)
+    {
+        return MeshPeerDirectoryStatus::success();
+    }
+    const uint32_t started_ms = millis();
+    if (!storage_runtime::sd_card_ready() || !ensureLayout())
     {
         return MeshPeerDirectoryStatus::fail(
             MeshPeerDirectoryStatusCode::StorageUnavailable);
     }
 
+    PeerVector live_peers = std::move(peers_);
+    ContactVector live_contacts = std::move(contacts_);
+    PendingPeerVector live_pending = std::move(pending_peer_deltas_);
     peers_.clear();
     contacts_.clear();
     pending_peer_deltas_.clear();
     pending_peer_head_ = 0U;
     std::memset(partitions_, 0, sizeof(partitions_));
+
     bool ok = true;
     for (MeshProtocol protocol : kProtocols)
     {
@@ -105,30 +127,60 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::begin()
     }
     if (!ok)
     {
-        peers_.clear();
-        contacts_.clear();
+        peers_ = std::move(live_peers);
+        contacts_ = std::move(live_contacts);
+        pending_peer_deltas_ = std::move(live_pending);
+        pending_peer_head_ = 0U;
         return MeshPeerDirectoryStatus::fail(MeshPeerDirectoryStatusCode::IoError);
     }
 
+    for (const MeshPeerRecord& peer : live_peers)
+    {
+        (void)applyPeerProjection({peer, false});
+    }
+    for (const storage_v2::ContactProjection& contact : live_contacts)
+    {
+        (void)applyContactProjection(contact);
+    }
+    pending_peer_deltas_ = std::move(live_pending);
+    pending_peer_head_ = 0U;
     for (MeshProtocol protocol : kProtocols)
     {
         reconcileStableIdentities(protocol);
     }
     overlayContactFacts();
+    hydrated_ = true;
+    Serial.printf("[PeerStoreV2] hydration ready=1 peers=%u contacts=%u elapsed_ms=%lu\n",
+                  static_cast<unsigned>(peers_.size()),
+                  static_cast<unsigned>(contacts_.size()),
+                  static_cast<unsigned long>(millis() - started_ms));
+    return MeshPeerDirectoryStatus::success();
+}
+
+MeshPeerDirectoryStatus SdProtocolPeerRepository::compactDeferred()
+{
+    ScopedRepositoryLock lock(mutex_, portMAX_DELAY);
+    if (!lock.locked() || !begun_ || !hydrated_)
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::StorageUnavailable);
+    }
+    const uint32_t started_ms = millis();
+    bool ok = true;
     for (MeshProtocol protocol : kProtocols)
     {
         if (!compactProtocolAtBoot(protocol))
         {
-            Serial.printf("[PeerStoreV2] compaction deferred protocol=%s\n",
+            Serial.printf("[PeerStoreV2] deferred compaction failed protocol=%s\n",
                           protocolSlug(protocol));
+            ok = false;
         }
     }
-    begun_ = true;
-    Serial.printf("[PeerStoreV2] ready=1 peers=%u contacts=%u root=%s\n",
-                  static_cast<unsigned>(peers_.size()),
-                  static_cast<unsigned>(contacts_.size()),
-                  kRoot);
-    return MeshPeerDirectoryStatus::success();
+    Serial.printf("[PeerStoreV2] deferred_compaction ok=%u elapsed_ms=%lu\n",
+                  ok ? 1U : 0U,
+                  static_cast<unsigned long>(millis() - started_ms));
+    return ok ? MeshPeerDirectoryStatus::success()
+              : MeshPeerDirectoryStatus::fail(MeshPeerDirectoryStatusCode::IoError);
 }
 
 bool SdProtocolPeerRepository::ensureLayout()
@@ -1502,19 +1554,6 @@ void SdProtocolPeerRepository::buildProtocolPath(MeshProtocol protocol,
                       "%s/%s",
                       kRoot,
                       protocolSlug(protocol));
-    }
-}
-
-bool SdProtocolPeerRepository::lock() const
-{
-    return mutex_ && xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE;
-}
-
-void SdProtocolPeerRepository::unlock() const
-{
-    if (mutex_)
-    {
-        xSemaphoreGive(mutex_);
     }
 }
 

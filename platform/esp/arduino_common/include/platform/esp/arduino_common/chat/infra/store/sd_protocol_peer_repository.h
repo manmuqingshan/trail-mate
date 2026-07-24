@@ -26,6 +26,8 @@ class SdProtocolPeerRepository final : public IProtocolPeerRepository
     SdProtocolPeerRepository& operator=(const SdProtocolPeerRepository&) = delete;
 
     MeshPeerDirectoryStatus begin() override;
+    MeshPeerDirectoryStatus hydrateFromStorage();
+    MeshPeerDirectoryStatus compactDeferred();
     MeshPeerDirectoryStatus record(const MeshPeerRecord& record) override;
     MeshPeerDirectoryStatus find(const MeshPeerIdentity& identity,
                                  MeshPeerRecord& out_record) override;
@@ -133,9 +135,6 @@ class SdProtocolPeerRepository final : public IProtocolPeerRepository
                                   char* out,
                                   std::size_t out_len);
 
-    bool lock() const;
-    void unlock() const;
-
     IChatStore& chat_store_;
     storage::v2::FixedSlotJournalEngine journal_{};
     PeerVector peers_{};
@@ -146,6 +145,7 @@ class SdProtocolPeerRepository final : public IProtocolPeerRepository
     PartitionState partitions_[3]{};
     MeshProtocol active_protocol_ = MeshProtocol::Meshtastic;
     bool begun_ = false;
+    bool hydrated_ = false;
     mutable SemaphoreHandle_t mutex_ = nullptr;
 };
 

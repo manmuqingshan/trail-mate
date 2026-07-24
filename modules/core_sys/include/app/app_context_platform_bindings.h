@@ -37,12 +37,20 @@ class IAppFacade;
 
 struct ChatServicesBundle
 {
+    using DeferredStorageStarter =
+        void (*)(void* store_context,
+                 void* peer_directory_context,
+                 chat::MeshProtocol active_protocol);
+
     std::unique_ptr<chat::ChatModel> model;
     std::unique_ptr<chat::IChatStore> store;
     std::unique_ptr<chat::IProtocolPeerRepository> mesh_peer_directory;
     std::unique_ptr<chat::IMeshAdapter> mesh_runtime;
     std::unique_ptr<chat::ChatService> service;
     std::unique_ptr<chat::ChatService::IncomingMessageObserver> incoming_message_observer;
+    DeferredStorageStarter start_deferred_storage = nullptr;
+    void* deferred_storage_store_context = nullptr;
+    void* deferred_storage_peer_context = nullptr;
 
     bool isValid() const
     {
