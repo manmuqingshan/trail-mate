@@ -747,7 +747,7 @@ class UConsoleDesktopShell
             return false;
         }
 
-        rebuildDesktopPage();
+        refreshMapPreview(true);
         refreshFooter();
         return true;
     }
@@ -926,7 +926,7 @@ class UConsoleDesktopShell
         lv_obj_set_width(footer_shortcuts_row_, 0);
         lv_obj_set_height(footer_shortcuts_row_, LV_PCT(100));
         lv_obj_set_flex_grow(footer_shortcuts_row_, 1);
-        lv_obj_set_style_pad_column(footer_shortcuts_row_, 5, 0);
+        lv_obj_set_style_pad_column(footer_shortcuts_row_, 2, 0);
         lv_obj_set_flex_flow(footer_shortcuts_row_, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(footer_shortcuts_row_,
                               LV_FLEX_ALIGN_END,
@@ -966,7 +966,7 @@ class UConsoleDesktopShell
         resetBox(group);
         applyTransparent(group);
         lv_obj_set_height(group, 22);
-        lv_obj_set_style_pad_column(group, 2, 0);
+        lv_obj_set_style_pad_column(group, 1, 0);
         lv_obj_set_flex_flow(group, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(group,
                               LV_FLEX_ALIGN_START,
