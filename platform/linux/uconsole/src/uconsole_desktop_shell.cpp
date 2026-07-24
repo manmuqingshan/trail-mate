@@ -39,7 +39,8 @@ constexpr int kCapabilityRows = 5;
 constexpr int kChatConversationRows = 7;
 constexpr int kChatMessageRows = 7;
 constexpr std::uint32_t kLvglFunctionKeyF1 = 0x110001U;
-constexpr int kMapTileDisplaySize = 180;
+constexpr int kMapTileDisplaySize = 150;
+constexpr std::size_t kMaxMapPreviewTiles = 121;
 
 namespace embedded_palette
 {
@@ -1415,23 +1416,31 @@ class UConsoleDesktopShell
             embedded_palette::kMapTile4, embedded_palette::kMapTile5,
             embedded_palette::kMapTile6, embedded_palette::kMapTile7,
             embedded_palette::kMapTile8};
-        for (int row_index = 0; row_index < 3; ++row_index)
+        const int preview_columns =
+            static_cast<int>(std::max<std::size_t>(1U, snapshot.columns));
+        const int preview_rows =
+            static_cast<int>(std::max<std::size_t>(1U, snapshot.rows));
+        for (int row_index = 0; row_index < preview_rows; ++row_index)
         {
             lv_obj_t* row = lv_obj_create(grid);
             resetBox(row);
-            lv_obj_set_width(row, kMapTileDisplaySize * 3);
+            lv_obj_set_width(row, kMapTileDisplaySize * preview_columns);
             lv_obj_set_height(row, kMapTileDisplaySize);
             lv_obj_set_style_pad_column(row, 0, 0);
             lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-            for (int column = 0; column < 3; ++column)
+            for (int column = 0; column < preview_columns; ++column)
             {
-                const int tile_index = (row_index * 3) + column;
+                const int tile_index =
+                    (row_index * preview_columns) + column;
                 lv_obj_t* tile = lv_obj_create(row);
                 resetBox(tile);
                 lv_obj_set_size(tile, kMapTileDisplaySize,
                                 kMapTileDisplaySize);
                 lv_obj_set_style_bg_color(
-                    tile, color(tile_colors[tile_index]), 0);
+                    tile,
+                    color(tile_colors[static_cast<std::size_t>(tile_index) %
+                                      tile_colors.size()]),
+                    0);
                 lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
                 lv_obj_set_style_border_color(
                     tile, color(embedded_palette::kBorder), 0);
@@ -1444,7 +1453,8 @@ class UConsoleDesktopShell
                 lv_obj_set_style_bg_color(
                     tile,
                     color(available
-                              ? tile_colors[static_cast<std::size_t>(tile_index)]
+                              ? tile_colors[static_cast<std::size_t>(tile_index) %
+                                            tile_colors.size()]
                               : embedded_palette::kSurfaceAlt),
                     0);
                 if (available)
@@ -2546,9 +2556,9 @@ class UConsoleDesktopShell
     lv_obj_t* map_cache_label_ = nullptr;
     lv_obj_t* map_download_label_ = nullptr;
     lv_obj_t* map_retry_label_ = nullptr;
-    std::array<lv_obj_t*, 9> map_tile_cells_{};
-    std::array<lv_obj_t*, 9> map_tile_images_{};
-    std::array<std::string, 9> map_tile_paths_{};
+    std::array<lv_obj_t*, kMaxMapPreviewTiles> map_tile_cells_{};
+    std::array<lv_obj_t*, kMaxMapPreviewTiles> map_tile_images_{};
+    std::array<std::string, kMaxMapPreviewTiles> map_tile_paths_{};
     std::vector<std::future<::platform::linux_runtime::MapTileResult>>
         map_download_jobs_{};
 
