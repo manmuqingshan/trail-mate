@@ -19,6 +19,7 @@
 #include "app/linux_app_services.h"
 #include "core/canvas.h"
 #include "lvgl.h"
+#include "platform/ui/gps_runtime.h"
 #include "uconsole/uconsole_chat_workspace_model.h"
 #include "uconsole/uconsole_dashboard_model.h"
 #include "uconsole/uconsole_map_workspace_model.h"
@@ -399,6 +400,13 @@ class UConsoleDesktopShell
         services_.tick();
         refreshMapPreview(false);
         const auto now = clock::now();
+        if (active_section_ == Section::Gps &&
+            (now - last_gps_preview_refresh_) >=
+                std::chrono::milliseconds(1000))
+        {
+            last_gps_preview_refresh_ = now;
+            rebuildDesktopPage();
+        }
         if ((now - last_refresh_) >= std::chrono::milliseconds(500))
         {
             refreshDashboard(false);
@@ -748,7 +756,11 @@ class UConsoleDesktopShell
             return false;
         }
 
-        refreshMapPreview(true);
+        // Apply the map model change synchronously, but defer the expensive
+        // tile/image refresh to the normal frame tick.  Refreshing LVGL image
+        // sources here decodes several PNGs on the input loop and makes a
+        // burst of WASD presses look like only every fourth or fifth press
+        // was accepted.
         refreshFooter();
         return true;
     }
@@ -1833,6 +1845,15 @@ class UConsoleDesktopShell
 
     void buildGpsPreview()
     {
+        std::array<platform::ui::gps::GnssSatInfo, gps::kMaxGnssSats>
+            live_satellites{};
+        std::size_t live_satellite_count = 0;
+        platform::ui::gps::GnssStatus live_status{};
+        const bool have_gnss_snapshot = platform::ui::gps::get_gnss_snapshot(
+            live_satellites.data(), live_satellites.size(),
+            &live_satellite_count, &live_status);
+        const auto gps_state = platform::ui::gps::get_data();
+
         lv_obj_t* sky = createPreviewPanel(
             desktop_page_panel_, "Satellite sky plot", 0,
             embedded_palette::kSurface, true);
@@ -1939,26 +1960,70 @@ class UConsoleDesktopShell
             std::uint32_t border_color;
             std::uint32_t text_color;
         };
-        constexpr std::array<SatelliteDot, 8> satellites{{
-            {12, "GPS", 332.0F, 67.0F, 42, true, 0xE3B11F, 0x3E7D3E,
-             embedded_palette::kHeaderText},
-            {31, "GPS", 296.0F, 52.0F, 39, true, 0xE3B11F, 0x3E7D3E,
-             embedded_palette::kHeaderText},
-            {7, "BDS", 8.0F, 61.0F, 38, true, 0xB94A2C, 0x3E7D3E,
-             embedded_palette::kWhite},
-            {4, "GAL", 158.0F, 48.0F, 36, true, 0x3E7D3E, 0x3E7D3E,
-             embedded_palette::kWhite},
-            {11, "GAL", 132.0F, 35.0F, 33, true, 0x3E7D3E, 0x8FBF4D,
-             embedded_palette::kWhite},
-            {19, "BDS", 226.0F, 29.0F, 30, true, 0xB94A2C, 0x8FBF4D,
-             embedded_palette::kWhite},
-            {22, "GPS", 82.0F, 23.0F, 28, false, 0xE3B11F, 0xB94A2C,
-             embedded_palette::kHeaderText},
-            {5, "GPS", 278.0F, 16.0F, 18, false, 0xE3B11F, 0x6E6E6E,
-             embedded_palette::kHeaderText},
-        }};
-        for (const auto& sat : satellites)
+        std::array<SatelliteDot, gps::kMaxGnssSats> satellites{};
+        std::size_t satellite_count = 0;
+        const auto system_name = [](gps::GnssSystem system)
         {
+            switch (system)
+            {
+            case gps::GnssSystem::GPS:
+                return "GPS";
+            case gps::GnssSystem::GLN:
+                return "GLN";
+            case gps::GnssSystem::GAL:
+                return "GAL";
+            case gps::GnssSystem::BD:
+                return "BDS";
+            case gps::GnssSystem::UNKNOWN:
+                break;
+            }
+            return "UNK";
+        };
+        const auto system_color = [](gps::GnssSystem system)
+        {
+            switch (system)
+            {
+            case gps::GnssSystem::GPS:
+                return std::uint32_t{0xE3B11F};
+            case gps::GnssSystem::GLN:
+                return std::uint32_t{0x2D6FB6};
+            case gps::GnssSystem::GAL:
+                return std::uint32_t{0x3E7D3E};
+            case gps::GnssSystem::BD:
+                return std::uint32_t{0xB94A2C};
+            case gps::GnssSystem::UNKNOWN:
+                break;
+            }
+            return std::uint32_t{0x6E6E6E};
+        };
+        for (std::size_t index = 0;
+             index < live_satellite_count && index < satellites.size(); ++index)
+        {
+            const auto& source = live_satellites[index];
+            const auto fill_color = system_color(source.sys);
+            const auto border_color =
+                source.used
+                    ? embedded_palette::kStatusGreen
+                    : (source.snr >= 0 && source.snr < 20
+                           ? embedded_palette::kWarn
+                           : embedded_palette::kTextDim);
+            satellites[satellite_count++] = {
+                static_cast<int>(source.id),
+                system_name(source.sys),
+                static_cast<float>(source.azimuth),
+                static_cast<float>(source.elevation),
+                static_cast<int>(source.snr),
+                source.used,
+                fill_color,
+                border_color,
+                (source.sys == gps::GnssSystem::BD ||
+                         source.sys == gps::GnssSystem::GAL
+                     ? embedded_palette::kWhite
+                     : embedded_palette::kHeaderText)};
+        }
+        for (std::size_t index = 0; index < satellite_count; ++index)
+        {
+            const auto& sat = satellites[index];
             constexpr int dot_size = 31;
             const float radius =
                 static_cast<float>(sky_radius) *
@@ -2065,12 +2130,42 @@ class UConsoleDesktopShell
         lv_obj_set_style_text_line_space(legend_note, 3, 0);
         lv_obj_set_pos(legend_note, legend_x, 376);
 
-        createLabel(sky, "North up  /  live 1 Hz  /  altitude 18.4 m",
-                    &lv_font_montserrat_12, embedded_palette::kTextWarm);
+        char sky_meta[96];
+        if (gps_state.has_alt)
+        {
+            std::snprintf(sky_meta, sizeof(sky_meta),
+                          "North up  /  live 1 Hz  /  altitude %.1f m",
+                          gps_state.alt_m);
+        }
+        else
+        {
+            std::snprintf(sky_meta, sizeof(sky_meta),
+                          "North up  /  live 1 Hz  /  altitude --");
+        }
+        createLabel(sky, sky_meta, &lv_font_montserrat_12,
+                    embedded_palette::kTextWarm);
 
         lv_obj_t* receiver = createPreviewPanel(
             desktop_page_panel_, "Satellite status", 330,
             embedded_palette::kSurface, true);
+
+        char summary[96];
+        const char* fix_name = "NO FIX";
+        switch (live_status.fix)
+        {
+        case gps::GnssFix::FIX2D:
+            fix_name = "2D";
+            break;
+        case gps::GnssFix::FIX3D:
+            fix_name = "3D";
+            break;
+        case gps::GnssFix::NOFIX:
+            break;
+        }
+        std::snprintf(summary, sizeof(summary), "USE %u/%u   HDOP %.1f   FIX %s",
+                      static_cast<unsigned>(live_status.sats_in_use),
+                      static_cast<unsigned>(live_status.sats_in_view),
+                      static_cast<double>(live_status.hdop), fix_name);
 
         lv_obj_t* receiver_summary = lv_obj_create(receiver);
         applyPanel(receiver_summary, embedded_palette::kAccent,
@@ -2079,7 +2174,7 @@ class UConsoleDesktopShell
         lv_obj_set_height(receiver_summary, 42);
         lv_obj_set_style_pad_all(receiver_summary, 8, 0);
         lv_obj_t* summary_label =
-            createLabel(receiver_summary, "USE 6/8   HDOP 0.8   FIX 3D",
+            createLabel(receiver_summary, summary,
                         &lv_font_montserrat_12,
                         embedded_palette::kHeaderText);
         lv_obj_center(summary_label);
@@ -2104,7 +2199,7 @@ class UConsoleDesktopShell
             lv_obj_set_pos(label, column_x[column], 7);
         }
 
-        for (std::size_t row_index = 0; row_index < satellites.size();
+        for (std::size_t row_index = 0; row_index < satellite_count;
              ++row_index)
         {
             const auto& sat = satellites[row_index];
@@ -2148,9 +2243,33 @@ class UConsoleDesktopShell
             }
         }
 
+        if (satellite_count == 0)
+        {
+            const char* waiting_text = have_gnss_snapshot
+                                           ? "Waiting for satellites / AIO2 GPS"
+                                           : "GPS runtime unavailable";
+            lv_obj_t* waiting =
+                createLabel(receiver, waiting_text, &lv_font_montserrat_12,
+                            embedded_palette::kTextWarm);
+            lv_obj_set_width(waiting, LV_PCT(100));
+            lv_obj_set_style_text_align(waiting, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_y(waiting, 42);
+        }
+
+        char receiver_meta_text[128];
+        if (gps_state.valid)
+        {
+            std::snprintf(receiver_meta_text, sizeof(receiver_meta_text),
+                          "Live / %.5f, %.5f / GPS UTC", gps_state.lat,
+                          gps_state.lng);
+        }
+        else
+        {
+            std::snprintf(receiver_meta_text, sizeof(receiver_meta_text),
+                          "Live / no fix / AIO2 GPS");
+        }
         lv_obj_t* receiver_meta =
-            createLabel(receiver, "Live / 31.2304, 121.4737 / GPS UTC",
-                        &lv_font_montserrat_10,
+            createLabel(receiver, receiver_meta_text, &lv_font_montserrat_10,
                         embedded_palette::kTextMuted);
         lv_obj_set_width(receiver_meta, LV_PCT(100));
         addActionPill(receiver, "Open map");
@@ -2925,6 +3044,7 @@ class UConsoleDesktopShell
     std::vector<std::future<::platform::linux_runtime::MapTileResult>>
         map_download_jobs_{};
     clock::time_point last_map_preview_refresh_{};
+    clock::time_point last_gps_preview_refresh_{};
 
     std::array<NavBinding, kNavLabels.size()> nav_bindings_{};
     std::array<lv_obj_t*, kNavLabels.size()> nav_buttons_{};

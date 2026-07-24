@@ -317,6 +317,37 @@ std::string gps_candidate_identity(const std::string& path)
     return path;
 }
 
+std::vector<std::string> discover_clockwork_pi_serial_candidates()
+{
+    std::vector<std::string> out;
+    std::error_code ec;
+    const std::filesystem::path by_id("/dev/serial/by-id");
+    if (!std::filesystem::exists(by_id, ec) || ec)
+    {
+        return out;
+    }
+
+    for (const auto& entry : std::filesystem::directory_iterator(by_id, ec))
+    {
+        if (ec)
+        {
+            break;
+        }
+
+        const std::string name = entry.path().filename().string();
+        if (name.find("ClockworkPI") == std::string::npos ||
+            name.find("uConsole") == std::string::npos)
+        {
+            continue;
+        }
+
+        out.push_back(entry.path().string());
+    }
+
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
 std::vector<std::string> deduplicate_auto_serial_candidates(
     const std::vector<std::string>& candidates)
 {
@@ -342,13 +373,36 @@ std::vector<std::string> deduplicate_auto_serial_candidates(
 const std::vector<std::string>& auto_serial_candidates_locked()
 {
     const char* env = std::getenv(kGpsDeviceCandidatesEnv);
-    const std::string signature =
-        env && env[0] != '\0' ? std::string(env) : std::string(kDefaultGpsDeviceCandidates);
+    std::vector<std::string> candidates;
+    if (env && env[0] != '\0')
+    {
+        candidates = split_device_candidates(env);
+    }
+    else
+    {
+        const auto aio2_candidates = discover_clockwork_pi_serial_candidates();
+        candidates = aio2_candidates;
+        const auto default_candidates =
+            split_device_candidates(kDefaultGpsDeviceCandidates);
+        candidates.insert(candidates.end(),
+                          default_candidates.begin(),
+                          default_candidates.end());
+    }
+
+    std::string signature;
+    for (const auto& candidate : candidates)
+    {
+        if (!signature.empty())
+        {
+            signature.push_back(':');
+        }
+        signature += candidate;
+    }
     if (signature != s_runtime.auto_candidate_signature)
     {
         s_runtime.auto_candidate_signature = signature;
-        s_runtime.auto_candidate_paths = deduplicate_auto_serial_candidates(
-            split_device_candidates(signature.c_str()));
+        s_runtime.auto_candidate_paths =
+            deduplicate_auto_serial_candidates(candidates);
         s_runtime.auto_candidate_index = 0;
         if (s_runtime.source_is_auto_candidate)
         {
@@ -1160,7 +1214,9 @@ int serial_baud_for_path(const std::string& path)
 
     const int default_baud =
         (!env_configured(kGpsBaudEnv) &&
-         (path == "/dev/ttyS0" || path == "/dev/serial0"))
+         (path == "/dev/ttyS0" || path == "/dev/serial0" ||
+          path.find("ClockworkPI") != std::string::npos ||
+          path.find("uConsole") != std::string::npos))
             ? 9600
             : 38400;
     const int env_baud = env_int_or_default(kGpsBaudEnv, default_baud);
