@@ -743,7 +743,7 @@ void service_ui_runtime()
     {
         screen::wake_for_modal();
         screen::disable_sleep();
-        screen::update_user_activity();
+        screen::record_activity();
     }
     else if (release_lease)
     {

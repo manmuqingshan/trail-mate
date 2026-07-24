@@ -75,11 +75,7 @@ bool is_saver_active()
     return false;
 }
 
-void wake_saver()
-{
-}
-
-void enter_from_saver()
+void handle_input()
 {
 }
 
@@ -87,7 +83,7 @@ void wake_for_modal()
 {
 }
 
-void update_user_activity()
+void record_activity()
 {
 }
 

@@ -133,7 +133,7 @@ void setBootLog(const Esp32LvglRuntimeConfig& config, const char* line)
 #if defined(ESP_PLATFORM)
 extern "C" void trail_mate_idf_note_user_activity(void)
 {
-    platform::ui::screen::update_user_activity();
+    platform::ui::screen::record_activity();
 }
 #endif
 

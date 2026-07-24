@@ -12,6 +12,7 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/common/shared_spi_bus_arbiter.h"
 #include "platform/esp/common/shared_spi_lock.h"
+#include "platform/ui/screen_runtime.h"
 #include "screen_sleep.h"
 #include "sys/clock.h"
 #include "ui/LV_Helper.h"
@@ -790,46 +791,18 @@ static void touchpad_read(lv_indev_t* drv, lv_indev_data_t* data)
     if (touched)
     {
         input::MorseEngine::notifyTouch();
-#if defined(ARDUINO_T_DECK) || defined(ARDUINO_T_DECK_PRO)
-        // T-Deck: touch can wake/show the screen saver, but only SPACE enters the main menu.
-        if (isScreenSaverActive())
+        if (::platform::ui::screen::is_sleeping() ||
+            ::platform::ui::screen::is_saver_active())
         {
-            wakeScreenSaver();
+            ::platform::ui::screen::handle_input();
             data->state = LV_INDEV_STATE_REL;
             return;
         }
-        else if (isScreenSleeping())
-        {
-            wakeScreenSaver();
-            data->state = LV_INDEV_STATE_REL;
-            return;
-        }
-        updateUserActivity();
+        ::platform::ui::screen::record_activity();
         data->point.x = x;
         data->point.y = y;
         data->state = LV_INDEV_STATE_PR;
         return;
-#else
-        // Priority: if the screen saver is visible, consume the touch and exit it.
-        if (isScreenSaverActive())
-        {
-            enterFromScreenSaver();
-            data->state = LV_INDEV_STATE_REL;
-            return;
-        }
-        // Otherwise, if the screen is sleeping, first touch only wakes it and shows the screen saver.
-        if (isScreenSleeping())
-        {
-            wakeScreenSaver();
-            data->state = LV_INDEV_STATE_REL;
-            return;
-        }
-        updateUserActivity();
-        data->point.x = x;
-        data->point.y = y;
-        data->state = LV_INDEV_STATE_PR;
-        return;
-#endif
     }
     data->state = LV_INDEV_STATE_REL;
 }
@@ -849,12 +822,15 @@ static void lv_encoder_read(lv_indev_t* drv, lv_indev_data_t* data)
     data->state = LV_INDEV_STATE_RELEASED;
 #endif
 
-    // If screen is sleeping, only wake it up, don't pass input to UI
-    if (isScreenSleeping() || isScreenSaverActive())
+    // Screen power transitions consume the input event before normal UI
+    // navigation. The state machine decides whether this is a wake preview
+    // or confirmation into the main menu.
+    if (::platform::ui::screen::is_sleeping() ||
+        ::platform::ui::screen::is_saver_active())
     {
         if (msg.dir != ROTARY_DIR_NONE || msg.centerBtnPressed)
         {
-            wakeScreenSaver();
+            ::platform::ui::screen::handle_input();
         }
 #if defined(ARDUINO_T_DECK) || defined(ARDUINO_T_DECK_PRO)
         // T-Deck path already reset above.
@@ -878,7 +854,7 @@ static void lv_encoder_read(lv_indev_t* drv, lv_indev_data_t* data)
     // Screen is awake, process input normally
     if (msg.dir != ROTARY_DIR_NONE || msg.centerBtnPressed)
     {
-        updateUserActivity(); // Update activity timestamp
+        ::platform::ui::screen::record_activity();
     }
 
     switch (msg.dir)
@@ -945,23 +921,15 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
         }
     }
 
-    // If screen is sleeping or screen saver is active, only a *real* key press
-    // should wake/exit. Previously this path ran unconditionally on every poll,
-    // which could cause a spurious wake or enterFromScreenSaver() without user input.
-    if (isScreenSleeping() || isScreenSaverActive())
+    // Screen power transitions consume the input event before normal keyboard
+    // dispatch. The state machine applies the same two-step policy to every
+    // physical input device.
+    if (::platform::ui::screen::is_sleeping() ||
+        ::platform::ui::screen::is_saver_active())
     {
         if (state == KEYBOARD_PRESSED)
         {
-            // Keyboard wake policy: any key can wake into the saver shell, but
-            // only SPACE is allowed to continue into the main menu.
-            if (isScreenSaverActive() && c == ' ')
-            {
-                enterFromScreenSaver();
-            }
-            else
-            {
-                wakeScreenSaver();
-            }
+            ::platform::ui::screen::handle_input();
         }
         data->state = LV_INDEV_STATE_REL; // Don't pass key to UI
         return;
@@ -978,7 +946,7 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
 
         if (on_menu && ui::menu_runtime::handleWalkieKey(c, state))
         {
-            updateUserActivity();
+            ::platform::ui::screen::record_activity();
             plane->feedback((void*)drv);
             data->state = LV_INDEV_STATE_REL;
             return;
@@ -986,7 +954,7 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
 
         if (on_menu && ui::menu_runtime::handleShortcutKey(c, state))
         {
-            updateUserActivity();
+            ::platform::ui::screen::record_activity();
             plane->feedback((void*)drv);
             data->state = LV_INDEV_STATE_REL;
             return;
@@ -1001,7 +969,7 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
 #if defined(ARDUINO_T_DECK) || defined(ARDUINO_T_DECK_PRO)
     if (!from_nav && state == KEYBOARD_PRESSED && c == ' ' && ui_get_active_app() == nullptr)
     {
-        updateUserActivity();
+        ::platform::ui::screen::record_activity();
         menu_show();
         plane->feedback((void*)drv);
         data->state = LV_INDEV_STATE_REL;
@@ -1011,7 +979,7 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
 
     if (state == KEYBOARD_PRESSED)
     {
-        updateUserActivity(); // Update activity timestamp
+        ::platform::ui::screen::record_activity();
         data->key = key;
         data->state = LV_INDEV_STATE_PR;
         plane->feedback((void*)drv);

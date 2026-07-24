@@ -37,26 +37,5 @@ void initScreenSleepRuntime(const ScreenSleepHooks& hooks);
 /** True when the screen backlight/runtime is currently sleeping. */
 bool isScreenSleeping();
 
-/** True when automatic screen sleep is temporarily disabled. */
-bool isScreenSleepDisabled();
-
 /** True when the short-lived screen saver layer is active. */
 bool isScreenSaverActive();
-
-/** Wake the screen / dismiss the transient saver without entering the UI. */
-void wakeScreenSaver();
-
-/** Enter the UI from the transient screen saver state. */
-void enterFromScreenSaver();
-
-/** Wake for a modal without navigating the background UI. */
-void wakeScreenForModal();
-
-/** Refresh the user-activity timestamp and wake the screen if needed. */
-void updateUserActivity();
-
-/** Temporarily disable automatic screen sleep. */
-void disableScreenSleep();
-
-/** Re-enable automatic screen sleep. */
-void enableScreenSleep();

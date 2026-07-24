@@ -9,6 +9,7 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/common/shared_spi_bus_arbiter.h"
 #include "platform/ui/device_runtime.h"
+#include "platform/ui/screen_runtime.h"
 #include "screen_sleep.h"
 #include "sys/bus_access_scope.h"
 #include "sys/clock.h"
@@ -407,7 +408,7 @@ void prepare_mass_storage_mode()
 {
     stop_pairing();
     esp_wifi_stop();
-    disableScreenSleep();
+    ::platform::ui::screen::disable_sleep();
 
     if (!app::AppTasks::areRadioTasksPaused())
     {
@@ -431,7 +432,7 @@ void prepare_mass_storage_mode()
 
 void restore_mass_storage_mode()
 {
-    enableScreenSleep();
+    ::platform::ui::screen::enable_sleep();
 
     TaskHandle_t gps_task_handle = gps::gps_get_task_handle();
     if (gps_task_handle != nullptr)

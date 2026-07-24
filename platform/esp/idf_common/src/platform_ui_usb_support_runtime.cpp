@@ -373,7 +373,7 @@ void prepare_mass_storage_mode()
 {
 #if TRAILMATE_IDF_USB_MSC_BACKEND
     stop_pairing();
-    disableScreenSleep();
+    platform::ui::screen::disable_sleep();
 
     platform::ui::gps::suspend_runtime();
 #endif
@@ -382,7 +382,7 @@ void prepare_mass_storage_mode()
 void restore_mass_storage_mode()
 {
 #if TRAILMATE_IDF_USB_MSC_BACKEND
-    enableScreenSleep();
+    platform::ui::screen::enable_sleep();
 
     platform::ui::gps::resume_runtime();
 #endif

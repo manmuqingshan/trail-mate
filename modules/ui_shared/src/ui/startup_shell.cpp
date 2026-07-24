@@ -246,7 +246,7 @@ void finalizeStartup(bool waking_from_sleep)
     std::fflush(stdout);
     if (waking_from_sleep)
     {
-        platform::ui::screen::update_user_activity();
+        platform::ui::screen::record_activity();
     }
 
     ui::boot::mark_ready();

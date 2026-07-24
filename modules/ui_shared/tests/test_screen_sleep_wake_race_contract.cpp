@@ -14,30 +14,35 @@ std::string read_file(const std::filesystem::path& path)
     contents << stream.rdbuf();
     return contents.str();
 }
+
+void require_shared_state_machine(const std::string& source)
+{
+    assert(source.find("screen_power_state_machine.h") != std::string::npos);
+    assert(source.find("StateMachine") != std::string::npos);
+    assert(source.find("Event::Input") != std::string::npos);
+    assert(source.find("s_screen_sleeping") == std::string::npos);
+    assert(source.find("s_screen_saver_active") == std::string::npos);
+    assert(source.find("wakeScreenSaver") == std::string::npos);
+    assert(source.find("enterFromScreenSaver") == std::string::npos);
+    assert(source.find("updateUserActivity") == std::string::npos);
+}
 } // namespace
 
 int main(int argc, char** argv)
 {
     assert(argc == 2);
     const std::filesystem::path root(argv[1]);
-    const std::string source = read_file(
-        root / "platform/esp/arduino_common/src/screen_sleep.cpp");
+    require_shared_state_machine(read_file(
+        root / "platform/esp/arduino_common/src/screen_sleep.cpp"));
+    require_shared_state_machine(read_file(
+        root / "platform/esp/idf_common/src/screen_sleep.cpp"));
 
-    // State transitions must be claimed independently from slow board I/O.
-    assert(source.find("struct ScreenHardwareAction") != std::string::npos);
-    assert(source.find("apply_screen_hardware_action(action);") != std::string::npos);
-
-    // A wake event cannot be dropped because the sleep task briefly owns the
-    // state mutex while another task is polling input.
-    const std::size_t wake_start = source.find("void wakeScreenSaver()");
-    const std::size_t wake_end = source.find("void enterFromScreenSaver()", wake_start);
-    assert(wake_start != std::string::npos);
-    assert(wake_end != std::string::npos);
-    const std::string wake_source = source.substr(wake_start, wake_end - wake_start);
-    assert(wake_source.find("xSemaphoreTake(s_activity_mutex, portMAX_DELAY)") !=
+    const std::string input = read_file(
+        root / "platform/esp/arduino_common/src/LV_Helper_v9.cpp");
+    assert(input.find("platform::ui::screen::handle_input();") !=
            std::string::npos);
-    assert(wake_source.find("xSemaphoreTake(s_activity_mutex, pdMS_TO_TICKS(10))") ==
-           std::string::npos);
+    assert(input.find("wakeScreenSaver") == std::string::npos);
+    assert(input.find("enterFromScreenSaver") == std::string::npos);
 
     return 0;
 }

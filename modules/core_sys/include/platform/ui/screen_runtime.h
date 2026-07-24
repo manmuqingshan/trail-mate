@@ -26,10 +26,9 @@ void init(const Hooks& hooks);
 bool is_sleeping();
 bool is_sleep_disabled();
 bool is_saver_active();
-void wake_saver();
-void enter_from_saver();
+void handle_input();
 void wake_for_modal();
-void update_user_activity();
+void record_activity();
 void disable_sleep();
 void enable_sleep();
 

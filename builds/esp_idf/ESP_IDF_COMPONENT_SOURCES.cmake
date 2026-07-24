@@ -34,6 +34,7 @@ set(TRAILMATE_ESP_IDF_CORE_HOSTLINK_SOURCES
 
 set(TRAILMATE_ESP_IDF_CORE_SYS_SOURCES
     "${TRAILMATE_ROOT}/modules/core_sys/src/app/app_facade_access.cpp"
+    "${TRAILMATE_ROOT}/modules/core_sys/src/platform/ui/screen_power_state_machine.cpp"
     "${TRAILMATE_ROOT}/modules/core_sys/src/platform/ui/reticulum_call_runtime.cpp"
     "${TRAILMATE_ROOT}/modules/core_sys/src/sys/clock.cpp"
     "${TRAILMATE_ROOT}/modules/core_sys/src/platform/ui/timezone_profile.cpp")
