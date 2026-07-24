@@ -916,14 +916,15 @@ class UConsoleDesktopShell
         footer_status_label_ =
             createLabel(bar, "Starting services...", &lv_font_montserrat_12,
                         embedded_palette::kTextMuted);
-        lv_obj_set_flex_grow(footer_status_label_, 1);
+        lv_obj_set_width(footer_status_label_, 320);
         lv_obj_set_style_text_align(footer_status_label_,
                                     LV_TEXT_ALIGN_CENTER, 0);
 
         footer_shortcuts_row_ = lv_obj_create(bar);
         applyTransparent(footer_shortcuts_row_);
-        lv_obj_set_width(footer_shortcuts_row_, 650);
+        lv_obj_set_width(footer_shortcuts_row_, 0);
         lv_obj_set_height(footer_shortcuts_row_, LV_PCT(100));
+        lv_obj_set_flex_grow(footer_shortcuts_row_, 1);
         lv_obj_set_style_pad_column(footer_shortcuts_row_, 5, 0);
         lv_obj_set_flex_flow(footer_shortcuts_row_, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(footer_shortcuts_row_,
