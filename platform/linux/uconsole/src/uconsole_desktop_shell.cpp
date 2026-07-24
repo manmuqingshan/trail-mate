@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <deque>
 #include <future>
 #include <stdexcept>
@@ -732,6 +733,16 @@ class UConsoleDesktopShell
         case 'o':
             map_model_.setContourEnabled(!snapshot.contour_enabled);
             break;
+        case 'm':
+        {
+            const auto active_tool =
+                snapshot.presentation_workspace.active_tool;
+            map_model_.presentationModel().setActiveTool(
+                active_tool == ::ui::map::MapToolKind::MeasureDistance
+                    ? ::ui::map::MapToolKind::Pan
+                    : ::ui::map::MapToolKind::MeasureDistance);
+            break;
+        }
         default:
             return false;
         }
@@ -778,15 +789,21 @@ class UConsoleDesktopShell
         {
             return;
         }
-        shortcuts_visible_ = !shortcuts_visible_;
         if (shortcuts_visible_)
+        {
+            shortcuts_visible_ = false;
+            lv_obj_add_flag(shortcut_overlay_, LV_OBJ_FLAG_HIDDEN);
+            return;
+        }
+
+        lv_obj_del(shortcut_overlay_);
+        shortcut_overlay_ = nullptr;
+        buildShortcutOverlay(lv_screen_active());
+        shortcuts_visible_ = true;
+        if (shortcut_overlay_ != nullptr)
         {
             lv_obj_clear_flag(shortcut_overlay_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_move_foreground(shortcut_overlay_);
-        }
-        else
-        {
-            lv_obj_add_flag(shortcut_overlay_, LV_OBJ_FLAG_HIDDEN);
         }
     }
 
@@ -903,12 +920,125 @@ class UConsoleDesktopShell
         lv_obj_set_style_text_align(footer_status_label_,
                                     LV_TEXT_ALIGN_CENTER, 0);
 
-        footer_shortcuts_label_ =
-            createLabel(bar, "", &lv_font_montserrat_12,
-                        embedded_palette::kText);
-        lv_obj_set_width(footer_shortcuts_label_, 470);
-        lv_obj_set_style_text_align(footer_shortcuts_label_,
-                                    LV_TEXT_ALIGN_RIGHT, 0);
+        footer_shortcuts_row_ = lv_obj_create(bar);
+        applyTransparent(footer_shortcuts_row_);
+        lv_obj_set_width(footer_shortcuts_row_, 650);
+        lv_obj_set_height(footer_shortcuts_row_, LV_PCT(100));
+        lv_obj_set_style_pad_column(footer_shortcuts_row_, 5, 0);
+        lv_obj_set_flex_flow(footer_shortcuts_row_, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(footer_shortcuts_row_,
+                              LV_FLEX_ALIGN_END,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+    }
+
+    lv_obj_t* createFooterKeycap(lv_obj_t* parent,
+                                 const char* text,
+                                 lv_coord_t width)
+    {
+        lv_obj_t* keycap = lv_label_create(parent);
+        lv_obj_set_size(keycap, width, 18);
+        lv_obj_set_style_bg_color(keycap, color(0xF8E6C3), 0);
+        lv_obj_set_style_bg_opa(keycap, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(keycap, color(0x8A6E43), 0);
+        lv_obj_set_style_border_width(keycap, 1, 0);
+        lv_obj_set_style_radius(keycap, 3, 0);
+        lv_obj_set_style_text_color(keycap, color(0x25170D), 0);
+        lv_obj_set_style_text_font(keycap, &lv_font_montserrat_10, 0);
+        lv_obj_set_style_text_align(keycap, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_long_mode(keycap, LV_LABEL_LONG_CLIP);
+        lv_label_set_text(keycap, text ? text : "");
+        return keycap;
+    }
+
+    void addFooterShortcut(const char* primary,
+                           const char* secondary,
+                           const char* description)
+    {
+        if (footer_shortcuts_row_ == nullptr)
+        {
+            return;
+        }
+
+        lv_obj_t* group = lv_obj_create(footer_shortcuts_row_);
+        applyTransparent(group);
+        lv_obj_set_height(group, 22);
+        lv_obj_set_style_pad_column(group, 2, 0);
+        lv_obj_set_flex_flow(group, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(group,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+
+        if (primary != nullptr && std::strcmp(primary, "WASD") == 0)
+        {
+            for (const char key : std::string("WASD"))
+            {
+                char label[2] = {key, '\0'};
+                createFooterKeycap(group, label, 17);
+            }
+        }
+        else
+        {
+            const lv_coord_t primary_width =
+                primary != nullptr && std::strlen(primary) > 2 ? 30 : 17;
+            createFooterKeycap(group, primary, primary_width);
+        }
+        if (secondary != nullptr && secondary[0] != '\0')
+        {
+            const lv_coord_t secondary_width =
+                std::strlen(secondary) > 2 ? 30 : 17;
+            createFooterKeycap(group, secondary, secondary_width);
+        }
+
+        lv_obj_t* label =
+            createLabel(group, description, &lv_font_montserrat_10,
+                        embedded_palette::kTextMuted);
+        lv_obj_set_width(label, LV_SIZE_CONTENT);
+    }
+
+    void refreshFooterShortcuts()
+    {
+        if (footer_shortcuts_row_ == nullptr)
+        {
+            return;
+        }
+        lv_obj_clean(footer_shortcuts_row_);
+
+        switch (active_section_)
+        {
+        case Section::Chat:
+            addFooterShortcut("\\", nullptr, "Nav");
+            addFooterShortcut("Tab", nullptr, "Focus");
+            addFooterShortcut("Enter", nullptr, "Send");
+            addFooterShortcut("F11", nullptr, "Full");
+            addFooterShortcut("Ctrl-M", nullptr, "Min");
+            addFooterShortcut("Ctrl-Q", nullptr, "Quit");
+            break;
+        case Section::Map:
+            addFooterShortcut("WASD", nullptr, "Pan");
+            addFooterShortcut("Q", "E", "Zoom");
+            addFooterShortcut("C", nullptr, "Center");
+            addFooterShortcut("L", nullptr, "Layer");
+            addFooterShortcut("O", nullptr, "Contour");
+            addFooterShortcut("M", nullptr, "Measure");
+            addFooterShortcut("F1", nullptr, "Help");
+            break;
+        case Section::Overview:
+            addFooterShortcut("\\", nullptr, "Nav");
+            addFooterShortcut("C", nullptr, "Chat");
+            addFooterShortcut("M", nullptr, "Map");
+            addFooterShortcut("[", "]", "Page");
+            addFooterShortcut("F1", nullptr, "Help");
+            break;
+        default:
+            addFooterShortcut("\\", nullptr, "Nav");
+            addFooterShortcut("Enter", nullptr, "Open");
+            addFooterShortcut("[", "]", "Page");
+            addFooterShortcut("F1", nullptr, "Help");
+            addFooterShortcut("F11", nullptr, "Full");
+            break;
+        }
     }
 
     void buildShortcutOverlay(lv_obj_t* root)
@@ -984,7 +1114,15 @@ class UConsoleDesktopShell
                                   LV_FLEX_ALIGN_START,
                                   LV_FLEX_ALIGN_CENTER,
                                   LV_FLEX_ALIGN_CENTER);
-            if (secondary != nullptr && secondary[0] != '\0')
+            if (primary != nullptr && std::strcmp(primary, "WASD") == 0)
+            {
+                for (const char key : std::string("WASD"))
+                {
+                    char key_label[2] = {key, '\0'};
+                    addKeycap(keys, key_label, 24);
+                }
+            }
+            else if (secondary != nullptr && secondary[0] != '\0')
             {
                 addKeycap(keys, primary, 52);
                 addKeycap(keys, secondary, 52);
@@ -1035,15 +1173,40 @@ class UConsoleDesktopShell
         lv_obj_set_flex_grow(workspaces, 1);
         lv_obj_set_style_pad_row(workspaces, 10, 0);
         lv_obj_set_flex_flow(workspaces, LV_FLEX_FLOW_COLUMN);
-        createLabel(workspaces, "MAP PAGE", &lv_font_montserrat_12,
-                    embedded_palette::kTextDim);
-        addHelpRow(workspaces, "WASD", nullptr, "Pan map");
-        addHelpRow(workspaces, "Q", "E", "Zoom out / in");
-        addHelpRow(workspaces, "C", nullptr, "Recenter map");
-        addHelpRow(workspaces, "L", nullptr, "Cycle base layer");
-        addHelpRow(workspaces, "O", nullptr, "Toggle contours");
-        addHelpRow(workspaces, "F1", nullptr, "Open / close help");
-        addHelpRow(workspaces, "[", "]", "Previous / next workspace");
+        const auto page_index = static_cast<std::size_t>(active_section_);
+        createLabel(workspaces,
+                    page_index < kNavLabels.size() ? kNavLabels[page_index]
+                                                   : "PAGE",
+                    &lv_font_montserrat_12, embedded_palette::kTextDim);
+        switch (active_section_)
+        {
+        case Section::Overview:
+            addHelpRow(workspaces, "O", nullptr, "Open overview");
+            addHelpRow(workspaces, "C", nullptr, "Open chat");
+            addHelpRow(workspaces, "M", nullptr, "Open map");
+            addHelpRow(workspaces, "N", nullptr, "Open contacts");
+            addHelpRow(workspaces, "G", nullptr, "Open GPS page");
+            break;
+        case Section::Chat:
+            addHelpRow(workspaces, "Tab", nullptr, "Move focus");
+            addHelpRow(workspaces, "Enter", nullptr, "Send / activate");
+            addHelpRow(workspaces, "[", "]", "Previous / next workspace");
+            break;
+        case Section::Map:
+            addHelpRow(workspaces, "WASD", nullptr, "Pan map");
+            addHelpRow(workspaces, "Q", "E", "Zoom out / in");
+            addHelpRow(workspaces, "C", nullptr, "Recenter map");
+            addHelpRow(workspaces, "L", nullptr, "Cycle base layer");
+            addHelpRow(workspaces, "O", nullptr, "Toggle contours");
+            addHelpRow(workspaces, "M", nullptr, "Toggle measure tool");
+            addHelpRow(workspaces, "[", "]", "Previous / next workspace");
+            break;
+        default:
+            addHelpRow(workspaces, "Up", "Down", "Move focus");
+            addHelpRow(workspaces, "Enter", "Right", "Open or activate");
+            addHelpRow(workspaces, "[", "]", "Previous / next workspace");
+            break;
+        }
 
         createLabel(card,
                     "Virtual keycaps follow the Pager/T-Deck keyboard-first "
@@ -1051,22 +1214,6 @@ class UConsoleDesktopShell
                     &lv_font_montserrat_12, embedded_palette::kTextMuted);
 
         lv_obj_add_flag(shortcut_overlay_, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    [[nodiscard]] const char* shortcutHint() const noexcept
-    {
-        switch (active_section_)
-        {
-        case Section::Chat:
-            return "\\ Nav | Tab Focus | Enter | F11 Full | ^M Min | ^Q Quit";
-        case Section::Map:
-            return "WASD Pan | Q/E Zoom | C Center | L Layer | O Contour | "
-                   "F1 Help";
-        case Section::Overview:
-            return "\\ Nav | C Chat | M Map | [ ] Page | F11 Full | ^Q Quit";
-        default:
-            return "\\ Nav | Enter | [ ] Page | F11 Full | ^M Min | ^Q Quit";
-        }
     }
 
     void refreshFooter()
@@ -1079,7 +1226,7 @@ class UConsoleDesktopShell
             context += " / navigation hidden";
         }
         setLabel(footer_context_label_, context);
-        setLabel(footer_shortcuts_label_, shortcutHint());
+        refreshFooterShortcuts();
     }
 
     lv_obj_t* createChip(lv_obj_t* parent,
@@ -2687,7 +2834,7 @@ class UConsoleDesktopShell
     lv_obj_t* top_unread_label_ = nullptr;
     lv_obj_t* footer_context_label_ = nullptr;
     lv_obj_t* footer_status_label_ = nullptr;
-    lv_obj_t* footer_shortcuts_label_ = nullptr;
+    lv_obj_t* footer_shortcuts_row_ = nullptr;
     lv_obj_t* shortcut_overlay_ = nullptr;
     lv_obj_t* metrics_panel_ = nullptr;
     lv_obj_t* conversation_panel_ = nullptr;
