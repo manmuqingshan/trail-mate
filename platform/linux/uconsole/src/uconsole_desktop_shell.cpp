@@ -1448,7 +1448,7 @@ class UConsoleDesktopShell
             }
         }
         map_meta_label_ = createLabel(
-            map, mapSummary(snapshot), &lv_font_montserrat_12,
+            map, mapSummary(snapshot).c_str(), &lv_font_montserrat_12,
             embedded_palette::kTextMuted);
 
         lv_obj_t* download = createPreviewPanel(
