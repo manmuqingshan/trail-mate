@@ -6,6 +6,7 @@
 #include "esp_log.h"
 #include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/idf_common/app_runtime_support.h"
+#include "platform/esp/idf_common/storage_runtime.h"
 #endif
 
 namespace trailmate::apps::esp32_lvgl::idf_app_runtime_access
@@ -51,9 +52,20 @@ bool initialize(const Esp32LvglRuntimeConfig& config)
     return s_status.app_context_bound;
 }
 
+void startDeferredStorage()
+{
+#if defined(ESP_PLATFORM)
+    if (s_status.app_context_bound)
+    {
+        idf_app_facade_runtime::startDeferredStorage();
+    }
+#endif
+}
+
 void tick()
 {
 #if defined(ESP_PLATFORM)
+    platform::esp::idf_common::storage::tick_deferred_storage();
     if (app::hasAppFacade())
     {
         s_status.app_context_bound = true;

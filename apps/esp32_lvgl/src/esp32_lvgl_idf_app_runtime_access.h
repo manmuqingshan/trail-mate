@@ -14,6 +14,7 @@ struct RuntimeStatus
 };
 
 bool initialize(const Esp32LvglRuntimeConfig& config);
+void startDeferredStorage();
 void tick();
 const RuntimeStatus& status();
 

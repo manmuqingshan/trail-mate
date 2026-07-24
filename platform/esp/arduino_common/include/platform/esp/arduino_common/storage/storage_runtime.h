@@ -18,4 +18,11 @@ void start_deferred_storage(chat::SdStore* store,
                             chat::SdProtocolPeerRepository* peer_directory,
                             chat::MeshProtocol active_protocol);
 
+// Advances the retry/maintenance state machine from the foreground loop.
+void tick_deferred_storage();
+
+// Returns true once after the initial hydration has completed successfully.
+// The foreground loop uses this edge to apply non-critical SD-backed state.
+bool consume_hydration_ready();
+
 } // namespace platform::esp::arduino_common::storage

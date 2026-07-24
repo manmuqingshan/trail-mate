@@ -98,6 +98,9 @@ class SdProtocolPeerRepository final : public IProtocolPeerRepository
     bool queueOrAppendPeerDelta(
         const storage::v2::PeerProjection& projection);
     bool drainPendingPeerDeltas(std::size_t budget);
+    bool queueDeferredObservation(const MeshPeerRecord& record);
+    void drainDeferredObservationsLocked();
+    MeshPeerDirectoryStatus recordLocked(const MeshPeerRecord& record);
     bool applyPeerProjection(const storage::v2::PeerProjection& projection);
     bool applyContactProjection(
         const storage::v2::ContactProjection& projection);
@@ -141,6 +144,9 @@ class SdProtocolPeerRepository final : public IProtocolPeerRepository
     ContactVector contacts_{};
     PendingPeerVector pending_peer_deltas_{};
     std::size_t pending_peer_head_ = 0U;
+    PeerVector pending_peer_observations_{};
+    SemaphoreHandle_t pending_observation_mutex_ = nullptr;
+    uint32_t dropped_peer_observations_ = 0U;
     PsramByteVector slot_scratch_{};
     PartitionState partitions_[3]{};
     MeshProtocol active_protocol_ = MeshProtocol::Meshtastic;

@@ -34,6 +34,7 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
+#include "platform/esp/idf_common/storage_runtime.h"
 #include "platform/esp/radio/meshtastic_radio_adapter.h"
 #include "platform/ui/gps_runtime.h"
 #include "platform/ui/reticulum_directory_runtime.h"
@@ -885,13 +886,22 @@ class IdfTeamEventBusSink final : public team::ITeamEventSink
     }
 };
 
-std::unique_ptr<chat::IChatStore> createIdfChatStore()
+std::unique_ptr<chat::IChatStore> createIdfChatStore(
+    chat::SdStore** deferred_store)
 {
-    std::unique_ptr<chat::SdStore> persistent_store(new chat::SdStore());
-    if (persistent_store && persistent_store->isReady())
+    if (deferred_store)
     {
+        *deferred_store = nullptr;
+    }
+    std::unique_ptr<chat::SdStore> persistent_store(new chat::SdStore());
+    if (persistent_store)
+    {
+        if (deferred_store)
+        {
+            *deferred_store = persistent_store.get();
+        }
         ESP_LOGI(kIdfStoreTag,
-                 "chat store=SdStore backend=ffat layout=/chat/index.bin+/chat/*.log");
+                 "chat store=SdStore backend=deferred layout=/data/v2");
         return std::unique_ptr<chat::IChatStore>(persistent_store.release());
     }
 
@@ -961,7 +971,7 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         applyPrivacyConfig();
 
         contact_service_.begin();
-        chat_store_ = createIdfChatStore();
+        chat_store_ = createIdfChatStore(&deferred_chat_store_);
         if (!chat_store_)
         {
             ESP_LOGE(kIdfStoreTag, "chat store allocation failed");
@@ -980,6 +990,17 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
                  "app facade ready stack_high_water=%u",
                  static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
         return true;
+    }
+
+    void startDeferredStorage()
+    {
+        if (deferred_storage_started_ || !deferred_chat_store_)
+        {
+            return;
+        }
+        deferred_storage_started_ = true;
+        platform::esp::idf_common::storage::start_deferred_storage(
+            deferred_chat_store_);
     }
 
     bool startBackgroundTasks()
@@ -1604,6 +1625,8 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     chat::contacts::ContactService contact_service_{mesh_peer_directory_};
     chat::ChatModel chat_model_{};
     std::unique_ptr<chat::IChatStore> chat_store_{};
+    chat::SdStore* deferred_chat_store_ = nullptr;
+    bool deferred_storage_started_ = false;
     IdfNullMeshAdapter null_mesh_adapter_{};
     chat::MeshAdapterRouter mesh_router_{};
     chat::IMeshAdapter* mesh_adapter_ = &null_mesh_adapter_;
@@ -1682,6 +1705,13 @@ bool isInitialized()
     return s_runtime.initialized();
 #else
     return false;
+#endif
+}
+
+void startDeferredStorage()
+{
+#if defined(ESP_PLATFORM)
+    s_runtime.startDeferredStorage();
 #endif
 }
 

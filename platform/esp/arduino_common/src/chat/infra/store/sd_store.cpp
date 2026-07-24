@@ -10,6 +10,8 @@
 
 #if defined(ARDUINO)
 #include <Arduino.h>
+#else
+#include <esp_timer.h>
 #endif
 
 #include <algorithm>
@@ -22,6 +24,15 @@ namespace
 {
 namespace storage_runtime = ::platform::esp::arduino_common::storage;
 namespace storage_v2 = ::chat::storage::v2;
+
+uint32_t monotonic_millis()
+{
+#if defined(ARDUINO)
+    return millis();
+#else
+    return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
+#endif
+}
 
 #if defined(ARDUINO)
 #define CHAT_STORE_LOG(...) Serial.printf(__VA_ARGS__)
@@ -173,7 +184,7 @@ bool SdStore::hydrateFromStorage()
         return false;
     }
 
-    const uint32_t started_ms = millis();
+    const uint32_t started_ms = monotonic_millis();
     storage_runtime::ScopedRecursiveStateLock state_lock(mutex_, portMAX_DELAY);
     const bool ok = state_lock.locked() && storage_runtime::sd_card_ready() &&
                     ensureLayout() && loadRuntimeState();
@@ -184,7 +195,7 @@ bool SdStore::hydrateFromStorage()
     hydrating_.store(false, std::memory_order_release);
     CHAT_STORE_LOG("[ChatStoreV2] hydration ready=%u elapsed_ms=%lu conversations=%u statuses=%u seen_hot=%u\n",
                    ok ? 1U : 0U,
-                   static_cast<unsigned long>(millis() - started_ms),
+                   static_cast<unsigned long>(monotonic_millis() - started_ms),
                    static_cast<unsigned>(catalog_.size()),
                    static_cast<unsigned>(statuses_.size()),
                    static_cast<unsigned>(seen_hot_.size()));
@@ -202,7 +213,7 @@ bool SdStore::compactDeferred()
     {
         return false;
     }
-    const uint32_t started_ms = millis();
+    const uint32_t started_ms = monotonic_millis();
     bool ok = true;
     for (MeshProtocol protocol : kProtocols)
     {
@@ -214,7 +225,7 @@ bool SdStore::compactDeferred()
     }
     CHAT_STORE_LOG("[ChatStoreV2] deferred_compaction ok=%u elapsed_ms=%lu\n",
                    ok ? 1U : 0U,
-                   static_cast<unsigned long>(millis() - started_ms));
+                   static_cast<unsigned long>(monotonic_millis() - started_ms));
     return ok;
 }
 
@@ -877,7 +888,7 @@ void SdStore::flush()
     {
         return;
     }
-    const uint32_t now_ms = millis();
+    const uint32_t now_ms = monotonic_millis();
     if (last_projection_retry_ms_ != 0U &&
         now_ms - last_projection_retry_ms_ < kProjectionRetryIntervalMs)
     {
@@ -1418,7 +1429,7 @@ bool SdStore::reconcileConversationDirectory(MeshProtocol protocol,
     bool found_segment = false;
     for (uint32_t segment = 0; segment < 10000U; ++segment)
     {
-        char path[128]{};
+        char path[160]{};
         std::snprintf(path,
                       sizeof(path),
                       "%s/%04lu.msg",
@@ -1467,7 +1478,7 @@ bool SdStore::reconcileConversationDirectory(MeshProtocol protocol,
         return true;
     }
 
-    char last_path[128]{};
+    char last_path[160]{};
     std::snprintf(last_path,
                   sizeof(last_path),
                   "%s/%04lu.msg",

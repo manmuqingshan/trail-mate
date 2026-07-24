@@ -104,6 +104,7 @@ struct AppContextPlatformBindings
     using TrackRecorderInitializer = void (*)(const AppConfig& config);
     using TeamModeApplier = void (*)(bool active);
     using StartupFinalizer = void (*)(IAppFacade& app_facade);
+    using DeferredStorageReadyHandler = void (*)(IAppFacade& app_facade);
     using ChatServicesFactory = ChatServicesBundle (*)(const AppConfig& config,
                                                        LoraBoard* lora_board,
                                                        bool use_mock_adapter);
@@ -124,6 +125,7 @@ struct AppContextPlatformBindings
     TrackRecorderInitializer init_track_recorder = nullptr;
     TeamModeApplier set_team_mode_active = nullptr;
     StartupFinalizer finalize_startup = nullptr;
+    DeferredStorageReadyHandler deferred_storage_ready = nullptr;
     ChatServicesFactory create_chat_services = nullptr;
     MeshBackendFactory create_mesh_backend = nullptr;
     ContactServicesFactory create_contact_services = nullptr;
@@ -134,7 +136,8 @@ struct AppContextPlatformBindings
     {
         return load_app_config && save_app_config && load_message_tone_volume &&
                init_gps_runtime && apply_position_config && init_track_recorder &&
-               set_team_mode_active && finalize_startup && create_chat_services &&
+               set_team_mode_active && finalize_startup && deferred_storage_ready &&
+               create_chat_services &&
                create_mesh_backend && create_contact_services && get_self_node_id;
     }
 };

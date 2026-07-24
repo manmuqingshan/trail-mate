@@ -82,6 +82,15 @@ int main(int argc, char** argv)
     const std::string storage_runtime = readFile(
         repo_root /
         "platform/esp/arduino_common/src/storage/storage_runtime.cpp");
+    const std::string idf_facade = readFile(
+        repo_root /
+        "apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp");
+    const std::string idf_startup = readFile(
+        repo_root /
+        "apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp");
+    const std::string idf_storage_runtime = readFile(
+        repo_root /
+        "platform/esp/idf_common/src/storage_runtime.cpp");
 
     assert(contains(header, "kRoot = \"/data/v2\""));
     assert(contains(header, "kMeshtasticRoot = \"/data/v2/mt/chat\""));
@@ -150,6 +159,9 @@ int main(int argc, char** argv)
     assert(contains(peer_source, "peerIsProtected"));
     assert(contains(peer_source, "peerReferencedByConversation"));
     assert(contains(peer_source, "replaceFileAtomically"));
+    assert(contains(peer_header, "pending_peer_observations_"));
+    assert(contains(peer_source, "queueDeferredObservation"));
+    assert(contains(peer_source, "StorageUnavailable"));
     assert(contains(peer_codec, "validPeerIdentityForProtocol"));
     assert(contains(peer_codec, "validContactIdentityForProtocol"));
     const std::string peer_prefix = bodyBetween(
@@ -207,6 +219,18 @@ int main(int argc, char** argv)
     assert(contains(storage_runtime, "vTaskDelete(nullptr)"));
     assert(contains(storage_runtime, "memory::admit"));
     assert(contains(storage_runtime, "storage_worker"));
+    assert(contains(storage_runtime, "retry scheduled"));
+    assert(contains(storage_runtime, "tick_deferred_storage"));
+    assert(contains(storage_runtime, "is_sleeping"));
+    assert(contains(idf_facade, "createIdfChatStore"));
+    assert(!contains(bodyBetween(idf_facade,
+                                 "std::unique_ptr<chat::IChatStore> createIdfChatStore",
+                                 "class IdfAppFacadeRuntime"),
+                     "isReady()"));
+    assert(contains(idf_facade, "startDeferredStorage"));
+    assert(contains(idf_startup, "idf_app_runtime_access::startDeferredStorage()"));
+    assert(contains(idf_storage_runtime, "retry scheduled"));
+    assert(contains(idf_storage_runtime, "xTaskCreatePinnedToCore"));
 
     return 0;
 }

@@ -23,6 +23,7 @@
 #include "platform/esp/arduino_common/team/event/team_event_bus_sink.h"
 #include "platform/esp/arduino_common/team/event/team_pairing_event_bus_sink.h"
 #include "platform/esp/arduino_common/team_platform_bundle.h"
+#include "platform/ui/reticulum_group_config_runtime.h"
 #include "platform/ui/team_ui_store_runtime.h"
 #include "team/usecase/team_controller.h"
 #include "team/usecase/team_track_sampler.h"
@@ -101,12 +102,53 @@ void init_track_recorder(const app::AppConfig& config)
         recorder.setDistanceOnly(false);
         recorder.setIntervalSeconds(static_cast<uint32_t>(config.map_track_interval));
     }
+    recorder.setAutoRecording(config.map_track_enabled);
+}
+
+void deferred_storage_ready(app::IAppFacade& app_facade)
+{
+    app::AppConfig& config = app_facade.getConfig();
+    if (chat::infra::isReticulumMeshProtocol(
+            chat::infra::normalizeMeshProtocol(config.mesh_protocol)))
+    {
+        const auto status = ::platform::ui::reticulum_groups::load(
+            config.reticulumConfig().reticulum_groups,
+            chat::kReticulumGroupDestinationMaxCount);
+        Serial.printf("[RTGroupConfig] deferred sd=%u loaded=%u file=%u message=%s detail=%s\n",
+                      status.sd_present ? 1U : 0U,
+                      status.loaded ? 1U : 0U,
+                      status.file_present ? 1U : 0U,
+                      status.message,
+                      status.detail);
+        app_facade.applyMeshConfig();
+    }
+
+    auto& recorder = gps::TrackRecorder::getInstance();
     if (recorder.restoreActiveSession())
     {
-        Serial.printf("[Tracker] active session restored path=%s\n",
+        Serial.printf("[Tracker] deferred active session restored path=%s\n",
                       recorder.currentPath().c_str());
     }
-    recorder.setAutoRecording(config.map_track_enabled);
+
+    team::TeamController* team_controller = app_facade.getTeamController();
+    if (team_controller)
+    {
+        team::ui::TeamUiSnapshot snap;
+        if (team::ui::team_ui_snapshot_store().load(snap) &&
+            snap.has_team_id && snap.has_team_psk && snap.security_round > 0)
+        {
+            if (team_controller->setKeysFromPsk(snap.team_id,
+                                                snap.security_round,
+                                                snap.team_psk.data(),
+                                                snap.team_psk.size()))
+            {
+                Serial.printf("[Team] deferred keys restored key_id=%lu\n",
+                              static_cast<unsigned long>(snap.security_round));
+            }
+        }
+    }
+    app_facade.setTeamModeActive(
+        app_facade.getTeamService() && app_facade.getTeamService()->hasKeys());
 }
 
 void set_team_mode_active(bool active)
@@ -321,31 +363,8 @@ void finalize_startup(app::IAppFacade& app_facade)
 {
     (void)ui_get_timezone_offset_min();
 
-    team::TeamController* team_controller = app_facade.getTeamController();
-    if (team_controller)
-    {
-        team::ui::TeamUiSnapshot snap;
-        if (team::ui::team_ui_snapshot_store().load(snap) &&
-            snap.has_team_id && snap.has_team_psk && snap.security_round > 0)
-        {
-            if (team_controller->setKeysFromPsk(snap.team_id,
-                                                snap.security_round,
-                                                snap.team_psk.data(),
-                                                snap.team_psk.size()))
-            {
-                Serial.printf("[Team] keys restored from store key_id=%lu\n",
-                              static_cast<unsigned long>(snap.security_round));
-            }
-            else
-            {
-                Serial.printf("[Team] keys restore failed key_id=%lu\n",
-                              static_cast<unsigned long>(snap.security_round));
-            }
-        }
-    }
-
-    team::TeamService* team_service = app_facade.getTeamService();
-    app_facade.setTeamModeActive(team_service && team_service->hasKeys());
+    // Team snapshot restore is performed by deferred_storage_ready() after
+    // the shell is interactive and the storage worker has hydrated.
 }
 
 chat::NodeId get_self_node_id()
@@ -369,6 +388,7 @@ app::AppContextPlatformBindings makeAppContextPlatformBindings()
     bindings.init_track_recorder = init_track_recorder;
     bindings.set_team_mode_active = set_team_mode_active;
     bindings.finalize_startup = finalize_startup;
+    bindings.deferred_storage_ready = deferred_storage_ready;
     bindings.create_chat_services = create_chat_services;
     bindings.create_mesh_backend = create_mesh_backend;
     bindings.create_contact_services = create_contact_services;

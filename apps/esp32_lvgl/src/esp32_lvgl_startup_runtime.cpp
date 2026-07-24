@@ -212,6 +212,8 @@ void runEsp32LvglStartupRuntime(const Esp32LvglRuntimeConfig& config)
         ESP_LOGW(config.log_tag, "initializeShell failed to acquire LVGL lock");
     }
 
+    idf_app_runtime_access::startDeferredStorage();
+
     const auto& runtime_status = idf_app_runtime_access::status();
     ESP_LOGI(config.log_tag,
              "%s runtime status handles=%d lifecycle=%d bound=%d",

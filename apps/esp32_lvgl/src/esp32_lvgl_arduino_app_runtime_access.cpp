@@ -5,6 +5,7 @@
 #include "app/app_context.h"
 #include "platform/esp/arduino_common/app_runtime_bootstrap_support.h"
 #include "platform/esp/arduino_common/app_runtime_support.h"
+#include "platform/esp/arduino_common/storage/storage_runtime.h"
 #include "platform/esp/boards/board_runtime.h"
 #include "platform/ui/screen_runtime.h"
 
@@ -82,6 +83,7 @@ void startDeferredStorage()
 
 void tick()
 {
+    platform::esp::arduino_common::storage::tick_deferred_storage();
     const uint32_t now_ms = millis();
     const bool saver_active = platform::ui::screen::is_saver_active();
     if (saver_active)

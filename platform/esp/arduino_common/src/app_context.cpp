@@ -16,6 +16,7 @@
 #include "chat/runtime/self_identity_policy.h"
 #include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/memory_diag.h"
+#include "platform/esp/arduino_common/storage/storage_runtime.h"
 #include "platform/ui/reticulum_call_runtime.h"
 #include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/reticulum_group_config_runtime.h"
@@ -525,7 +526,6 @@ bool AppContext::init(BoardBase& board, LoraBoard* lora_board, GpsBoard* gps_boa
         ::ui::boot::set_log_line("Loading app config...");
         platform_bindings_.load_app_config(config_);
     }
-    sync_reticulum_group_config(config_);
     const uint32_t after_config_ms = millis();
     Serial.printf("[AppContext] phase=load_config elapsed_ms=%lu total_ms=%lu\n",
                   static_cast<unsigned long>(after_config_ms - init_started_ms),
@@ -702,6 +702,12 @@ void AppContext::updateCoreServices()
         !::platform::ui::reticulum_call::resource_preempt_active())
     {
         (void)mesh_peer_directory_->flush();
+    }
+    if (deferred_storage_started_ &&
+        platform_bindings_.deferred_storage_ready &&
+        ::platform::esp::arduino_common::storage::consume_hydration_ready())
+    {
+        platform_bindings_.deferred_storage_ready(*this);
     }
 }
 

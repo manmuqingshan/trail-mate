@@ -28,6 +28,7 @@ constexpr std::size_t kProtectedContactCapacity = 4096U;
 constexpr std::size_t kPeerHotCacheCapacity[] = {16U, 128U, 64U};
 constexpr uint32_t kBootCompactionDeltaThreshold = 1024U;
 constexpr std::size_t kPendingFlushBudget = 4U;
+constexpr std::size_t kPendingObservationCapacity = 64U;
 using ScopedRepositoryLock = storage_runtime::ScopedRecursiveStateLock;
 
 bool hasText(const char* text)
@@ -62,6 +63,8 @@ SdProtocolPeerRepository::SdProtocolPeerRepository(IChatStore& chat_store)
     peers_.reserve(256U);
     contacts_.reserve(64U);
     pending_peer_deltas_.reserve(16U);
+    pending_peer_observations_.reserve(kPendingObservationCapacity);
+    pending_observation_mutex_ = xSemaphoreCreateMutex();
     slot_scratch_.resize(512U, 0U);
 }
 
@@ -71,6 +74,11 @@ SdProtocolPeerRepository::~SdProtocolPeerRepository()
     {
         vSemaphoreDelete(mutex_);
         mutex_ = nullptr;
+    }
+    if (pending_observation_mutex_)
+    {
+        vSemaphoreDelete(pending_observation_mutex_);
+        pending_observation_mutex_ = nullptr;
     }
 }
 
@@ -149,6 +157,7 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::hydrateFromStorage()
         reconcileStableIdentities(protocol);
     }
     overlayContactFacts();
+    drainDeferredObservationsLocked();
     hydrated_ = true;
     Serial.printf("[PeerStoreV2] hydration ready=1 peers=%u contacts=%u elapsed_ms=%lu\n",
                   static_cast<unsigned>(peers_.size()),
@@ -772,15 +781,68 @@ void SdProtocolPeerRepository::reconcileStableIdentities(MeshProtocol protocol)
     }
 }
 
+bool SdProtocolPeerRepository::queueDeferredObservation(
+    const MeshPeerRecord& record)
+{
+    if (!pending_observation_mutex_ ||
+        xSemaphoreTake(pending_observation_mutex_, pdMS_TO_TICKS(5)) != pdTRUE)
+    {
+        return false;
+    }
+    if (pending_peer_observations_.size() >= kPendingObservationCapacity)
+    {
+        pending_peer_observations_.erase(pending_peer_observations_.begin());
+        ++dropped_peer_observations_;
+        Serial.printf("[PeerStoreV2] deferred observation drop_oldest dropped=%lu\n",
+                      static_cast<unsigned long>(dropped_peer_observations_));
+    }
+    pending_peer_observations_.push_back(record);
+    xSemaphoreGive(pending_observation_mutex_);
+    return true;
+}
+
+void SdProtocolPeerRepository::drainDeferredObservationsLocked()
+{
+    if (!pending_observation_mutex_ ||
+        xSemaphoreTake(pending_observation_mutex_, pdMS_TO_TICKS(5)) != pdTRUE)
+    {
+        return;
+    }
+    for (const MeshPeerRecord& observation : pending_peer_observations_)
+    {
+        const MeshPeerDirectoryStatus status = recordLocked(observation);
+        if (!status.succeeded())
+        {
+            Serial.printf("[PeerStoreV2] deferred observation replay failed code=%u\n",
+                          static_cast<unsigned>(status.code));
+        }
+    }
+    pending_peer_observations_.clear();
+    xSemaphoreGive(pending_observation_mutex_);
+}
+
 MeshPeerDirectoryStatus SdProtocolPeerRepository::record(
     const MeshPeerRecord& input)
 {
-    ScopedRepositoryLock lock(mutex_);
-    if (!lock.locked() || !begun_ || !meshPeerRecordIsValid(input))
+    if (!meshPeerRecordIsValid(input))
     {
         return MeshPeerDirectoryStatus::fail(
             MeshPeerDirectoryStatusCode::InvalidArgument);
     }
+    ScopedRepositoryLock lock(mutex_);
+    if (!lock.locked() || !begun_)
+    {
+        (void)queueDeferredObservation(input);
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::StorageUnavailable);
+    }
+    drainDeferredObservationsLocked();
+    return recordLocked(input);
+}
+
+MeshPeerDirectoryStatus SdProtocolPeerRepository::recordLocked(
+    const MeshPeerRecord& input)
+{
 
     MeshPeerRecord incoming = input;
     incoming.user_alias[0] = '\0';
