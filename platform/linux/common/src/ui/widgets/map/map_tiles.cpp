@@ -9,6 +9,7 @@
 
 #include "ui_map_runtime/map_tiles/filesystem_map_tile_source.h"
 #include "ui_map_runtime/map_tiles/map_tile_geometry.h"
+#include "ui_map_runtime/map_tiles/map_tile_types.h"
 
 #include <algorithm>
 #include <cctype>
@@ -992,15 +993,21 @@ void create_or_refresh_tile_card(TileContext& ctx, MapTile& tile)
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(label, TILE_SIZE - 18);
 
+    char coordinate_text[48] = {};
+    ui::map_tiles::formatMapTileCoordinateLabel(
+        static_cast<std::uint8_t>(tile.z),
+        static_cast<std::uint32_t>(tile.x),
+        static_cast<std::uint32_t>(tile.y),
+        coordinate_text,
+        sizeof(coordinate_text));
+
     char text[128];
     std::snprintf(text,
                   sizeof(text),
-                  "%s %s\nz%d x%d\ny%d",
+                  "%s %s\n%s",
                   has_base ? "Decode failed:" : "Missing",
                   map_source_label(tile.map_source),
-                  tile.z,
-                  static_cast<int>(tile.x),
-                  static_cast<int>(tile.y));
+                  coordinate_text);
     lv_label_set_text(label, text);
     lv_obj_center(label);
 

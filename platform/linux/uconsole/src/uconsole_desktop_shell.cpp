@@ -22,6 +22,7 @@
 #include "uconsole/uconsole_chat_workspace_model.h"
 #include "uconsole/uconsole_dashboard_model.h"
 #include "uconsole/uconsole_map_workspace_model.h"
+#include "ui_map_runtime/map_tiles/map_tile_types.h"
 
 namespace trailmate::uconsole
 {
@@ -1682,6 +1683,7 @@ class UConsoleDesktopShell
         const auto snapshot = map_model_.snapshot();
         map_tile_cells_.fill(nullptr);
         map_tile_images_.fill(nullptr);
+        map_tile_placeholder_labels_.fill(nullptr);
         map_tile_paths_.fill(std::string{});
         lv_obj_t* map = createPreviewPanel(
             desktop_page_panel_, "Field map", 0, embedded_palette::kMapBg,
@@ -1745,6 +1747,18 @@ class UConsoleDesktopShell
                     tile, color(embedded_palette::kBorder), 0);
                 lv_obj_set_style_border_width(tile, 1, 0);
                 map_tile_cells_[static_cast<std::size_t>(tile_index)] = tile;
+                lv_obj_t* placeholder =
+                    createLabel(tile, "", &lv_font_montserrat_10,
+                                embedded_palette::kTextDim,
+                                LV_LABEL_LONG_WRAP);
+                lv_obj_set_width(placeholder, LV_PCT(100));
+                lv_obj_set_height(placeholder, LV_PCT(100));
+                lv_obj_set_style_text_align(placeholder,
+                                            LV_TEXT_ALIGN_CENTER, 0);
+                lv_obj_set_style_text_line_space(placeholder, 1, 0);
+                lv_obj_center(placeholder);
+                map_tile_placeholder_labels_
+                    [static_cast<std::size_t>(tile_index)] = placeholder;
                 const bool available =
                     tile_index < static_cast<int>(snapshot.tiles.size()) &&
                     snapshot.tiles[static_cast<std::size_t>(tile_index)]
@@ -1772,9 +1786,24 @@ class UConsoleDesktopShell
                         image,
                         map_tile_paths_[static_cast<std::size_t>(tile_index)]
                             .c_str());
+                    lv_obj_add_flag(placeholder, LV_OBJ_FLAG_HIDDEN);
                 }
                 else
                 {
+                    char xyz[48] = {};
+                    if (tile_index < static_cast<int>(snapshot.tiles.size()))
+                    {
+                        const auto& id =
+                            snapshot.tiles[static_cast<std::size_t>(tile_index)]
+                                .id;
+                        ::ui::map_tiles::formatMapTileCoordinateLabel(
+                            static_cast<std::uint8_t>(id.z),
+                            static_cast<std::uint32_t>(id.x),
+                            static_cast<std::uint32_t>(id.y),
+                            xyz,
+                            sizeof(xyz));
+                    }
+                    lv_label_set_text(placeholder, xyz);
                     map_tile_paths_[static_cast<std::size_t>(tile_index)]
                         .clear();
                 }
@@ -2159,6 +2188,14 @@ class UConsoleDesktopShell
 
         if (map_meta_label_ == nullptr) return;
         if (!force && active_section_ != Section::Map) return;
+        const auto now = clock::now();
+        if (!force &&
+            (now - last_map_preview_refresh_) <
+                std::chrono::milliseconds(100))
+        {
+            return;
+        }
+        last_map_preview_refresh_ = now;
 
         const auto snapshot = map_model_.snapshot();
         setLabel(map_meta_label_, mapSummary(snapshot));
@@ -2173,6 +2210,11 @@ class UConsoleDesktopShell
             if (tile == nullptr) continue;
             if (snapshot.tiles[index].available)
             {
+                if (map_tile_placeholder_labels_[index] != nullptr)
+                {
+                    lv_obj_add_flag(map_tile_placeholder_labels_[index],
+                                    LV_OBJ_FLAG_HIDDEN);
+                }
                 if (map_tile_images_[index] == nullptr)
                 {
                     auto* image = lv_image_create(tile);
@@ -2180,12 +2222,16 @@ class UConsoleDesktopShell
                     lv_obj_set_size(image, LV_PCT(100), LV_PCT(100));
                     map_tile_images_[index] = image;
                 }
-                map_tile_paths_[index] =
+                const std::string path =
                     "A:" + snapshot.tiles[index].path.string();
-                lv_image_set_inner_align(map_tile_images_[index],
-                                         LV_IMAGE_ALIGN_STRETCH);
-                lv_image_set_src(map_tile_images_[index],
-                                 map_tile_paths_[index].c_str());
+                if (map_tile_paths_[index] != path)
+                {
+                    map_tile_paths_[index] = path;
+                    lv_image_set_inner_align(map_tile_images_[index],
+                                             LV_IMAGE_ALIGN_STRETCH);
+                    lv_image_set_src(map_tile_images_[index],
+                                     map_tile_paths_[index].c_str());
+                }
                 lv_obj_set_style_bg_color(
                     tile, color(embedded_palette::kMapTile2), 0);
             }
@@ -2195,6 +2241,21 @@ class UConsoleDesktopShell
                 {
                     lv_obj_del(map_tile_images_[index]);
                     map_tile_images_[index] = nullptr;
+                }
+                if (map_tile_placeholder_labels_[index] != nullptr)
+                {
+                    char xyz[48] = {};
+                    const auto& id = snapshot.tiles[index].id;
+                    ::ui::map_tiles::formatMapTileCoordinateLabel(
+                        static_cast<std::uint8_t>(id.z),
+                        static_cast<std::uint32_t>(id.x),
+                        static_cast<std::uint32_t>(id.y),
+                        xyz,
+                        sizeof(xyz));
+                    lv_label_set_text(map_tile_placeholder_labels_[index],
+                                      xyz);
+                    lv_obj_clear_flag(map_tile_placeholder_labels_[index],
+                                      LV_OBJ_FLAG_HIDDEN);
                 }
                 lv_obj_set_style_bg_color(
                     tile, color(embedded_palette::kSurfaceAlt), 0);
@@ -2857,9 +2918,12 @@ class UConsoleDesktopShell
     lv_obj_t* map_retry_label_ = nullptr;
     std::array<lv_obj_t*, kMaxMapPreviewTiles> map_tile_cells_{};
     std::array<lv_obj_t*, kMaxMapPreviewTiles> map_tile_images_{};
+    std::array<lv_obj_t*, kMaxMapPreviewTiles>
+        map_tile_placeholder_labels_{};
     std::array<std::string, kMaxMapPreviewTiles> map_tile_paths_{};
     std::vector<std::future<::platform::linux_runtime::MapTileResult>>
         map_download_jobs_{};
+    clock::time_point last_map_preview_refresh_{};
 
     std::array<NavBinding, kNavLabels.size()> nav_bindings_{};
     std::array<lv_obj_t*, kNavLabels.size()> nav_buttons_{};

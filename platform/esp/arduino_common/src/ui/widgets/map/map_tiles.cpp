@@ -20,6 +20,7 @@
 #include "ui_map_runtime/map_tiles/map_tile_async_runtime.h"
 #include "ui_map_runtime/map_tiles/map_tile_decoder_cache.h"
 #include "ui_map_runtime/map_tiles/map_tile_geometry.h"
+#include "ui_map_runtime/map_tiles/map_tile_types.h"
 
 #include <algorithm>
 #include <cmath>
@@ -103,12 +104,12 @@ static void create_placeholder_tile_card(lv_obj_t* parent, MapTile& tile, int sc
 
     lv_obj_t* placeholder_label = lv_label_create(tile.img_obj);
     char placeholder_text[48];
-    snprintf(placeholder_text,
-             sizeof(placeholder_text),
-             "z=%d\nx=%d\ny=%d",
-             tile.z,
-             fmt_tile_coord(tile.x),
-             fmt_tile_coord(tile.y));
+    ui::map_tiles::formatMapTileCoordinateLabel(
+        static_cast<std::uint8_t>(tile.z),
+        static_cast<std::uint32_t>(fmt_tile_coord(tile.x)),
+        static_cast<std::uint32_t>(fmt_tile_coord(tile.y)),
+        placeholder_text,
+        sizeof(placeholder_text));
     lv_label_set_text(placeholder_label, placeholder_text);
     style_placeholder_text(placeholder_label);
     lv_obj_center(placeholder_label);
@@ -261,8 +262,7 @@ constexpr uint32_t kMapTileDisplayPressureCooldownMs = 1500;
 constexpr uint32_t kMapTileDisplayPressureTileBackoffMs = 450;
 
 StaticTask_t s_map_tile_worker_task_tcb{};
-StackType_t s_map_tile_worker_task_stack[
-    (kMapTileWorkerTaskStackBytes + sizeof(StackType_t) - 1U) / sizeof(StackType_t)]{};
+StackType_t s_map_tile_worker_task_stack[(kMapTileWorkerTaskStackBytes + sizeof(StackType_t) - 1U) / sizeof(StackType_t)]{};
 
 uint32_t g_map_tile_decode_log_ms = 0;
 uint32_t g_map_tile_event_log_ms = 0;

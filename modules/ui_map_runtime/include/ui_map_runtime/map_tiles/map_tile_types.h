@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 
 namespace ui
 {
@@ -61,6 +62,30 @@ struct MapTileLookupResult
     MapTileFormat format = MapTileFormat::Unknown;
     std::size_t size = 0;
 };
+
+/**
+ * Format the stable XYZ identity shown while a tile is loading or missing.
+ *
+ * This is shared by embedded and Linux renderers so a tile has the same
+ * diagnostic identity on every target.
+ */
+inline void formatMapTileCoordinateLabel(std::uint8_t z,
+                                         std::uint32_t x,
+                                         std::uint32_t y,
+                                         char* out,
+                                         std::size_t out_size) noexcept
+{
+    if (out == nullptr || out_size == 0U)
+    {
+        return;
+    }
+    std::snprintf(out,
+                  out_size,
+                  "z=%u\nx=%u\ny=%u",
+                  static_cast<unsigned>(z),
+                  static_cast<unsigned>(x),
+                  static_cast<unsigned>(y));
+}
 
 MapTileLayer mapTileLayerFromBaseSource(uint8_t map_source);
 MapTileLayer mapTileContourLayerForZoom(int zoom, bool* out_supported = nullptr);
