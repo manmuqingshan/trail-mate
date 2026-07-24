@@ -1423,7 +1423,7 @@ class UConsoleDesktopShell
             for (int column = 0; column < 3; ++column)
             {
                 const int tile_index = (row_index * 3) + column;
-                lv_obj_t* tile = lv_image_create(row);
+                lv_obj_t* tile = lv_obj_create(row);
                 resetBox(tile);
                 lv_obj_set_width(tile, 0);
                 lv_obj_set_height(tile, LV_PCT(100));
@@ -1447,13 +1447,18 @@ class UConsoleDesktopShell
                     0);
                 if (available)
                 {
+                    auto* image = lv_image_create(tile);
+                    resetBox(image);
+                    lv_obj_set_size(image, LV_PCT(100), LV_PCT(100));
+                    map_tile_images_[static_cast<std::size_t>(tile_index)] =
+                        image;
                     map_tile_paths_[static_cast<std::size_t>(tile_index)] =
                         "A:" + snapshot
                                    .tiles[static_cast<std::size_t>(tile_index)]
                                    .path.string();
-                    lv_image_set_inner_align(tile, LV_IMAGE_ALIGN_STRETCH);
+                    lv_image_set_inner_align(image, LV_IMAGE_ALIGN_STRETCH);
                     lv_image_set_src(
-                        tile,
+                        image,
                         map_tile_paths_[static_cast<std::size_t>(tile_index)]
                             .c_str());
                 }
@@ -1461,7 +1466,6 @@ class UConsoleDesktopShell
                 {
                     map_tile_paths_[static_cast<std::size_t>(tile_index)]
                         .clear();
-                    lv_image_set_src(tile, nullptr);
                 }
             }
         }
@@ -1858,16 +1862,29 @@ class UConsoleDesktopShell
             if (tile == nullptr) continue;
             if (snapshot.tiles[index].available)
             {
+                if (map_tile_images_[index] == nullptr)
+                {
+                    auto* image = lv_image_create(tile);
+                    resetBox(image);
+                    lv_obj_set_size(image, LV_PCT(100), LV_PCT(100));
+                    map_tile_images_[index] = image;
+                }
                 map_tile_paths_[index] =
                     "A:" + snapshot.tiles[index].path.string();
-                lv_image_set_inner_align(tile, LV_IMAGE_ALIGN_STRETCH);
-                lv_image_set_src(tile, map_tile_paths_[index].c_str());
+                lv_image_set_inner_align(map_tile_images_[index],
+                                         LV_IMAGE_ALIGN_STRETCH);
+                lv_image_set_src(map_tile_images_[index],
+                                 map_tile_paths_[index].c_str());
                 lv_obj_set_style_bg_color(
                     tile, color(embedded_palette::kMapTile2), 0);
             }
             else
             {
-                lv_image_set_src(tile, nullptr);
+                if (map_tile_images_[index] != nullptr)
+                {
+                    lv_obj_del(map_tile_images_[index]);
+                    map_tile_images_[index] = nullptr;
+                }
                 lv_obj_set_style_bg_color(
                     tile, color(embedded_palette::kSurfaceAlt), 0);
             }
@@ -2528,6 +2545,7 @@ class UConsoleDesktopShell
     lv_obj_t* map_download_label_ = nullptr;
     lv_obj_t* map_retry_label_ = nullptr;
     std::array<lv_obj_t*, 9> map_tile_cells_{};
+    std::array<lv_obj_t*, 9> map_tile_images_{};
     std::array<std::string, 9> map_tile_paths_{};
     std::vector<std::future<::platform::linux_runtime::MapTileResult>>
         map_download_jobs_{};
