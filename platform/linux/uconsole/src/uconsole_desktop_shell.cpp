@@ -916,7 +916,7 @@ class UConsoleDesktopShell
         footer_status_label_ =
             createLabel(bar, "Starting services...", &lv_font_montserrat_12,
                         embedded_palette::kTextMuted);
-        lv_obj_set_width(footer_status_label_, 280);
+        lv_obj_set_width(footer_status_label_, 240);
         lv_obj_set_style_text_align(footer_status_label_,
                                     LV_TEXT_ALIGN_CENTER, 0);
 
