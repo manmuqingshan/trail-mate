@@ -39,6 +39,7 @@ constexpr int kCapabilityRows = 5;
 constexpr int kChatConversationRows = 7;
 constexpr int kChatMessageRows = 7;
 constexpr std::uint32_t kLvglFunctionKeyF1 = 0x110001U;
+constexpr int kMapTileDisplaySize = 180;
 
 namespace embedded_palette
 {
@@ -1401,10 +1402,10 @@ class UConsoleDesktopShell
         resetBox(grid);
         lv_obj_set_width(grid, LV_PCT(100));
         lv_obj_set_flex_grow(grid, 1);
-        lv_obj_set_style_pad_row(grid, 2, 0);
+        lv_obj_set_style_pad_row(grid, 0, 0);
         lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(grid, LV_FLEX_ALIGN_START,
-                              LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+        lv_obj_set_flex_align(grid, LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         constexpr std::array<std::uint32_t, 9> tile_colors{
             embedded_palette::kMapTile1, embedded_palette::kMapTile2,
             embedded_palette::kMapTile3, embedded_palette::kMapBg,
@@ -1415,19 +1416,17 @@ class UConsoleDesktopShell
         {
             lv_obj_t* row = lv_obj_create(grid);
             resetBox(row);
-            lv_obj_set_width(row, LV_PCT(100));
-            lv_obj_set_height(row, 0);
-            lv_obj_set_flex_grow(row, 1);
-            lv_obj_set_style_pad_column(row, 2, 0);
+            lv_obj_set_width(row, kMapTileDisplaySize * 3);
+            lv_obj_set_height(row, kMapTileDisplaySize);
+            lv_obj_set_style_pad_column(row, 0, 0);
             lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
             for (int column = 0; column < 3; ++column)
             {
                 const int tile_index = (row_index * 3) + column;
                 lv_obj_t* tile = lv_obj_create(row);
                 resetBox(tile);
-                lv_obj_set_width(tile, 0);
-                lv_obj_set_height(tile, LV_PCT(100));
-                lv_obj_set_flex_grow(tile, 1);
+                lv_obj_set_size(tile, kMapTileDisplaySize,
+                                kMapTileDisplaySize);
                 lv_obj_set_style_bg_color(
                     tile, color(tile_colors[tile_index]), 0);
                 lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
