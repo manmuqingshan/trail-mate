@@ -10,12 +10,26 @@
 
 namespace trailmate::uconsole::gtk
 {
-namespace
-{
-
 using InputEvent = ::trailmate::cardputer_zero::app::InputEvent;
 using InputKey = ::trailmate::cardputer_zero::app::InputKey;
 using Canvas = ::trailmate::cardputer_zero::core::Canvas;
+
+struct GtkCanvasPresenter::Impl
+{
+    GtkCanvasPresenterOptions options{};
+    GtkWindow* window = nullptr;
+    GtkDrawingArea* drawing_area = nullptr;
+    GtkEventController* key_controller = nullptr;
+    bool running = true;
+    PointerState pointer{};
+    int frame_width = 0;
+    int frame_height = 0;
+    std::vector<std::uint32_t> frame{};
+    std::vector<InputEvent> input{};
+};
+
+namespace
+{
 
 void queueSpecial(std::vector<InputEvent>& input,
                   InputKey key,
@@ -136,20 +150,6 @@ void onDraw(GtkDrawingArea*,
 }
 
 } // namespace
-
-struct GtkCanvasPresenter::Impl
-{
-    GtkCanvasPresenterOptions options{};
-    GtkWindow* window = nullptr;
-    GtkDrawingArea* drawing_area = nullptr;
-    GtkEventController* key_controller = nullptr;
-    bool running = true;
-    PointerState pointer{};
-    int frame_width = 0;
-    int frame_height = 0;
-    std::vector<std::uint32_t> frame{};
-    std::vector<InputEvent> input{};
-};
 
 GtkCanvasPresenter::GtkCanvasPresenter(GtkCanvasPresenterOptions options)
     : impl_(std::make_unique<Impl>())
