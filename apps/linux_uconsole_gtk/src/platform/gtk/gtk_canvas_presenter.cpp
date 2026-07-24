@@ -20,7 +20,10 @@ struct GtkCanvasPresenter::Impl
     GtkWindow* window = nullptr;
     GtkDrawingArea* drawing_area = nullptr;
     GtkEventController* key_controller = nullptr;
+    GtkEventController* motion_controller = nullptr;
+    GtkGesture* click_gesture = nullptr;
     bool running = true;
+    bool fullscreen = false;
     bool startup_inputs_queued = false;
     bool startup_shortcut_queued = false;
     PointerState pointer{};
@@ -41,13 +44,86 @@ void queueSpecial(std::vector<InputEvent>& input,
     input.push_back(InputEvent{key, label, '\0'});
 }
 
+void updatePointer(GtkCanvasPresenter::Impl& impl,
+                   double widget_x,
+                   double widget_y,
+                   bool pressed)
+{
+    const int widget_width =
+        gtk_widget_get_width(GTK_WIDGET(impl.drawing_area));
+    const int widget_height =
+        gtk_widget_get_height(GTK_WIDGET(impl.drawing_area));
+    if (widget_width <= 0 || widget_height <= 0 ||
+        impl.frame_width <= 0 || impl.frame_height <= 0)
+    {
+        return;
+    }
+    const double scale_x =
+        static_cast<double>(widget_width) / impl.frame_width;
+    const double scale_y =
+        static_cast<double>(widget_height) / impl.frame_height;
+    const double scale = std::min(scale_x, scale_y);
+    const double draw_width = impl.frame_width * scale;
+    const double draw_height = impl.frame_height * scale;
+    const double offset_x = (widget_width - draw_width) / 2.0;
+    const double offset_y = (widget_height - draw_height) / 2.0;
+    impl.pointer.x = std::clamp(
+        static_cast<int>((widget_x - offset_x) / scale), 0,
+        std::max(0, impl.frame_width - 1));
+    impl.pointer.y = std::clamp(
+        static_cast<int>((widget_y - offset_y) / scale), 0,
+        std::max(0, impl.frame_height - 1));
+    impl.pointer.pressed = pressed;
+}
+
+void onMotion(GtkEventControllerMotion*, double x, double y, gpointer data)
+{
+    auto* impl = static_cast<GtkCanvasPresenter::Impl*>(data);
+    updatePointer(*impl, x, y, impl->pointer.pressed);
+}
+
+void onPressed(GtkGestureClick*, int, double x, double y, gpointer data)
+{
+    auto* impl = static_cast<GtkCanvasPresenter::Impl*>(data);
+    updatePointer(*impl, x, y, true);
+}
+
+void onReleased(GtkGestureClick*, int, double x, double y, gpointer data)
+{
+    auto* impl = static_cast<GtkCanvasPresenter::Impl*>(data);
+    updatePointer(*impl, x, y, false);
+}
+
 gboolean onKeyPressed(GtkEventControllerKey*,
                       guint keyval,
                       guint,
-                      GdkModifierType,
+                      GdkModifierType modifiers,
                       gpointer data)
 {
     auto* impl = static_cast<GtkCanvasPresenter::Impl*>(data);
+    if ((modifiers & GDK_CONTROL_MASK) != 0 &&
+        (keyval == GDK_KEY_m || keyval == GDK_KEY_M))
+    {
+        gtk_window_minimize(impl->window);
+        return TRUE;
+    }
+    if (((modifiers & GDK_CONTROL_MASK) != 0 &&
+         (keyval == GDK_KEY_q || keyval == GDK_KEY_Q)) ||
+        ((modifiers & GDK_ALT_MASK) != 0 && keyval == GDK_KEY_F4))
+    {
+        impl->running = false;
+        gtk_window_destroy(impl->window);
+        return TRUE;
+    }
+    if (keyval == GDK_KEY_F11)
+    {
+        impl->fullscreen = !impl->fullscreen;
+        if (impl->fullscreen)
+            gtk_window_fullscreen(impl->window);
+        else
+            gtk_window_unfullscreen(impl->window);
+        return TRUE;
+    }
     switch (keyval)
     {
     case GDK_KEY_BackSpace:
@@ -162,6 +238,7 @@ GtkCanvasPresenter::GtkCanvasPresenter(GtkCanvasPresenterOptions options)
     impl_->options.height = std::max(240, impl_->options.height);
 
     gtk_init();
+    impl_->fullscreen = impl_->options.fullscreen;
     impl_->window = GTK_WINDOW(gtk_window_new());
     gtk_window_set_title(impl_->window, impl_->options.title.c_str());
     gtk_window_set_default_size(impl_->window, impl_->options.width,
@@ -180,6 +257,18 @@ GtkCanvasPresenter::GtkCanvasPresenter(GtkCanvasPresenterOptions options)
                      G_CALLBACK(onKeyPressed), impl_.get());
     gtk_widget_add_controller(GTK_WIDGET(impl_->drawing_area),
                               impl_->key_controller);
+    impl_->motion_controller = gtk_event_controller_motion_new();
+    g_signal_connect(impl_->motion_controller, "motion", G_CALLBACK(onMotion),
+                     impl_.get());
+    gtk_widget_add_controller(GTK_WIDGET(impl_->drawing_area),
+                              impl_->motion_controller);
+    impl_->click_gesture = gtk_gesture_click_new();
+    g_signal_connect(impl_->click_gesture, "pressed", G_CALLBACK(onPressed),
+                     impl_.get());
+    g_signal_connect(impl_->click_gesture, "released",
+                     G_CALLBACK(onReleased), impl_.get());
+    gtk_widget_add_controller(GTK_WIDGET(impl_->drawing_area),
+                              GTK_EVENT_CONTROLLER(impl_->click_gesture));
     g_signal_connect(impl_->window, "close-request",
                      G_CALLBACK(onCloseRequest), impl_.get());
     gtk_window_present(impl_->window);
@@ -237,7 +326,7 @@ std::vector<InputEvent> GtkCanvasPresenter::drainInput()
 
 bool GtkCanvasPresenter::supportsPointer() const noexcept
 {
-    return false;
+    return true;
 }
 
 GtkCanvasPresenter::PointerState GtkCanvasPresenter::pointerState() const
