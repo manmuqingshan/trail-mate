@@ -921,6 +921,7 @@ class UConsoleDesktopShell
                                     LV_TEXT_ALIGN_CENTER, 0);
 
         footer_shortcuts_row_ = lv_obj_create(bar);
+        resetBox(footer_shortcuts_row_);
         applyTransparent(footer_shortcuts_row_);
         lv_obj_set_width(footer_shortcuts_row_, 0);
         lv_obj_set_height(footer_shortcuts_row_, LV_PCT(100));
@@ -962,6 +963,7 @@ class UConsoleDesktopShell
         }
 
         lv_obj_t* group = lv_obj_create(footer_shortcuts_row_);
+        resetBox(group);
         applyTransparent(group);
         lv_obj_set_height(group, 22);
         lv_obj_set_style_pad_column(group, 2, 0);
