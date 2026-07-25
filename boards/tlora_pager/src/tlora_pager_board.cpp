@@ -553,14 +553,15 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
                       DISP_HEIGHT,
                       static_cast<unsigned long>(kPagerDisplaySpiClockMhz));
 
-        // Initialize SPI bus for LoRa/SD (shared SPI bus)
-        Serial.printf("[TLoRaPagerBoard::begin] shared spi bus begin sck=%d miso=%d mosi=%d\n",
+        // DisplayInterface::init() is the sole SPI controller initializer for
+        // this board. Do not call SPI.begin() again after the panel has been
+        // initialized: reinitializing the shared peripheral here can reset
+        // controller state after the ST7796 command sequence has completed.
+        Serial.printf("[TLoRaPagerBoard::begin] shared spi bus ready owner=display "
+                      "sck=%d miso=%d mosi=%d\n",
                       LORA_SCK,
                       LORA_MISO,
                       LORA_MOSI);
-        SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI);
-        log_d("SPI bus initialized (SCK=%d, MISO=%d, MOSI=%d)", LORA_SCK, LORA_MISO, LORA_MOSI);
-        Serial.printf("[TLoRaPagerBoard::begin] shared spi bus end\n");
 
         display_hardware_initialized_ = true;
         Serial.printf("[TLoRaPagerBoard::begin] ===== DISPLAY HARDWARE READY =====\n");

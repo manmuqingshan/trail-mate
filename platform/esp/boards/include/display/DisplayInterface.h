@@ -140,6 +140,8 @@ class LilyGoDispArduinoSPI
     void writeDataLocked(uint8_t data);
     void writeCommandLocked(uint8_t cmd);
     void setAddrWindowLocked(uint16_t xs, uint16_t ys, uint16_t xe, uint16_t ye);
+    bool readRegister(uint8_t cmd, uint8_t* data, size_t length);
+    void readRegisterLocked(uint8_t cmd, uint8_t* data, size_t length);
 
   public:
     uint16_t _width = 0;
