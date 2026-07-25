@@ -6,6 +6,7 @@
 #include "screen_sleep.h"
 
 #include <cstdint>
+#include <cstdio>
 
 #include "board/BoardBase.h"
 #include "freertos/FreeRTOS.h"
@@ -113,6 +114,7 @@ void apply_effects(const Effects& effects)
 void dispatch_event(Event event)
 {
     Effects effects{};
+    const Snapshot before = s_machine.snapshot();
     ensure_state_mutex();
     if (s_state_mutex == nullptr ||
         xSemaphoreTake(s_state_mutex, portMAX_DELAY) != pdTRUE)
@@ -121,6 +123,19 @@ void dispatch_event(Event event)
     }
     effects = s_machine.dispatch(event, now_ms());
     xSemaphoreGive(s_state_mutex);
+    if (event == Event::Input || event == Event::InputRelease)
+    {
+        const Snapshot after = s_machine.snapshot();
+        std::printf("[ScreenPower] event=%u state=%u->%u armed=%u effects wake=%u sleep=%u saver=%u menu=%u\n",
+                    static_cast<unsigned>(event),
+                    static_cast<unsigned>(before.state),
+                    static_cast<unsigned>(after.state),
+                    after.input_armed ? 1U : 0U,
+                    effects.wake_display ? 1U : 0U,
+                    effects.sleep_display ? 1U : 0U,
+                    effects.show_saver ? 1U : 0U,
+                    effects.show_main_menu ? 1U : 0U);
+    }
     apply_effects(effects);
 }
 
@@ -306,6 +321,11 @@ bool is_saver_active()
 void handle_input()
 {
     (void)post_event(Event::Input);
+}
+
+void handle_input_release()
+{
+    (void)post_event(Event::InputRelease);
 }
 
 void wake_for_modal()

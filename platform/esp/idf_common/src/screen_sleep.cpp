@@ -345,6 +345,11 @@ void handle_input()
     (void)post_event(Event::Input);
 }
 
+void handle_input_release()
+{
+    (void)post_event(Event::InputRelease);
+}
+
 void wake_for_modal()
 {
     (void)post_event(Event::ModalWake);

@@ -79,6 +79,10 @@ void handle_input()
 {
 }
 
+void handle_input_release()
+{
+}
+
 void wake_for_modal()
 {
 }

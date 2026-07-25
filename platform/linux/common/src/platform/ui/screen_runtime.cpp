@@ -88,6 +88,11 @@ void handle_input()
     s_machine.dispatch(platform::ui::screen_power::Event::Input, now_ms());
 }
 
+void handle_input_release()
+{
+    s_machine.dispatch(platform::ui::screen_power::Event::InputRelease, now_ms());
+}
+
 void wake_for_modal()
 {
     s_machine.dispatch(platform::ui::screen_power::Event::ModalWake, now_ms());

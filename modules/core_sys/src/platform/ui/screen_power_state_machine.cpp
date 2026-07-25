@@ -35,6 +35,7 @@ Effects StateMachine::enter_preview(std::uint32_t now_ms)
 {
     state_ = State::WakePreview;
     preview_started_ms_ = now_ms;
+    input_armed_ = false;
     Effects effects{};
     effects.wake_display = true;
     effects.show_saver = true;
@@ -47,6 +48,7 @@ Effects StateMachine::enter_awake()
     const bool was_sleeping = state_ != State::Awake;
     state_ = State::Awake;
     preview_started_ms_ = 0;
+    input_armed_ = true;
     Effects effects{};
     effects.wake_display = was_sleeping;
     effects.hide_saver = true;
@@ -62,6 +64,7 @@ Effects StateMachine::dispatch(Event event, std::uint32_t now_ms)
         sleep_disable_depth_ = 0;
         last_activity_ms_ = now_ms;
         preview_started_ms_ = 0;
+        input_armed_ = true;
         return {};
 
     case Event::Tick:
@@ -92,9 +95,25 @@ Effects StateMachine::dispatch(Event event, std::uint32_t now_ms)
     case Event::Input:
         if (state_ == State::WakePreview)
         {
+            if (!input_armed_)
+            {
+                return {};
+            }
+            if (now_ms - last_input_release_ms_ < kConfirmGuardMs)
+            {
+                return {};
+            }
             return dispatch(Event::ConfirmInput, now_ms);
         }
         return dispatch(Event::WakeInput, now_ms);
+
+    case Event::InputRelease:
+        if (state_ == State::WakePreview)
+        {
+            input_armed_ = true;
+            last_input_release_ms_ = now_ms;
+        }
+        return {};
 
     case Event::WakeInput:
         last_activity_ms_ = now_ms;
@@ -165,6 +184,7 @@ Snapshot StateMachine::snapshot() const
     snapshot.sleep_disable_depth = sleep_disable_depth_;
     snapshot.last_activity_ms = last_activity_ms_;
     snapshot.preview_started_ms = preview_started_ms_;
+    snapshot.input_armed = input_armed_;
     return snapshot;
 }
 
