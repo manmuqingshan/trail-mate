@@ -2731,6 +2731,15 @@ int TLoRaPagerBoard::readADCVoltage(uint8_t pin, uint8_t samples, uint8_t attenu
 RotaryMsg_t TLoRaPagerBoard::getRotary()
 {
     static RotaryMsg_t msg;
+    // LVGL polls input while the display-first boot frame is presented. The
+    // rotary queue is deliberately created later in beginServices(), so an
+    // uninitialized queue means "no input yet", not a valid FreeRTOS queue.
+    if (rotaryMsg == nullptr)
+    {
+        msg.centerBtnPressed = false;
+        msg.dir = ROTARY_DIR_NONE;
+        return msg;
+    }
     if (xQueueReceive(rotaryMsg, &msg, pdMS_TO_TICKS(50)) == pdPASS)
     {
         return msg;
