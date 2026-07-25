@@ -16,9 +16,11 @@ namespace
 {
 
 constexpr const char* kTag = "idf-storage";
-constexpr UBaseType_t kStackWords = 2048;
-constexpr std::size_t kInternalReservation =
-    static_cast<std::size_t>(kStackWords) * sizeof(StackType_t);
+// ESP-IDF's task API uses bytes for both the requested stack depth and the
+// high-water mark. Keep this explicit so the Arduino and IDF storage workers
+// cannot regress to the vanilla-FreeRTOS words convention.
+constexpr uint32_t kStackBytes = 8U * 1024U;
+constexpr std::size_t kInternalReservation = kStackBytes;
 constexpr std::size_t kInternalFloor = 40U * 1024U;
 constexpr uint32_t kRetryBaseMs = 2000U;
 constexpr uint32_t kRetryMaxMs = 60000U;
@@ -90,7 +92,7 @@ bool start_worker(Mode mode)
     if (xTaskCreatePinnedToCore(&worker,
                                 mode == Mode::Hydrate ? "idf_store_hydrate"
                                                       : "idf_store_compact",
-                                kStackWords,
+                                kStackBytes,
                                 nullptr,
                                 1,
                                 &s_task,

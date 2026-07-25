@@ -17,10 +17,13 @@ namespace platform::esp::arduino_common::storage
 namespace
 {
 
-constexpr UBaseType_t kStorageTaskStackWords = 2048;
+// ESP-IDF changes the FreeRTOS task API contract: the stack-depth argument
+// and uxTaskGetStackHighWaterMark() are expressed in bytes, not words.
+// Hydration crosses SdFat, the store/repository loaders, and Arduino logging;
+// 2 KiB is not a viable budget for that call chain.
+constexpr uint32_t kStorageTaskStackBytes = 8U * 1024U;
 constexpr UBaseType_t kStorageTaskPriority = 1;
-constexpr size_t kStorageInternalReservation =
-    static_cast<size_t>(kStorageTaskStackWords) * sizeof(StackType_t);
+constexpr size_t kStorageInternalReservation = kStorageTaskStackBytes;
 constexpr size_t kStorageInternalFloor = 40U * 1024U;
 constexpr uint32_t kRetryBaseMs = 2000U;
 constexpr uint32_t kRetryMaxMs = 60000U;
@@ -96,7 +99,7 @@ bool start_worker(WorkerMode mode)
         xTaskCreatePinnedToCore(&storage_worker,
                                 mode == WorkerMode::Hydrate ? "storage_hydrate"
                                                             : "storage_compact",
-                                kStorageTaskStackWords,
+                                kStorageTaskStackBytes,
                                 nullptr,
                                 kStorageTaskPriority,
                                 &s_worker_task,
@@ -108,9 +111,9 @@ bool start_worker(WorkerMode mode)
         return false;
     }
     s_retry_due_ms = 0U;
-    Serial.printf("[Storage] worker started mode=%s stack_words=%u\n",
+    Serial.printf("[Storage] worker started mode=%s stack_bytes=%u\n",
                   mode == WorkerMode::Hydrate ? "hydrate" : "compact",
-                  static_cast<unsigned>(kStorageTaskStackWords));
+                  static_cast<unsigned>(kStorageTaskStackBytes));
     return true;
 }
 
@@ -157,14 +160,14 @@ void storage_worker(void*)
         }
     }
 
-    const unsigned long stack_free =
-        static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)) *
-        sizeof(StackType_t);
-    Serial.printf("[Storage] worker end mode=%s ok=%u elapsed_ms=%lu stack_free=%lu\n",
+    // ESP-IDF returns the high-water mark in bytes (unlike vanilla FreeRTOS).
+    const unsigned long stack_free_bytes =
+        static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr));
+    Serial.printf("[Storage] worker end mode=%s ok=%u elapsed_ms=%lu stack_free_bytes=%lu\n",
                   mode == WorkerMode::Hydrate ? "hydrate" : "compact",
                   ok ? 1U : 0U,
                   static_cast<unsigned long>(millis() - started_ms),
-                  stack_free);
+                  stack_free_bytes);
     s_worker_task = nullptr;
     if (!ok)
     {
