@@ -2,6 +2,7 @@
 
 #include "platform/esp/common/shared_spi_lock.h"
 
+#include "freertos/task.h"
 #include <Arduino.h>
 #include <SPI.h>
 #ifndef DISABLE_FS_H_WARNING
@@ -34,6 +35,8 @@ constexpr uint32_t kMaxSharedSpiSdHz = 10000000U;
 constexpr uint32_t kSdInitHz = 400000U;
 constexpr uint8_t kSdR1IdleState = 0x01U;
 constexpr TickType_t kSdRuntimeLockWait = pdMS_TO_TICKS(250);
+constexpr uint32_t kDisplayPressureWindowMs = 20U;
+constexpr TickType_t kDisplayPressureBackoff = pdMS_TO_TICKS(2);
 
 #ifndef TRAIL_MATE_SD_IO_LOG_ENABLE
 #define TRAIL_MATE_SD_IO_LOG_ENABLE 1
@@ -64,14 +67,34 @@ class SdRuntimeBusGuard
     // SdFat is not thread-safe. Treat the shared SPI mutex as the storage
     // runtime's serialization boundary so call sites cannot bypass it.
     explicit SdRuntimeBusGuard(const char* owner = "sd_runtime")
-        : guard_(kSdRuntimeLockWait, owner)
     {
+        // A display timeout is a priority signal, not just a diagnostic. Give
+        // the UI owner a turn before the next SD transaction, otherwise a
+        // hydration worker can reacquire the mutex continuously and make
+        // every LVGL flush miss its frame.
+        if (::platform::esp::common::display_spi_recently_timed_out(
+                millis(),
+                kDisplayPressureWindowMs))
+        {
+            vTaskDelay(kDisplayPressureBackoff);
+        }
+        locked_ = ::platform::esp::common::shared_spi_lock_with_owner(
+            kSdRuntimeLockWait,
+            owner);
     }
 
-    bool locked() const { return guard_.locked(); }
+    ~SdRuntimeBusGuard()
+    {
+        if (locked_)
+        {
+            ::platform::esp::common::shared_spi_unlock();
+        }
+    }
+
+    bool locked() const { return locked_; }
 
   private:
-    ::platform::esp::common::SharedSpiLockGuard guard_;
+    bool locked_ = false;
 };
 
 const char* backend_name_from_info()

@@ -21,6 +21,11 @@ void start_deferred_storage(chat::SdStore* store,
 // Advances the retry/maintenance state machine from the foreground loop.
 void tick_deferred_storage();
 
+// Returns true while the initial SD-backed state is being hydrated. The
+// foreground lifecycle must not enter store/repository code during this
+// exclusive hydration phase.
+bool hydration_active();
+
 // Returns true once after the initial hydration has completed successfully.
 // The foreground loop uses this edge to apply non-critical SD-backed state.
 bool consume_hydration_ready();

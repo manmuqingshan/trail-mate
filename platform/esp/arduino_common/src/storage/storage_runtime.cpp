@@ -22,7 +22,9 @@ namespace
 // Hydration crosses SdFat, the store/repository loaders, and Arduino logging;
 // 2 KiB is not a viable budget for that call chain.
 constexpr uint32_t kStorageTaskStackBytes = 8U * 1024U;
-constexpr UBaseType_t kStorageTaskPriority = 1;
+// Keep hydration below the Arduino loop task. Storage is deliberately
+// throughput-oriented; the UI/input loop owns responsiveness on this core.
+constexpr UBaseType_t kStorageTaskPriority = 0;
 constexpr size_t kStorageInternalReservation = kStorageTaskStackBytes;
 constexpr size_t kStorageInternalFloor = 40U * 1024U;
 constexpr uint32_t kRetryBaseMs = 2000U;
@@ -49,6 +51,8 @@ uint32_t s_retry_due_ms = 0U;
 uint8_t s_retry_attempt = 0U;
 uint32_t s_idle_since_ms = 0U;
 bool s_armed = false;
+bool s_first_frame_pending = false;
+volatile bool s_hydrating = false;
 bool s_hydration_ready_event = false;
 bool s_maintenance_pending = false;
 
@@ -95,6 +99,7 @@ bool start_worker(WorkerMode mode)
     }
 
     s_worker_mode = mode;
+    s_hydrating = mode == WorkerMode::Hydrate;
     const BaseType_t result =
         xTaskCreatePinnedToCore(&storage_worker,
                                 mode == WorkerMode::Hydrate ? "storage_hydrate"
@@ -107,6 +112,7 @@ bool start_worker(WorkerMode mode)
     if (result != pdPASS)
     {
         s_worker_task = nullptr;
+        s_hydrating = false;
         schedule_retry("task_create_failed");
         return false;
     }
@@ -169,6 +175,7 @@ void storage_worker(void*)
                   static_cast<unsigned long>(millis() - started_ms),
                   stack_free_bytes);
     s_worker_task = nullptr;
+    s_hydrating = false;
     if (!ok)
     {
         schedule_retry(mode == WorkerMode::Hydrate ? "hydrate_failed"
@@ -200,13 +207,22 @@ void start_deferred_storage(chat::SdStore* chat_store,
     s_armed = true;
     s_retry_attempt = 0U;
     s_retry_due_ms = 0U;
-    (void)start_worker(WorkerMode::Hydrate);
+    // Arm the state machine now, but let the first foreground loop present a
+    // complete LVGL frame before any SD worker can contend for the shared SPI
+    // bus.
+    s_first_frame_pending = true;
 }
 
 void tick_deferred_storage()
 {
     if (!s_armed || s_worker_task)
     {
+        return;
+    }
+
+    if (s_first_frame_pending)
+    {
+        s_first_frame_pending = false;
         return;
     }
 
@@ -238,6 +254,11 @@ void tick_deferred_storage()
     }
 
     (void)start_worker(WorkerMode::Hydrate);
+}
+
+bool hydration_active()
+{
+    return s_hydrating;
 }
 
 bool consume_hydration_ready()

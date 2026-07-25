@@ -102,6 +102,15 @@ void tick()
         return;
     }
 
+    // SdStore and the peer repository hydrate under an exclusive state lock.
+    // Do not enter the foreground lifecycle while that phase is active:
+    // updateCoreServices() flushes those stores and would repeatedly wait on
+    // the hydration lock, starving the display loop.
+    if (platform::esp::arduino_common::storage::hydration_active())
+    {
+        return;
+    }
+
     platform::esp::arduino_common::tickBoundLifecycle();
 }
 

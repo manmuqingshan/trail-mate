@@ -150,9 +150,12 @@ void run()
 
     ui::startup_shell::setBootLogLine("Building main menu...");
     initializeShell();
-    trailmate::apps::esp32_lvgl::arduino_app_runtime_access::startDeferredStorage();
     ui::startup_shell::setBootLogLine("Startup complete");
     finishStartup(waking_from_sleep);
+    // Storage recovery is armed only after the boot UI is finalized. The
+    // storage runtime defers the worker itself until the first loop has had a
+    // chance to present an LVGL frame.
+    trailmate::apps::esp32_lvgl::arduino_app_runtime_access::startDeferredStorage();
     platform::esp::arduino_common::debug::append_line("[Setup] Startup complete");
     platform::esp::arduino_common::debug::flush();
 }
