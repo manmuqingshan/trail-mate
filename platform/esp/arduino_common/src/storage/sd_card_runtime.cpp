@@ -1,6 +1,8 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 
-#include "platform/esp/common/shared_spi_lock.h"
+#include "platform/esp/common/shared_spi_coordinator.h"
+#include "sys/clock.h"
+#include "sys/runtime_async.h"
 
 #include "freertos/task.h"
 #include <Arduino.h>
@@ -34,9 +36,7 @@ constexpr uint32_t kDefaultSharedSpiSdHz = 4000000U;
 constexpr uint32_t kMaxSharedSpiSdHz = 10000000U;
 constexpr uint32_t kSdInitHz = 400000U;
 constexpr uint8_t kSdR1IdleState = 0x01U;
-constexpr TickType_t kSdRuntimeLockWait = pdMS_TO_TICKS(250);
-constexpr uint32_t kDisplayPressureWindowMs = 20U;
-constexpr TickType_t kDisplayPressureBackoff = pdMS_TO_TICKS(2);
+constexpr uint32_t kSdRuntimeLockWaitMs = 250U;
 
 #ifndef TRAIL_MATE_SD_IO_LOG_ENABLE
 #define TRAIL_MATE_SD_IO_LOG_ENABLE 1
@@ -64,36 +64,35 @@ uint32_t s_suppressed_sd_io_logs = 0;
 class SdRuntimeBusGuard
 {
   public:
-    // SdFat is not thread-safe. Treat the shared SPI mutex as the storage
-    // runtime's serialization boundary so call sites cannot bypass it.
     explicit SdRuntimeBusGuard(const char* owner = "sd_runtime")
     {
-        // A display timeout is a priority signal, not just a diagnostic. Give
-        // the UI owner a turn before the next SD transaction, otherwise a
-        // hydration worker can reacquire the mutex continuously and make
-        // every LVGL flush miss its frame.
-        if (::platform::esp::common::display_spi_recently_timed_out(
-                millis(),
-                kDisplayPressureWindowMs))
-        {
-            vTaskDelay(kDisplayPressureBackoff);
-        }
-        locked_ = ::platform::esp::common::shared_spi_lock_with_owner(
-            kSdRuntimeLockWait,
-            owner);
+        sys::runtime::BusAcquireRequest request{};
+        request.resource =
+            ::platform::esp::common::SharedSpiCoordinator::kSharedBusResource;
+        request.policy = sys::runtime::BusAccessPolicy::BackgroundWorkerBounded;
+        request.command_id = 0x53440000U;
+        request.origin = request.command_id;
+        request.deadline_ms = sys::millis_now() + kSdRuntimeLockWaitMs;
+        request.owner_label = owner;
+        result_ = ::platform::esp::common::shared_spi_coordinator().acquire(request);
+        token_ = result_.token;
+        locked_ = result_.status == sys::runtime::BusAcquireStatus::Acquired &&
+                  token_.valid;
     }
 
     ~SdRuntimeBusGuard()
     {
         if (locked_)
         {
-            ::platform::esp::common::shared_spi_unlock();
+            ::platform::esp::common::shared_spi_coordinator().release(token_);
         }
     }
 
     bool locked() const { return locked_; }
 
   private:
+    sys::runtime::BusAcquireResult result_{};
+    sys::runtime::BusAccessToken token_{};
     bool locked_ = false;
 };
 

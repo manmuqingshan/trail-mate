@@ -158,6 +158,7 @@ bool MapTileWorker::execute(const LoadTileCommand& command, uint32_t now_ms)
     request.policy = policy_->selectBusPolicy(command.runtime);
     request.command_id = command.runtime.command_id;
     request.deadline_ms = command.runtime.deadline_ms;
+    request.owner_label = "map_tile_sd";
 
     const auto acquired = bus_.acquire(request);
     if (acquired.status != sys::runtime::BusAcquireStatus::Acquired)
@@ -171,6 +172,11 @@ bool MapTileWorker::execute(const LoadTileCommand& command, uint32_t now_ms)
         (void)events_.publish(event);
         return false;
     }
+    // The bus grant is an admission check only. The backend owns its
+    // transaction boundaries and must reacquire the shared bus for each
+    // filesystem or hardware-safe operation. Holding the bus across tile
+    // reads would allow a large SD read to starve display frames.
+    bus_.release(acquired.token);
 
     MapTileAsyncEvent event{};
     event.command_id = command.runtime.command_id;
@@ -179,11 +185,6 @@ bool MapTileWorker::execute(const LoadTileCommand& command, uint32_t now_ms)
 
     const MapTileReadResult read_result =
         backend_.read(command.tile, scratch_, scratch_size_);
-    if (read_result.bus_access_retained)
-    {
-        bus_.release(acquired.token);
-    }
-
     const bool ok = read_result.status == MapTileReadStatus::Ready;
     if (read_result.status == MapTileReadStatus::ResourceBusy)
     {

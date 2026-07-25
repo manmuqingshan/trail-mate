@@ -21,7 +21,7 @@
 #include "platform/esp/arduino_common/power/battery_adc.h"
 #include "platform/esp/arduino_common/storage/persistence_bus_gate.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_bus_arbiter.h"
+#include "platform/esp/common/shared_spi_coordinator.h"
 #include "platform/ui/audio/call_notification_tone.h"
 #include "platform/ui/audio/pager_notification_tone.h"
 #include "platform/ui/settings_store.h"
@@ -85,17 +85,6 @@ static uint32_t s_last_radio_spi_lock_timeout_log_ms = 0;
 static uint32_t s_suppressed_radio_spi_lock_timeout_logs = 0;
 static portMUX_TYPE s_audio_owner_mux = portMUX_INITIALIZER_UNLOCKED;
 static PagerAudioOwner s_audio_owner = PagerAudioOwner::None;
-
-::platform::esp::common::SharedSpiBusAdapter s_shared_spi_bus_adapter(
-    kSharedSpiBusOwner,
-    kSharedSpiBusOwnerId);
-::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_shared_spi_bus_policy(
-    200,
-    200,
-    250,
-    500);
-sys::runtime::StorageBusArbiter s_shared_spi_bus_arbiter(s_shared_spi_bus_adapter,
-                                                         s_shared_spi_bus_policy);
 
 const char* audioOwnerLabel(PagerAudioOwner owner)
 {
@@ -212,8 +201,10 @@ bool withSharedSpiRadioAccess(const char* owner,
     request.command_id = kSharedSpiBusOwnerId + 1;
     request.origin = kSharedSpiBusOwnerId;
     request.deadline_ms = sys::millis_now() + wait_ms;
-    sys::runtime::ScopedBusAccessToken bus_token(s_shared_spi_bus_arbiter,
-                                                 request);
+    request.owner_label = owner ? owner : kSharedSpiBusOwner;
+    sys::runtime::ScopedBusAccessToken bus_token(
+        ::platform::esp::common::shared_spi_coordinator(),
+        request);
     if (!bus_token.acquired())
     {
         if (wait_ticks != 0)
@@ -1024,7 +1015,7 @@ bool TLoRaPagerBoard::ensureSDReady()
 void TLoRaPagerBoard::uninstallSD()
 {
     ::platform::esp::arduino_common::storage::PersistenceBusGate bus_gate(
-        s_shared_spi_bus_arbiter,
+        ::platform::esp::common::shared_spi_coordinator(),
         sys::runtime::BusAccessPolicy::RecoveryExclusive,
         500,
         kSharedSpiBusResource,
@@ -1690,6 +1681,15 @@ uint16_t TLoRaPagerBoard::height()
 void TLoRaPagerBoard::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color)
 {
     LilyGoDispArduinoSPI::pushColors(x1, y1, x2, y2, color);
+}
+
+bool TLoRaPagerBoard::pushColorsResult(uint16_t x1,
+                                       uint16_t y1,
+                                       uint16_t x2,
+                                       uint16_t y2,
+                                       uint16_t* color)
+{
+    return LilyGoDispArduinoSPI::pushColorsResult(x1, y1, x2, y2, color);
 }
 
 int TLoRaPagerBoard::transmitRadio(const uint8_t* data, size_t len)

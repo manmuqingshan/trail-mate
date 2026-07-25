@@ -5,6 +5,9 @@
 #include <ctime>
 
 #include "lvgl.h"
+#if defined(ARDUINO_ARCH_ESP32)
+#include "platform/esp/common/shared_spi_coordinator.h"
+#endif
 #include "platform/ui/screen_runtime.h"
 #include "platform/ui/time_runtime.h"
 #include "sys/clock.h"
@@ -68,9 +71,15 @@ bool resolve_display_time(struct tm* out_tm)
     return true;
 }
 
+bool s_boot_physical_presented = false;
+
 void present_boot_overlay_now()
 {
 #if TRAIL_MATE_BOOT_UI_SYNC_PRESENT
+#if defined(ARDUINO_ARCH_ESP32)
+    const uint32_t completed_before =
+        ::platform::esp::common::shared_spi_coordinator().displayFrameCompletions();
+#endif
     for (uint8_t frame = 0; frame < kBootPresentFrameCount; ++frame)
     {
         if (lv_obj_t* top = lv_layer_top())
@@ -84,11 +93,19 @@ void present_boot_overlay_now()
             sys::sleep_ms(kBootPresentFrameDelayMs);
         }
     }
+#if defined(ARDUINO_ARCH_ESP32)
+    s_boot_physical_presented =
+        ::platform::esp::common::shared_spi_coordinator().displayFrameCompletions() >
+        completed_before;
+#else
+    s_boot_physical_presented = true;
+#endif
 #else
     if (lv_obj_t* top = lv_layer_top())
     {
         lv_obj_invalidate(top);
     }
+    s_boot_physical_presented = false;
 #endif
 }
 
@@ -242,7 +259,15 @@ void initializeShell(const Hooks& hooks)
 
 void finalizeStartup(bool waking_from_sleep)
 {
+    if (!waking_from_sleep && !s_boot_physical_presented)
+    {
+        std::printf("[BOOT][UI] first_frame_retry reason=no_physical_ack\n");
+        std::fflush(stdout);
+        present_boot_overlay_now();
+    }
     std::printf("[BOOT][UI] ready waking=%d\n", waking_from_sleep ? 1 : 0);
+    std::fflush(stdout);
+    std::printf("[BOOT][UI] physical_present=%d\n", s_boot_physical_presented ? 1 : 0);
     std::fflush(stdout);
     if (waking_from_sleep)
     {

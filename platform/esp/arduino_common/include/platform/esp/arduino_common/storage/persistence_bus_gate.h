@@ -17,8 +17,10 @@ class PersistenceBusGate final
                        uint32_t wait_ms,
                        uint32_t resource,
                        uint32_t command_id,
-                       uint32_t origin)
-        : scope_(arbiter, makeRequest(policy, wait_ms, resource, command_id, origin))
+                       uint32_t origin,
+                       const char* owner_label = "persistence")
+        : scope_(arbiter,
+                 makeRequest(policy, wait_ms, resource, command_id, origin, owner_label))
     {
     }
 
@@ -38,7 +40,8 @@ class PersistenceBusGate final
         uint32_t wait_ms,
         uint32_t resource,
         uint32_t command_id,
-        uint32_t origin)
+        uint32_t origin,
+        const char* owner_label)
     {
         sys::runtime::BusAcquireRequest request{};
         request.resource = resource;
@@ -46,6 +49,7 @@ class PersistenceBusGate final
         request.command_id = command_id;
         request.origin = origin;
         request.deadline_ms = sys::millis_now() + wait_ms;
+        request.owner_label = owner_label;
         return request;
     }
 

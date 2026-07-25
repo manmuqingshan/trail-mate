@@ -6,6 +6,8 @@
 #error "sd_utils requires the ESP32 SdFat runtime; Arduino SD fallback is intentionally unsupported."
 #endif
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/common/shared_spi_coordinator.h"
+#include "sys/clock.h"
 
 namespace sdutil
 {
@@ -48,6 +50,7 @@ inline bool installSpiSd(Lockable& bus, int sd_cs, uint32_t spi_hz, const char* 
                          uint8_t* out_card_type = nullptr, uint32_t* out_card_size_mb = nullptr,
                          bool use_lock = true, uint8_t max_files = 8)
 {
+    (void)bus;
     if (sd_cs < 0)
     {
         return false;
@@ -57,7 +60,6 @@ inline bool installSpiSd(Lockable& bus, int sd_cs, uint32_t spi_hz, const char* 
     uint8_t card_type = kCardNone;
     uint32_t card_size_mb = 0;
 
-    resetSharedSpiForSd(sd_cs, extra_cs, extra_cs_count);
     SPIClass& sd_bus = SPI;
     Serial.printf("[SD] SPI pins sck=%d miso=%d mosi=%d cs=%d hz=%lu\n",
                   SCK, MISO, MOSI, sd_cs, (unsigned long)spi_hz);
@@ -67,10 +69,23 @@ inline bool installSpiSd(Lockable& bus, int sd_cs, uint32_t spi_hz, const char* 
     }
     Serial.printf("[SD] sd CS pin=%d level=%d\n", sd_cs, digitalRead(sd_cs));
 
+    sys::runtime::BusAccessToken bus_token{};
     bool locked = true;
     if (use_lock)
     {
-        locked = bus.lock(portMAX_DELAY);
+        sys::runtime::BusAcquireRequest request{};
+        request.resource =
+            ::platform::esp::common::SharedSpiCoordinator::kSharedBusResource;
+        request.policy = sys::runtime::BusAccessPolicy::RecoveryExclusive;
+        request.command_id = 0x53444D54U; // "SDMT"
+        request.origin = request.command_id;
+        request.deadline_ms = sys::millis_now() + 1000U;
+        request.owner_label = "sd_mount";
+        const auto result =
+            ::platform::esp::common::shared_spi_coordinator().acquire(request);
+        locked = result.status == sys::runtime::BusAcquireStatus::Acquired &&
+                 result.token.valid;
+        bus_token = result.token;
     }
 
     if (locked)
@@ -136,7 +151,10 @@ inline bool installSpiSd(Lockable& bus, int sd_cs, uint32_t spi_hz, const char* 
         }
         if (use_lock)
         {
-            bus.unlock();
+            if (bus_token.valid)
+            {
+                ::platform::esp::common::shared_spi_coordinator().release(bus_token);
+            }
         }
     }
     else

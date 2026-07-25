@@ -17,6 +17,11 @@ This document defines:
 - what kinds of code belong to shared modules vs platform adapters
 - how the project should evolve to support `PIO + IDF + Linux` without maintaining multiple full copies of the same source tree
 
+The shared-SPI ownership and scheduling contract is documented separately in
+[spi_bus_architecture.md](./spi_bus_architecture.md). Any ESP board that shares
+display, SD, radio, font, track, team, or USB SPI access must follow that
+contract; a feature-local mutex or arbiter is not a valid replacement.
+
 This is a direction document first, and an implementation plan second.
 
 ---

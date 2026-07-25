@@ -5,7 +5,6 @@
 
 #include "platform/esp/arduino_common/app_tasks.h"
 
-#include "platform/esp/common/shared_spi_lock.h"
 #include "platform/ui/reticulum_call_runtime.h"
 #include "platform/ui/screen_runtime.h"
 #if defined(ARDUINO)
@@ -62,9 +61,7 @@ namespace app
 namespace
 {
 constexpr TickType_t kRadioPollDelay = pdMS_TO_TICKS(10);
-constexpr TickType_t kRadioDisplayPressurePollDelay = pdMS_TO_TICKS(50);
 constexpr TickType_t kRadioForegroundPollDelay = pdMS_TO_TICKS(80);
-constexpr uint32_t kRadioDisplayPressureWindowMs = 300;
 constexpr uint32_t kRadioTaskStackBytes = 3 * 1024;
 constexpr uint32_t kMeshTaskStackBytes = 8 * 1024;
 constexpr uint32_t kRadioRxSummaryIntervalMs = 5000;
@@ -84,13 +81,6 @@ struct RadioRxSummary
     uint32_t last_log_ms = 0;
 };
 
-bool display_spi_pressure_for_radio()
-{
-    return ::platform::esp::common::display_spi_recently_timed_out(
-        millis(),
-        kRadioDisplayPressureWindowMs);
-}
-
 bool foreground_ui_pressure_for_radio()
 {
     return !::platform::ui::screen::is_sleeping() ||
@@ -103,9 +93,7 @@ TickType_t radio_idle_poll_delay()
     {
         return kRadioForegroundPollDelay;
     }
-    return display_spi_pressure_for_radio()
-               ? kRadioDisplayPressurePollDelay
-               : kRadioPollDelay;
+    return kRadioPollDelay;
 }
 
 bool radio_rx_quiet_window_active(uint32_t now_ms, uint32_t quiet_until_ms)
@@ -521,7 +509,7 @@ void AppTasks::radioTask(void* pvParameters)
 
         if (radio_transmit_active_)
         {
-            vTaskDelay(kRadioDisplayPressurePollDelay);
+            vTaskDelay(kRadioPollDelay);
             continue;
         }
 
@@ -635,7 +623,7 @@ void AppTasks::radioTask(void* pvParameters)
         if (deferred_tx)
         {
             maybe_log_radio_rx_summary(rx_summary);
-            vTaskDelay(kRadioDisplayPressurePollDelay);
+            vTaskDelay(kRadioPollDelay);
             continue;
         }
 
@@ -644,7 +632,7 @@ void AppTasks::radioTask(void* pvParameters)
             radio_receive_active_ = false;
             radio_receive_restart_pending_ = false;
             maybe_log_radio_rx_summary(rx_summary);
-            vTaskDelay(kRadioDisplayPressurePollDelay);
+            vTaskDelay(kRadioPollDelay);
             continue;
         }
 
@@ -672,16 +660,6 @@ void AppTasks::radioTask(void* pvParameters)
                     requestRadioReceiveRestart();
                     LORA_LOG("[LORA] RX start fail state=%d\n", rx_state);
                 }
-            }
-            const bool display_pressure = display_spi_pressure_for_radio();
-            if (display_pressure &&
-                !handled_tx &&
-                radio_receive_active_ &&
-                !radio_receive_restart_pending_ &&
-                !should_restart_rx)
-            {
-                vTaskDelay(kRadioDisplayPressurePollDelay);
-                continue;
             }
             // Check if data available using RadioLib IRQs
             int packet_length = 0;

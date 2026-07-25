@@ -5,7 +5,7 @@
 #include "platform/esp/arduino_common/power/battery_adc.h"
 #include "platform/esp/arduino_common/storage/persistence_bus_gate.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_bus_arbiter.h"
+#include "platform/esp/common/shared_spi_coordinator.h"
 #include "sys/bus_access_scope.h"
 #include <Wire.h>
 #include <ctime>
@@ -46,17 +46,6 @@ constexpr uint8_t kGpsProfileUbxModern = 3;
 uint8_t s_backlight_level = 0;
 uint32_t s_last_radio_spi_lock_timeout_log_ms = 0;
 uint32_t s_suppressed_radio_spi_lock_timeout_logs = 0;
-
-::platform::esp::common::SharedSpiBusAdapter s_shared_spi_bus_adapter(
-    kSharedSpiBusOwner,
-    kSharedSpiBusOwnerId);
-::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_shared_spi_bus_policy(
-    200,
-    200,
-    250,
-    500);
-sys::runtime::StorageBusArbiter s_shared_spi_bus_arbiter(s_shared_spi_bus_adapter,
-                                                         s_shared_spi_bus_policy);
 
 #if DEVICE_MAX_BRIGHTNESS_LEVEL > 0
 constexpr uint32_t kBacklightLevelMax = DEVICE_MAX_BRIGHTNESS_LEVEL;
@@ -135,8 +124,10 @@ bool withSharedSpiRadioAccess(const char* owner,
     request.command_id = kSharedSpiBusOwnerId + 1;
     request.origin = kSharedSpiBusOwnerId;
     request.deadline_ms = sys::millis_now() + wait_ms;
-    sys::runtime::ScopedBusAccessToken bus_token(s_shared_spi_bus_arbiter,
-                                                 request);
+    request.owner_label = owner ? owner : kSharedSpiBusOwner;
+    sys::runtime::ScopedBusAccessToken bus_token(
+        ::platform::esp::common::shared_spi_coordinator(),
+        request);
     if (!bus_token.acquired())
     {
         if (wait_ticks != 0)
@@ -774,7 +765,7 @@ bool TDeckBoard::ensureSDReady()
 void TDeckBoard::uninstallSD()
 {
     ::platform::esp::arduino_common::storage::PersistenceBusGate bus_gate(
-        s_shared_spi_bus_arbiter,
+        ::platform::esp::common::shared_spi_coordinator(),
         sys::runtime::BusAccessPolicy::RecoveryExclusive,
         500,
         kSharedSpiBusResource,
@@ -892,6 +883,15 @@ uint8_t TDeckBoard::getRotation()
 void TDeckBoard::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color)
 {
     LilyGoDispArduinoSPI::pushColors(x1, y1, x2, y2, color);
+}
+
+bool TDeckBoard::pushColorsResult(uint16_t x1,
+                                  uint16_t y1,
+                                  uint16_t x2,
+                                  uint16_t y2,
+                                  uint16_t* color)
+{
+    return LilyGoDispArduinoSPI::pushColorsResult(x1, y1, x2, y2, color);
 }
 
 uint16_t TDeckBoard::width()

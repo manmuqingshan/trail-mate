@@ -7,7 +7,7 @@
 #include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/gps/gps_service_api.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_bus_arbiter.h"
+#include "platform/esp/common/shared_spi_coordinator.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/screen_runtime.h"
 #include "screen_sleep.h"
@@ -62,17 +62,6 @@ constexpr uint32_t kUsbMscBusResource = 7;
 constexpr uint32_t kUsbMscBusOwnerId = 0x555342u; // 'USB'
 constexpr const char* kUsbMscBusOwner = "usb_msc_sd";
 
-::platform::esp::common::SharedSpiBusAdapter s_usb_msc_bus_adapter(
-    kUsbMscBusOwner,
-    kUsbMscBusOwnerId);
-::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_usb_msc_bus_policy(
-    kUsbMscSectorWaitMs,
-    kUsbMscSectorWaitMs,
-    kUsbMscSessionWaitMs,
-    kUsbMscSessionWaitMs);
-sys::runtime::StorageBusArbiter s_usb_msc_bus_arbiter(s_usb_msc_bus_adapter,
-                                                      s_usb_msc_bus_policy);
-
 enum class UsbMscBusCommand : uint8_t
 {
     SectorRead = 1,
@@ -86,7 +75,8 @@ class UsbMscBusGate final
     UsbMscBusGate(UsbMscBusCommand command,
                   sys::runtime::BusAccessPolicy policy,
                   uint32_t wait_ms)
-        : scope_(s_usb_msc_bus_arbiter, makeRequest(command, policy, wait_ms))
+        : scope_(::platform::esp::common::shared_spi_coordinator(),
+                 makeRequest(command, policy, wait_ms))
     {
     }
 
@@ -107,6 +97,7 @@ class UsbMscBusGate final
         request.command_id = kUsbMscBusOwnerId + static_cast<uint32_t>(command);
         request.origin = kUsbMscBusOwnerId;
         request.deadline_ms = sys::millis_now() + wait_ms;
+        request.owner_label = kUsbMscBusOwner;
         return request;
     }
 

@@ -1,6 +1,6 @@
 #include "platform/esp/arduino_common/gps/track_recorder.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_bus_arbiter.h"
+#include "platform/esp/common/shared_spi_coordinator.h"
 #include "sys/bus_access_scope.h"
 
 #include <cmath>
@@ -42,31 +42,19 @@ constexpr uint8_t kActiveVersion = 1;
 constexpr uint8_t kActiveFlagManual = 0x01;
 constexpr uint8_t kActiveFlagAuto = 0x02;
 constexpr const char* kActivePath = "/trackers/active.bin";
-constexpr uint32_t kTrackBusAcquireMs = 250;
-constexpr uint32_t kTrackBusBackgroundAcquireMs = 25;
-constexpr uint32_t kTrackBusInteractiveAcquireMs = 5;
 constexpr uint32_t kTrackBusResource = 3;
 constexpr uint32_t kTrackBusOwnerId = 0x54524B; // 'TRK'
 constexpr const char* kTrackBusOwner = "track_sd";
 constexpr uint32_t kPendingFlushIntervalMs = 5000;
 constexpr size_t kPendingFlushThreshold = 6;
 
-::platform::esp::common::SharedSpiBusAdapter s_track_bus_adapter(kTrackBusOwner,
-                                                                 kTrackBusOwnerId);
-::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_track_bus_policy(
-    kTrackBusInteractiveAcquireMs,
-    kTrackBusBackgroundAcquireMs,
-    kTrackBusAcquireMs,
-    kTrackBusAcquireMs);
-sys::runtime::StorageBusArbiter s_track_bus_arbiter(s_track_bus_adapter,
-                                                    s_track_bus_policy);
-
 class TrackRecorderBusGate final
 {
   public:
     TrackRecorderBusGate(sys::runtime::RuntimeCommandKind kind,
                          sys::runtime::BusAccessPolicy policy)
-        : scope_(s_track_bus_arbiter, makeRequest(kind, policy))
+        : scope_(::platform::esp::common::shared_spi_coordinator(),
+                 makeRequest(kind, policy))
     {
     }
 
@@ -85,6 +73,7 @@ class TrackRecorderBusGate final
         request.policy = policy;
         request.command_id = static_cast<uint32_t>(kind);
         request.origin = kTrackBusOwnerId;
+        request.owner_label = kTrackBusOwner;
         return request;
     }
 

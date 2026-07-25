@@ -9,7 +9,7 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_lock.h"
+#include "platform/esp/common/shared_spi_coordinator.h"
 #include "src/draw/lv_image_decoder_private.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include "sys/clock.h"
@@ -159,9 +159,6 @@ class PathOnlyMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
 };
 
 #if defined(ARDUINO) || defined(ARDUINO_ARCH_ESP32)
-bool yield_map_tile_sd_bus_between_chunks(const char* path,
-                                          std::size_t bytes_read,
-                                          std::size_t total_bytes);
 void reset_map_tile_sd_read_backpressure_state();
 void note_map_tile_sd_read_resource_busy(bool bus_access_retained);
 
@@ -218,14 +215,6 @@ class SdMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
             }
 
             total_read += static_cast<std::size_t>(bytes_read);
-            if (total_read < target_size &&
-                !yield_map_tile_sd_bus_between_chunks(path, total_read, target_size))
-            {
-                out_size = total_read;
-                note_map_tile_sd_read_resource_busy(false);
-                file.close();
-                return false;
-            }
         }
 
         file.close();
@@ -251,24 +240,12 @@ constexpr uint32_t kMapTileGenerationInitial = 1;
 constexpr uint32_t kMapTileBusResource = 1;
 constexpr uint32_t kMapTileDiagnosticLogIntervalMs = 1000;
 constexpr TickType_t kMapTileWorkerPostCommandYieldTicks = pdMS_TO_TICKS(32);
-constexpr TickType_t kMapTileSdChunkYieldTicks = pdMS_TO_TICKS(1);
-constexpr TickType_t kMapTileSdChunkReacquireTicks = pdMS_TO_TICKS(50);
-constexpr uint32_t kMapTileSdChunkRetryReacquireMs = 100;
-constexpr uint32_t kMapTileSdChunkReacquireBudgetMs = 2000;
-constexpr uint32_t kMapTileDisplaySpiSlowHoldMs = 8;
-constexpr uint32_t kMapTileDisplaySpiNormalCooldownMs = 160;
-constexpr uint32_t kMapTileDisplaySpiSlowCooldownMs = 1500;
-constexpr uint32_t kMapTileDisplayPressureCooldownMs = 1500;
-constexpr uint32_t kMapTileDisplayPressureTileBackoffMs = 450;
-
 StaticTask_t s_map_tile_worker_task_tcb{};
 StackType_t s_map_tile_worker_task_stack[(kMapTileWorkerTaskStackBytes + sizeof(StackType_t) - 1U) / sizeof(StackType_t)]{};
 
 uint32_t g_map_tile_decode_log_ms = 0;
 uint32_t g_map_tile_event_log_ms = 0;
 uint32_t g_map_tile_next_event_drain_ms = 0;
-uint32_t g_map_tile_chunk_yield_log_ms = 0;
-uint32_t g_map_tile_display_pressure_log_ms = 0;
 bool g_map_tile_sd_read_resource_busy = false;
 bool g_map_tile_sd_read_bus_access_retained = true;
 
@@ -280,27 +257,6 @@ bool should_log_map_tile_diagnostic(uint32_t& last_ms, uint32_t now_ms)
         return true;
     }
     return false;
-}
-
-bool map_tile_display_under_pressure(uint32_t now_ms)
-{
-    return ::platform::esp::common::display_spi_recently_timed_out(
-        now_ms,
-        kMapTileDisplayPressureCooldownMs);
-}
-
-void log_map_tile_display_pressure_pause(uint32_t now_ms, const char* stage)
-{
-    if (!should_log_map_tile_diagnostic(g_map_tile_display_pressure_log_ms, now_ms))
-    {
-        return;
-    }
-    const uint32_t last_timeout_ms = ::platform::esp::common::last_display_spi_timeout_ms();
-    std::printf("[GPS][MAP][bus] display_pressure_pause stage=%s last_timeout_age_ms=%lu backoff_ms=%lu\n",
-                stage ? stage : "",
-                static_cast<unsigned long>(now_ms - last_timeout_ms),
-                static_cast<unsigned long>(kMapTileDisplayPressureTileBackoffMs));
-    std::fflush(stdout);
 }
 
 void reset_map_tile_sd_read_backpressure_state()
@@ -323,73 +279,6 @@ bool map_tile_sd_read_resource_busy()
 bool map_tile_sd_read_bus_access_retained()
 {
     return g_map_tile_sd_read_bus_access_retained;
-}
-
-bool yield_map_tile_sd_bus_between_chunks(const char* path,
-                                          std::size_t bytes_read,
-                                          std::size_t total_bytes)
-{
-    // Worker-domain SD tile reads voluntarily release the shared bus between
-    // chunks. This is the current ESP adapter's hold-budget enforcement point:
-    // display flush can make progress even while a large tile payload is read.
-    ::platform::esp::common::shared_spi_unlock();
-    vTaskDelay(kMapTileSdChunkYieldTicks);
-
-    if (::platform::esp::common::shared_spi_lock_with_owner(kMapTileSdChunkReacquireTicks,
-                                                            "map_tile_sd"))
-    {
-        return true;
-    }
-
-    const uint32_t now_ms = sys::millis_now();
-    if (should_log_map_tile_diagnostic(g_map_tile_chunk_yield_log_ms, now_ms))
-    {
-        std::printf("[GPS][MAP][bus] chunk_reacquire_timeout path=%s bytes=%u/%u\n",
-                    path ? path : "",
-                    static_cast<unsigned>(bytes_read),
-                    static_cast<unsigned>(total_bytes));
-        std::fflush(stdout);
-    }
-
-    const uint32_t wait_start_ms = now_ms;
-    const uint32_t deadline_ms = wait_start_ms + kMapTileSdChunkReacquireBudgetMs;
-    while (static_cast<int32_t>(deadline_ms - sys::millis_now()) > 0)
-    {
-        const uint32_t attempt_ms = sys::millis_now();
-        const uint32_t remaining_ms =
-            static_cast<int32_t>(deadline_ms - attempt_ms) > 0 ? deadline_ms - attempt_ms
-                                                               : 0;
-        if (remaining_ms == 0)
-        {
-            break;
-        }
-        const uint32_t wait_ms =
-            std::min<uint32_t>(kMapTileSdChunkRetryReacquireMs, remaining_ms);
-        TickType_t wait_ticks = pdMS_TO_TICKS(wait_ms);
-        if (wait_ticks == 0)
-        {
-            wait_ticks = 1;
-        }
-        if (::platform::esp::common::shared_spi_lock_with_owner(wait_ticks,
-                                                                "map_tile_sd"))
-        {
-            return true;
-        }
-        vTaskDelay(kMapTileSdChunkYieldTicks);
-    }
-
-    const uint32_t timeout_ms = sys::millis_now() - wait_start_ms;
-    if (should_log_map_tile_diagnostic(g_map_tile_chunk_yield_log_ms, sys::millis_now()))
-    {
-        std::printf("[GPS][MAP][bus] chunk_reacquire_give_up path=%s bytes=%u/%u wait_ms=%lu budget_ms=%lu\n",
-                    path ? path : "",
-                    static_cast<unsigned>(bytes_read),
-                    static_cast<unsigned>(total_bytes),
-                    static_cast<unsigned long>(timeout_ms),
-                    static_cast<unsigned long>(kMapTileSdChunkReacquireBudgetMs));
-        std::fflush(stdout);
-    }
-    return false;
 }
 
 const char* map_tile_format_name(ui::map_tiles::MapTileFormat format)
@@ -1009,134 +898,6 @@ class MapTileEventQueue final : public ui::map_tiles::IMapTileEventSink
         queue_{};
 };
 
-class EspMapTileBusArbiter final : public sys::runtime::IBusArbiter
-{
-  public:
-    sys::runtime::BusAcquireResult acquire(
-        const sys::runtime::BusAcquireRequest& request) override
-    {
-        const uint32_t start_ms = sys::millis_now();
-        // Display lock timeout is treated as pressure from the frame-critical
-        // domain. Map tile IO backs off instead of competing with wake/input
-        // rendering for the same physical SPI bus.
-        if (::platform::esp::common::display_spi_recently_timed_out(
-                start_ms,
-                kMapTileDisplayPressureCooldownMs))
-        {
-            sys::runtime::BusAcquireResult result{};
-            result.status = sys::runtime::BusAcquireStatus::Busy;
-            result.diagnostics.resource = request.resource;
-            result.diagnostics.command_id = request.command_id;
-            result.diagnostics.policy = sys::runtime::BusAccessPolicy::DisplayFrameCritical;
-            updateHealth(result.status, start_ms);
-            return result;
-        }
-
-        if (static_cast<int32_t>(cooldown_until_ms_ - start_ms) > 0)
-        {
-            sys::runtime::BusAcquireResult result{};
-            result.status = sys::runtime::BusAcquireStatus::Busy;
-            result.diagnostics.resource = request.resource;
-            result.diagnostics.command_id = request.command_id;
-            result.diagnostics.policy = sys::runtime::BusAccessPolicy::DisplayFrameCritical;
-            updateHealth(result.status, start_ms);
-            return result;
-        }
-
-        const uint32_t timeout_ms = timeoutFor(request.policy);
-        const bool acquired =
-            ::platform::esp::common::shared_spi_lock_with_owner(pdMS_TO_TICKS(timeout_ms),
-                                                                "map_tile_sd");
-        const uint32_t end_ms = sys::millis_now();
-
-        sys::runtime::BusAcquireResult result{};
-        result.status = acquired ? sys::runtime::BusAcquireStatus::Acquired
-                                 : (timeout_ms == 0 ? sys::runtime::BusAcquireStatus::Busy
-                                                    : sys::runtime::BusAcquireStatus::TimedOut);
-        result.token.valid = acquired;
-        result.token.resource = request.resource;
-        result.token.owner = request.command_id;
-        result.token.acquired_ms = acquired ? end_ms : 0;
-        result.diagnostics.resource = request.resource;
-        result.diagnostics.command_id = request.command_id;
-        result.diagnostics.wait_ms = end_ms - start_ms;
-        result.diagnostics.policy = sys::runtime::BusAccessPolicy::DisplayFrameCritical;
-        updateHealth(result.status, end_ms);
-        return result;
-    }
-
-    void release(const sys::runtime::BusAccessToken& token) override
-    {
-        if (!token.valid)
-        {
-            return;
-        }
-        const uint32_t release_ms = sys::millis_now();
-        const uint32_t hold_ms = release_ms - token.acquired_ms;
-        ::platform::esp::common::shared_spi_unlock();
-        const bool display_pressure =
-            ::platform::esp::common::display_spi_recently_timed_out(
-                release_ms,
-                kMapTileDisplayPressureCooldownMs);
-        const bool slow_hold = display_pressure && hold_ms >= kMapTileDisplaySpiSlowHoldMs;
-        const uint32_t cooldown_ms = slow_hold ? kMapTileDisplaySpiSlowCooldownMs
-                                               : kMapTileDisplaySpiNormalCooldownMs;
-        cooldown_until_ms_ = release_ms + cooldown_ms;
-        if (slow_hold && should_log_map_tile_diagnostic(last_slow_hold_log_ms_, release_ms))
-        {
-            std::printf("[GPS][MAP][bus] display_shared_slow_hold hold_ms=%lu cooldown_ms=%lu display_pressure=1\n",
-                        static_cast<unsigned long>(hold_ms),
-                        static_cast<unsigned long>(cooldown_ms));
-            std::fflush(stdout);
-        }
-        consecutive_timeouts_ = 0;
-        if (health_.status == sys::runtime::StorageHealthStatus::Slow ||
-            health_.status == sys::runtime::StorageHealthStatus::Recovering)
-        {
-            health_.status = sys::runtime::StorageHealthStatus::Healthy;
-            health_.last_error = 0;
-            health_.last_transition_ms = sys::millis_now();
-        }
-    }
-
-    sys::runtime::StorageHealthState health() const override
-    {
-        return health_;
-    }
-
-  private:
-    static uint32_t timeoutFor(sys::runtime::BusAccessPolicy policy)
-    {
-        if (policy == sys::runtime::BusAccessPolicy::InteractiveWorkerBounded)
-        {
-            return 1;
-        }
-        if (policy == sys::runtime::BusAccessPolicy::BackgroundWorkerBounded)
-        {
-            return 4;
-        }
-        return 0;
-    }
-
-    void updateHealth(sys::runtime::BusAcquireStatus status, uint32_t now_ms)
-    {
-        if (status == sys::runtime::BusAcquireStatus::Acquired)
-        {
-            return;
-        }
-        health_.last_transition_ms = now_ms;
-        ++consecutive_timeouts_;
-        health_.last_error = status == sys::runtime::BusAcquireStatus::TimedOut ? -2 : -1;
-        health_.status = consecutive_timeouts_ >= 3 ? sys::runtime::StorageHealthStatus::Degraded
-                                                    : sys::runtime::StorageHealthStatus::Slow;
-    }
-
-    sys::runtime::StorageHealthState health_{};
-    uint8_t consecutive_timeouts_ = 0;
-    uint32_t cooldown_until_ms_ = 0;
-    uint32_t last_slow_hold_log_ms_ = 0;
-};
-
 class EspMapTilePolicyStrategy final : public sys::runtime::RuntimePolicyStrategy
 {
   public:
@@ -1212,7 +973,7 @@ class EspMapTileWorkerBackend final : public ui::map_tiles::IMapTileWorkerBacken
             result.format = out_format;
             result.error =
                 static_cast<int32_t>(sys::runtime::BusAcquireStatus::TimedOut);
-            result.bus_access_retained = map_tile_sd_read_bus_access_retained();
+            result.bus_access_retained = false;
             return result;
         }
 
@@ -1437,6 +1198,11 @@ ui::map_tiles::FilesystemMapTileSource& worker_tile_source()
 class MapTileAsyncHost final
 {
   public:
+    MapTileAsyncHost()
+        : bus_(::platform::esp::common::shared_spi_coordinator())
+    {
+    }
+
     void acquire()
     {
         portENTER_CRITICAL(&lock_);
@@ -1624,7 +1390,7 @@ class MapTileAsyncHost final
 
     MapTileCommandQueue commands_{};
     MapTileEventQueue events_{};
-    EspMapTileBusArbiter bus_{};
+    ::platform::esp::common::SharedSpiCoordinator& bus_;
     EspMapTilePolicyStrategy policy_{};
     EspMapTileWorkerBackend backend_{worker_tile_source()};
     uint8_t* scratch_ = nullptr;
@@ -2704,13 +2470,6 @@ static bool request_base_tile_async(MapTile& tile)
     }
 
     const ui::map_tiles::MapTileRef ref = base_tile_ref_for_tile(tile);
-    if (map_tile_display_under_pressure(now_ms))
-    {
-        log_map_tile_display_pressure_pause(now_ms, "base_request");
-        tile.base_retry_not_before_ms = now_ms + kMapTileDisplayPressureTileBackoffMs;
-        return false;
-    }
-
     if (map_tile_availability_memory().knownMissing(ref))
     {
         tile.base_missing = true;
@@ -2750,13 +2509,6 @@ static bool request_contour_tile_async(MapTile& tile)
     {
         tile.contour_checked = true;
         tile.contour_loaded = false;
-        return false;
-    }
-
-    if (map_tile_display_under_pressure(now_ms))
-    {
-        log_map_tile_display_pressure_pause(now_ms, "contour_request");
-        tile.contour_retry_not_before_ms = now_ms + kMapTileDisplayPressureTileBackoffMs;
         return false;
     }
 
@@ -3443,12 +3195,6 @@ void tile_loader_step(TileContext& ctx)
     {
         return;
     }
-    if (map_tile_display_under_pressure(sys::millis_now()))
-    {
-        log_map_tile_display_pressure_pause(sys::millis_now(), "loader");
-        return;
-    }
-
     const int max_tiles_per_step = kMapTileRequestsPerUiStep;
     MapTile* attempted[max_tiles_per_step] = {NULL};
     int attempted_count = 0;

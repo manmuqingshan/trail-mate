@@ -8,7 +8,7 @@
 
 #include "platform/esp/arduino_common/storage/persistence_bus_gate.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_bus_arbiter.h"
+#include "platform/esp/common/shared_spi_coordinator.h"
 #include "sys/clock.h"
 #include <algorithm>
 #include <cctype>
@@ -79,17 +79,6 @@ constexpr const char* kTeamStoreBusOwner = "team_store_sd";
 constexpr size_t kChatlogMaxBytes = 256 * 1024;
 constexpr uint32_t kMinValidEpoch = 1577836800U; // 2020-01-01
 
-::platform::esp::common::SharedSpiBusAdapter s_team_store_bus_adapter(
-    kTeamStoreBusOwner,
-    kTeamStoreBusOwnerId);
-::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_team_store_bus_policy(
-    kTeamStoreLoadWaitMs,
-    kTeamStoreLoadWaitMs,
-    kTeamStoreLoadWaitMs,
-    kTeamStoreLoadWaitMs);
-sys::runtime::StorageBusArbiter s_team_store_bus_arbiter(s_team_store_bus_adapter,
-                                                         s_team_store_bus_policy);
-
 enum class TeamStoreBusAccess : uint8_t
 {
     Load = 1,
@@ -101,7 +90,7 @@ class TeamStoreBusGate final
 {
   public:
     explicit TeamStoreBusGate(TeamStoreBusAccess access)
-        : gate_(s_team_store_bus_arbiter,
+        : gate_(::platform::esp::common::shared_spi_coordinator(),
                 policyFor(access),
                 waitMsFor(access),
                 kTeamStoreBusResource,

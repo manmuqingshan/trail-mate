@@ -217,6 +217,11 @@ class TLoRaPagerBoard : public BoardBase,
     uint16_t width() override;
     uint16_t height() override;
     void pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color) override;
+    bool pushColorsResult(uint16_t x1,
+                          uint16_t y1,
+                          uint16_t x2,
+                          uint16_t y2,
+                          uint16_t* color) override;
 
     // Rotary encoder
     bool hasEncoder() override;

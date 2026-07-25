@@ -10,8 +10,7 @@
 #include "display/DisplayInterface.h"
 #include "input/morse_engine.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_bus_arbiter.h"
-#include "platform/esp/common/shared_spi_lock.h"
+#include "platform/esp/common/shared_spi_coordinator.h"
 #include "platform/ui/screen_runtime.h"
 #include "screen_sleep.h"
 #include "sys/clock.h"
@@ -76,17 +75,6 @@ lv_fs_drv_t s_sd_fs_drv;
 bool s_flash_fs_ready = false;
 bool s_sd_fs_ready = false;
 std::atomic<unsigned> s_external_font_load_fs_depth{0};
-::platform::esp::common::SharedSpiBusAdapter s_external_font_bus_adapter(
-    kLvglExternalFontOwner,
-    kLvglExternalFontCommandId);
-::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_external_font_bus_policy(
-    5,
-    25,
-    150,
-    kLvglExternalFontBusAcquireMs);
-sys::runtime::StorageBusArbiter s_external_font_bus_arbiter(
-    s_external_font_bus_adapter,
-    s_external_font_bus_policy);
 sys::runtime::BusAccessToken s_external_font_bus_token{};
 TaskHandle_t s_external_font_owner_task = nullptr;
 uint32_t s_external_font_acquired_ms = 0;
@@ -159,6 +147,44 @@ lv_fs_res_t sd_fs_error_to_res()
     return LV_FS_RES_FS_ERR;
 }
 
+class LvglSdBusGuard final
+{
+  public:
+    LvglSdBusGuard(TickType_t wait_ticks, const char* owner)
+    {
+        sys::runtime::BusAcquireRequest request{};
+        request.resource =
+            ::platform::esp::common::SharedSpiCoordinator::kSharedBusResource;
+        request.policy = wait_ticks == 0
+                             ? sys::runtime::BusAccessPolicy::UiNeverBlock
+                             : sys::runtime::BusAccessPolicy::InteractiveWorkerBounded;
+        request.command_id = 0x4C564653U;
+        request.origin = request.command_id;
+        request.deadline_ms =
+            sys::millis_now() + static_cast<uint32_t>(wait_ticks) * portTICK_PERIOD_MS;
+        request.owner_label = owner ? owner : "lvgl_sd_fs";
+        result_ = ::platform::esp::common::shared_spi_coordinator().acquire(request);
+        token_ = result_.token;
+        locked_ = result_.status == sys::runtime::BusAcquireStatus::Acquired &&
+                  token_.valid;
+    }
+
+    ~LvglSdBusGuard()
+    {
+        if (locked_)
+        {
+            ::platform::esp::common::shared_spi_coordinator().release(token_);
+        }
+    }
+
+    bool locked() const { return locked_; }
+
+  private:
+    sys::runtime::BusAcquireResult result_{};
+    sys::runtime::BusAccessToken token_{};
+    bool locked_ = false;
+};
+
 bool sd_fs_ready_cb(lv_fs_drv_t* drv)
 {
     LV_UNUSED(drv);
@@ -171,7 +197,7 @@ void* sd_fs_open(lv_fs_drv_t* drv, const char* path, lv_fs_mode_t mode)
     // This is a platform adapter boundary. Product/UI code must not use LVGL
     // FS as a synchronous SD probe; callers should submit runtime work and let
     // worker-domain code handle retry/backpressure.
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+    LvglSdBusGuard spi_guard(
         current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
@@ -209,7 +235,7 @@ lv_fs_res_t sd_fs_close(lv_fs_drv_t* drv, void* file_p)
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+    LvglSdBusGuard spi_guard(
         current_sd_fs_wait(kLvglSdFsCloseWait), current_sd_fs_owner());
     file->close();
     delete file;
@@ -224,7 +250,7 @@ lv_fs_res_t sd_fs_read(lv_fs_drv_t* drv, void* file_p, void* buf, uint32_t btr, 
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+    LvglSdBusGuard spi_guard(
         current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
@@ -255,7 +281,7 @@ lv_fs_res_t sd_fs_write(lv_fs_drv_t* drv,
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+    LvglSdBusGuard spi_guard(
         current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
@@ -278,7 +304,7 @@ lv_fs_res_t sd_fs_seek(lv_fs_drv_t* drv, void* file_p, uint32_t pos, lv_fs_whenc
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+    LvglSdBusGuard spi_guard(
         current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
@@ -311,7 +337,7 @@ lv_fs_res_t sd_fs_tell(lv_fs_drv_t* drv, void* file_p, uint32_t* pos_p)
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+    LvglSdBusGuard spi_guard(
         current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
@@ -324,7 +350,7 @@ lv_fs_res_t sd_fs_tell(lv_fs_drv_t* drv, void* file_p, uint32_t* pos_p)
 void* sd_fs_dir_open(lv_fs_drv_t* drv, const char* path)
 {
     LV_UNUSED(drv);
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+    LvglSdBusGuard spi_guard(
         current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
@@ -352,7 +378,7 @@ lv_fs_res_t sd_fs_dir_read(lv_fs_drv_t* drv, void* dir_p, char* fn, uint32_t fn_
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+    LvglSdBusGuard spi_guard(
         current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
@@ -382,7 +408,7 @@ lv_fs_res_t sd_fs_dir_close(lv_fs_drv_t* drv, void* dir_p)
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
+    LvglSdBusGuard spi_guard(
         current_sd_fs_wait(kLvglSdFsCloseWait), current_sd_fs_owner());
     dir->close();
     delete dir;
@@ -729,8 +755,33 @@ static void disp_flush(lv_display_t* disp_drv, const lv_area_t* area, uint8_t* c
     }
 #endif
 
-    plane->pushColors(area->x1, area->y1, w, h, (uint16_t*)color_p);
+    const bool transferred =
+        plane->pushColorsResult(area->x1, area->y1, w, h, (uint16_t*)color_p);
+    if (!transferred)
+    {
+        auto& coordinator = platform::esp::common::shared_spi_coordinator();
+        coordinator.noteDisplayFrameFailed();
+        Serial.printf("[SPI][DISPLAY] flush_recovery area=(%d,%d)-(%d,%d) "
+                      "requests=%lu completed=%lu busy=%lu failed=%lu\n",
+                      static_cast<int>(area->x1),
+                      static_cast<int>(area->y1),
+                      static_cast<int>(area->x2),
+                      static_cast<int>(area->y2),
+                      static_cast<unsigned long>(coordinator.displayFrameRequests()),
+                      static_cast<unsigned long>(coordinator.displayFrameCompletions()),
+                      static_cast<unsigned long>(coordinator.displayFrameBusyRetries()),
+                      static_cast<unsigned long>(coordinator.displayFrameFailures()));
+        // LVGL cannot be left waiting forever for a transfer that was never
+        // started. Complete this flush through the explicit recovery path and
+        // invalidate both the active screen and the top layer so the next
+        // timer pass retries the pixels instead of accepting a silent drop.
+        lv_display_flush_ready(disp_drv);
+        lv_obj_invalidate(lv_screen_active());
+        lv_obj_invalidate(lv_layer_top());
+        return;
+    }
 
+    platform::esp::common::shared_spi_coordinator().noteDisplayFrameCompleted();
     lv_display_flush_ready(disp_drv);
 
 #if LV_TEST_FLUSH_LOG
@@ -786,10 +837,12 @@ static void disp_flush(lv_display_t* disp_drv, const lv_area_t* area, uint8_t* c
 static void touchpad_read(lv_indev_t* drv, lv_indev_data_t* data)
 {
     static int16_t x, y;
+    static bool was_touched = false;
     auto* plane = (LilyGo_Display*)lv_indev_get_user_data(drv);
     uint8_t touched = plane->getPoint(&x, &y, 1);
     if (touched)
     {
+        was_touched = true;
         input::MorseEngine::notifyTouch();
         if (::platform::ui::screen::is_sleeping() ||
             ::platform::ui::screen::is_saver_active())
@@ -803,6 +856,11 @@ static void touchpad_read(lv_indev_t* drv, lv_indev_data_t* data)
         data->point.y = y;
         data->state = LV_INDEV_STATE_PR;
         return;
+    }
+    if (was_touched)
+    {
+        was_touched = false;
+        ::platform::ui::screen::handle_input_release();
     }
     data->state = LV_INDEV_STATE_REL;
 }
@@ -930,6 +988,10 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
         if (state == KEYBOARD_PRESSED)
         {
             ::platform::ui::screen::handle_input();
+        }
+        else if (state == KEYBOARD_RELEASED)
+        {
+            ::platform::ui::screen::handle_input_release();
         }
         data->state = LV_INDEV_STATE_REL; // Don't pass key to UI
         return;
@@ -1307,8 +1369,10 @@ bool lv_begin_external_font_load_fs_scope()
     request.command_id = kLvglExternalFontCommandId;
     request.deadline_ms = start_ms + kLvglExternalFontBusAcquireMs;
     request.origin = kLvglExternalFontCommandId;
+    request.owner_label = kLvglExternalFontOwner;
 
-    sys::runtime::BusAcquireResult result = s_external_font_bus_arbiter.acquire(request);
+    sys::runtime::BusAcquireResult result =
+        ::platform::esp::common::shared_spi_coordinator().acquire(request);
     if (result.status != sys::runtime::BusAcquireStatus::Acquired || !result.token.valid)
     {
         const uint32_t now_ms = sys::millis_now();
@@ -1366,7 +1430,7 @@ void lv_end_external_font_load_fs_scope()
 
         if (token.valid)
         {
-            s_external_font_bus_arbiter.release(token);
+            ::platform::esp::common::shared_spi_coordinator().release(token);
             Serial.printf("[SPI][LVGL_FONT] release hold_ms=%lu slow=%d\n",
                           static_cast<unsigned long>(hold_ms),
                           hold_ms >= kLvglExternalFontSlowHoldMs ? 1 : 0);

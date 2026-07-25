@@ -276,6 +276,15 @@ void TWatchS3Board::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y
     LilyGoDispArduinoSPI::pushColors(x1, y1, x2, y2, color);
 }
 
+bool TWatchS3Board::pushColorsResult(uint16_t x1,
+                                     uint16_t y1,
+                                     uint16_t x2,
+                                     uint16_t y2,
+                                     uint16_t* color)
+{
+    return LilyGoDispArduinoSPI::pushColorsResult(x1, y1, x2, y2, color);
+}
+
 uint16_t TWatchS3Board::width()
 {
     return LilyGoDispArduinoSPI::_width;

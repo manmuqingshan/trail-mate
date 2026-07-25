@@ -150,6 +150,7 @@ struct BusAcquireRequest
     uint32_t command_id = 0;
     uint32_t deadline_ms = 0;
     uint32_t origin = 0;
+    const char* owner_label = nullptr;
 };
 
 struct BusAccessToken
@@ -157,6 +158,9 @@ struct BusAccessToken
     uint32_t resource = 0;
     uint32_t owner = 0;
     uint32_t acquired_ms = 0;
+    uint32_t generation = 0;
+    uint32_t depth = 0;
+    uintptr_t task_id = 0;
     bool valid = false;
 };
 

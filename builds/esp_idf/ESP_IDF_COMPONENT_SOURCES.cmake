@@ -403,7 +403,6 @@ set(TRAILMATE_ESP_IDF_PLATFORM_COMMON_SOURCES
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/chat_blob_store_io.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/debug/sd_coredump_export.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/sdmmc_host_runtime.cpp"
-    "${TRAILMATE_ROOT}/platform/esp/idf_common/src/shared_spi_lock.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/gps_runtime.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/lv_helper.cpp"
     "${TRAILMATE_ROOT}/platform/esp/idf_common/src/platform_ui_device_runtime.cpp"

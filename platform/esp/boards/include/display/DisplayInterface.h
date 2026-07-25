@@ -1,10 +1,5 @@
 #pragma once
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
-#include "freertos/task.h"
-#include "platform/esp/common/shared_spi_lock.h"
-
 #include <stddef.h>
 #include <stdint.h>
 
@@ -80,6 +75,15 @@ class LilyGo_Display
     virtual void setRotation(uint8_t rotation) = 0;
     virtual uint8_t getRotation() = 0;
     virtual void pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color) = 0;
+    virtual bool pushColorsResult(uint16_t x1,
+                                  uint16_t y1,
+                                  uint16_t x2,
+                                  uint16_t y2,
+                                  uint16_t* color)
+    {
+        pushColors(x1, y1, x2, y2, color);
+        return true;
+    }
     virtual uint16_t width() = 0;
     virtual uint16_t height() = 0;
 
@@ -131,10 +135,6 @@ class LilyGoDispArduinoSPI
     size_t _init_list_length;
     const DispRotationConfig_t* _rotation_configs;
     DispTransferConfig_t _transfer_config{};
-    SemaphoreHandle_t _lock = nullptr;
-    TaskHandle_t _lock_owner = nullptr;
-    uint32_t _lock_depth = 0;
-
     void pushColorsLocked(uint16_t* data, uint32_t len);
     void writeParamsLocked(uint8_t cmd, uint8_t* data = nullptr, size_t length = 0);
     void writeDataLocked(uint8_t data);
@@ -161,6 +161,12 @@ class LilyGoDispArduinoSPI
     uint8_t getRotation();
     void pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color);
     void pushColors(uint16_t* data, uint32_t len);
+    bool pushColorsResult(uint16_t x1,
+                          uint16_t y1,
+                          uint16_t x2,
+                          uint16_t y2,
+                          uint16_t* color);
+    bool pushColorsResult(uint16_t* data, uint32_t len);
     void sleep();
     void wakeup();
     void setBrightness(uint8_t level);
@@ -168,25 +174,5 @@ class LilyGoDispArduinoSPI
     void writeData(uint8_t data);
     void writeCommand(uint8_t cmd);
     void setAddrWindow(uint16_t xs, uint16_t ys, uint16_t xe, uint16_t ye);
-    bool lock(TickType_t xTicksToWait = portMAX_DELAY, const char* owner = nullptr);
-    void unlock();
-    const char* lockOwnerLabel() const;
-    const char* lockOwnerTaskName() const;
-    const char* nativeLockHolderTaskName() const;
-    uint32_t lockHeldMs(uint32_t now_ms) const;
-    uint32_t lockDepth() const;
-    const char* lastLockOwnerLabel() const;
-    const char* lastLockOwnerTaskName() const;
-    uint32_t lastLockHeldMs() const;
-    uint32_t lastLockReleaseAgeMs(uint32_t now_ms) const;
-
-  private:
-    const char* _lock_owner_label = nullptr;
-    const char* _lock_owner_task_name = nullptr;
-    uint32_t _lock_acquired_ms = 0;
-    const char* _last_lock_owner_label = nullptr;
-    const char* _last_lock_owner_task_name = nullptr;
-    uint32_t _last_lock_held_ms = 0;
-    uint32_t _last_lock_released_ms = 0;
 };
 #endif

@@ -26,7 +26,7 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #endif
 
-#include "platform/esp/common/shared_spi_bus_arbiter.h"
+#include "platform/esp/common/shared_spi_coordinator.h"
 #include "sys/bus_access_scope.h"
 #include "sys/clock.h"
 
@@ -233,23 +233,11 @@ constexpr bool kEnableSlantCorrection = true;
 constexpr bool kStretch = true;
 constexpr int kSamplesPerBlock = 1024;
 constexpr int kResampleMaxOut = 4096;
-constexpr uint32_t kSstvSaveAcquireMs = 200;
 constexpr uint32_t kSstvSaveDeadlineMs = 2000;
 constexpr uint32_t kSstvSaveRowsPerChunk = 8;
 constexpr uint32_t kSstvSaveBusResource = 8;
 constexpr uint32_t kSstvSaveBusOwnerId = 0x53535456u; // 'SSTV'
 constexpr const char* kSstvSaveBusOwner = "sstv_save_sd";
-
-::platform::esp::common::SharedSpiBusAdapter s_sstv_save_bus_adapter(
-    kSstvSaveBusOwner,
-    kSstvSaveBusOwnerId);
-::platform::esp::common::FixedSharedSpiBusPolicyStrategy s_sstv_save_bus_policy(
-    kSstvSaveAcquireMs,
-    kSstvSaveAcquireMs,
-    kSstvSaveAcquireMs,
-    kSstvSaveAcquireMs);
-sys::runtime::StorageBusArbiter s_sstv_save_bus_arbiter(s_sstv_save_bus_adapter,
-                                                        s_sstv_save_bus_policy);
 
 enum class SstvSaveBusCommand : uint8_t
 {
@@ -264,7 +252,8 @@ class SstvSaveBusGate final
 {
   public:
     explicit SstvSaveBusGate(SstvSaveBusCommand command, uint32_t deadline_ms)
-        : scope_(s_sstv_save_bus_arbiter, makeRequest(command, deadline_ms))
+        : scope_(::platform::esp::common::shared_spi_coordinator(),
+                 makeRequest(command, deadline_ms))
     {
     }
 
@@ -283,6 +272,7 @@ class SstvSaveBusGate final
         request.command_id = kSstvSaveBusOwnerId + static_cast<uint32_t>(command);
         request.origin = kSstvSaveBusOwnerId;
         request.deadline_ms = deadline_ms;
+        request.owner_label = kSstvSaveBusOwner;
         return request;
     }
 
