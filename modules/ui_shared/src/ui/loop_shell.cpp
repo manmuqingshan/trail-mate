@@ -24,6 +24,16 @@ void tick(const Hooks& hooks)
         return;
     }
 
+    // The display is the frame-critical owner of the loop. Runtime work can
+    // enter Wi-Fi/MQTT, storage, or radio paths and may block for a bounded
+    // interval. Present the pending LVGL frame before handing control to
+    // those services, otherwise a slow first runtime tick can leave the
+    // device on a black boot screen even though setup has completed.
+    if (hooks.display_tick_if_due)
+    {
+        hooks.display_tick_if_due(now_ms);
+    }
+
     if (hooks.handle_power_button)
     {
         hooks.handle_power_button();
@@ -32,11 +42,6 @@ void tick(const Hooks& hooks)
     if (hooks.update_runtime)
     {
         hooks.update_runtime();
-    }
-
-    if (hooks.display_tick_if_due)
-    {
-        hooks.display_tick_if_due(now_ms);
     }
 
     if (hooks.sleep_ms)
