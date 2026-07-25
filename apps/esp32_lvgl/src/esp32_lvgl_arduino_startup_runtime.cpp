@@ -92,7 +92,7 @@ void run()
         Serial.printf("[Setup] Wakeup cause: %d\n", wakeup_reason);
     }
 
-    platform::esp::arduino_common::startup_support::initializeBoard(waking_from_sleep);
+    platform::esp::boards::initializeBoardDisplayHardware(waking_from_sleep);
     Serial.printf("[Setup] heap=%u psram=%u\n", ESP.getFreeHeap(), ESP.getFreePsram());
 
     Serial.println("[Setup] LVGL init begin");
@@ -101,6 +101,8 @@ void run()
 
     applyStartupBrightness("after_lvgl");
     ui::startup_shell::beginBootUi(waking_from_sleep, "Starting services...");
+    platform::esp::boards::initializeBoardServices(waking_from_sleep);
+    ui::startup_shell::setBootLogLine("Starting services...");
     ui::startup_shell::setBootLogLine("Mounting SD card...");
     const bool sd_ready = platform::esp::boards::initializeStorage();
     Serial.printf("[Setup] SD storage initialized after boot UI ready=%d\n", sd_ready ? 1 : 0);

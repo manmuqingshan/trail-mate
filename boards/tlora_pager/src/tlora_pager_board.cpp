@@ -376,126 +376,193 @@ void TLoRaPagerBoard::initShareSPIPins()
     }
 }
 
+uint32_t TLoRaPagerBoard::beginDisplayHardware(uint32_t disable_hw_init)
+{
+    display_only_boot_ = true;
+    const uint32_t result = begin(disable_hw_init);
+    display_only_boot_ = false;
+    return result;
+}
+
+uint32_t TLoRaPagerBoard::beginServices(uint32_t disable_hw_init)
+{
+    display_only_boot_ = false;
+    return begin(disable_hw_init);
+}
+
 uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
 {
     Serial.printf("[TLoRaPagerBoard::begin] ===== HARDWARE INITIALIZATION START =====\n");
     Serial.printf("[TLoRaPagerBoard::begin] disable_hw_init=0x%08X\n", disable_hw_init);
     Serial.printf("[TLoRaPagerBoard::begin] NO_HW_GPS flag: %s\n", (disable_hw_init & NO_HW_GPS) ? "SET (GPS will be SKIPPED)" : "NOT SET (GPS will be initialized)");
 
-    static bool initialized = false;
-    if (initialized)
+    if (services_initialized_)
     {
         Serial.printf("[TLoRaPagerBoard::begin] Already initialized, returning devices_probe=0x%08X\n", devices_probe);
         return devices_probe;
     }
-    initialized = true;
-
-    bool res = false;
-
-    devices_probe = 0x00;
-
-    while (!psramFound())
+    if (display_hardware_initialized_ && display_only_boot_)
     {
-        log_d("ERROR:PSRAM NOT FOUND!");
-        delay(1000);
+        return devices_probe;
     }
 
-    devices_probe |= HW_PSRAM_ONLINE;
+    if (!display_hardware_initialized_)
+    {
+        bool res = false;
 
-    Wire.begin(SDA, SCL);
-    if (s_i2c_mutex == nullptr)
-    {
-        s_i2c_mutex = xSemaphoreCreateMutex();
-    }
+        devices_probe = 0x00;
 
-    // Initialize battery gauge (BQ27220)
-    if (!gauge.begin(Wire, SDA, SCL))
-    {
-        log_w("Battery gauge (BQ27220) not found");
-    }
-    else
-    {
-        log_d("Battery gauge initialized successfully");
-        devices_probe |= HW_GAUGE_ONLINE;
-        Serial.printf("[TLoRaPagerBoard::begin] gauge capacity startup profile deferred\n");
-    }
+        while (!psramFound())
+        {
+            log_d("ERROR:PSRAM NOT FOUND!");
+            delay(1000);
+        }
 
-    // Initialize PMU (BQ25896 power management)
-    Serial.printf("[TLoRaPagerBoard::begin] PMU init begin\n");
-    res = initPMU();
-    Serial.printf("[TLoRaPagerBoard::begin] PMU init end ok=%d\n", res ? 1 : 0);
-    if (!res)
-    {
-        log_w("PMU (BQ25896) not found");
-    }
-    else
-    {
-        log_d("PMU initialized successfully");
-        devices_probe |= HW_PMU_ONLINE;
-    }
-    Serial.printf("[TLoRaPagerBoard::begin] PMU settle begin ms=20\n");
-    delay(20);
-    Serial.printf("[TLoRaPagerBoard::begin] PMU settle end\n");
+        devices_probe |= HW_PSRAM_ONLINE;
 
-    // Initialize GPIO expander (XL9555) - controls power for various peripherals
+        Wire.begin(SDA, SCL);
+        if (s_i2c_mutex == nullptr)
+        {
+            s_i2c_mutex = xSemaphoreCreateMutex();
+        }
+
+        // Initialize battery gauge (BQ27220)
+        if (!gauge.begin(Wire, SDA, SCL))
+        {
+            log_w("Battery gauge (BQ27220) not found");
+        }
+        else
+        {
+            log_d("Battery gauge initialized successfully");
+            devices_probe |= HW_GAUGE_ONLINE;
+            Serial.printf("[TLoRaPagerBoard::begin] gauge capacity startup profile deferred\n");
+        }
+
+        // Initialize PMU (BQ25896 power management)
+        Serial.printf("[TLoRaPagerBoard::begin] PMU init begin\n");
+        res = initPMU();
+        Serial.printf("[TLoRaPagerBoard::begin] PMU init end ok=%d\n", res ? 1 : 0);
+        if (!res)
+        {
+            log_w("PMU (BQ25896) not found");
+        }
+        else
+        {
+            log_d("PMU initialized successfully");
+            devices_probe |= HW_PMU_ONLINE;
+        }
+        Serial.printf("[TLoRaPagerBoard::begin] PMU settle begin ms=20\n");
+        delay(20);
+        Serial.printf("[TLoRaPagerBoard::begin] PMU settle end\n");
+
+        // Initialize GPIO expander (XL9555) - controls power for various peripherals
 #ifdef USING_XL9555_EXPANDS
-    Serial.printf("[TLoRaPagerBoard::begin] expander init begin addr=0x20\n");
-    if (io.begin(Wire, 0x20))
-    {
-        log_d("GPIO expander (XL9555) initialized successfully");
-        Serial.printf("[TLoRaPagerBoard::begin] expander init end ok=1\n");
-        devices_probe |= HW_EXPAND_ONLINE;
+        Serial.printf("[TLoRaPagerBoard::begin] expander init begin addr=0x20\n");
+        if (io.begin(Wire, 0x20))
+        {
+            log_d("GPIO expander (XL9555) initialized successfully");
+            Serial.printf("[TLoRaPagerBoard::begin] expander init end ok=1\n");
+            devices_probe |= HW_EXPAND_ONLINE;
 
-        // Configure GPIO expander pins as outputs and set them HIGH (enable peripherals)
-        const uint8_t expand_pins[] = {
-            EXPANDS_KB_RST,  // Keyboard reset
-            EXPANDS_LORA_EN, // LoRa enable
-            EXPANDS_GPS_EN,  // GPS enable
-            EXPANDS_DRV_EN,  // Haptic driver enable
-            EXPANDS_AMP_EN,  // Audio amplifier enable
+            // Configure GPIO expander pins as outputs and set them HIGH (enable peripherals)
+            const uint8_t expand_pins[] = {
+                EXPANDS_KB_RST,  // Keyboard reset
+                EXPANDS_LORA_EN, // LoRa enable
+                EXPANDS_GPS_EN,  // GPS enable
+                EXPANDS_DRV_EN,  // Haptic driver enable
+                EXPANDS_AMP_EN,  // Audio amplifier enable
 #ifdef EXPANDS_GPS_RST
-            EXPANDS_GPS_RST, // GPS reset
+                EXPANDS_GPS_RST, // GPS reset
 #endif
 #ifdef EXPANDS_KB_EN
-            EXPANDS_KB_EN, // Keyboard enable
+                EXPANDS_KB_EN, // Keyboard enable
 #endif
 #ifdef EXPANDS_GPIO_EN
-            EXPANDS_GPIO_EN, // GPIO enable
+                EXPANDS_GPIO_EN, // GPIO enable
 #endif
 #ifdef EXPANDS_SD_EN
-            EXPANDS_SD_EN, // SD card enable
+                EXPANDS_SD_EN, // SD card enable
 #endif
-        };
+            };
 
-        Serial.printf("[TLoRaPagerBoard::begin] expander power rails begin count=%u\n",
-                      static_cast<unsigned>(sizeof(expand_pins) / sizeof(expand_pins[0])));
-        for (auto pin : expand_pins)
-        {
-            io.pinMode(pin, OUTPUT);
-            io.digitalWrite(pin, HIGH); // Enable peripheral power
-            delay(1);                   // Small delay for power stabilization
+            Serial.printf("[TLoRaPagerBoard::begin] expander power rails begin count=%u\n",
+                          static_cast<unsigned>(sizeof(expand_pins) / sizeof(expand_pins[0])));
+            for (auto pin : expand_pins)
+            {
+                io.pinMode(pin, OUTPUT);
+                io.digitalWrite(pin, HIGH); // Enable peripheral power
+                delay(1);                   // Small delay for power stabilization
+            }
+            Serial.printf("[TLoRaPagerBoard::begin] expander power rails settle begin ms=50\n");
+            delay(50);
+            Serial.printf("[TLoRaPagerBoard::begin] expander power rails settle end\n");
+
+            io.pinMode(EXPANDS_UNUSED_SPI_AUX_EN, OUTPUT);
+            io.digitalWrite(EXPANDS_UNUSED_SPI_AUX_EN, LOW);
+            Serial.printf("[TLoRaPagerBoard::begin] unused spi aux rail off pin=%d\n", EXPANDS_UNUSED_SPI_AUX_EN);
+
+            // SD card pull-up enable (input pin)
+            Serial.printf("[TLoRaPagerBoard::begin] expander sd pull enable pin mode begin\n");
+            io.pinMode(EXPANDS_SD_PULLEN, INPUT);
+            Serial.printf("[TLoRaPagerBoard::begin] expander sd pull enable pin mode end\n");
         }
-        Serial.printf("[TLoRaPagerBoard::begin] expander power rails settle begin ms=50\n");
-        delay(50);
-        Serial.printf("[TLoRaPagerBoard::begin] expander power rails settle end\n");
-
-        io.pinMode(EXPANDS_UNUSED_SPI_AUX_EN, OUTPUT);
-        io.digitalWrite(EXPANDS_UNUSED_SPI_AUX_EN, LOW);
-        Serial.printf("[TLoRaPagerBoard::begin] unused spi aux rail off pin=%d\n", EXPANDS_UNUSED_SPI_AUX_EN);
-
-        // SD card pull-up enable (input pin)
-        Serial.printf("[TLoRaPagerBoard::begin] expander sd pull enable pin mode begin\n");
-        io.pinMode(EXPANDS_SD_PULLEN, INPUT);
-        Serial.printf("[TLoRaPagerBoard::begin] expander sd pull enable pin mode end\n");
-    }
-    else
-    {
-        log_w("GPIO expander (XL9555) initialization failed");
-        Serial.printf("[TLoRaPagerBoard::begin] expander init end ok=0\n");
-    }
+        else
+        {
+            log_w("GPIO expander (XL9555) initialization failed");
+            Serial.printf("[TLoRaPagerBoard::begin] expander init end ok=0\n");
+        }
 #endif
 
-    // Initialize sensor (BHI260AP) - optional, can be disabled
+        // Initialize backlight driver (AW9364)
+        Serial.printf("[TLoRaPagerBoard::begin] backlight init begin\n");
+        backlight.begin(DISP_BL);
+        log_d("Backlight driver initialized (pin %d)", DISP_BL);
+        Serial.printf("[TLoRaPagerBoard::begin] backlight init end\n");
+
+        // Initialize shared SPI pins (CS pins for LoRa and SD)
+        Serial.printf("[TLoRaPagerBoard::begin] shared spi pins init begin\n");
+        initShareSPIPins();
+        Serial.printf("[TLoRaPagerBoard::begin] shared spi pins init end\n");
+
+        // Initialize display (ST7796)
+        Serial.printf("[TLoRaPagerBoard::begin] display bus init begin\n");
+        LilyGoDispArduinoSPI::init(DISP_SCK,
+                                   DISP_MISO,
+                                   DISP_MOSI,
+                                   DISP_CS,
+                                   DISP_RST,
+                                   DISP_DC,
+                                   -1,
+                                   kPagerDisplaySpiClockMhz,
+                                   SPI);
+        log_d("Display (ST7796) initialized: logical=%dx%d raw=%dx%d",
+              LilyGoDispArduinoSPI::_width, LilyGoDispArduinoSPI::_height, DISP_WIDTH, DISP_HEIGHT);
+        Serial.printf("[TLoRaPagerBoard::begin] display bus init end logical=%dx%d raw=%dx%d spi=%luMHz\n",
+                      LilyGoDispArduinoSPI::_width,
+                      LilyGoDispArduinoSPI::_height,
+                      DISP_WIDTH,
+                      DISP_HEIGHT,
+                      static_cast<unsigned long>(kPagerDisplaySpiClockMhz));
+
+        // Initialize SPI bus for LoRa/SD (shared SPI bus)
+        Serial.printf("[TLoRaPagerBoard::begin] shared spi bus begin sck=%d miso=%d mosi=%d\n",
+                      LORA_SCK,
+                      LORA_MISO,
+                      LORA_MOSI);
+        SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI);
+        log_d("SPI bus initialized (SCK=%d, MISO=%d, MOSI=%d)", LORA_SCK, LORA_MISO, LORA_MOSI);
+        Serial.printf("[TLoRaPagerBoard::begin] shared spi bus end\n");
+
+        display_hardware_initialized_ = true;
+        Serial.printf("[TLoRaPagerBoard::begin] ===== DISPLAY HARDWARE READY =====\n");
+        if (display_only_boot_)
+        {
+            return devices_probe;
+        }
+    }
+
+    // Initialize sensor (BHI260AP) - optional, can be disabled. This is
+    // deliberately deferred until after the display boot frame is visible.
     if (!(disable_hw_init & NO_HW_SENSOR))
     {
         Serial.printf("[TLoRaPagerBoard::begin] sensor init begin\n");
@@ -513,46 +580,6 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
     {
         Serial.printf("[TLoRaPagerBoard::begin] sensor init skipped\n");
     }
-
-    // Initialize backlight driver (AW9364)
-    Serial.printf("[TLoRaPagerBoard::begin] backlight init begin\n");
-    backlight.begin(DISP_BL);
-    log_d("Backlight driver initialized (pin %d)", DISP_BL);
-    Serial.printf("[TLoRaPagerBoard::begin] backlight init end\n");
-
-    // Initialize shared SPI pins (CS pins for LoRa and SD)
-    Serial.printf("[TLoRaPagerBoard::begin] shared spi pins init begin\n");
-    initShareSPIPins();
-    Serial.printf("[TLoRaPagerBoard::begin] shared spi pins init end\n");
-
-    // Initialize display (ST7796)
-    Serial.printf("[TLoRaPagerBoard::begin] display bus init begin\n");
-    LilyGoDispArduinoSPI::init(DISP_SCK,
-                               DISP_MISO,
-                               DISP_MOSI,
-                               DISP_CS,
-                               DISP_RST,
-                               DISP_DC,
-                               -1,
-                               kPagerDisplaySpiClockMhz,
-                               SPI);
-    log_d("Display (ST7796) initialized: logical=%dx%d raw=%dx%d",
-          LilyGoDispArduinoSPI::_width, LilyGoDispArduinoSPI::_height, DISP_WIDTH, DISP_HEIGHT);
-    Serial.printf("[TLoRaPagerBoard::begin] display bus init end logical=%dx%d raw=%dx%d spi=%luMHz\n",
-                  LilyGoDispArduinoSPI::_width,
-                  LilyGoDispArduinoSPI::_height,
-                  DISP_WIDTH,
-                  DISP_HEIGHT,
-                  static_cast<unsigned long>(kPagerDisplaySpiClockMhz));
-
-    // Initialize SPI bus for LoRa/SD (shared SPI bus)
-    Serial.printf("[TLoRaPagerBoard::begin] shared spi bus begin sck=%d miso=%d mosi=%d\n",
-                  LORA_SCK,
-                  LORA_MISO,
-                  LORA_MOSI);
-    SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI);
-    log_d("SPI bus initialized (SCK=%d, MISO=%d, MOSI=%d)", LORA_SCK, LORA_MISO, LORA_MOSI);
-    Serial.printf("[TLoRaPagerBoard::begin] shared spi bus end\n");
 
     // Initialize RTC (PCF85063) - optional
     if (!(disable_hw_init & NO_HW_RTC))
@@ -751,6 +778,7 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
     const char* gps_state =
         (devices_probe & HW_GPS_ONLINE) ? "YES" : ((disable_hw_init & NO_HW_GPS) ? "SKIPPED" : "DEFERRED");
     Serial.printf("[TLoRaPagerBoard::begin] GPS online: %s\n", gps_state);
+    services_initialized_ = true;
     return devices_probe;
 }
 

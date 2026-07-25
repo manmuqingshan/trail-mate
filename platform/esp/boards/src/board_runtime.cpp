@@ -24,6 +24,16 @@ void initializeBoard(bool waking_from_sleep)
     detail::initializeBoard(waking_from_sleep);
 }
 
+void initializeBoardDisplayHardware(bool waking_from_sleep)
+{
+    detail::initializeBoardDisplayHardware(waking_from_sleep);
+}
+
+void initializeBoardServices(bool waking_from_sleep)
+{
+    detail::initializeBoardServices(waking_from_sleep);
+}
+
 void initializeDisplay()
 {
     detail::initializeDisplay();

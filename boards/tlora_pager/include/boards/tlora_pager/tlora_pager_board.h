@@ -110,6 +110,10 @@ class TLoRaPagerBoard : public BoardBase,
      * @return Bitmask indicating which hardware components are online (HW_* flags)
      */
     uint32_t begin(uint32_t disable_hw_init = 0) override;
+    // Boot is deliberately split: display hardware becomes visible before
+    // radio, storage, audio, and background input services are started.
+    uint32_t beginDisplayHardware(uint32_t disable_hw_init = 0);
+    uint32_t beginServices(uint32_t disable_hw_init = 0);
 
     /**
      * @brief Main loop function - call this periodically in your main loop
@@ -472,6 +476,9 @@ class TLoRaPagerBoard : public BoardBase,
 #endif
 
   private:
+    bool display_hardware_initialized_ = false;
+    bool display_only_boot_ = false;
+    bool services_initialized_ = false;
     struct CachedLoRaConfig
     {
         bool valid = false;

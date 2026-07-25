@@ -38,6 +38,8 @@ struct BoardIdentity
 };
 
 void initializeBoard(bool waking_from_sleep);
+void initializeBoardDisplayHardware(bool waking_from_sleep);
+void initializeBoardServices(bool waking_from_sleep);
 void initializeDisplay();
 bool initializeStorage();
 bool tryResolveAppContextInitHandles(AppContextInitHandles* out_handles);
