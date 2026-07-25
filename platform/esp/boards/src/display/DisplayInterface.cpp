@@ -23,6 +23,7 @@ constexpr const char* kDisplayOwner = "display";
 
 uint32_t s_last_display_lock_timeout_log_ms = 0;
 uint32_t s_suppressed_display_lock_timeout_logs = 0;
+uint32_t s_display_frame_log_count = 0;
 
 sys::runtime::BusAcquireRequest make_display_request(
     sys::runtime::BusAccessPolicy policy,
@@ -84,6 +85,17 @@ bool LilyGoDispArduinoSPI::init(int sck,
 {
     _spi = &spi;
     _spi_freq = freq_Mhz * 1000U * 1000U;
+    Serial.printf("[DISPLAY][INIT] begin sck=%d miso=%d mosi=%d cs=%d rst=%d dc=%d "
+                  "freq_hz=%lu init_cmds=%lu brightness=%u\n",
+                  sck,
+                  miso,
+                  mosi,
+                  cs,
+                  rst,
+                  dc,
+                  static_cast<unsigned long>(_spi_freq),
+                  static_cast<unsigned long>(_init_list_length),
+                  static_cast<unsigned>(_brightness));
 
     if (rst != -1)
     {
@@ -114,20 +126,60 @@ bool LilyGoDispArduinoSPI::init(int sck,
     }
 
     _spi->begin(sck, miso, mosi);
+    Serial.printf("[DISPLAY][INIT] pins_ready cs=%d level=%d dc=%d level=%d spi_started=1\n",
+                  _cs,
+                  digitalRead(_cs),
+                  _dc,
+                  digitalRead(_dc));
 
+    bool init_commands_ok = true;
     for (uint32_t i = 0; i < _init_list_length; i++)
     {
-        writeParams(_init_list[i].cmd, (uint8_t*)_init_list[i].data, _init_list[i].len & 0x1F);
+        const bool sent =
+            writeParams(_init_list[i].cmd, (uint8_t*)_init_list[i].data, _init_list[i].len & 0x1F);
+        init_commands_ok = init_commands_ok && sent;
+        Serial.printf("[DISPLAY][INIT] cmd index=%lu cmd=0x%02X data_len=%u sent=%d\n",
+                      static_cast<unsigned long>(i),
+                      static_cast<unsigned>(_init_list[i].cmd),
+                      static_cast<unsigned>(_init_list[i].len & 0x1F),
+                      sent ? 1 : 0);
         if (_init_list[i].len & 0x80)
         {
             delay(120);
         }
     }
+    if (!init_commands_ok)
+    {
+        Serial.printf("[DISPLAY][INIT] failed reason=init_command_transaction\n");
+        return false;
+    }
 
     setRotation(0);
+    Serial.printf("[DISPLAY][INIT] rotation=0 logical=%ux%u offset=(%u,%u) "
+                  "coord_requests=%lu busy=%lu failures=%lu\n",
+                  static_cast<unsigned>(_width),
+                  static_cast<unsigned>(_height),
+                  static_cast<unsigned>(_offset_x),
+                  static_cast<unsigned>(_offset_y),
+                  static_cast<unsigned long>(
+                      platform::esp::common::shared_spi_coordinator().displayFrameRequests()),
+                  static_cast<unsigned long>(
+                      platform::esp::common::shared_spi_coordinator().displayFrameBusyRetries()),
+                  static_cast<unsigned long>(
+                      platform::esp::common::shared_spi_coordinator().displayFrameFailures()));
 
     std::vector<uint16_t> draw_buf(_width * _height, 0x0000);
-    pushColors(0, 0, _width, _height, draw_buf.data());
+    const bool clear_sent = pushColorsResult(0, 0, _width, _height, draw_buf.data());
+    Serial.printf("[DISPLAY][INIT] clear_frame sent=%d pixels=%lu completions=%lu\n",
+                  clear_sent ? 1 : 0,
+                  static_cast<unsigned long>(_width * _height),
+                  static_cast<unsigned long>(
+                      platform::esp::common::shared_spi_coordinator().displayFrameCompletions()));
+    if (!clear_sent)
+    {
+        Serial.printf("[DISPLAY][INIT] failed reason=clear_frame_transaction\n");
+        return false;
+    }
     if (_backlight != -1)
     {
         digitalWrite(_backlight, (_brightness > 0) ? HIGH : LOW);
@@ -175,6 +227,7 @@ void LilyGoDispArduinoSPI::pushColors(uint16_t* data, uint32_t len)
 
 bool LilyGoDispArduinoSPI::pushColorsResult(uint16_t* data, uint32_t len)
 {
+    const uint32_t sequence = ++s_display_frame_log_count;
     sys::runtime::ScopedBusAccessToken bus(
         platform::esp::common::shared_spi_coordinator(),
         make_display_request(sys::runtime::BusAccessPolicy::DisplayFrameCritical,
@@ -182,10 +235,29 @@ bool LilyGoDispArduinoSPI::pushColorsResult(uint16_t* data, uint32_t len)
     if (!bus.acquired())
     {
         log_display_lock_timeout("pushColors", bus.result());
+        Serial.printf("[DISPLAY][TX] frame seq=%lu acquired=0 status=%u len=%lu\n",
+                      static_cast<unsigned long>(sequence),
+                      static_cast<unsigned>(bus.status()),
+                      static_cast<unsigned long>(len));
         return false;
+    }
+    if (sequence <= 8U)
+    {
+        Serial.printf("[DISPLAY][TX] frame seq=%lu acquired=1 wait_ms=%lu len=%lu bytes=%lu\n",
+                      static_cast<unsigned long>(sequence),
+                      static_cast<unsigned long>(bus.diagnostics().wait_ms),
+                      static_cast<unsigned long>(len),
+                      static_cast<unsigned long>(len * sizeof(uint16_t)));
     }
     pushColorsLocked(data, len);
     bus.release();
+    if (sequence <= 8U)
+    {
+        Serial.printf("[DISPLAY][TX] frame seq=%lu complete cs=%d dc=%d\n",
+                      static_cast<unsigned long>(sequence),
+                      digitalRead(_cs),
+                      digitalRead(_dc));
+    }
     return true;
 }
 
@@ -220,6 +292,7 @@ bool LilyGoDispArduinoSPI::pushColorsResult(uint16_t x1,
                                             uint16_t y2,
                                             uint16_t* color)
 {
+    const uint32_t sequence = ++s_display_frame_log_count;
     sys::runtime::ScopedBusAccessToken bus(
         platform::esp::common::shared_spi_coordinator(),
         make_display_request(sys::runtime::BusAccessPolicy::DisplayFrameCritical,
@@ -227,11 +300,37 @@ bool LilyGoDispArduinoSPI::pushColorsResult(uint16_t x1,
     if (!bus.acquired())
     {
         log_display_lock_timeout("pushColorsArea", bus.result());
+        Serial.printf("[DISPLAY][TX] area seq=%lu acquired=0 status=%u area=(%u,%u)+(%u,%u)\n",
+                      static_cast<unsigned long>(sequence),
+                      static_cast<unsigned>(bus.status()),
+                      static_cast<unsigned>(x1),
+                      static_cast<unsigned>(y1),
+                      static_cast<unsigned>(x2),
+                      static_cast<unsigned>(y2));
         return false;
+    }
+    if (sequence <= 8U)
+    {
+        Serial.printf("[DISPLAY][TX] area seq=%lu acquired=1 wait_ms=%lu "
+                      "area=(%u,%u)+(%u,%u) pixels=%lu\n",
+                      static_cast<unsigned long>(sequence),
+                      static_cast<unsigned long>(bus.diagnostics().wait_ms),
+                      static_cast<unsigned>(x1),
+                      static_cast<unsigned>(y1),
+                      static_cast<unsigned>(x2),
+                      static_cast<unsigned>(y2),
+                      static_cast<unsigned long>(x2 * y2));
     }
     setAddrWindowLocked(x1, y1, x1 + x2 - 1, y1 + y2 - 1);
     pushColorsLocked(color, x2 * y2);
     bus.release();
+    if (sequence <= 8U)
+    {
+        Serial.printf("[DISPLAY][TX] area seq=%lu complete cs=%d dc=%d\n",
+                      static_cast<unsigned long>(sequence),
+                      digitalRead(_cs),
+                      digitalRead(_dc));
+    }
     return true;
 }
 
@@ -328,7 +427,7 @@ void LilyGoDispArduinoSPI::writeDataLocked(uint8_t data)
     digitalWrite(_cs, HIGH);
 }
 
-void LilyGoDispArduinoSPI::writeParams(uint8_t cmd, uint8_t* data, size_t length)
+bool LilyGoDispArduinoSPI::writeParams(uint8_t cmd, uint8_t* data, size_t length)
 {
     sys::runtime::ScopedBusAccessToken bus(
         platform::esp::common::shared_spi_coordinator(),
@@ -337,10 +436,11 @@ void LilyGoDispArduinoSPI::writeParams(uint8_t cmd, uint8_t* data, size_t length
     if (!bus.acquired())
     {
         log_display_lock_timeout("writeParams", bus.result());
-        return;
+        return false;
     }
     writeParamsLocked(cmd, data, length);
     bus.release();
+    return true;
 }
 
 void LilyGoDispArduinoSPI::writeParamsLocked(uint8_t cmd, uint8_t* data, size_t length)

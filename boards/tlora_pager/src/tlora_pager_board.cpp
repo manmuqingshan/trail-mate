@@ -526,15 +526,24 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
 
         // Initialize display (ST7796)
         Serial.printf("[TLoRaPagerBoard::begin] display bus init begin\n");
-        LilyGoDispArduinoSPI::init(DISP_SCK,
-                                   DISP_MISO,
-                                   DISP_MOSI,
-                                   DISP_CS,
-                                   DISP_RST,
-                                   DISP_DC,
-                                   -1,
-                                   kPagerDisplaySpiClockMhz,
-                                   SPI);
+        const bool display_init_ok =
+            LilyGoDispArduinoSPI::init(DISP_SCK,
+                                       DISP_MISO,
+                                       DISP_MOSI,
+                                       DISP_CS,
+                                       DISP_RST,
+                                       DISP_DC,
+                                       -1,
+                                       kPagerDisplaySpiClockMhz,
+                                       SPI);
+        Serial.printf("[TLoRaPagerBoard::begin] display bus init result ok=%d\n",
+                      display_init_ok ? 1 : 0);
+        if (!display_init_ok)
+        {
+            Serial.printf("[TLoRaPagerBoard::begin] display hardware not ready; "
+                          "services will not claim display readiness\n");
+            return devices_probe;
+        }
         log_d("Display (ST7796) initialized: logical=%dx%d raw=%dx%d",
               LilyGoDispArduinoSPI::_width, LilyGoDispArduinoSPI::_height, DISP_WIDTH, DISP_HEIGHT);
         Serial.printf("[TLoRaPagerBoard::begin] display bus init end logical=%dx%d raw=%dx%d spi=%luMHz\n",

@@ -715,6 +715,7 @@ void init_sd_fs_driver()
 static void disp_flush(lv_display_t* disp_drv, const lv_area_t* area, uint8_t* color_p)
 {
     static uint8_t s_tdeck_pro_flush_log_count = 0;
+    static uint32_t s_display_flush_log_count = 0;
 #if LV_TEST_FLUSH_LOG
     static uint32_t s_flush_count = 0;
     static uint32_t s_flush_last_ms = 0;
@@ -727,6 +728,34 @@ static void disp_flush(lv_display_t* disp_drv, const lv_area_t* area, uint8_t* c
     uint32_t w = lv_area_get_width(area);
     uint32_t h = lv_area_get_height(area);
     auto* plane = (LilyGo_Display*)lv_display_get_user_data(disp_drv);
+    const uint32_t flush_sequence = ++s_display_flush_log_count;
+    if (flush_sequence <= 8U)
+    {
+        uint32_t nonzero = 0;
+        if (color_p != nullptr)
+        {
+            const uint16_t* pixels = reinterpret_cast<const uint16_t*>(color_p);
+            for (size_t i = 0; i < len; ++i)
+            {
+                if (pixels[i] != 0U)
+                {
+                    ++nonzero;
+                }
+            }
+        }
+        Serial.printf("[LVGL][DISPLAY] flush_begin seq=%lu area=(%d,%d)-(%d,%d) "
+                      "size=%lux%lu pixels=%lu nonzero=%lu plane=%p\n",
+                      static_cast<unsigned long>(flush_sequence),
+                      static_cast<int>(area->x1),
+                      static_cast<int>(area->y1),
+                      static_cast<int>(area->x2),
+                      static_cast<int>(area->y2),
+                      static_cast<unsigned long>(w),
+                      static_cast<unsigned long>(h),
+                      static_cast<unsigned long>(len),
+                      static_cast<unsigned long>(nonzero),
+                      static_cast<void*>(plane));
+    }
 
 #if defined(ARDUINO_T_DECK_PRO)
     if (s_tdeck_pro_flush_log_count < 8)
@@ -783,6 +812,17 @@ static void disp_flush(lv_display_t* disp_drv, const lv_area_t* area, uint8_t* c
 
     platform::esp::common::shared_spi_coordinator().noteDisplayFrameCompleted();
     lv_display_flush_ready(disp_drv);
+    if (flush_sequence <= 8U)
+    {
+        auto& coordinator = platform::esp::common::shared_spi_coordinator();
+        Serial.printf("[LVGL][DISPLAY] flush_complete seq=%lu requests=%lu "
+                      "completed=%lu busy=%lu failed=%lu\n",
+                      static_cast<unsigned long>(flush_sequence),
+                      static_cast<unsigned long>(coordinator.displayFrameRequests()),
+                      static_cast<unsigned long>(coordinator.displayFrameCompletions()),
+                      static_cast<unsigned long>(coordinator.displayFrameBusyRetries()),
+                      static_cast<unsigned long>(coordinator.displayFrameFailures()));
+    }
 
 #if LV_TEST_FLUSH_LOG
 #if LV_TEST_FLUSH_SAMPLE

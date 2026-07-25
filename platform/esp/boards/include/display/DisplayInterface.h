@@ -170,7 +170,7 @@ class LilyGoDispArduinoSPI
     void sleep();
     void wakeup();
     void setBrightness(uint8_t level);
-    void writeParams(uint8_t cmd, uint8_t* data = nullptr, size_t length = 0);
+    bool writeParams(uint8_t cmd, uint8_t* data = nullptr, size_t length = 0);
     void writeData(uint8_t data);
     void writeCommand(uint8_t cmd);
     void setAddrWindow(uint16_t xs, uint16_t ys, uint16_t xe, uint16_t ye);

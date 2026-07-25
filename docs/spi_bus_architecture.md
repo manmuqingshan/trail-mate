@@ -188,8 +188,25 @@ explicit recovery path has recorded a dropped/invalidated frame. A lock timeout
 must not be silently presented as success.
 
 The first boot frame and the first wake redraw use the same path as normal
-frames. The boot state machine may report `physical_present=true` only after a
-completed display transaction.
+frames. A completed display transaction means only that the coordinator granted
+the bus and the driver returned after issuing the SPI write. On a write-only
+panel interface this is not a physical pixel acknowledgement: without a panel
+readback, TE signal, or an external probe, software cannot prove that the
+controller rendered the pixels. The boot state machine must therefore expose
+this as `display_transaction_completed`, never as `physical_present`.
+
+This distinction is an architectural invariant, not just a logging preference:
+
+| Evidence | What it proves | What it cannot prove |
+| --- | --- | --- |
+| Coordinator token acquired | This task was granted the shared SPI resource | CS/DC wiring, controller state, or pixel visibility |
+| `pushColorsResult()` returned `true` | The driver issued the SPI write and released the token | That the panel accepted the command or rendered it |
+| LVGL flush completed | LVGL's software frame lifecycle advanced | That the panel contains the expected pixels |
+| Backlight is on | The backlight power path is active | Panel reset, initialization, address window, or pixel transfer |
+
+Any boot retry or health decision must use the strongest evidence actually
+available. A write-only display path must not synthesize a physical
+acknowledgement from a software counter.
 
 ### Radio
 

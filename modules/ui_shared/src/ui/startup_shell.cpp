@@ -71,7 +71,10 @@ bool resolve_display_time(struct tm* out_tm)
     return true;
 }
 
-bool s_boot_physical_presented = false;
+// This counter only proves that the display transaction path returned success.
+// It cannot prove that the panel's controller rendered pixels; there is no
+// readback/TE acknowledgement in this SPI write-only path.
+bool s_boot_display_transaction_completed = false;
 
 void present_boot_overlay_now()
 {
@@ -94,18 +97,18 @@ void present_boot_overlay_now()
         }
     }
 #if defined(ARDUINO_ARCH_ESP32)
-    s_boot_physical_presented =
+    s_boot_display_transaction_completed =
         ::platform::esp::common::shared_spi_coordinator().displayFrameCompletions() >
         completed_before;
 #else
-    s_boot_physical_presented = true;
+    s_boot_display_transaction_completed = true;
 #endif
 #else
     if (lv_obj_t* top = lv_layer_top())
     {
         lv_obj_invalidate(top);
     }
-    s_boot_physical_presented = false;
+    s_boot_display_transaction_completed = false;
 #endif
 }
 
@@ -259,15 +262,16 @@ void initializeShell(const Hooks& hooks)
 
 void finalizeStartup(bool waking_from_sleep)
 {
-    if (!waking_from_sleep && !s_boot_physical_presented)
+    if (!waking_from_sleep && !s_boot_display_transaction_completed)
     {
-        std::printf("[BOOT][UI] first_frame_retry reason=no_physical_ack\n");
+        std::printf("[BOOT][UI] first_frame_retry reason=no_display_transaction\n");
         std::fflush(stdout);
         present_boot_overlay_now();
     }
     std::printf("[BOOT][UI] ready waking=%d\n", waking_from_sleep ? 1 : 0);
     std::fflush(stdout);
-    std::printf("[BOOT][UI] physical_present=%d\n", s_boot_physical_presented ? 1 : 0);
+    std::printf("[BOOT][UI] display_transaction_completed=%d\n",
+                s_boot_display_transaction_completed ? 1 : 0);
     std::fflush(stdout);
     if (waking_from_sleep)
     {
