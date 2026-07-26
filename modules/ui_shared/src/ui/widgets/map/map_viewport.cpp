@@ -6,6 +6,7 @@
 #include "ui/widgets/map/map_viewport.h"
 
 #include "app/app_config.h"
+#include "app/app_config_changes.h"
 #include "app/app_facade_access.h"
 #include "platform/ui/device_runtime.h"
 #include "ui/localization.h"
@@ -1199,7 +1200,7 @@ bool set_layer_map_source(uint8_t map_source, LayerNotice* out_notice)
     if (changed)
     {
         config_api.getConfig().map_source = normalized;
-        config_api.requestSaveConfig();
+        config_api.requestSaveConfig(app::AppConfigChangeSet::map());
     }
 
     if (!platform::ui::device::sd_ready())
@@ -1231,7 +1232,7 @@ bool toggle_layer_contour(LayerNotice* out_notice)
                      static_cast<unsigned>(sanitize_map_source(config_api.getConfig().map_source)));
 
     config_api.getConfig().map_contour_enabled = enabled;
-    config_api.requestSaveConfig();
+    config_api.requestSaveConfig(app::AppConfigChangeSet::map());
 
     if (enabled)
     {

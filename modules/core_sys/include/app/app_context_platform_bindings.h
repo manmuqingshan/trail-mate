@@ -6,6 +6,7 @@
 #pragma once
 
 #include "app/app_config.h"
+#include "app/app_config_changes.h"
 #include "chat/domain/chat_model.h"
 #include "chat/domain/chat_types.h"
 #include "chat/ports/i_chat_store.h"
@@ -94,7 +95,8 @@ struct TeamServicesBundle
 struct AppContextPlatformBindings
 {
     using AppConfigLoader = bool (*)(AppConfig& config);
-    using AppConfigSaver = bool (*)(const AppConfig& config);
+    using AppConfigSaver = bool (*)(const AppConfig& config,
+                                    AppConfigChangeSet changes);
     using MessageToneVolumeLoader = uint8_t (*)();
     using GpsRuntimeInitializer = void (*)(GpsBoard* gps_board,
                                            MotionBoard* motion_board,

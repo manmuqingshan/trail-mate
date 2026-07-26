@@ -164,6 +164,8 @@ class AppContext final : public IAppBleFacade
 
     void saveConfig() override;
     void requestSaveConfig() override;
+    void saveConfig(AppConfigChangeSet changes) override;
+    void requestSaveConfig(AppConfigChangeSet changes) override;
 
     void applyMeshConfig() override;
     void applyUserInfo() override;
@@ -202,7 +204,7 @@ class AppContext final : public IAppBleFacade
             config_.meshtastic_config = chat::MeshConfig();
             config_.meshtastic_config.region = AppConfig::kDefaultRegionCode;
         }
-        saveConfig();
+        saveConfig(AppConfigChangeSet::mesh());
         applyMeshConfig();
     }
 
@@ -244,7 +246,7 @@ class AppContext final : public IAppBleFacade
     void initTeamServices();
     void initContactServices();
     void ensureConfigSaveWorker();
-    void enqueueConfigSave();
+    void enqueueConfigSave(AppConfigChangeSet requested_changes);
     void configSaveLoop();
     static void configSaveTaskEntry(void* context);
 
@@ -280,11 +282,14 @@ class AppContext final : public IAppBleFacade
     TaskHandle_t config_save_task_ = nullptr;
     AppConfig pending_config_save_{};
     AppConfig active_config_save_{};
+    AppConfigChangeSet pending_config_changes_{};
+    AppConfigChangeSet active_config_changes_{};
     uint32_t pending_config_save_generation_ = 0;
     uint32_t completed_config_save_generation_ = 0;
     bool config_save_pending_ = false;
     bool config_save_busy_ = false;
     bool config_save_failed_ = false;
+    bool config_save_baseline_valid_ = false;
     bool deferred_storage_started_ = false;
     app::ChatServicesBundle::DeferredStorageStarter deferred_storage_starter_ =
         nullptr;

@@ -4,9 +4,6 @@
 #include <Preferences.h>
 
 #include <cstdio>
-#include <esp_heap_caps.h>
-#include <memory>
-#include <new>
 
 #include "platform/ui/setting_sensitivity.h"
 #include "platform/ui/settings_store.h"
@@ -19,6 +16,7 @@ bool loadAppConfigFromPreferences(AppConfig& config,
                                   bool emit_logs);
 bool saveAppConfigToPreferences(const AppConfig& config,
                                 Preferences& prefs,
+                                AppConfigChangeSet changes,
                                 bool emit_logs);
 
 namespace
@@ -80,34 +78,6 @@ constexpr const char* kGpsKeyExternalNmeaSentence = "ext_nmea_sent";
 constexpr const char* kSettingsKeyMapTrackInterval = "map_track_int";
 constexpr const char* kSettingsKeyMapTrackFormat = "map_track_fmt";
 
-struct AppConfigDeleter
-{
-    void operator()(AppConfig* config) const
-    {
-        if (!config)
-        {
-            return;
-        }
-        config->~AppConfig();
-        heap_caps_free(config);
-    }
-};
-
-using AppConfigPtr = std::unique_ptr<AppConfig, AppConfigDeleter>;
-
-AppConfigPtr makeHeapAppConfig()
-{
-    void* storage = heap_caps_malloc_prefer(sizeof(AppConfig),
-                                            2,
-                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
-                                            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (storage == nullptr)
-    {
-        return AppConfigPtr{};
-    }
-    return AppConfigPtr(new (storage) AppConfig());
-}
-
 const char* safe_label(const char* value)
 {
     return value ? value : "<null>";
@@ -134,6 +104,32 @@ bool begin_namespace(Preferences& prefs,
                       bool_label(ok));
     }
     return ok;
+}
+
+bool changes_require_chat_store(AppConfigChangeSet changes)
+{
+    return changes.intersects(AppConfigChangeSet::identity() |
+                              AppConfigChangeSet::mesh() |
+                              AppConfigChangeSet::channels());
+}
+
+bool changes_require_gps_store(AppConfigChangeSet changes)
+{
+    return changes.contains(AppConfigChangeDomain::Gps);
+}
+
+bool changes_require_settings_store(AppConfigChangeSet changes)
+{
+    return changes.intersects(AppConfigChangeSet::map() |
+                              AppConfigChangeSet::chatUi() |
+                              AppConfigChangeSet::network() |
+                              AppConfigChangeSet::privacy() |
+                              AppConfigChangeSet::route());
+}
+
+bool changes_require_aprs_store(AppConfigChangeSet changes)
+{
+    return changes.contains(AppConfigChangeDomain::Aprs);
 }
 
 bool get_bool_logged(Preferences& prefs,
@@ -1428,6 +1424,7 @@ bool loadAppConfigFromPreferences(AppConfig& config,
 
 bool saveAppConfigToPreferences(const AppConfig& config,
                                 Preferences& prefs,
+                                AppConfigChangeSet changes,
                                 bool emit_logs)
 {
     const auto& chat_policy = config.chat_policy;
@@ -1478,19 +1475,41 @@ bool saveAppConfigToPreferences(const AppConfig& config,
     const auto& route_enabled = config.route_enabled;
     const auto& route_path = config.route_path;
     const auto& aprs = config.aprs;
+    const bool save_chat = changes_require_chat_store(changes);
+    const bool save_gps = changes_require_gps_store(changes);
+    const bool save_settings = changes_require_settings_store(changes);
+    const bool save_aprs = changes_require_aprs_store(changes);
 
     if (emit_logs)
     {
-        Serial.println("[AppCfg][SAVE] begin");
-        log_config_summary("SAVE", config);
+        Serial.printf("[AppCfg][SAVE] begin changes=0x%08lx chat=%u gps=%u settings=%u aprs=%u\n",
+                      static_cast<unsigned long>(changes.bits()),
+                      save_chat ? 1U : 0U,
+                      save_gps ? 1U : 0U,
+                      save_settings ? 1U : 0U,
+                      save_aprs ? 1U : 0U);
+        if (changes.bits() == AppConfigChangeSet::allPersisted().bits())
+        {
+            log_config_summary("SAVE", config);
+        }
+    }
+
+    if (!save_chat && !save_gps && !save_settings && !save_aprs)
+    {
+        if (emit_logs)
+        {
+            Serial.println("[AppCfg][SAVE] skipped no persistent domains");
+        }
+        return true;
     }
 
     bool ok = true;
 
-    if (!begin_namespace(prefs, "chat", false, "SAVE", emit_logs))
+    if (save_chat && !begin_namespace(prefs, "chat", false, "SAVE", emit_logs))
     {
         return false;
     }
+    if (save_chat)
     {
         auto put_bool = [&](const char* key, bool value)
         {
@@ -1694,13 +1713,14 @@ bool saveAppConfigToPreferences(const AppConfig& config,
             ok = remove_key_logged(prefs, "chat", "secondary_key", emit_logs) && ok;
         }
         put_uchar(kChatKeySecondaryKeyLen, secondary_key_len);
+        prefs.end();
     }
-    prefs.end();
 
-    if (!begin_namespace(prefs, "gps", false, "SAVE", emit_logs))
+    if (save_gps && !begin_namespace(prefs, "gps", false, "SAVE", emit_logs))
     {
         return false;
     }
+    if (save_gps)
     {
         auto put_bool = [&](const char* key, bool value)
         {
@@ -1732,13 +1752,14 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         put_uchar(kGpsKeyMotionSensorId, motion_config.sensor_id);
         put_uchar("ext_nmea", external_nmea_output_hz);
         put_uchar(kGpsKeyExternalNmeaSentence, external_nmea_sentence_mask);
+        prefs.end();
     }
-    prefs.end();
 
-    if (!begin_namespace(prefs, "settings", false, "SAVE", emit_logs))
+    if (save_settings && !begin_namespace(prefs, "settings", false, "SAVE", emit_logs))
     {
         return false;
     }
+    if (save_settings)
     {
         auto put_bool = [&](const char* key, bool value)
         {
@@ -1767,13 +1788,14 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         ok = remove_key_logged(prefs, "settings", "privacy_pki", emit_logs) && ok;
         put_bool("route_enabled", route_enabled);
         put_string("route_path", route_path);
+        prefs.end();
     }
-    prefs.end();
 
-    if (!begin_namespace(prefs, "aprs", false, "SAVE", emit_logs))
+    if (save_aprs && !begin_namespace(prefs, "aprs", false, "SAVE", emit_logs))
     {
         return false;
     }
+    if (save_aprs)
     {
         auto put_bool = [&](const char* key, bool value)
         {
@@ -1820,8 +1842,8 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         }
         put_bool("self_enable", aprs.self_enable);
         put_string("self_call", aprs.self_callsign);
+        prefs.end();
     }
-    prefs.end();
 
     if (emit_logs)
     {
@@ -1850,21 +1872,10 @@ bool loadAppConfig(AppConfig& config)
     return loadAppConfigFromPreferences(config, prefs, true);
 }
 
-bool saveAppConfig(const AppConfig& config)
+bool saveAppConfig(const AppConfig& config, AppConfigChangeSet changes)
 {
-    AppConfigPtr previous_config = makeHeapAppConfig();
-    if (!previous_config)
-    {
-        Serial.println("[AppCfg][SAVE] failed: app config snapshot alloc");
-        return false;
-    }
-
-    Preferences previous_prefs;
-    loadAppConfigFromPreferences(*previous_config, previous_prefs, false);
-    log_config_delta(*previous_config, config);
-
     Preferences prefs;
-    return saveAppConfigToPreferences(config, prefs, true);
+    return saveAppConfigToPreferences(config, prefs, changes, true);
 }
 
 } // namespace app

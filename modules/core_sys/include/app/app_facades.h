@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "app/app_config_changes.h"
 #include "chat/domain/chat_types.h"
 
 class BoardBase;
@@ -56,6 +57,15 @@ class IAppConfigFacade
     virtual const AppConfig& getConfig() const = 0;
     virtual void saveConfig() = 0;
     virtual void requestSaveConfig() { saveConfig(); }
+    virtual void saveConfig(AppConfigChangeSet changes)
+    {
+        (void)changes;
+        saveConfig();
+    }
+    virtual void requestSaveConfig(AppConfigChangeSet changes)
+    {
+        saveConfig(changes);
+    }
     virtual void applyMeshConfig() = 0;
     virtual void applyUserInfo() = 0;
     virtual void applyPositionConfig() = 0;

@@ -7,6 +7,7 @@
 
 #include <Arduino.h>
 
+#include "app/app_config_change_detection.h"
 #include "ble/ble_manager.h"
 #include "board/BoardBase.h"
 #include "board/GpsBoard.h"
@@ -275,12 +276,22 @@ void AppContext::setChatUiRuntime(chat::ui::IChatUiRuntime* runtime)
 
 void AppContext::saveConfig()
 {
-    enqueueConfigSave();
+    enqueueConfigSave(AppConfigChangeSet::none());
 }
 
 void AppContext::requestSaveConfig()
 {
-    enqueueConfigSave();
+    enqueueConfigSave(AppConfigChangeSet::none());
+}
+
+void AppContext::saveConfig(AppConfigChangeSet changes)
+{
+    enqueueConfigSave(changes);
+}
+
+void AppContext::requestSaveConfig(AppConfigChangeSet changes)
+{
+    enqueueConfigSave(changes);
 }
 
 void AppContext::ensureConfigSaveWorker()
@@ -312,7 +323,7 @@ void AppContext::ensureConfigSaveWorker()
     }
 }
 
-void AppContext::enqueueConfigSave()
+void AppContext::enqueueConfigSave(AppConfigChangeSet requested_changes)
 {
     if (platform_bindings_.save_app_config)
     {
@@ -331,9 +342,23 @@ void AppContext::enqueueConfigSave()
             return;
         }
 
+        AppConfigChangeSet detected_changes =
+            config_save_baseline_valid_
+                ? detectAppConfigChanges(active_config_save_, config_)
+                : AppConfigChangeSet::allPersisted();
+        detected_changes.mergeIn(requested_changes);
+        if (detected_changes.empty())
+        {
+            xSemaphoreGive(config_save_mutex_);
+            Serial.println("[AppCfg][SAVE_ASYNC] noop");
+            return;
+        }
+
         pending_config_save_ = config_;
+        pending_config_changes_.mergeIn(detected_changes);
         ++pending_config_save_generation_;
         const uint32_t generation = pending_config_save_generation_;
+        const AppConfigChangeSet queued_changes = pending_config_changes_;
         config_save_pending_ = true;
         config_save_failed_ = false;
         xSemaphoreGive(config_save_mutex_);
@@ -346,8 +371,9 @@ void AppContext::enqueueConfigSave()
             return;
         }
 
-        Serial.printf("[AppCfg][SAVE_ASYNC] queued gen=%lu\n",
-                      static_cast<unsigned long>(generation));
+        Serial.printf("[AppCfg][SAVE_ASYNC] queued gen=%lu changes=0x%08lx\n",
+                      static_cast<unsigned long>(generation),
+                      static_cast<unsigned long>(queued_changes.bits()));
     }
 }
 
@@ -377,15 +403,19 @@ void AppContext::configSaveLoop()
                 break;
             }
             active_config_save_ = pending_config_save_;
+            active_config_changes_ = pending_config_changes_;
+            pending_config_changes_ = AppConfigChangeSet::none();
             generation = pending_config_save_generation_;
             config_save_pending_ = false;
             config_save_busy_ = true;
             xSemaphoreGive(config_save_mutex_);
 
-            Serial.printf("[AppCfg][SAVE_ASYNC] flush begin gen=%lu\n",
-                          static_cast<unsigned long>(generation));
+            Serial.printf("[AppCfg][SAVE_ASYNC] flush begin gen=%lu changes=0x%08lx\n",
+                          static_cast<unsigned long>(generation),
+                          static_cast<unsigned long>(active_config_changes_.bits()));
             const bool ok = platform_bindings_.save_app_config
-                                ? platform_bindings_.save_app_config(active_config_save_)
+                                ? platform_bindings_.save_app_config(active_config_save_,
+                                                                     active_config_changes_)
                                 : false;
 
             bool has_more = false;
@@ -396,11 +426,22 @@ void AppContext::configSaveLoop()
                 if (ok)
                 {
                     completed_config_save_generation_ = generation;
+                    config_save_baseline_valid_ = true;
                 }
                 else if (!config_save_pending_)
                 {
                     pending_config_save_ = active_config_save_;
+                    pending_config_changes_ = AppConfigChangeSet::allPersisted();
                     config_save_pending_ = true;
+                }
+                else
+                {
+                    pending_config_changes_ =
+                        pending_config_changes_.merged(AppConfigChangeSet::allPersisted());
+                }
+                if (!ok)
+                {
+                    config_save_baseline_valid_ = false;
                 }
                 has_more = config_save_pending_;
                 xSemaphoreGive(config_save_mutex_);
@@ -526,6 +567,8 @@ bool AppContext::init(BoardBase& board, LoraBoard* lora_board, GpsBoard* gps_boa
         ::ui::boot::set_log_line("Loading app config...");
         platform_bindings_.load_app_config(config_);
     }
+    active_config_save_ = config_;
+    config_save_baseline_valid_ = true;
     const uint32_t after_config_ms = millis();
     Serial.printf("[AppContext] phase=load_config elapsed_ms=%lu total_ms=%lu\n",
                   static_cast<unsigned long>(after_config_ms - init_started_ms),
@@ -653,7 +696,7 @@ bool AppContext::switchMeshProtocol(chat::MeshProtocol protocol, bool persist)
 
     if (persist)
     {
-        saveConfig();
+        saveConfig(AppConfigChangeSet::mesh());
     }
     AppTasks::resumeRadioTasks();
     return true;
