@@ -1948,10 +1948,6 @@ constexpr const char* kPagesDir = "/trailmate/reticulum/pages";
 constexpr const char* kPagesDir = "/fs/trailmate/reticulum/pages";
 #endif
 constexpr const char* kDefaultPagePath = "/page/index.mu";
-constexpr uint32_t kPageCacheReadWaitMs = 60;
-constexpr uint32_t kPageCacheWriteWaitMs = 120;
-SemaphoreHandle_t s_page_storage_mutex = nullptr;
-
 RequestStartHandler s_request_handler = nullptr;
 void* s_request_context = nullptr;
 RequestCancelHandler s_request_cancel_handler = nullptr;
@@ -2001,58 +1997,6 @@ StackType_t s_page_cache_task_stack[(kPageCacheAsyncTaskStackBytes + sizeof(Stac
 PageRequestProgressSlot s_request_progress[kPageProgressDepth]{};
 uint32_t s_request_progress_order = 1;
 portMUX_TYPE s_request_progress_lock = portMUX_INITIALIZER_UNLOCKED;
-
-enum class PageCacheBusAccess : uint8_t
-{
-    Read = 1,
-    Write,
-};
-
-bool ensure_page_storage_mutex()
-{
-    if (s_page_storage_mutex)
-    {
-        return true;
-    }
-    s_page_storage_mutex = xSemaphoreCreateRecursiveMutex();
-    return s_page_storage_mutex != nullptr;
-}
-
-class PageCacheBusGate final
-{
-  public:
-    explicit PageCacheBusGate(PageCacheBusAccess access)
-    {
-        if (!ensure_page_storage_mutex())
-        {
-            return;
-        }
-        const uint32_t wait_ms = access == PageCacheBusAccess::Write
-                                     ? kPageCacheWriteWaitMs
-                                     : kPageCacheReadWaitMs;
-        locked_ = xSemaphoreTakeRecursive(s_page_storage_mutex,
-                                          pdMS_TO_TICKS(wait_ms)) == pdTRUE;
-    }
-
-    ~PageCacheBusGate()
-    {
-        if (locked_)
-        {
-            xSemaphoreGiveRecursive(s_page_storage_mutex);
-        }
-    }
-
-    bool locked() const
-    {
-        return locked_;
-    }
-
-    PageCacheBusGate(const PageCacheBusGate&) = delete;
-    PageCacheBusGate& operator=(const PageCacheBusGate&) = delete;
-
-  private:
-    bool locked_ = false;
-};
 
 void copy_text(char* out, std::size_t out_len, const char* text)
 {
@@ -2832,14 +2776,6 @@ Status load_cached_page(const char* destination_hash,
     }
 
     const std::string path_text = cache_path(destination, normalized_path);
-    PageCacheBusGate bus_gate(PageCacheBusAccess::Read);
-    if (!bus_gate.locked())
-    {
-        out.busy = true;
-        set_status(out, "Nomad page cache busy", path_text.c_str());
-        return out;
-    }
-
     out.file_present = page_storage_exists(path_text.c_str()) &&
                        !page_storage_is_directory(path_text.c_str());
     out.cache_checked = true;
@@ -3085,13 +3021,6 @@ Status store_cached_page_now(const char* destination_hash,
         return out;
     }
 
-    PageCacheBusGate bus_gate(PageCacheBusAccess::Write);
-    if (!bus_gate.locked())
-    {
-        set_status(out, "Nomad page cache busy", kPagesDir);
-        return out;
-    }
-
     if (!ensure_page_parent_dirs(destination, normalized_path))
     {
         set_status(out, "Cannot create Nomad page cache directory", kPagesDir);
@@ -3143,14 +3072,6 @@ Status clear_cached_page(const char* destination_hash, const char* path)
     }
 
     const std::string path_text = cache_path(destination, normalized_path);
-    PageCacheBusGate bus_gate(PageCacheBusAccess::Write);
-    if (!bus_gate.locked())
-    {
-        out.busy = true;
-        set_status(out, "Nomad page cache busy", path_text.c_str());
-        return out;
-    }
-
     out.cache_checked = true;
     out.file_present = page_storage_exists(path_text.c_str()) &&
                        !page_storage_is_directory(path_text.c_str());

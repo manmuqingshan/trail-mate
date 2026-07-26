@@ -18,11 +18,9 @@ class FilesystemMapTileSource final : public IMapTileSource
 
     MapTileLookupResult lookup(const MapTileRef& ref) const override;
 
-    bool read(const MapTileRef& ref,
-              uint8_t* buffer,
-              std::size_t capacity,
-              std::size_t& out_size,
-              MapTileFormat& out_format) const override;
+    MapTileReadResult read(const MapTileRef& ref,
+                           uint8_t* buffer,
+                           std::size_t capacity) const override;
 
     bool resolvePath(const MapTileRef& ref, char* out_path, std::size_t out_size) const;
     bool resolveDirectory(MapTileLayer layer, char* out_path, std::size_t out_size) const;

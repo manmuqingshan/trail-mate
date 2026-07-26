@@ -1,0 +1,39 @@
+{
+  "name": "SdFat",
+  "version": "2.3.1-trailmate.1",
+  "frameworks": [
+    "arduino"
+  ],
+  "platforms": [
+    "*"
+  ],
+  "build": {
+    "srcFilter": [
+      "-<*>",
+      "+<ExFatLib/ExFatFile.cpp>",
+      "+<ExFatLib/ExFatFilePrint.cpp>",
+      "+<ExFatLib/ExFatFileWrite.cpp>",
+      "+<ExFatLib/ExFatName.cpp>",
+      "+<ExFatLib/ExFatPartition.cpp>",
+      "+<ExFatLib/ExFatVolume.cpp>",
+      "+<FatLib/FatFile.cpp>",
+      "+<FatLib/FatFileLFN.cpp>",
+      "+<FatLib/FatFilePrint.cpp>",
+      "+<FatLib/FatName.cpp>",
+      "+<FatLib/FatPartition.cpp>",
+      "+<FatLib/FatVolume.cpp>",
+      "+<FsLib/FsFile.cpp>",
+      "+<FsLib/FsNew.cpp>",
+      "+<FsLib/FsVolume.cpp>",
+      "+<SdCard/SdCardInfo.cpp>",
+      "+<SdCard/SdSpiCard/SdSpiCard.cpp>",
+      "+<SdCard/SdSpiCard/SpiDriver/SdSpiChipSelect.cpp>",
+      "+<common/FmtNumber.cpp>",
+      "+<common/FsCache.cpp>",
+      "+<common/FsDateTime.cpp>",
+      "+<common/FsName.cpp>",
+      "+<common/FsUtf.cpp>",
+      "+<common/upcase.cpp>"
+    ]
+  }
+}

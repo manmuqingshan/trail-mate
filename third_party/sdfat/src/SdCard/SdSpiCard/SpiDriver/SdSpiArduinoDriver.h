@@ -27,6 +27,9 @@
  * \brief SpiDriver classes for Arduino compatible systems.
  */
 #pragma once
+#if defined(TRAIL_MATE_SDFAT_SHARED_SPI)
+#include "platform/esp/arduino_common/storage/sd_spi_bus_hooks.h"
+#endif
 //==============================================================================
 #if SPI_DRIVER_SELECT == 0 && SD_HAS_CUSTOM_SPI
 #define SD_USE_CUSTOM_SPI 1
@@ -40,7 +43,11 @@ class SdSpiArduinoDriver {
   /** Constructor. */
   SdSpiArduinoDriver() = default;
   /** Activate SPI hardware. */
+#if defined(TRAIL_MATE_SDFAT_SHARED_SPI)
+  bool activate();
+#else
   void activate();
+#endif
   /** Initialize the SPI bus.
    *
    * \param[in] spiConfig SD card configuration.
@@ -85,6 +92,9 @@ class SdSpiArduinoDriver {
  private:
   SPIClass* m_spi = nullptr;
   SPISettings m_spiSettings;
+#if defined(TRAIL_MATE_SDFAT_SHARED_SPI)
+  sys::runtime::BusAccessToken m_busToken{};
+#endif
 };
 /** Typedef for use of SdSpiArduinoDriver */
 typedef SdSpiArduinoDriver SdSpiDriver;

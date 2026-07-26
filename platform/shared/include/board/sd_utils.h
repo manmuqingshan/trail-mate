@@ -37,8 +37,10 @@ inline void resetSharedSpiForSd(int sd_cs, const int* extra_cs, size_t extra_cs_
 {
     releaseSdBusDevices(sd_cs, extra_cs, extra_cs_count);
     pinMode(MISO, INPUT_PULLUP);
-    SPI.end();
-    delay(2);
+    // SPIClass::begin() is idempotent while the shared controller is active.
+    // Do not call SPI.end() here: the display already owns the controller
+    // configuration, and tearing it down between SD retries can invalidate
+    // the next display transaction.
     SPI.begin(SCK, MISO, MOSI);
     releaseSdBusDevices(sd_cs, extra_cs, extra_cs_count);
     delay(2);

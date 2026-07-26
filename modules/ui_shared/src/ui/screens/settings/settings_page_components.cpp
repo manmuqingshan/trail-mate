@@ -466,23 +466,38 @@ static void rebuild_wifi_scan_options(size_t result_count)
     kWifiNetworkOptionCount = limit;
 }
 
+static void refresh_wifi_status_from_runtime()
+{
+    const wifi_runtime::Status status = wifi_runtime::status();
+    if (status.connected && status.ip[0] != '\0')
+    {
+        copy_bounded(g_settings.wifi_status, sizeof(g_settings.wifi_status), status.ip);
+        return;
+    }
+
+    if (!status.supported && status.message[0] == '\0')
+    {
+        copy_bounded(g_settings.wifi_status,
+                     sizeof(g_settings.wifi_status),
+                     "Wi-Fi unsupported");
+    }
+    else
+    {
+        copy_bounded(g_settings.wifi_status,
+                     sizeof(g_settings.wifi_status),
+                     status.message);
+    }
+}
+
 static void refresh_wifi_state_from_runtime()
 {
     wifi_runtime::Config config{};
     (void)wifi_runtime::load_config(config);
 
-    const wifi_runtime::Status status = wifi_runtime::status();
     g_settings.wifi_enabled = config.enabled;
     copy_bounded(g_settings.wifi_ssid, sizeof(g_settings.wifi_ssid), config.ssid);
     copy_bounded(g_settings.wifi_password, sizeof(g_settings.wifi_password), config.password);
-    if (!status.supported && status.message[0] == '\0')
-    {
-        copy_bounded(g_settings.wifi_status, sizeof(g_settings.wifi_status), "Wi-Fi unsupported");
-    }
-    else
-    {
-        copy_bounded(g_settings.wifi_status, sizeof(g_settings.wifi_status), status.message);
-    }
+    refresh_wifi_status_from_runtime();
 }
 
 static void firmware_status_summary(const firmware_update_runtime::Status& status,
@@ -859,6 +874,7 @@ static void sync_firmware_update_ui(bool notify_completion)
 
 static void firmware_update_timer_cb(lv_timer_t* /*timer*/)
 {
+    refresh_wifi_status_from_runtime();
     sync_firmware_update_ui(true);
 }
 

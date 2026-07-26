@@ -660,13 +660,12 @@ static std::string format_broadcast_target_label(const BroadcastTargetSpec& spec
 {
     if (spec.protocol == chat::MeshProtocol::Meshtastic)
     {
-        return std::string("[MT] ") +
-               chat::meshtastic::channelName(app::appFacade().getConfig().meshtastic_config,
+        return chat::meshtastic::channelName(app::appFacade().getConfig().meshtastic_config,
                                              spec.channel);
     }
     if (chat::infra::isReticulumMeshProtocol(spec.protocol))
     {
-        return std::string("[RT] ") + ::ui::i18n::tr("Primary Group");
+        return ::ui::i18n::tr("Primary Group");
     }
     const chat::MeshConfig& cfg = app::appFacade().getConfig().meshcore_config;
     const chat::MeshCoreChannelConfig& channel =
@@ -679,7 +678,7 @@ static std::string format_broadcast_target_label(const BroadcastTargetSpec& spec
                       static_cast<unsigned>(spec.channel_index));
         name = fallback;
     }
-    return std::string("[MC] ") + name;
+    return name;
 }
 
 static std::string format_broadcast_target_status(const BroadcastTargetSpec& spec)

@@ -23,7 +23,7 @@ enum class MapTileAsyncEventKind : uint8_t
     Ready,
     Failed,
     Cancelled,
-    ResourceBusy,
+    RetryLater,
 };
 
 struct MapViewportPlan
@@ -105,22 +105,6 @@ class IMapTileEventSink
     virtual bool publish(const MapTileAsyncEvent& event) = 0;
 };
 
-enum class MapTileReadStatus : uint8_t
-{
-    Ready,
-    Failed,
-    ResourceBusy,
-};
-
-struct MapTileReadResult
-{
-    MapTileReadStatus status = MapTileReadStatus::Failed;
-    std::size_t size = 0;
-    MapTileFormat format = MapTileFormat::Unknown;
-    int32_t error = -1;
-    bool bus_access_retained = true;
-};
-
 class IMapTileWorkerBackend
 {
   public:
@@ -152,7 +136,7 @@ class MapTileStateMachine
             ++ready_count_;
         }
         else if (event.kind == MapTileAsyncEventKind::Failed ||
-                 event.kind == MapTileAsyncEventKind::ResourceBusy)
+                 event.kind == MapTileAsyncEventKind::RetryLater)
         {
             ++failed_count_;
         }
@@ -186,8 +170,7 @@ class MapTileStateMachine
 class MapTileAsyncRuntime
 {
   public:
-    explicit MapTileAsyncRuntime(IMapTileCommandSink& commands,
-                                 sys::runtime::RuntimePolicyStrategy* policy = nullptr);
+    explicit MapTileAsyncRuntime(IMapTileCommandSink& commands);
 
     uint32_t activeGeneration() const;
     std::size_t requestVisibleTiles(const MapViewportPlan& plan, uint32_t now_ms);
@@ -199,8 +182,6 @@ class MapTileAsyncRuntime
     sys::runtime::RuntimeCommand commandFromIntent(const sys::runtime::RuntimeIntent& intent);
 
     IMapTileCommandSink& commands_;
-    sys::runtime::DefaultRuntimePolicyStrategy default_policy_{};
-    sys::runtime::RuntimePolicyStrategy* policy_ = nullptr;
     sys::runtime::RuntimeState state_{};
     uint32_t active_generation_ = 0;
     uint32_t next_command_id_ = 1;
@@ -258,20 +239,15 @@ class MapTileWorker
 {
   public:
     MapTileWorker(IMapTileWorkerBackend& backend,
-                  sys::runtime::IBusArbiter& bus,
                   IMapTileEventSink& events,
                   uint8_t* scratch,
-                  std::size_t scratch_size,
-                  sys::runtime::RuntimePolicyStrategy* policy = nullptr);
+                  std::size_t scratch_size);
 
     bool execute(const LoadTileCommand& command, uint32_t now_ms);
 
   private:
     IMapTileWorkerBackend& backend_;
-    sys::runtime::IBusArbiter& bus_;
     IMapTileEventSink& events_;
-    sys::runtime::DefaultRuntimePolicyStrategy default_policy_{};
-    sys::runtime::RuntimePolicyStrategy* policy_ = nullptr;
     uint8_t* scratch_ = nullptr;
     std::size_t scratch_size_ = 0;
 };

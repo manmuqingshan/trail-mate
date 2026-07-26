@@ -284,13 +284,13 @@ void EspMeshtasticAdapterBridge::onRadioPacket(const uint8_t* data,
         return;
     }
 
-    ::mesh::RadioRxPacket packet{};
-    std::memcpy(packet.bytes, data, size);
-    packet.size = size;
-    packet.rssi = rssi;
-    packet.snr = snr;
-    packet.received_at_ms = clock_.nowMs();
-    receive_.onRadioPacket(packet);
+    std::memcpy(rx_packet_scratch_.bytes, data, size);
+    rx_packet_scratch_.size = size;
+    rx_packet_scratch_.rssi = rssi;
+    rx_packet_scratch_.snr = snr;
+    rx_packet_scratch_.received_at_ms = clock_.nowMs();
+    receive_.onRadioPacket(rx_packet_scratch_);
+    rx_packet_scratch_ = ::mesh::RadioRxPacket{};
 }
 
 void EspMeshtasticAdapterBridge::tick()

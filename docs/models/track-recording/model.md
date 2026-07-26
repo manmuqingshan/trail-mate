@@ -46,7 +46,7 @@ stateDiagram-v2
 - `DefaultTrackFlushPolicy` 在 buffer size ≥ 8 时 flush。
 - `StopTrack` 与 `Flush` 被视为 critical command。
 - `TrackStorageWorker` 同时只持有一个 `pending_command_`；忙时 `submit` 返回 false。
-- 文件写入通过 `ITrackFileAdapter`，总线争用通过 `IBusArbiter` 表达。
+- 文件写入通过 `ITrackFileAdapter`，设备可用性由文件适配器返回语义结果。
 
 这是 Trail Mate ESP stack hygiene 在领域运行时中的直接体现，不是一般性的“性能建议”。
 

@@ -50,6 +50,30 @@ bool sd_rmdir(const char* path);
 bool sd_remove(const char* path);
 bool sd_rename(const char* old_path, const char* new_path);
 
+enum class SdFileReadStatus : uint8_t
+{
+    Ready,
+    Missing,
+    Busy,
+    Unavailable,
+    IoError,
+    Invalid,
+};
+
+struct SdFileReadResult
+{
+    SdFileReadStatus status = SdFileReadStatus::IoError;
+    std::size_t bytes_read = 0;
+    uint64_t file_size = 0;
+    int32_t error = -1;
+};
+
+// Reads a file through bounded device-owned transactions. Callers receive a
+// semantic storage result and do not provide SPI policy or lock metadata.
+SdFileReadResult sd_read_file(const char* path,
+                              uint8_t* buffer,
+                              std::size_t capacity);
+
 class SdRuntimeFile
 {
   public:

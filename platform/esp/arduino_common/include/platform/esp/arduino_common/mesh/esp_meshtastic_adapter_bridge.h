@@ -116,6 +116,7 @@ class EspMeshtasticAdapterBridge final
     ::mesh::ReceivePacketService receive_;
     ::mesh::DirectMessageService direct_;
     ::mesh::MeshSession session_;
+    ::mesh::RadioRxPacket rx_packet_scratch_{};
 };
 
 } // namespace platform::esp::arduino_common::mesh

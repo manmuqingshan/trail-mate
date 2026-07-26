@@ -297,13 +297,21 @@ class SdSpiCard {
   bool readData(uint8_t* dst, size_t count);
   bool readRegister(uint8_t cmd, void* buf);
   void spiSelect() { sdCsWrite(m_csPin, false); }
+#if defined(TRAIL_MATE_SDFAT_SHARED_SPI)
+  bool spiStart();
+#else
   void spiStart();
+#endif
   void spiStop();
   void spiUnselect() { sdCsWrite(m_csPin, true); }
   bool waitReady(uint16_t ms);
   bool writeData(uint8_t token, const uint8_t* src);
 #if SPI_DRIVER_SELECT < 2
+#if defined(TRAIL_MATE_SDFAT_SHARED_SPI)
+  bool spiActivate() { return m_spiDriver.activate(); }
+#else
   void spiActivate() { m_spiDriver.activate(); }
+#endif
   void spiBegin(SdSpiConfig spiConfig) { m_spiDriver.begin(spiConfig); }
   void spiDeactivate() { m_spiDriver.deactivate(); }
   void spiEnd() { m_spiDriver.end(); }

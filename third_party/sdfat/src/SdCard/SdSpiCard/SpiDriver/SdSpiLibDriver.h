@@ -28,9 +28,19 @@
  */
 #pragma once
 //------------------------------------------------------------------------------
+#if defined(TRAIL_MATE_SDFAT_SHARED_SPI)
+inline bool SdSpiArduinoDriver::activate() {
+  if (!platform::esp::arduino_common::storage::sd_spi_bus_acquire(m_busToken)) {
+    return false;
+  }
+  m_spi->beginTransaction(m_spiSettings);
+  return true;
+}
+#else
 inline void SdSpiArduinoDriver::activate() {
   m_spi->beginTransaction(m_spiSettings);
 }
+#endif
 //------------------------------------------------------------------------------
 inline void SdSpiArduinoDriver::begin(SdSpiConfig spiConfig) {
   if (spiConfig.spiPort) {
@@ -49,7 +59,13 @@ inline void SdSpiArduinoDriver::begin(SdSpiConfig spiConfig) {
 //------------------------------------------------------------------------------
 inline void SdSpiArduinoDriver::end() { m_spi->end(); }
 //------------------------------------------------------------------------------
-inline void SdSpiArduinoDriver::deactivate() { m_spi->endTransaction(); }
+inline void SdSpiArduinoDriver::deactivate() {
+  m_spi->endTransaction();
+#if defined(TRAIL_MATE_SDFAT_SHARED_SPI)
+  platform::esp::arduino_common::storage::sd_spi_bus_release(m_busToken);
+  m_busToken = {};
+#endif
+}
 //------------------------------------------------------------------------------
 inline uint8_t SdSpiArduinoDriver::receive() { return m_spi->transfer(0XFF); }
 //------------------------------------------------------------------------------

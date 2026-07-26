@@ -145,7 +145,14 @@ bool SdSpiCard::begin(SdSpiConfig spiConfig) {
   spiBegin(spiConfig);
   m_beginCalled = true;
 
+#if defined(TRAIL_MATE_SDFAT_SHARED_SPI)
+  if (!spiStart()) {
+    sdError(SD_CARD_ERROR_INIT_NOT_CALLED);
+    goto fail;
+  }
+#else
   spiStart();
+#endif
 
   // must supply min of 74 clock cycles with CS high.
   spiUnselect();
@@ -248,7 +255,13 @@ uint8_t SdSpiCard::cardCommand(uint8_t cmd, uint32_t arg) {
   }
   // select card
   if (!m_spiActive) {
+#if defined(TRAIL_MATE_SDFAT_SHARED_SPI)
+    if (!spiStart()) {
+      return 0XFF;
+    }
+#else
     spiStart();
+#endif
   }
   if (cmd != CMD0 && cmd != CMD12 && !waitReady(SD_CMD_TIMEOUT)) {
     return 0XFF;
@@ -347,7 +360,13 @@ bool SdSpiCard::isBusy() {
   }
   bool spiActive = m_spiActive;
   if (!spiActive) {
+#if defined(TRAIL_MATE_SDFAT_SHARED_SPI)
+    if (!spiStart()) {
+      return true;
+    }
+#else
     spiStart();
+#endif
   }
   bool rtn = 0XFF != spiReceive();
   if (!spiActive) {
@@ -578,15 +597,28 @@ bool SdSpiCard::setDedicatedSpi(bool value) {
 #endif  // ENABLE_DEDICATED_SPI
 }
 //------------------------------------------------------------------------------
+#if defined(TRAIL_MATE_SDFAT_SHARED_SPI)
+bool SdSpiCard::spiStart() {
+#else
 void SdSpiCard::spiStart() {
+#endif
   SPI_ASSERT_NOT_ACTIVE;
   if (!m_spiActive) {
+#if defined(TRAIL_MATE_SDFAT_SHARED_SPI)
+    if (!spiActivate()) {
+      return false;
+    }
+#else
     spiActivate();
+#endif
     m_spiActive = true;
     spiSelect();
     // Dummy byte to drive MISO busy status.
     spiSend(0XFF);
   }
+#if defined(TRAIL_MATE_SDFAT_SHARED_SPI)
+  return true;
+#endif
 }
 //------------------------------------------------------------------------------
 void SdSpiCard::spiStop() {

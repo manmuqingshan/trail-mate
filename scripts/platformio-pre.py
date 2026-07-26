@@ -466,7 +466,7 @@ def configure_sdfat_for_sx1262_esp32():
     ):
         return
 
-    sdfat_dir = os.path.join(project_dir, ".pio", "libdeps", pio_env, "SdFat")
+    sdfat_dir = os.path.join(project_dir, "third_party", "sdfat")
     library_json_path = os.path.join(sdfat_dir, "library.json")
     # Preserve FAT32/exFAT and the generic Arduino SPI path while excluding
     # formatters, streams, debug helpers, and other architectures' drivers.

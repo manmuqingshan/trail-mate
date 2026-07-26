@@ -3,7 +3,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "sys/runtime_async.h"
+#include "sys/shared_spi_access.h"
 
 #include <cstdint>
 
@@ -45,6 +45,7 @@ class SharedSpiCoordinator final : public sys::runtime::IBusArbiter
   private:
     static constexpr uint8_t kMaxWaiters = 8U;
     static constexpr uint8_t kOwnerLabelCapacity = 31U;
+    static constexpr uint32_t kSlowHoldBudgetMs = 45U;
 
     struct Waiter
     {

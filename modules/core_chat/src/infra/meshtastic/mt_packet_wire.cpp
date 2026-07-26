@@ -107,24 +107,6 @@ bool buildWirePacket(const uint8_t* data_payload, size_t data_len,
         return false;
     }
 
-    uint8_t payload[256];
-    const size_t payload_len = data_len;
-    memcpy(payload, data_payload, data_len);
-
-    if (psk && psk_len > 0)
-    {
-#if TRAILMATE_MESHTASTIC_WIRE_HAS_CRYPTO
-        uint8_t nonce[16];
-        memset(nonce, 0, sizeof(nonce));
-        const uint64_t packet_id64 = static_cast<uint64_t>(packet_id);
-        memcpy(nonce, &packet_id64, sizeof(uint64_t));
-        memcpy(nonce + sizeof(uint64_t), &from_node, sizeof(uint32_t));
-        aesCtrCrypt(psk, psk_len, nonce, payload, payload_len);
-#else
-        return false;
-#endif
-    }
-
     PacketHeaderWire hdr{};
     hdr.to = dest_node;
     hdr.from = from_node;
@@ -142,15 +124,32 @@ bool buildWirePacket(const uint8_t* data_payload, size_t data_len,
     hdr.next_hop = 0;
     hdr.relay_node = static_cast<uint8_t>(from_node & 0xFF);
 
-    const size_t required_size = sizeof(hdr) + payload_len;
+    const size_t required_size = sizeof(hdr) + data_len;
     if (*out_size < required_size)
     {
         *out_size = required_size;
         return false;
     }
 
+    // The caller may intentionally use the same buffer for the source and
+    // destination. Move the payload behind the header before encrypting it
+    // in place so no protocol-sized automatic scratch buffer is needed.
+    memmove(out_buffer + sizeof(hdr), data_payload, data_len);
     memcpy(out_buffer, &hdr, sizeof(hdr));
-    memcpy(out_buffer + sizeof(hdr), payload, payload_len);
+
+    if (psk && psk_len > 0)
+    {
+#if TRAILMATE_MESHTASTIC_WIRE_HAS_CRYPTO
+        uint8_t nonce[16];
+        memset(nonce, 0, sizeof(nonce));
+        const uint64_t packet_id64 = static_cast<uint64_t>(packet_id);
+        memcpy(nonce, &packet_id64, sizeof(uint64_t));
+        memcpy(nonce + sizeof(uint64_t), &from_node, sizeof(uint32_t));
+        aesCtrCrypt(psk, psk_len, nonce, out_buffer + sizeof(hdr), data_len);
+#else
+        return false;
+#endif
+    }
 
     *out_size = required_size;
     return true;

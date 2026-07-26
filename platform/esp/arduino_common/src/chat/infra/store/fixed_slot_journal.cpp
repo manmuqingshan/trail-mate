@@ -139,23 +139,49 @@ bool FixedSlotJournalEngine::read(const char* path,
                                   uint32_t slot_index,
                                   void* out_slot) const
 {
-    if (!out_slot)
-    {
-        return false;
-    }
     const Inspection inspection = inspect(path, protocol, kind, slot_size);
+    return readStatus(path,
+                      protocol,
+                      kind,
+                      slot_size,
+                      inspection,
+                      slot_index,
+                      out_slot) == ReadStatus::Ok;
+}
+
+FixedSlotJournalEngine::ReadStatus FixedSlotJournalEngine::readStatus(
+    const char* path,
+    MeshProtocol protocol,
+    JournalKind kind,
+    std::size_t slot_size,
+    const Inspection& inspection,
+    uint32_t slot_index,
+    void* out_slot) const
+{
+    if (!out_slot || !validDescriptor(protocol, kind, slot_size))
+    {
+        return ReadStatus::InvalidArgument;
+    }
     if ((inspection.state != State::Ready &&
          inspection.state != State::PartialTail) ||
         slot_index >= inspection.slot_count)
     {
-        return false;
+        return ReadStatus::OutOfRange;
     }
 
     storage::SdRuntimeFile file;
     const uint64_t offset = sizeof(Header) +
                             static_cast<uint64_t>(slot_index) * slot_size;
-    return file.open(path, "r") && file.seek(offset) &&
-           readExact(file, out_slot, slot_size);
+    if (!file.open(path, "r") || !file.seek(offset) ||
+        !readExact(file, out_slot, slot_size))
+    {
+        // The caller already inspected this journal. A subsequent open/seek/
+        // read failure is most commonly a bounded shared-SPI miss, not a
+        // corrupt slot. Let the owner retry the journal instead of scanning
+        // and logging every remaining slot.
+        return ReadStatus::Unavailable;
+    }
+    return ReadStatus::Ok;
 }
 
 bool FixedSlotJournalEngine::validDescriptor(MeshProtocol protocol,

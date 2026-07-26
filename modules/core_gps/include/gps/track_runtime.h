@@ -1,7 +1,5 @@
 #pragma once
 
-#include "sys/runtime_async.h"
-
 #include <cstddef>
 #include <cstdint>
 
@@ -249,10 +247,9 @@ class TrackStorageWorker
 {
   public:
     TrackStorageWorker(ITrackFileAdapter& files,
-                       sys::runtime::IBusArbiter& bus,
                        ITrackEventSink& events,
                        TrackFlushPolicy& policy)
-        : files_(files), bus_(bus), events_(events), policy_(policy)
+        : files_(files), events_(events), policy_(policy)
     {
     }
 
@@ -273,36 +270,6 @@ class TrackStorageWorker
         {
             return;
         }
-        if (static_cast<int32_t>(retry_not_before_ms_ - now_ms) > 0)
-        {
-            return;
-        }
-
-        sys::runtime::BusAcquireRequest request{};
-        request.command_id = pending_command_.command_id;
-        request.deadline_ms = pending_command_.deadline_ms;
-        request.policy = policy_.isCritical(pending_command_)
-                             ? sys::runtime::BusAccessPolicy::DurableCommit
-                             : sys::runtime::BusAccessPolicy::BackgroundWorkerBounded;
-        const sys::runtime::BusAcquireResult acquire = bus_.acquire(request);
-        if (acquire.status != sys::runtime::BusAcquireStatus::Acquired)
-        {
-            if (expired(now_ms))
-            {
-                publish(acquireFailureKind(), now_ms, -10);
-                pending_ = false;
-                retry_not_before_ms_ = 0;
-                busy_event_published_ = false;
-                return;
-            }
-            publishResourceBusy(now_ms, acquire.status);
-            retry_not_before_ms_ = now_ms + kBusyRetryDelayMs;
-            return;
-        }
-
-        retry_not_before_ms_ = 0;
-        busy_event_published_ = false;
-
         bool ok = false;
         switch (pending_command_.kind)
         {
@@ -340,7 +307,6 @@ class TrackStorageWorker
         }
         }
 
-        bus_.release(acquire.token);
         pending_ = false;
     }
 
@@ -350,9 +316,6 @@ class TrackStorageWorker
     }
 
   private:
-    static constexpr uint32_t kBusyRetryDelayMs = 25;
-    static constexpr uint32_t kBusyEventIntervalMs = 250;
-
     bool appendBatchIfAny()
     {
         if (pending_command_.point_batch.count == 0)
@@ -362,36 +325,6 @@ class TrackStorageWorker
         return files_.append(pending_command_.storage,
                              pending_command_.point_batch.points,
                              pending_command_.point_batch.count);
-    }
-
-    bool expired(uint32_t now_ms) const
-    {
-        return pending_command_.deadline_ms != 0 &&
-               static_cast<int32_t>(pending_command_.deadline_ms - now_ms) <= 0;
-    }
-
-    TrackEventKind acquireFailureKind() const
-    {
-        switch (pending_command_.kind)
-        {
-        case TrackCommandKind::AppendPoint:
-        case TrackCommandKind::Flush:
-            return TrackEventKind::FlushFailed;
-        default:
-            return TrackEventKind::Failed;
-        }
-    }
-
-    void publishResourceBusy(uint32_t now_ms, sys::runtime::BusAcquireStatus status)
-    {
-        if (busy_event_published_ &&
-            static_cast<uint32_t>(now_ms - last_busy_event_ms_) < kBusyEventIntervalMs)
-        {
-            return;
-        }
-        publish(TrackEventKind::ResourceBusy, now_ms, static_cast<int32_t>(status));
-        busy_event_published_ = true;
-        last_busy_event_ms_ = now_ms;
     }
 
     void publish(TrackEventKind kind, uint32_t now_ms, int32_t error)
@@ -407,14 +340,10 @@ class TrackStorageWorker
     }
 
     ITrackFileAdapter& files_;
-    sys::runtime::IBusArbiter& bus_;
     ITrackEventSink& events_;
     TrackFlushPolicy& policy_;
     TrackCommand pending_command_{};
     bool pending_ = false;
-    uint32_t retry_not_before_ms_ = 0;
-    uint32_t last_busy_event_ms_ = 0;
-    bool busy_event_published_ = false;
 };
 
 template <std::size_t N>

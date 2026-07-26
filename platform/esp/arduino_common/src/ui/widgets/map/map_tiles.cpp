@@ -9,7 +9,6 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_coordinator.h"
 #include "src/draw/lv_image_decoder_private.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include "sys/clock.h"
@@ -62,8 +61,6 @@
 
 static uint32_t g_cache_full_log_ms = 0;
 static uint8_t g_requested_map_source = 0;
-
-constexpr std::size_t kMapTileSdReadChunkBytes = 2U * 1024U;
 
 static void style_placeholder_card(lv_obj_t* card);
 static void style_placeholder_text(lv_obj_t* label);
@@ -145,23 +142,19 @@ class PathOnlyMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
         return false;
     }
 
-    bool readFile(const char* path,
-                  uint8_t* buffer,
-                  std::size_t capacity,
-                  std::size_t& out_size) const override
+    ui::map_tiles::MapTileReadResult readFile(
+        const char* path,
+        uint8_t* buffer,
+        std::size_t capacity) const override
     {
-        out_size = 0;
         (void)path;
         (void)buffer;
         (void)capacity;
-        return false;
+        return {ui::map_tiles::MapTileReadStatus::Missing, 0, -1};
     }
 };
 
 #if defined(ARDUINO) || defined(ARDUINO_ARCH_ESP32)
-void reset_map_tile_sd_read_backpressure_state();
-void note_map_tile_sd_read_resource_busy(bool bus_access_retained);
-
 class SdMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
 {
   public:
@@ -175,51 +168,40 @@ class SdMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
         return ::platform::esp::arduino_common::storage::sd_is_directory(path);
     }
 
-    bool readFile(const char* path,
-                  uint8_t* buffer,
-                  std::size_t capacity,
-                  std::size_t& out_size) const override
+    ui::map_tiles::MapTileReadResult readFile(
+        const char* path,
+        uint8_t* buffer,
+        std::size_t capacity) const override
     {
-        out_size = 0;
-        reset_map_tile_sd_read_backpressure_state();
-        if (!path || !buffer || capacity == 0)
+        const auto result =
+            ::platform::esp::arduino_common::storage::sd_read_file(
+                path,
+                buffer,
+                capacity);
+        ui::map_tiles::MapTileReadResult mapped{};
+        mapped.size = result.bytes_read;
+        mapped.error = result.error;
+        switch (result.status)
         {
-            return false;
+        case ::platform::esp::arduino_common::storage::SdFileReadStatus::Ready:
+            mapped.status = ui::map_tiles::MapTileReadStatus::Ready;
+            break;
+        case ::platform::esp::arduino_common::storage::SdFileReadStatus::Missing:
+            mapped.status = ui::map_tiles::MapTileReadStatus::Missing;
+            break;
+        case ::platform::esp::arduino_common::storage::SdFileReadStatus::Busy:
+            mapped.status = ui::map_tiles::MapTileReadStatus::RetryLater;
+            break;
+        case ::platform::esp::arduino_common::storage::SdFileReadStatus::Invalid:
+            mapped.status = ui::map_tiles::MapTileReadStatus::Invalid;
+            break;
+        case ::platform::esp::arduino_common::storage::SdFileReadStatus::Unavailable:
+        case ::platform::esp::arduino_common::storage::SdFileReadStatus::IoError:
+        default:
+            mapped.status = ui::map_tiles::MapTileReadStatus::Error;
+            break;
         }
-
-        ::platform::esp::arduino_common::storage::SdRuntimeFile file;
-        if (!file.open(path, "r"))
-        {
-            return false;
-        }
-
-        const uint64_t file_size = file.size();
-        if (file_size == 0 || file_size > capacity)
-        {
-            file.close();
-            return false;
-        }
-
-        const std::size_t target_size = static_cast<std::size_t>(file_size);
-        std::size_t total_read = 0;
-        while (total_read < target_size)
-        {
-            const std::size_t chunk_size =
-                std::min<std::size_t>(kMapTileSdReadChunkBytes, target_size - total_read);
-            const int bytes_read = file.read(buffer + total_read, chunk_size);
-            if (bytes_read <= 0)
-            {
-                out_size = total_read;
-                file.close();
-                return false;
-            }
-
-            total_read += static_cast<std::size_t>(bytes_read);
-        }
-
-        file.close();
-        out_size = total_read;
-        return true;
+        return mapped;
     }
 };
 #endif
@@ -237,7 +219,6 @@ constexpr uint32_t kMapTileLayerTransientBackoffMs = 450;
 constexpr uint32_t kMapTileLayerCacheBackoffMs = 350;
 constexpr uint32_t kMapTileMissingCacheTtlMs = 5U * 60U * 1000U;
 constexpr uint32_t kMapTileGenerationInitial = 1;
-constexpr uint32_t kMapTileBusResource = 1;
 constexpr uint32_t kMapTileDiagnosticLogIntervalMs = 1000;
 constexpr TickType_t kMapTileWorkerPostCommandYieldTicks = pdMS_TO_TICKS(32);
 StaticTask_t s_map_tile_worker_task_tcb{};
@@ -246,8 +227,6 @@ StackType_t s_map_tile_worker_task_stack[(kMapTileWorkerTaskStackBytes + sizeof(
 uint32_t g_map_tile_decode_log_ms = 0;
 uint32_t g_map_tile_event_log_ms = 0;
 uint32_t g_map_tile_next_event_drain_ms = 0;
-bool g_map_tile_sd_read_resource_busy = false;
-bool g_map_tile_sd_read_bus_access_retained = true;
 
 bool should_log_map_tile_diagnostic(uint32_t& last_ms, uint32_t now_ms)
 {
@@ -257,28 +236,6 @@ bool should_log_map_tile_diagnostic(uint32_t& last_ms, uint32_t now_ms)
         return true;
     }
     return false;
-}
-
-void reset_map_tile_sd_read_backpressure_state()
-{
-    g_map_tile_sd_read_resource_busy = false;
-    g_map_tile_sd_read_bus_access_retained = true;
-}
-
-void note_map_tile_sd_read_resource_busy(bool bus_access_retained)
-{
-    g_map_tile_sd_read_resource_busy = true;
-    g_map_tile_sd_read_bus_access_retained = bus_access_retained;
-}
-
-bool map_tile_sd_read_resource_busy()
-{
-    return g_map_tile_sd_read_resource_busy;
-}
-
-bool map_tile_sd_read_bus_access_retained()
-{
-    return g_map_tile_sd_read_bus_access_retained;
 }
 
 const char* map_tile_format_name(ui::map_tiles::MapTileFormat format)
@@ -336,7 +293,7 @@ const char* map_tile_event_kind_name(ui::map_tiles::MapTileAsyncEventKind kind)
         return "ready";
     case ui::map_tiles::MapTileAsyncEventKind::Failed:
         return "failed";
-    case ui::map_tiles::MapTileAsyncEventKind::ResourceBusy:
+    case ui::map_tiles::MapTileAsyncEventKind::RetryLater:
         return "busy";
     case ui::map_tiles::MapTileAsyncEventKind::Cancelled:
         return "cancelled";
@@ -898,36 +855,6 @@ class MapTileEventQueue final : public ui::map_tiles::IMapTileEventSink
         queue_{};
 };
 
-class EspMapTilePolicyStrategy final : public sys::runtime::RuntimePolicyStrategy
-{
-  public:
-    sys::runtime::RuntimePriority selectPriority(
-        const sys::runtime::RuntimeIntent& intent) const override
-    {
-        return intent.priority_hint;
-    }
-
-    sys::runtime::BusAccessPolicy selectBusPolicy(
-        const sys::runtime::RuntimeCommand& command) const override
-    {
-        if (command.priority == sys::runtime::RuntimePriority::Interactive ||
-            command.priority == sys::runtime::RuntimePriority::Realtime)
-        {
-            return sys::runtime::BusAccessPolicy::InteractiveWorkerBounded;
-        }
-        return sys::runtime::BusAccessPolicy::BackgroundWorkerBounded;
-    }
-
-    sys::runtime::RuntimeRetryDecision selectRetry(
-        const sys::runtime::RuntimeCommand& command,
-        const sys::runtime::PlatformStorageResult& result) const override
-    {
-        (void)command;
-        (void)result;
-        return {};
-    }
-};
-
 class EspMapTileWorkerBackend final : public ui::map_tiles::IMapTileWorkerBackend
 {
   public:
@@ -942,50 +869,44 @@ class EspMapTileWorkerBackend final : public ui::map_tiles::IMapTileWorkerBacken
         return source_.lookup(ref);
     }
 
-    ui::map_tiles::MapTileReadResult read(const ui::map_tiles::MapTileRef& ref,
-                                          uint8_t* buffer,
-                                          std::size_t capacity) override
+    ui::map_tiles::MapTileReadResult read(
+        const ui::map_tiles::MapTileRef& ref,
+        uint8_t* buffer,
+        std::size_t capacity) override
     {
         ui::map_tiles::MapTileReadResult result{};
         result.format = ui::map_tiles::mapTileFormatForLayer(ref.layer);
-        reset_map_tile_sd_read_backpressure_state();
         if (map_tile_availability_memory().knownMissing(ref))
         {
             result.error = -1;
             return result;
         }
 
-        std::size_t out_size = 0;
-        ui::map_tiles::MapTileFormat out_format = result.format;
-        if (source_.read(ref, buffer, capacity, out_size, out_format))
+        const ui::map_tiles::MapTileReadResult storage_result =
+            source_.read(ref, buffer, capacity);
+        result.format = storage_result.format;
+        result.size = storage_result.size;
+        result.error = storage_result.error;
+        switch (storage_result.status)
         {
+        case ui::map_tiles::MapTileReadStatus::Ready:
             map_tile_availability_memory().markAvailable(ref);
             result.status = ui::map_tiles::MapTileReadStatus::Ready;
-            result.size = out_size;
-            result.format = out_format;
             result.error = 0;
             return result;
-        }
-
-        if (map_tile_sd_read_resource_busy())
-        {
-            result.status = ui::map_tiles::MapTileReadStatus::ResourceBusy;
-            result.format = out_format;
-            result.error =
-                static_cast<int32_t>(sys::runtime::BusAcquireStatus::TimedOut);
-            result.bus_access_retained = false;
+        case ui::map_tiles::MapTileReadStatus::RetryLater:
+            result.status = ui::map_tiles::MapTileReadStatus::RetryLater;
+            return result;
+        case ui::map_tiles::MapTileReadStatus::Missing:
+            map_tile_availability_memory().markMissing(ref);
+            result.status = ui::map_tiles::MapTileReadStatus::Error;
+            return result;
+        case ui::map_tiles::MapTileReadStatus::Invalid:
+        case ui::map_tiles::MapTileReadStatus::Error:
+        default:
+            result.status = ui::map_tiles::MapTileReadStatus::Error;
             return result;
         }
-
-        const ui::map_tiles::MapTileLookupResult lookup = source_.lookup(ref);
-        if (lookup.status == ui::map_tiles::MapTileStatus::Missing)
-        {
-            map_tile_availability_memory().markMissing(ref);
-        }
-        result.status = ui::map_tiles::MapTileReadStatus::Failed;
-        result.format = out_format;
-        result.error = -1;
-        return result;
     }
 
   private:
@@ -1198,10 +1119,7 @@ ui::map_tiles::FilesystemMapTileSource& worker_tile_source()
 class MapTileAsyncHost final
 {
   public:
-    MapTileAsyncHost()
-        : bus_(::platform::esp::common::shared_spi_coordinator())
-    {
-    }
+    MapTileAsyncHost() = default;
 
     void acquire()
     {
@@ -1268,7 +1186,6 @@ class MapTileAsyncHost final
             ui::map_tiles::LoadTileCommand command{};
             if (commands_.pop(sys::millis_now(), command))
             {
-                command.runtime.origin = kMapTileBusResource;
                 if (worker_ != nullptr)
                 {
                     (void)worker_->execute(command, sys::millis_now());
@@ -1341,11 +1258,9 @@ class MapTileAsyncHost final
         {
             worker_ = new (std::nothrow)
                 ui::map_tiles::MapTileWorker(backend_,
-                                             bus_,
                                              events_,
                                              scratch_,
-                                             kMapTileWorkerScratchBytes,
-                                             &policy_);
+                                             kMapTileWorkerScratchBytes);
             if (worker_ == nullptr)
             {
                 if (!task_start_failed_logged_)
@@ -1390,8 +1305,6 @@ class MapTileAsyncHost final
 
     MapTileCommandQueue commands_{};
     MapTileEventQueue events_{};
-    ::platform::esp::common::SharedSpiCoordinator& bus_;
-    EspMapTilePolicyStrategy policy_{};
     EspMapTileWorkerBackend backend_{worker_tile_source()};
     uint8_t* scratch_ = nullptr;
     ui::map_tiles::MapTileWorker* worker_ = nullptr;
@@ -2581,7 +2494,7 @@ static bool apply_map_tile_event(TileContext& ctx, ui::map_tiles::MapTileAsyncEv
     pending = false;
 
     const uint32_t now_ms = sys::millis_now();
-    if (event.kind == ui::map_tiles::MapTileAsyncEventKind::ResourceBusy)
+    if (event.kind == ui::map_tiles::MapTileAsyncEventKind::RetryLater)
     {
         retry_not_before = now_ms + kMapTileLayerBusyBackoffMs;
         log_map_tile_event_failure("resource_busy", event, event.error);

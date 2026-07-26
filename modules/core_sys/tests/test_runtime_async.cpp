@@ -42,37 +42,44 @@ class FakeUiEffectSink final : public sys::runtime::IUiEffectSink
     sys::runtime::RuntimeUiEffect last_effect{};
 };
 
-class FakeBusAdapter final : public sys::runtime::IBusAdapter
+class FakeBusArbiter final : public sys::runtime::IBusArbiter
 {
   public:
     bool acquire_ok = true;
-    uint32_t now_ms = 100;
-    uint32_t last_timeout_ms = 0;
     int acquire_count = 0;
     int release_count = 0;
 
-    bool tryAcquire(uint32_t timeout_ms) override
+    sys::runtime::BusAcquireResult acquire(
+        const sys::runtime::BusAcquireRequest& request) override
     {
-        last_timeout_ms = timeout_ms;
         ++acquire_count;
-        now_ms += timeout_ms;
-        return acquire_ok;
+        last_request = request;
+        sys::runtime::BusAcquireResult result{};
+        result.status = acquire_ok ? sys::runtime::BusAcquireStatus::Acquired
+                                   : sys::runtime::BusAcquireStatus::TimedOut;
+        result.token.resource = request.resource;
+        result.token.owner = request.command_id;
+        result.token.valid = acquire_ok;
+        result.diagnostics = {};
+        result.diagnostics.resource = request.resource;
+        result.diagnostics.owner = 77;
+        result.diagnostics.command_id = request.command_id;
+        result.diagnostics.policy = request.policy;
+        return result;
     }
 
-    void release() override
+    void release(const sys::runtime::BusAccessToken& token) override
     {
+        assert(token.valid);
         ++release_count;
     }
 
-    uint32_t nowMs() const override
+    sys::runtime::StorageHealthState health() const override
     {
-        return now_ms;
+        return {};
     }
 
-    uint32_t owner() const override
-    {
-        return 77;
-    }
+    sys::runtime::BusAcquireRequest last_request{};
 };
 
 void test_priority_pop_order()
@@ -258,69 +265,9 @@ void test_event_to_ui_effect_bridge()
     assert(out.event_id == event.event_id);
 }
 
-void test_storage_bus_arbiter_uses_policy_timeout()
-{
-    FakeBusAdapter adapter;
-    sys::runtime::DefaultBusPolicyStrategy policy;
-    sys::runtime::StorageBusArbiter arbiter(adapter, policy);
-
-    sys::runtime::BusAcquireRequest request{};
-    request.resource = 3;
-    request.command_id = 9;
-    request.policy = sys::runtime::BusAccessPolicy::InteractiveWorkerBounded;
-
-    const sys::runtime::BusAcquireResult result = arbiter.acquire(request);
-    assert(result.status == sys::runtime::BusAcquireStatus::Acquired);
-    assert(result.token.valid);
-    assert(result.token.owner == 9);
-    assert(adapter.last_timeout_ms == 2);
-    assert(result.diagnostics.owner == 77);
-
-    arbiter.release(result.token);
-    assert(adapter.release_count == 1);
-}
-
-void test_map_tile_policy_is_display_frame_critical()
-{
-    FakeBusAdapter adapter;
-    sys::runtime::DefaultBusPolicyStrategy policy;
-    sys::runtime::StorageBusArbiter arbiter(adapter, policy);
-
-    sys::runtime::RuntimeCommand command{};
-    command.kind = sys::runtime::RuntimeCommandKind::MapTileLoad;
-    command.priority = sys::runtime::RuntimePriority::Normal;
-    assert(policy.select(command) == sys::runtime::BusAccessPolicy::DisplayFrameCritical);
-
-    sys::runtime::BusAcquireRequest request{};
-    request.policy = policy.select(command);
-    const sys::runtime::BusAcquireResult result = arbiter.acquire(request);
-    assert(result.status == sys::runtime::BusAcquireStatus::Acquired);
-    assert(adapter.last_timeout_ms == 0);
-    arbiter.release(result.token);
-}
-
-void test_storage_bus_arbiter_reports_degraded_after_timeouts()
-{
-    FakeBusAdapter adapter;
-    adapter.acquire_ok = false;
-    sys::runtime::DefaultBusPolicyStrategy policy;
-    sys::runtime::StorageBusArbiter arbiter(adapter, policy);
-
-    sys::runtime::BusAcquireRequest request{};
-    request.policy = sys::runtime::BusAccessPolicy::BackgroundWorkerBounded;
-
-    assert(arbiter.acquire(request).status == sys::runtime::BusAcquireStatus::TimedOut);
-    assert(arbiter.health().status == sys::runtime::StorageHealthStatus::Slow);
-    assert(arbiter.acquire(request).status == sys::runtime::BusAcquireStatus::TimedOut);
-    assert(arbiter.acquire(request).status == sys::runtime::BusAcquireStatus::TimedOut);
-    assert(arbiter.health().status == sys::runtime::StorageHealthStatus::Degraded);
-}
-
 void test_scoped_bus_access_token_releases_on_destruction()
 {
-    FakeBusAdapter adapter;
-    sys::runtime::DefaultBusPolicyStrategy policy;
-    sys::runtime::StorageBusArbiter arbiter(adapter, policy);
+    FakeBusArbiter arbiter;
 
     sys::runtime::BusAcquireRequest request{};
     request.resource = 8;
@@ -334,18 +281,16 @@ void test_scoped_bus_access_token_releases_on_destruction()
         assert(scope.status() == sys::runtime::BusAcquireStatus::Acquired);
         assert(scope.token().owner == 12);
         assert(scope.diagnostics().owner == 77);
-        assert(adapter.acquire_count == 1);
-        assert(adapter.release_count == 0);
+        assert(arbiter.acquire_count == 1);
+        assert(arbiter.release_count == 0);
     }
 
-    assert(adapter.release_count == 1);
+    assert(arbiter.release_count == 1);
 }
 
 void test_scoped_bus_access_token_release_is_idempotent()
 {
-    FakeBusAdapter adapter;
-    sys::runtime::DefaultBusPolicyStrategy policy;
-    sys::runtime::StorageBusArbiter arbiter(adapter, policy);
+    FakeBusArbiter arbiter;
 
     sys::runtime::BusAcquireRequest request{};
     request.policy = sys::runtime::BusAccessPolicy::BackgroundWorkerBounded;
@@ -355,14 +300,12 @@ void test_scoped_bus_access_token_release_is_idempotent()
     scope.release();
     scope.release();
     assert(!scope.acquired());
-    assert(adapter.release_count == 1);
+    assert(arbiter.release_count == 1);
 }
 
 void test_scoped_bus_access_token_move_transfers_release()
 {
-    FakeBusAdapter adapter;
-    sys::runtime::DefaultBusPolicyStrategy policy;
-    sys::runtime::StorageBusArbiter arbiter(adapter, policy);
+    FakeBusArbiter arbiter;
 
     sys::runtime::BusAcquireRequest request{};
     request.policy = sys::runtime::BusAccessPolicy::BackgroundWorkerBounded;
@@ -374,20 +317,18 @@ void test_scoped_bus_access_token_move_transfers_release()
             sys::runtime::ScopedBusAccessToken moved(std::move(original));
             assert(!original.acquired());
             assert(moved.acquired());
-            assert(adapter.release_count == 0);
+            assert(arbiter.release_count == 0);
         }
-        assert(adapter.release_count == 1);
+        assert(arbiter.release_count == 1);
     }
 
-    assert(adapter.release_count == 1);
+    assert(arbiter.release_count == 1);
 }
 
 void test_scoped_bus_access_token_does_not_release_failed_acquire()
 {
-    FakeBusAdapter adapter;
-    adapter.acquire_ok = false;
-    sys::runtime::DefaultBusPolicyStrategy policy;
-    sys::runtime::StorageBusArbiter arbiter(adapter, policy);
+    FakeBusArbiter arbiter;
+    arbiter.acquire_ok = false;
 
     sys::runtime::BusAcquireRequest request{};
     request.policy = sys::runtime::BusAccessPolicy::BackgroundWorkerBounded;
@@ -398,7 +339,7 @@ void test_scoped_bus_access_token_does_not_release_failed_acquire()
         assert(scope.status() == sys::runtime::BusAcquireStatus::TimedOut);
     }
 
-    assert(adapter.release_count == 0);
+    assert(arbiter.release_count == 0);
 }
 
 } // namespace
@@ -412,9 +353,6 @@ int main()
     test_runtime_facade_submit_tick();
     test_runtime_facade_dedupe_cancel_policy();
     test_event_to_ui_effect_bridge();
-    test_storage_bus_arbiter_uses_policy_timeout();
-    test_map_tile_policy_is_display_frame_critical();
-    test_storage_bus_arbiter_reports_degraded_after_timeouts();
     test_scoped_bus_access_token_releases_on_destruction();
     test_scoped_bus_access_token_release_is_idempotent();
     test_scoped_bus_access_token_move_transfers_release();

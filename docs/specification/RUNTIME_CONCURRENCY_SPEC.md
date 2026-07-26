@@ -55,8 +55,8 @@ Storage backends must declare their concurrency model.
 
 Mutable app-service state must have a single owner context.
 
-The UI owner context must not wait for blocking storage, shared-SPI,
-filesystem, decode, or persistence work. UI paths may submit commands, consume
+The UI owner context must not wait for blocking storage, device I/O, filesystem,
+decode, or persistence work. UI paths may submit commands, consume
 ready events, or attempt explicitly non-blocking work that can be abandoned
 within the frame budget.
 
@@ -97,7 +97,7 @@ radio_irq -> MeshSession
 gps_task -> lvgl
 gtk_worker -> GtkWidget
 ui_thread -> blocking storage write
-ui_thread -> blocking shared-SPI wait
+ui_thread -> blocking device I/O wait
 ui_thread -> filesystem open/read/write/list
 ui_thread -> image decode from storage
 ui_thread -> track file create/flush/list
@@ -202,7 +202,7 @@ Other contexts may send commands, publish events, or consume snapshots.
 
 Slow work must have an explicit owner. Page widgets, LVGL timers, GTK callbacks,
 and input handlers are not valid owners for durable storage, filesystem walking,
-tile decode, shared-SPI waits, protocol retries, or persistence flushes.
+tile decode, device I/O waits, protocol retries, or persistence flushes.
 
 Valid slow-work owners include:
 
@@ -237,5 +237,5 @@ UI event drain
 ```
 
 The simulator must assert that UI owner code does not execute blocking
-storage/shared-SPI/filesystem calls and that background code does not execute
+storage/device-I/O/filesystem calls and that background code does not execute
 concrete renderer calls.

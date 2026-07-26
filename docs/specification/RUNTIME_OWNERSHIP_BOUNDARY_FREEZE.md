@@ -298,8 +298,8 @@ outgoing protocol acceptance
 3. outgoing record 或后续 status 写入失败时，由 `MessageLedger` 保留 bounded pending write；
    message page、conversation page 和 lookup 必须合并该 pending state，不能谎报 `stored`，
    也不能让 UI 另造临时消息。
-4. pending write 每个 runtime tick 只允许执行有限预算。ESP chat store 必须先以 non-blocking
-   方式取得共享 SPI transaction lease；拿不到立即 deferred，不能在同一 tick 连续等待多个
+4. pending write 每个 runtime tick 只允许执行有限预算。ESP chat store 必须调用 storage
+   service 的非阻塞语义接口；设备暂时不可用时立即 deferred，不能在同一 tick 连续等待多个
    250ms SD 操作。
 5. conversation index、header mirror 和 UI cache 仍然只是 projection。projection 写失败可以让
    ledger operation 保持 pending，但不得触发收发热路径中的同步全盘 `rebuildIndex()`。
@@ -479,7 +479,7 @@ Nomad page cache 读取属于后台存储工作，Network 页面只提交请求�
    是可观察的终止状态，不能把 mutex/queue 已创建误认为 worker 可用。
 4. `request_cached_page_load()` 和 `poll_cached_page_load()` 在 worker unavailable 时必须快速返回
    明确状态，不能继续排队、等待 SD，或在每帧重新创建 task。
-5. cache read/write 必须经过 PageCache bus owner；UI 不等待 SD/shared-SPI transaction 完成。
+5. cache read/write 必须经过 PageCache storage service；UI 不等待设备存储事务完成。
 
 禁止：
 
@@ -500,7 +500,7 @@ Nomad page cache 读取属于后台存储工作，Network 页面只提交请求�
 3. 缺字检测可以发生在内容路径，但加载决策必须交给 `FontRuntimeCoordinator` /
    `ResourcePackRegistry`。
 4. 同步外部字体加载是允许的，但只能作为用户可见的 foreground operation：
-   显示 loading/progress/busy 页面或 modal，flush 到屏幕，拿到 SD/shared-SPI lease，然后加载。
+   显示 loading/progress/busy 页面或 modal，flush 到屏幕，然后交给字体设备服务加载。
 5. 普通 render/list/timer 路径不得无主静默阻塞 SD IO。
 6. 总线忙、内存不足、文件损坏必须形成可解释诊断和重试/失败状态，不能被永久 hard skip。
 7. 页面不得因为 `ui_hot_path`、`active_locale`、或 `content_supplement` 标签直接否决字体加载。

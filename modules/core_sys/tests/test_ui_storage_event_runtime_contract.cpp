@@ -91,7 +91,7 @@ class TrackFiles final : public gps::runtime::ITrackFileAdapter
         active_track = storage.track_id;
         last_storage = storage;
         ++open_count;
-        return true;
+        return open_ok;
     }
 
     bool append(const gps::runtime::TrackStorageDescriptor& storage,
@@ -138,6 +138,7 @@ class TrackFiles final : public gps::runtime::ITrackFileAdapter
     std::size_t open_count = 0;
     std::size_t flush_count = 0;
     std::size_t close_count = 0;
+    bool open_ok = true;
 };
 
 gps::runtime::TrackStorageDescriptor trackDescriptor()
@@ -196,7 +197,6 @@ void test_persistence_runtime_contract()
     sys::runtime::DefaultPersistencePolicy policy;
     sys::runtime::PersistenceWorker worker(harness.storage(),
                                            harness.storage(),
-                                           harness.bus(),
                                            harness.events(),
                                            policy);
     sys::runtime::PersistenceRuntime<4> runtime(registry,
@@ -209,7 +209,6 @@ void test_persistence_runtime_contract()
     assert(harness.storage().writeCount() == 0);
     runtime.tick(150);
     assert(harness.storage().writeCount() == 1);
-    assert(harness.bus().acquireCount() == 1);
     assert(harness.events().persistenceCount() >= 3);
 }
 
@@ -242,7 +241,7 @@ void test_track_runtime_contract()
     TrackFiles files;
     TrackEvents events;
     gps::runtime::DefaultTrackFlushPolicy policy;
-    gps::runtime::TrackStorageWorker worker(files, harness.bus(), events, policy);
+    gps::runtime::TrackStorageWorker worker(files, events, policy);
     gps::runtime::TrackPointBuffer<8> points;
     gps::runtime::TrackStateMachine states;
     gps::runtime::TrackRuntime<8> runtime(points, states, policy, worker, events);
@@ -270,36 +269,26 @@ void test_track_runtime_contract()
     assert(files.flush_count == 1);
 }
 
-void test_track_worker_resource_busy_retains_pending_command()
+void test_track_worker_failure_completes_semantically()
 {
     sys::runtime::RuntimeHarness harness;
     TrackFiles files;
+    files.open_ok = false;
     TrackEvents events;
     gps::runtime::DefaultTrackFlushPolicy policy;
-    gps::runtime::TrackStorageWorker worker(files, harness.bus(), events, policy);
+    gps::runtime::TrackStorageWorker worker(files, events, policy);
 
     gps::runtime::TrackCommand command{};
     command.command_id = 44;
     command.kind = gps::runtime::TrackCommandKind::StartNewTrack;
     command.storage = trackDescriptor();
 
-    harness.bus().scriptAcquire(sys::runtime::BusAcquireStatus::Busy);
     assert(worker.submit(command));
     worker.tick(10);
-    assert(worker.busy());
-    assert(files.open_count == 0);
-    assert(events.count == 1);
-    assert(events.events[0].kind == gps::runtime::TrackEventKind::ResourceBusy);
-
-    worker.tick(20);
-    assert(events.count == 1);
-
-    harness.bus().scriptAcquire(sys::runtime::BusAcquireStatus::Acquired);
-    worker.tick(40);
     assert(!worker.busy());
     assert(files.open_count == 1);
-    assert(events.count == 2);
-    assert(events.events[1].kind == gps::runtime::TrackEventKind::Started);
+    assert(events.count == 1);
+    assert(events.events[0].kind == gps::runtime::TrackEventKind::Failed);
 }
 
 void test_track_runtime_keeps_buffered_points_while_worker_busy()
@@ -308,7 +297,7 @@ void test_track_runtime_keeps_buffered_points_while_worker_busy()
     TrackFiles files;
     TrackEvents events;
     gps::runtime::DefaultTrackFlushPolicy policy;
-    gps::runtime::TrackStorageWorker worker(files, harness.bus(), events, policy);
+    gps::runtime::TrackStorageWorker worker(files, events, policy);
     gps::runtime::TrackPointBuffer<8> points;
     gps::runtime::TrackStateMachine states;
     gps::runtime::TrackRuntime<8> runtime(points, states, policy, worker, events);
@@ -323,15 +312,14 @@ void test_track_runtime_keeps_buffered_points_while_worker_busy()
     point.latitude = 1.0;
     point.longitude = 2.0;
 
-    harness.bus().scriptAcquire(sys::runtime::BusAcquireStatus::Busy);
     for (int i = 0; i < 8; ++i)
     {
         point.timestamp_ms = static_cast<uint32_t>(i);
         assert(runtime.appendPoint(point, 10 + static_cast<uint32_t>(i)));
     }
     runtime.tick(30);
-    assert(worker.busy());
-    assert(files.appended == 0);
+    assert(!worker.busy());
+    assert(files.appended == 8);
 
     for (int i = 0; i < 8; ++i)
     {
@@ -339,11 +327,7 @@ void test_track_runtime_keeps_buffered_points_while_worker_busy()
         assert(runtime.appendPoint(point, 40 + static_cast<uint32_t>(i)));
     }
 
-    harness.bus().scriptAcquire(sys::runtime::BusAcquireStatus::Acquired);
     runtime.tick(60);
-    assert(files.appended == 8);
-    assert(worker.busy());
-    runtime.tick(90);
     assert(files.appended == 16);
     assert(!worker.busy());
 }
@@ -354,7 +338,7 @@ void test_track_stop_appends_pending_points_before_close()
     TrackFiles files;
     TrackEvents events;
     gps::runtime::DefaultTrackFlushPolicy policy;
-    gps::runtime::TrackStorageWorker worker(files, harness.bus(), events, policy);
+    gps::runtime::TrackStorageWorker worker(files, events, policy);
     gps::runtime::TrackPointBuffer<8> points;
     gps::runtime::TrackStateMachine states;
     gps::runtime::TrackRuntime<8> runtime(points, states, policy, worker, events);
@@ -398,7 +382,7 @@ int main()
     test_persistence_runtime_contract();
     test_feedback_runtime_contract();
     test_track_runtime_contract();
-    test_track_worker_resource_busy_retains_pending_command();
+    test_track_worker_failure_completes_semantically();
     test_track_runtime_keeps_buffered_points_while_worker_busy();
     test_track_stop_appends_pending_points_before_close();
     test_runtime_harness_keeps_ui_drain_separate();

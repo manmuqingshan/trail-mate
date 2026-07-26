@@ -113,7 +113,7 @@ EventBus dispatch
 
 This prevents a feedback prompt from re-entering LVGL while a page is being
 destroyed, while event dispatch is draining queued runtime events, or while the
-display/shared-SPI presenter is in a sensitive refresh window.
+display presenter is in a sensitive refresh window.
 
 If async scheduling fails, the runtime must release the request payload and
 return failure to the producer. Producers may ignore that return value for

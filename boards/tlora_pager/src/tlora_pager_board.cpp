@@ -19,7 +19,6 @@
 #include "display/drivers/ST7796.h"
 #include "pins_arduino.h"
 #include "platform/esp/arduino_common/power/battery_adc.h"
-#include "platform/esp/arduino_common/storage/persistence_bus_gate.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/common/shared_spi_coordinator.h"
 #include "platform/ui/audio/call_notification_tone.h"
@@ -567,6 +566,17 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
         Serial.printf("[TLoRaPagerBoard::begin] ===== DISPLAY HARDWARE READY =====\n");
         if (display_only_boot_)
         {
+            // LVGL creates its input devices immediately after the display
+            // hardware phase. The keyboard must therefore be online before
+            // returning from this phase, otherwise beginLvglHelper() sees
+            // hasKeyboard() == false and never creates keypad_read().
+            if (!(disable_hw_init & NO_HW_KEYBOARD))
+            {
+                Serial.printf("[TLoRaPagerBoard::begin] keyboard init for display phase begin\n");
+                const bool keyboard_ready = initKeyboard();
+                Serial.printf("[TLoRaPagerBoard::begin] keyboard init for display phase end ok=%d\n",
+                              keyboard_ready ? 1 : 0);
+            }
             return devices_probe;
         }
     }
@@ -899,6 +909,11 @@ bool TLoRaPagerBoard::initDrv()
 bool TLoRaPagerBoard::initKeyboard()
 {
 #ifdef USING_INPUT_DEV_KEYBOARD
+    if (devices_probe & HW_KEYBOARD_ONLINE)
+    {
+        return true;
+    }
+
     if (devices_probe & HW_EXPAND_ONLINE)
     {
         powerControl(POWER_KEYBOARD, true);
@@ -934,9 +949,21 @@ bool TLoRaPagerBoard::initKeyboard()
 
 bool TLoRaPagerBoard::initLoRa()
 {
-    radio_.reset();
+    int state = RADIOLIB_ERR_NONE;
+    const bool bus_acquired = withSharedSpiRadioAccess(
+        "radio_init",
+        pdMS_TO_TICKS(200),
+        [&]()
+        {
+            radio_.reset();
+            state = radio_.begin();
+        });
 
-    int state = radio_.begin();
+    if (!bus_acquired)
+    {
+        devices_probe &= ~HW_RADIO_ONLINE;
+        return false;
+    }
 
     if (state != RADIOLIB_ERR_NONE)
     {
@@ -966,8 +993,18 @@ bool TLoRaPagerBoard::initLoRa()
     };
 
     radio_.setRfSwitchTable(rfswitch_dio_pins, rfswitch_table);
-    state = radio_.setTCXO(3.0f);
-    if (state != RADIOLIB_ERR_NONE)
+    const bool tcxo_bus_acquired = withSharedSpiRadioAccess(
+        "radio_tcxo",
+        pdMS_TO_TICKS(200),
+        [&]()
+        {
+            state = radio_.setTCXO(3.0f);
+        });
+    if (!tcxo_bus_acquired)
+    {
+        log_w("LR1121 TCXO configuration skipped: shared SPI unavailable");
+    }
+    else if (state != RADIOLIB_ERR_NONE)
     {
         log_w("LR1121 TCXO config returned code: %d", state);
     }
@@ -1052,22 +1089,8 @@ bool TLoRaPagerBoard::ensureSDReady()
 
 void TLoRaPagerBoard::uninstallSD()
 {
-    ::platform::esp::arduino_common::storage::PersistenceBusGate bus_gate(
-        ::platform::esp::common::shared_spi_coordinator(),
-        sys::runtime::BusAccessPolicy::RecoveryExclusive,
-        500,
-        kSharedSpiBusResource,
-        kSharedSpiBusOwnerId + 2,
-        kSharedSpiBusOwnerId);
-    if (bus_gate.locked())
-    {
-        ::platform::esp::arduino_common::storage::unmount_sd_card();
-        log_d("SD card unmounted");
-    }
-    else
-    {
-        log_w("Failed to acquire SPI lock for SD card unmount");
-    }
+    ::platform::esp::arduino_common::storage::unmount_sd_card();
+    log_d("SD card unmounted");
 }
 
 bool TLoRaPagerBoard::isCardReady()
@@ -1627,6 +1650,7 @@ int TLoRaPagerBoard::getKey(char* c)
 #ifdef USING_INPUT_DEV_KEYBOARD
     if (devices_probe & HW_KEYBOARD_ONLINE)
     {
+        I2CGuard i2c;
         return kb.getKey(c);
     }
 #endif

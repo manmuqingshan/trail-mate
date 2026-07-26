@@ -218,6 +218,7 @@ class AutoReticulumInterface
     static constexpr uint32_t kAnnounceIntervalMs = 1600;
     static constexpr uint32_t kPeerTimeoutMs = 22000;
     static constexpr uint32_t kReverseAnnounceIntervalMs = 5200;
+    static constexpr uint32_t kWifiConnectRetryIntervalMs = 10000;
 
     bool enabled_ = false;
     bool transport_enabled_ = true;
@@ -235,6 +236,8 @@ class AutoReticulumInterface
     uint8_t discovery_token_[reticulum::kFullHashSize] = {};
     uint32_t last_announce_ms_ = 0;
     uint32_t last_socket_attempt_ms_ = 0;
+    uint32_t wifi_connect_retry_not_before_ms_ = 0;
+    bool wifi_connect_suspended_ = false;
     std::array<Peer, kMaxPeers> peers_{};
     RxPacket rx_scratch_{};
     sys::RingBuffer<RxPacket, kRxQueueDepth> rx_queue_;

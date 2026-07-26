@@ -44,10 +44,10 @@ projections, not authoritative mutable blobs.
 message and peer writes do not wait for expensive UI-oriented reconstruction.
 
 **Two-level concurrency ownership:** Store/repository recursive mutexes protect
-aggregate state and sequence invariants. They never represent physical SPI
-ownership. `SdRuntimeFile`/`SdRuntimeDir` alone acquire the shared SPI bus for
-each bounded filesystem operation. A repository transaction must not hold a
-shared-SPI token around a sequence of SD runtime calls.
+aggregate state and sequence invariants. They never represent device I/O
+ownership. The storage service owns file transactions and the repository must
+not hold a device transaction around a sequence of storage calls. The physical
+shared-SPI mechanism is defined only in `docs/spi_bus_architecture.md`.
 
 ## High-Level Commit Flows
 

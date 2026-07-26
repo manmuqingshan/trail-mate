@@ -155,31 +155,6 @@ bool LilyGoDispArduinoSPI::init(int sck,
         return false;
     }
 
-    uint8_t display_id[3]{};
-    uint8_t display_status[4]{};
-    uint8_t display_madctl[1]{};
-    uint8_t display_colmod[1]{};
-    const bool id_read = readRegister(0x04, display_id, sizeof(display_id));
-    const bool status_read = readRegister(0x09, display_status, sizeof(display_status));
-    const bool madctl_read = readRegister(0x0B, display_madctl, sizeof(display_madctl));
-    const bool colmod_read = readRegister(0x0C, display_colmod, sizeof(display_colmod));
-    Serial.printf("[DISPLAY][READBACK] id_ok=%d id=%02X:%02X:%02X "
-                  "status_ok=%d status=%02X:%02X:%02X:%02X "
-                  "madctl_ok=%d madctl=%02X colmod_ok=%d colmod=%02X\n",
-                  id_read ? 1 : 0,
-                  static_cast<unsigned>(display_id[0]),
-                  static_cast<unsigned>(display_id[1]),
-                  static_cast<unsigned>(display_id[2]),
-                  status_read ? 1 : 0,
-                  static_cast<unsigned>(display_status[0]),
-                  static_cast<unsigned>(display_status[1]),
-                  static_cast<unsigned>(display_status[2]),
-                  static_cast<unsigned>(display_status[3]),
-                  madctl_read ? 1 : 0,
-                  static_cast<unsigned>(display_madctl[0]),
-                  colmod_read ? 1 : 0,
-                  static_cast<unsigned>(display_colmod[0]));
-
     setRotation(0);
     Serial.printf("[DISPLAY][INIT] rotation=0 logical=%ux%u offset=(%u,%u) "
                   "coord_requests=%lu busy=%lu failures=%lu\n",

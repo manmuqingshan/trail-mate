@@ -377,10 +377,20 @@ void SharedSpiCoordinator::release(const sys::runtime::BusAccessToken& token)
         return;
     }
 
+    const uint32_t hold_ms =
+        owner_acquired_ms_ == 0U ? 0U : static_cast<uint32_t>(now_ms - owner_acquired_ms_);
     clearOwnerLocked(now_ms);
     consecutive_timeouts_ = 0;
-    health_.status = sys::runtime::StorageHealthStatus::Healthy;
-    health_.last_error = 0;
+    if (hold_ms > kSlowHoldBudgetMs)
+    {
+        health_.status = sys::runtime::StorageHealthStatus::Slow;
+        health_.last_error = -4;
+    }
+    else
+    {
+        health_.status = sys::runtime::StorageHealthStatus::Healthy;
+        health_.last_error = 0;
+    }
     health_.last_transition_ms = now_ms;
     notify = findBestWaiterLocked() >= 0;
     portEXIT_CRITICAL(&mux_);

@@ -201,15 +201,16 @@ internal memory. They must not become an additional fact source.
 
 ## Scheduling Rule
 
-Message append uses a non-blocking durable SPI lease. Contention defers the
-message through the ledger rather than blocking the UI.
+Message append uses the storage service's non-blocking durable operation.
+Contention or temporary device unavailability defers the message through the
+ledger rather than blocking the UI.
 
 Peer observation deltas use a non-blocking append. Failed appends enter a
 PSRAM-backed ordered queue. The runtime drains at most four peer deltas per
 service tick and does not drain during call realtime resource preemption.
 
-Contact edits are explicit user transactions and use a bounded durable lease.
-Memory is updated only after the contact delta is durable.
+Contact edits are explicit user transactions and use a bounded durable storage
+operation. Memory is updated only after the contact delta is durable.
 
 Large snapshot compaction runs during startup. Normal runtime flush only
 retries a dirty chat projection at a throttled interval; it does not compact

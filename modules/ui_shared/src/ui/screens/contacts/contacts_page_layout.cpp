@@ -8,7 +8,6 @@
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
 #include "chat/domain/chat_types.h"
-#include "chat/infra/mesh_protocol_utils.h"
 
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/components/air_status_footer.h"
@@ -49,11 +48,6 @@ static lv_obj_t* create_filter_button(lv_obj_t* parent, const char* label)
 bool is_dense_profile()
 {
     return ::ui::page_profile::current().filter_button_height <= 24;
-}
-
-lv_coord_t dense_protocol_width()
-{
-    return 28;
 }
 
 lv_coord_t dense_status_width()
@@ -116,24 +110,6 @@ void apply_single_line(lv_obj_t* label)
     }
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_font(label, ::ui::page_profile::resolve_body_font(), 0);
-}
-
-const char* node_protocol_short_label(chat::contacts::NodeProtocolType protocol)
-{
-    return chat::infra::nodeProtocolShortName(protocol);
-}
-
-bool should_prefix_node_protocol(ContactsMode mode,
-                                 chat::contacts::NodeProtocolType protocol)
-{
-    if (protocol == chat::contacts::NodeProtocolType::Unknown)
-    {
-        return false;
-    }
-    return mode == ContactsMode::Contacts ||
-           mode == ContactsMode::Nearby ||
-           mode == ContactsMode::Groups ||
-           mode == ContactsMode::Ignored;
 }
 
 lv_obj_t* create_root(lv_obj_t* parent)
@@ -276,7 +252,7 @@ void ensure_list_subcontainers()
 
 lv_obj_t* create_list_item(lv_obj_t* parent,
                            const chat::contacts::PeerDirectoryItem& node,
-                           ContactsMode mode,
+                           ContactsMode,
                            const char* status_text)
 {
     const auto& profile = ::ui::page_profile::current();
@@ -295,8 +271,6 @@ lv_obj_t* create_list_item(lv_obj_t* parent,
     style::apply_list_item(item);
 
     std::string display_name = preferred_node_display_name(node);
-    const bool show_protocol = should_prefix_node_protocol(mode, node.protocol);
-    const char* proto = show_protocol ? node_protocol_short_label(node.protocol) : "";
 
     if (::ui::components::info_card::use_tdeck_layout())
     {
@@ -320,17 +294,6 @@ lv_obj_t* create_list_item(lv_obj_t* parent,
             lv_obj_set_style_pad_right(item, 4, LV_PART_MAIN);
             lv_obj_set_style_pad_column(item, 3, LV_PART_MAIN);
 
-            if (proto[0] != '\0')
-            {
-                lv_obj_t* proto_label = lv_label_create(item);
-                std::string proto_text = "[" + std::string(proto) + "]";
-                ::ui::i18n::set_label_text_raw(proto_label, proto_text.c_str());
-                style::apply_label_muted(proto_label);
-                lv_obj_set_width(proto_label, dense_protocol_width());
-                lv_obj_set_style_text_align(proto_label, LV_TEXT_ALIGN_LEFT, 0);
-                lv_obj_set_style_text_font(proto_label, ::ui::page_profile::resolve_caption_font(), 0);
-            }
-
             lv_obj_t* name_label = lv_label_create(item);
             ::ui::i18n::set_content_label_text_raw(name_label, display_name.c_str());
             lv_obj_set_width(name_label, 0);
@@ -347,11 +310,6 @@ lv_obj_t* create_list_item(lv_obj_t* parent,
         }
         else
         {
-            if (proto[0] != '\0')
-            {
-                display_name = "[" + std::string(proto) + "] " + display_name;
-            }
-
             lv_obj_t* name_label = lv_label_create(item);
             ::ui::i18n::set_content_label_text_raw(name_label, display_name.c_str());
             lv_obj_align(name_label, LV_ALIGN_LEFT_MID, 10, 0);

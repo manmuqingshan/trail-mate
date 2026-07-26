@@ -1,7 +1,5 @@
 #pragma once
 
-#include "sys/runtime_async.h"
-
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -68,7 +66,6 @@ class PersistencePolicy
 
     virtual PersistencePolicyMode modeFor(const char* store_key) const = 0;
     virtual uint32_t delayFor(PersistencePolicyMode policy) const = 0;
-    virtual BusAccessPolicy busPolicyFor(PersistencePolicyMode policy) const = 0;
 };
 
 class DefaultPersistencePolicy : public PersistencePolicy
@@ -95,12 +92,6 @@ class DefaultPersistencePolicy : public PersistencePolicy
         }
     }
 
-    BusAccessPolicy busPolicyFor(PersistencePolicyMode policy) const override
-    {
-        return policy == PersistencePolicyMode::ImmediateCriticalSave
-                   ? BusAccessPolicy::DurableCommit
-                   : BusAccessPolicy::BackgroundWorkerBounded;
-    }
 };
 
 class IStoreSnapshotProvider
@@ -243,10 +234,9 @@ class PersistenceWorker
   public:
     PersistenceWorker(IStoreSnapshotProvider& snapshots,
                       IStoreStorageAdapter& storage,
-                      IBusArbiter& bus,
                       IPersistenceEventSink& events,
                       PersistencePolicy& policy)
-        : snapshots_(snapshots), storage_(storage), bus_(bus), events_(events), policy_(policy)
+        : snapshots_(snapshots), storage_(storage), events_(events), policy_(policy)
     {
     }
 
@@ -275,18 +265,6 @@ class PersistenceWorker
         started.timestamp_ms = now_ms;
         (void)events_.publish(started);
 
-        BusAcquireRequest request{};
-        request.policy = policy_.busPolicyFor(pending_command_.policy);
-        request.command_id = pending_command_.command_id;
-        request.deadline_ms = pending_command_.deadline_ms;
-        const BusAcquireResult acquire = bus_.acquire(request);
-        if (acquire.status != BusAcquireStatus::Acquired)
-        {
-            publishResult(PersistenceEventKind::SaveFailed, now_ms, -11);
-            pending_ = false;
-            return;
-        }
-
         StoreSnapshot snapshot = snapshots_.snapshot(pending_command_.store_key);
         StoreStorageResult result{};
         if (snapshot.valid)
@@ -297,8 +275,6 @@ class PersistenceWorker
         {
             result.error = -12;
         }
-        bus_.release(acquire.token);
-
         publishResult(result.ok ? PersistenceEventKind::SaveSucceeded
                                 : PersistenceEventKind::SaveFailed,
                       now_ms,
@@ -325,7 +301,6 @@ class PersistenceWorker
 
     IStoreSnapshotProvider& snapshots_;
     IStoreStorageAdapter& storage_;
-    IBusArbiter& bus_;
     IPersistenceEventSink& events_;
     PersistencePolicy& policy_;
     PersistenceCommand pending_command_{};

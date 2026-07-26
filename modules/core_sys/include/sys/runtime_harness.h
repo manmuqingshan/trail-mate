@@ -3,6 +3,7 @@
 #include "sys/feedback_runtime.h"
 #include "sys/persistence_runtime.h"
 #include "sys/runtime_async.h"
+#include "sys/shared_spi_access.h"
 
 #include <cassert>
 #include <cstddef>

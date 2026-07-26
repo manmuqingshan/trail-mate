@@ -27,6 +27,7 @@ class DirectMessageService
     IPacketRadio& radio_;
     IClock& clock_;
     IMeshEventSink& events_;
+    EncodedPacket packet_scratch_{};
 };
 
 } // namespace mesh

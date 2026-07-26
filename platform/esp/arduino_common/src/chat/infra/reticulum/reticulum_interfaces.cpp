@@ -934,6 +934,8 @@ void AutoReticulumInterface::applyConfig(
     {
         stop();
         last_socket_attempt_ms_ = 0;
+        wifi_connect_retry_not_before_ms_ = 0;
+        wifi_connect_suspended_ = false;
         rx_queue_.clear();
     }
     Serial.printf("[Reticulum][IF][Auto] enabled=%s group=%s discovery=%u data=%u available=%s\n",
@@ -947,6 +949,11 @@ void AutoReticulumInterface::applyConfig(
 void AutoReticulumInterface::setTransportEnabled(bool enabled)
 {
     transport_enabled_ = enabled;
+    if (transport_enabled_)
+    {
+        wifi_connect_retry_not_before_ms_ = 0;
+        wifi_connect_suspended_ = false;
+    }
     if (!transport_enabled_)
     {
         stop();
@@ -963,16 +970,59 @@ void AutoReticulumInterface::maintain()
 
     platform::ui::wifi::Status wifi_status = platform::ui::wifi::status();
     const uint32_t now_ms = millis();
+    if (wifi_status.connected)
+    {
+        wifi_connect_retry_not_before_ms_ = 0;
+        wifi_connect_suspended_ = false;
+    }
     if (!wifi_status.connected && auto_connect_wifi_)
     {
+        if (wifi_connect_suspended_)
+        {
+            stop();
+            return;
+        }
+        if (wifi_connect_retry_not_before_ms_ != 0 &&
+            static_cast<int32_t>(wifi_connect_retry_not_before_ms_ - now_ms) > 0)
+        {
+            stop();
+            return;
+        }
+
         platform::ui::wifi_access::Request request{};
         request.client = platform::ui::wifi_access::Client::ReticulumGateway;
         request.kind = platform::ui::wifi_access::AccessKind::WifiConnect;
         request.priority = platform::ui::wifi_access::Priority::Messaging;
         request.allow_connect = true;
         request.reason = "reticulum_auto_interface";
-        (void)platform::ui::wifi_access::ensure_connected(request, nullptr);
+        platform::ui::wifi_access::ConnectResult connect_result{};
+        const bool connect_allowed =
+            platform::ui::wifi_access::ensure_connected(request, &connect_result);
         wifi_status = platform::ui::wifi::status();
+        if (!connect_allowed && !wifi_status.connected)
+        {
+            if (connect_result.decision ==
+                platform::ui::wifi_access::Decision::WifiDisabled)
+            {
+                // Wi-Fi disabled is a policy state, not a transient connect
+                // failure. Wait for the explicit enable transition instead of
+                // polling the policy on every maintain() tick.
+                wifi_connect_suspended_ = true;
+            }
+            else
+            {
+                const uint32_t retry_after_ms =
+                    connect_result.retry_after_ms != 0
+                        ? connect_result.retry_after_ms
+                        : kWifiConnectRetryIntervalMs;
+                wifi_connect_retry_not_before_ms_ = now_ms + retry_after_ms;
+            }
+        }
+        else if (wifi_status.connected)
+        {
+            wifi_connect_retry_not_before_ms_ = 0;
+            wifi_connect_suspended_ = false;
+        }
     }
     if (!wifi_status.connected)
     {

@@ -541,7 +541,13 @@ bool MtAdapter::sendAppDataNow(ChannelId channel, uint32_t portnum,
     const auto send_policy =
         chat::runtime::resolveMeshtasticAppDataSendPolicy(dest, want_ack, want_response);
     bool effective_want_response = send_policy.effective_want_response;
-    if (!encodeAppData(portnum, payload, len, effective_want_response, data_buffer.data(), &data_size))
+    if (!encodeAppData(portnum,
+                       payload,
+                       len,
+                       effective_want_response,
+                       data_buffer.data(),
+                       &data_size,
+                       &scratch.decoded))
     {
         last_send_error_ = meshtastic_Routing_Error_BAD_REQUEST;
         return false;
@@ -2489,7 +2495,10 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
         if (decoded.portnum == meshtastic_PortNum_KEY_VERIFICATION_APP && decoded.payload.size > 0)
         {
             meshtastic_KeyVerification kv = meshtastic_KeyVerification_init_default;
-            if (decodeKeyVerificationMessage(plaintext, plaintext_len, &kv))
+            if (decodeKeyVerificationMessage(plaintext,
+                                             plaintext_len,
+                                             &kv,
+                                             &scratch.candidate_decoded))
             {
                 mt_diag_log("[MT][KEY_VERIFY] from=%08lX id=%08lX stage=%s hash1=%u hash2=%u\n",
                             static_cast<unsigned long>(header.from),
@@ -3065,7 +3074,8 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
                                 pending.msg_id,
                                 pending.dest,
                                 data_buffer.data(),
-                                &data_size))
+                                &data_size,
+                                &scratch.decoded))
     {
         last_send_error_ = meshtastic_Routing_Error_BAD_REQUEST;
         return false;
@@ -3293,8 +3303,8 @@ bool MtAdapter::sendNodeInfoTo(uint32_t dest, bool want_response, ChannelId chan
         request.public_key_len = pki_public_key_.size();
     }
 
-    chat::runtime::MeshtasticAnnouncementPacket packet{};
-    if (!chat::runtime::MeshtasticSelfAnnouncementCore::buildNodeInfoPacket(request, &packet))
+    if (!chat::runtime::MeshtasticSelfAnnouncementCore::buildNodeInfoPacket(
+            request, &node_info_packet_scratch_))
     {
         return false;
     }
@@ -3309,23 +3319,24 @@ bool MtAdapter::sendNodeInfoTo(uint32_t dest, bool want_response, ChannelId chan
     LORA_LOG("[LORA] NodeInfo user_id=%s short=%s long=%s\n",
              logged_user_id, identity.short_name, identity.long_name);
     LORA_LOG("[LORA] TX nodeinfo wire ch=0x%02X idx=%u hop=%u wire=%u\n",
-             packet.channel_hash,
+             node_info_packet_scratch_.channel_hash,
              (unsigned)(channel == ChannelId::SECONDARY ? 1 : 0),
              request.hop_limit,
-             (unsigned)packet.wire_size);
+             (unsigned)node_info_packet_scratch_.wire_size);
     if (!board_.isRadioOnline())
     {
         return false;
     }
 
-    bool ok = transmitWirePacket(packet.wire, packet.wire_size);
+    bool ok = transmitWirePacket(node_info_packet_scratch_.wire,
+                                 node_info_packet_scratch_.wire_size);
     if (ok && dest == kBroadcastNodeId)
     {
         last_nodeinfo_ms_ = millis();
     }
     LORA_LOG("[LORA] TX nodeinfo id=%08lX len=%u ok=%d\n",
              (unsigned long)request.packet_id,
-             (unsigned)packet.wire_size,
+             (unsigned)node_info_packet_scratch_.wire_size,
              ok ? 1 : 0);
     return ok;
 }

@@ -26,6 +26,14 @@ class FixedSlotJournalEngine final
         uint32_t slot_count = 0;
     };
 
+    enum class ReadStatus : uint8_t
+    {
+        Ok = 0,
+        InvalidArgument,
+        OutOfRange,
+        Unavailable,
+    };
+
     Inspection inspect(const char* path,
                        MeshProtocol protocol,
                        JournalKind kind,
@@ -48,6 +56,14 @@ class FixedSlotJournalEngine final
               std::size_t slot_size,
               uint32_t slot_index,
               void* out_slot) const;
+
+    ReadStatus readStatus(const char* path,
+                          MeshProtocol protocol,
+                          JournalKind kind,
+                          std::size_t slot_size,
+                          const Inspection& inspection,
+                          uint32_t slot_index,
+                          void* out_slot) const;
 
     static constexpr std::size_t headerSize();
 

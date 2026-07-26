@@ -190,11 +190,11 @@ Forbidden scheduler shapes:
 - Separate local drain counters that allow protocol actions, app sends, ACK
   retry, and MQTT downlink each to consume a full TX slot in the same tick.
 
-Shared-SPI busy is a deferred radio condition, not successful airtime. The
-radio task retains the front TX packet and retries it with bounded exponential
-backoff when the board reports SPI access busy. IRQ polling uses a zero-wait
-probe and must never block a frame-critical display operation. Queue buffers and
-RX scratch use PSRAM on PSRAM-capable targets.
+Device I/O deferral is not successful airtime. The radio task retains the front
+TX packet and retries it with bounded exponential backoff when the radio device
+service reports `Deferred`. IRQ polling remains bounded and must never block a
+frame-critical display operation. Queue buffers and RX scratch use PSRAM on
+PSRAM-capable targets.
 
 ## Protocol Switch Lifecycle
 
@@ -206,7 +206,7 @@ install the backend, and switch Chat/Contacts active protocol projections.
 
 If quiescing or installation fails, the old protocol remains active and its
 configuration is reapplied. A task must never be force-suspended while it may
-hold a shared-SPI lock. Settings reports success/failure from this transition;
+be inside a radio device transaction. Settings reports success/failure from this transition;
 it must not issue an unconditional software reset that makes a successful
 switch look like a crash.
 

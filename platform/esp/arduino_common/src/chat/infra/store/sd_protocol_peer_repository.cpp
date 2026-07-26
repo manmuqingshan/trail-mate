@@ -278,26 +278,48 @@ bool SdProtocolPeerRepository::loadPeerJournal(MeshProtocol protocol,
     {
         return false;
     }
+    uint32_t decode_failures = 0U;
+    uint32_t first_decode_failure = inspection.slot_count;
+    uint32_t last_decode_failure = 0U;
     for (uint32_t index = 0; index < inspection.slot_count; ++index)
     {
         storage_v2::PeerProjection projection{};
-        if (!journal_.read(path,
-                           protocol,
-                           kind,
-                           slot_size,
-                           index,
-                           slot_scratch_.data()) ||
-            !storage_v2::decodePeerSlot(protocol,
+        const auto read_status = journal_.readStatus(path,
+                                                     protocol,
+                                                     kind,
+                                                     slot_size,
+                                                     inspection,
+                                                     index,
+                                                     slot_scratch_.data());
+        if (read_status !=
+            storage_v2::FixedSlotJournalEngine::ReadStatus::Ok)
+        {
+            Serial.printf("[PeerStoreV2] hydration deferred path=%s index=%lu read_status=%u\n",
+                          path,
+                          static_cast<unsigned long>(index),
+                          static_cast<unsigned>(read_status));
+            return false;
+        }
+        if (!storage_v2::decodePeerSlot(protocol,
                                         slot_scratch_.data(),
                                         slot_size,
                                         projection))
         {
-            Serial.printf("[PeerStoreV2] corrupt peer slot path=%s index=%lu\n",
-                          path,
-                          static_cast<unsigned long>(index));
+            ++decode_failures;
+            first_decode_failure =
+                std::min(first_decode_failure, index);
+            last_decode_failure = index;
             continue;
         }
         (void)applyPeerProjection(projection);
+    }
+    if (decode_failures > 0U)
+    {
+        Serial.printf("[PeerStoreV2] invalid peer slots path=%s count=%lu first=%lu last=%lu\n",
+                      path,
+                      static_cast<unsigned long>(decode_failures),
+                      static_cast<unsigned long>(first_decode_failure),
+                      static_cast<unsigned long>(last_decode_failure));
     }
     if (kind == storage_v2::JournalKind::PeerDelta)
     {
@@ -342,26 +364,48 @@ bool SdProtocolPeerRepository::loadContactJournal(MeshProtocol protocol,
     {
         return false;
     }
+    uint32_t decode_failures = 0U;
+    uint32_t first_decode_failure = inspection.slot_count;
+    uint32_t last_decode_failure = 0U;
     for (uint32_t index = 0; index < inspection.slot_count; ++index)
     {
         storage_v2::ContactProjection projection{};
-        if (!journal_.read(path,
-                           protocol,
-                           kind,
-                           slot_size,
-                           index,
-                           slot_scratch_.data()) ||
-            !storage_v2::decodeContactSlot(protocol,
+        const auto read_status = journal_.readStatus(path,
+                                                     protocol,
+                                                     kind,
+                                                     slot_size,
+                                                     inspection,
+                                                     index,
+                                                     slot_scratch_.data());
+        if (read_status !=
+            storage_v2::FixedSlotJournalEngine::ReadStatus::Ok)
+        {
+            Serial.printf("[PeerStoreV2] hydration deferred path=%s index=%lu read_status=%u\n",
+                          path,
+                          static_cast<unsigned long>(index),
+                          static_cast<unsigned>(read_status));
+            return false;
+        }
+        if (!storage_v2::decodeContactSlot(protocol,
                                            slot_scratch_.data(),
                                            slot_size,
                                            projection))
         {
-            Serial.printf("[PeerStoreV2] corrupt contact slot path=%s index=%lu\n",
-                          path,
-                          static_cast<unsigned long>(index));
+            ++decode_failures;
+            first_decode_failure =
+                std::min(first_decode_failure, index);
+            last_decode_failure = index;
             continue;
         }
         (void)applyContactProjection(projection);
+    }
+    if (decode_failures > 0U)
+    {
+        Serial.printf("[PeerStoreV2] invalid contact slots path=%s count=%lu first=%lu last=%lu\n",
+                      path,
+                      static_cast<unsigned long>(decode_failures),
+                      static_cast<unsigned long>(first_decode_failure),
+                      static_cast<unsigned long>(last_decode_failure));
     }
     if (kind == storage_v2::JournalKind::ContactDelta)
     {

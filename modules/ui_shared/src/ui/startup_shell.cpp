@@ -5,9 +5,6 @@
 #include <ctime>
 
 #include "lvgl.h"
-#if defined(ARDUINO_ARCH_ESP32)
-#include "platform/esp/common/shared_spi_coordinator.h"
-#endif
 #include "platform/ui/screen_runtime.h"
 #include "platform/ui/time_runtime.h"
 #include "sys/clock.h"
@@ -71,18 +68,11 @@ bool resolve_display_time(struct tm* out_tm)
     return true;
 }
 
-// This counter only proves that the display transaction path returned success.
-// It cannot prove that the panel's controller rendered pixels; there is no
-// readback/TE acknowledgement in this SPI write-only path.
-bool s_boot_display_transaction_completed = false;
+bool s_boot_presentation_completed = false;
 
 void present_boot_overlay_now()
 {
 #if TRAIL_MATE_BOOT_UI_SYNC_PRESENT
-#if defined(ARDUINO_ARCH_ESP32)
-    const uint32_t completed_before =
-        ::platform::esp::common::shared_spi_coordinator().displayFrameCompletions();
-#endif
     for (uint8_t frame = 0; frame < kBootPresentFrameCount; ++frame)
     {
         if (lv_obj_t* top = lv_layer_top())
@@ -96,19 +86,13 @@ void present_boot_overlay_now()
             sys::sleep_ms(kBootPresentFrameDelayMs);
         }
     }
-#if defined(ARDUINO_ARCH_ESP32)
-    s_boot_display_transaction_completed =
-        ::platform::esp::common::shared_spi_coordinator().displayFrameCompletions() >
-        completed_before;
-#else
-    s_boot_display_transaction_completed = true;
-#endif
+    s_boot_presentation_completed = true;
 #else
     if (lv_obj_t* top = lv_layer_top())
     {
         lv_obj_invalidate(top);
     }
-    s_boot_display_transaction_completed = false;
+    s_boot_presentation_completed = false;
 #endif
 }
 
@@ -262,7 +246,7 @@ void initializeShell(const Hooks& hooks)
 
 void finalizeStartup(bool waking_from_sleep)
 {
-    if (!waking_from_sleep && !s_boot_display_transaction_completed)
+    if (!waking_from_sleep && !s_boot_presentation_completed)
     {
         std::printf("[BOOT][UI] first_frame_retry reason=no_display_transaction\n");
         std::fflush(stdout);
@@ -270,8 +254,8 @@ void finalizeStartup(bool waking_from_sleep)
     }
     std::printf("[BOOT][UI] ready waking=%d\n", waking_from_sleep ? 1 : 0);
     std::fflush(stdout);
-    std::printf("[BOOT][UI] display_transaction_completed=%d\n",
-                s_boot_display_transaction_completed ? 1 : 0);
+    std::printf("[BOOT][UI] presentation_completed=%d\n",
+                s_boot_presentation_completed ? 1 : 0);
     std::fflush(stdout);
     if (waking_from_sleep)
     {

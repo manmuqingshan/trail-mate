@@ -3,7 +3,6 @@
 #include "board/sd_utils.h"
 #include "display/drivers/ST7789TDeck.h"
 #include "platform/esp/arduino_common/power/battery_adc.h"
-#include "platform/esp/arduino_common/storage/persistence_bus_gate.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/common/shared_spi_coordinator.h"
 #include "sys/bus_access_scope.h"
@@ -764,22 +763,8 @@ bool TDeckBoard::ensureSDReady()
 
 void TDeckBoard::uninstallSD()
 {
-    ::platform::esp::arduino_common::storage::PersistenceBusGate bus_gate(
-        ::platform::esp::common::shared_spi_coordinator(),
-        sys::runtime::BusAccessPolicy::RecoveryExclusive,
-        500,
-        kSharedSpiBusResource,
-        kSharedSpiBusOwnerId + 2,
-        kSharedSpiBusOwnerId);
-    if (bus_gate.locked())
-    {
-        ::platform::esp::arduino_common::storage::unmount_sd_card();
-        Serial.println("[TDeckBoard] SD unmounted");
-    }
-    else
-    {
-        Serial.println("[TDeckBoard] SD unmount: SPI lock failed");
-    }
+    ::platform::esp::arduino_common::storage::unmount_sd_card();
+    Serial.println("[TDeckBoard] SD unmounted");
 }
 
 bool TDeckBoard::isRTCReady() const

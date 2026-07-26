@@ -2,16 +2,32 @@
 
 ## Document status
 
-This document is the design contract for the ESP shared-SPI refactor. It is
-written before the implementation migration so that the implementation can be
-reviewed against explicit invariants instead of being judged by individual
-timeout values.
+This is the single authoritative specification for the shared-SPI mechanism.
+It describes a technical resource boundary, not any product feature. Map,
+chat, contacts, localization, tracking, team, package, and protocol documents
+must not repeat its lock, token, priority, or deadline rules.
 
-The affected devices include boards where the display, SD card, LoRa radio,
-external fonts, GPS/track persistence, USB mass-storage, or other peripherals
-share one physical SPI controller. Boards without a shared SPI controller may
-use the same API with a no-op backend, but they must not reintroduce a second
-locking model.
+The implementation is reviewed against the invariants in this document, not
+against individual timeout values or feature-local conventions.
+
+The mechanism is selected from the board's physical topology. It applies to
+boards where the display, SD card, LoRa radio, external fonts, GPS/track
+persistence, USB mass-storage, or other peripherals share one physical SPI
+controller. Boards without a shared SPI controller use their native independent
+bus or SDMMC driver and do not enter this coordinator. A no-op backend is valid
+only for an API-compatible device path that is physically independent; it must
+not hide a second locking model.
+
+The current board profiles are intentionally different:
+
+- T-LoRa Pager, T-Deck, and T-Deck Pro place display, SD, and LoRa on the same
+  Arduino SPI bus. Their board configuration enables the SdFat shared-SPI
+  adapter.
+- T-Display P4 uses SDMMC for the SD card and a separate SPI path for LoRa.
+  SDMMC must not acquire the shared-SPI coordinator.
+- Future boards must declare one coordinator per actual physical bus. A board
+  may have no coordinator, one coordinator, or several independent
+  coordinators; the business layer remains unaware of that topology.
 
 ## Why the old model failed
 
@@ -104,10 +120,66 @@ request(resource, class, deadline, owner)
     deadline     timing      background
 ```
 
-The coordinator is not a collection of independent `StorageBusArbiter`
-instances. Feature code receives a typed `SharedSpiAccess` handle or uses the
-coordinator's transaction helper. The handle contains no independent mutex and
-cannot release another handle's acquisition.
+The coordinator is not a collection of independent storage arbiters. The
+coordinator API is an infrastructure API. It is callable only
+from device and platform I/O owners, never from business modules or UI
+feature/runtime code.
+
+Device owners translate semantic requests into private hardware transactions:
+
+```text
+business/runtime request
+        -> device service
+        -> device transaction executor
+        -> SharedSpiCoordinator
+        -> peripheral driver
+```
+
+The device executor may carry policy, command identity, deadlines, owner
+labels, and tokens internally. None of those details cross the device service
+boundary. A map tile request is a tile request; it is not a bus request. A
+message persistence request is a storage request; it is not a token request.
+
+### Memory and DMA boundary
+
+Shared-SPI correctness includes the memory used around a transaction. ESP
+hardware has limited internal RAM, so large protocol, file, packet, decoded
+payload, and runtime scratch objects must follow these rules:
+
+- Prefer PSRAM for long-lived device objects and reusable scratch storage.
+  `heap_caps_malloc_prefer` must request `MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT`
+  first and use internal 8-bit heap only as an explicit fallback.
+- Do not create protocol-sized automatic locals in ESP hot paths. Use a member
+  scratch slot, a fixed-depth ring slot with clear ownership, or caller-owned
+  output storage. A scratch slot may be reused only after the previous
+  operation has completed.
+- Keep DMA, cache, semaphore, and driver objects in internal memory when the
+  hardware or SDK requires it. PSRAM is not a universal replacement for
+  DMA-capable storage.
+- A physical bus transaction must not retain a large application buffer or
+  protobuf object longer than necessary. Encode, decode, parse, and allocate
+  outside the physical coordinator ownership window.
+
+The memory placement decision belongs to the device/platform owner. Business
+code does not select heap capabilities or carry SPI scratch buffers.
+
+### Visibility boundary
+
+The following concepts are implementation details of the device/platform
+layer and must not appear in business or UI-facing headers:
+
+- `SharedSpiCoordinator`
+- `BusAccessPolicy`
+- `BusAcquireRequest`, `BusAcquireResult`, and `BusAcquireStatus`
+- `BusAccessToken`, `ScopedBusAccessToken`, and direct release operations
+- the private SD logical-filesystem session guard and SdFat bus hook
+- `PersistenceBusGate` or any equivalent outer admission gate
+- shared-SPI resource identifiers and owner labels
+
+Business code receives semantic operation results such as `Completed`,
+`RetryLater`, `Missing`, `Unavailable`, or `Failed`. The device owner decides
+whether a result came from arbitration, a peripheral timeout, media removal,
+or an I/O error.
 
 ## Request classes and ordering
 
@@ -123,6 +195,10 @@ Requests are ordered by class, deadline, and age:
 
 The ordering rules are:
 
+- The device adapter selects the request class from the semantic operation. A
+  file read needed for content currently visible to the user is `Interactive`;
+  preload, hydration, compaction, and maintenance remain `Background`. The
+  business-facing API does not expose the bus policy used for that selection.
 - A waiting `DisplayFrame` blocks new `Background` acquisitions.
 - A waiting `RadioTiming` blocks new `Background` acquisitions unless the
   radio transaction has explicitly declared that it can be deferred.
@@ -132,6 +208,11 @@ The ordering rules are:
 - The coordinator may finish the transaction that already owns the bus, but it
   must not grant the next transaction to a lower class while a higher class is
   waiting.
+- A slow transaction updates coordinator health diagnostics and may emit a
+  warning, but it does not create a cross-business cooldown or reject a later
+  radio, display, or storage request. Fairness comes from request class,
+  deadline, and age ordering. The coordinator never treats map, radio,
+  display, and storage as one worker class.
 
 The coordinator does not interrupt an active hardware-safe transaction. This is
 why all callers must keep the transaction small and must release the bus before
@@ -160,9 +241,10 @@ Any mismatch is a diagnostic failure and does not clear the coordinator's
 ownership. A double release must never be able to unlock another task's
 transaction.
 
-Same-task nesting is allowed only through the coordinator and increments a
-coordinator-owned depth counter. A legacy direct `unlock()` must not be able to
-participate in nesting.
+Same-task nesting is allowed only inside one device transaction executor and
+increments a coordinator-owned depth counter. A business caller must never see
+the nesting or participate in it. A legacy direct `unlock()` must not be able
+to participate in nesting.
 
 ## Transaction boundary rules
 
@@ -218,15 +300,30 @@ budget.
 
 ### SD and background storage
 
-Every SD file or directory call is one transaction. Hydration and compaction:
+The SD adapter has two distinct scopes:
 
-- acquire for one filesystem operation;
-- release;
-- parse/copy/build application state outside the bus;
-- re-check the foreground/display gate before the next operation.
+- A logical filesystem session serializes SdFat object access. It belongs to
+  the SD device adapter and is invisible to business code.
+- The physical shared-SPI ownership is acquired by the SdFat driver at its
+  `activate`/`deactivate` transaction boundary. On shared-SPI boards, payload
+  reads and writes are sliced to at most one 512-byte sector so the display or
+  radio can be granted between physical transactions. On SDMMC or independent
+  buses, this hook is not used.
 
-No background worker may hold the bus while performing snapshot parsing,
-repository updates, compression, or allocation.
+The logical session may remain open while an interactive read-only `FsFile`
+object is alive, but it must not hold the physical coordinator across sectors.
+The session must not include parsing, UI work, repository updates, compression,
+or application-object construction. Background hydration and compaction must:
+
+- perform one bounded adapter operation;
+- release the adapter session and physical bus;
+- parse/copy/build application state outside the device layer;
+- re-check the foreground/display state before the next operation.
+
+Once a file has been opened, every return path must close it through the SD
+device adapter before reporting `Ready`, `RetryLater`, or `Failed`. A
+filesystem call itself remains non-interruptible; only the lower-level physical
+SPI transaction boundaries are schedulable.
 
 ### Font, track, team, and USB
 
@@ -355,10 +452,9 @@ can be declared operationally complete.
 The refactor is complete only when all of the following are true:
 
 1. `git grep` finds no production use of `SharedSpiBusAdapter`,
-   `shared_spi_lock_with_owner`, or direct `shared_spi_unlock()` outside the
-   coordinator implementation and its compatibility tests. The generic
-   `sys::runtime::StorageBusArbiter` may remain for non-SPI host/runtime tests,
-   but it must not be instantiated as a shared-SPI implementation.
+   `shared_spi_lock_with_owner`, `StorageBusArbiter`, or direct
+   `shared_spi_unlock()` outside the coordinator implementation and its
+   compatibility tests.
 2. Display flush has an explicit success/failure result and never reports a
    lock timeout as a successful transfer.
 3. Unit tests cover priority ordering, FIFO within a class, strict release,

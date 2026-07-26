@@ -1,6 +1,6 @@
 #pragma once
 
-#include "sys/runtime_async.h"
+#include "sys/shared_spi_access.h"
 
 namespace sys::runtime
 {

@@ -11,15 +11,35 @@
 #include "chat/time_utils.h"
 #include <algorithm>
 #include <cstring>
+#include <memory>
 
 namespace chat
 {
 namespace meshtastic
 {
 
+namespace
+{
+
+meshtastic_Data* acquireDataScratch(meshtastic_Data* supplied,
+                                    std::unique_ptr<meshtastic_Data>& owned)
+{
+    if (supplied != nullptr)
+    {
+        *supplied = meshtastic_Data_init_default;
+        return supplied;
+    }
+    owned = std::make_unique<meshtastic_Data>();
+    *owned = meshtastic_Data_init_default;
+    return owned.get();
+}
+
+} // namespace
+
 bool encodeTextMessage(ChannelId channel, const std::string& text,
                        NodeId from_node, uint32_t packet_id, NodeId dest_node,
-                       uint8_t* out_buffer, size_t* out_size)
+                       uint8_t* out_buffer, size_t* out_size,
+                       meshtastic_Data* data_scratch)
 {
     return encodeTextMessageBytes(channel,
                                   text.data(),
@@ -28,12 +48,14 @@ bool encodeTextMessage(ChannelId channel, const std::string& text,
                                   packet_id,
                                   dest_node,
                                   out_buffer,
-                                  out_size);
+                                  out_size,
+                                  data_scratch);
 }
 
 bool encodeTextMessageBytes(ChannelId channel, const char* text, size_t text_len,
                             NodeId from_node, uint32_t packet_id, NodeId dest_node,
-                            uint8_t* out_buffer, size_t* out_size)
+                            uint8_t* out_buffer, size_t* out_size,
+                            meshtastic_Data* data_scratch)
 {
     if (!out_buffer || !out_size || !text || text_len == 0)
     {
@@ -42,24 +64,25 @@ bool encodeTextMessageBytes(ChannelId channel, const char* text, size_t text_len
     (void)channel;
 
     // Create a Meshtastic Data message payload
-    meshtastic_Data data = meshtastic_Data_init_default;
-    data.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
-    data.want_response = false;
-    data.has_bitfield = true;
-    data.bitfield = 0; // No special flags for now
-    data.dest = dest_node;
-    data.source = from_node;
+    std::unique_ptr<meshtastic_Data> owned_data;
+    meshtastic_Data* data = acquireDataScratch(data_scratch, owned_data);
+    data->portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+    data->want_response = false;
+    data->has_bitfield = true;
+    data->bitfield = 0; // No special flags for now
+    data->dest = dest_node;
+    data->source = from_node;
 
     // Set text payload
-    if (text_len > sizeof(data.payload.bytes))
+    if (text_len > sizeof(data->payload.bytes))
     {
         return false; // Text too long
     }
-    data.payload.size = text_len;
-    memcpy(data.payload.bytes, text, text_len);
+    data->payload.size = text_len;
+    memcpy(data->payload.bytes, text, text_len);
 
     pb_ostream_t data_stream = pb_ostream_from_buffer(out_buffer, *out_size);
-    if (!pb_encode(&data_stream, meshtastic_Data_fields, &data))
+    if (!pb_encode(&data_stream, meshtastic_Data_fields, data))
     {
         return false;
     }
@@ -146,7 +169,8 @@ bool decodeTextPayload(const meshtastic_Data& data, MeshIncomingText* out)
     return true;
 }
 
-bool decodeTextMessage(const uint8_t* buffer, size_t size, MeshIncomingText* out)
+bool decodeTextMessage(const uint8_t* buffer, size_t size, MeshIncomingText* out,
+                       meshtastic_Data* data_scratch)
 {
     if (!buffer || !out || size == 0)
     {
@@ -154,49 +178,53 @@ bool decodeTextMessage(const uint8_t* buffer, size_t size, MeshIncomingText* out
     }
 
     // Decode a Meshtastic Data message payload
-    meshtastic_Data data = meshtastic_Data_init_default;
+    std::unique_ptr<meshtastic_Data> owned_data;
+    meshtastic_Data* data = acquireDataScratch(data_scratch, owned_data);
     pb_istream_t stream = pb_istream_from_buffer(buffer, size);
-    if (!pb_decode(&stream, meshtastic_Data_fields, &data))
+    if (!pb_decode(&stream, meshtastic_Data_fields, data))
     {
         return false;
     }
 
-    return decodeTextPayload(data, out);
+    return decodeTextPayload(*data, out);
 }
 
 bool decodeKeyVerificationMessage(const uint8_t* buffer, size_t size,
-                                  meshtastic_KeyVerification* out)
+                                  meshtastic_KeyVerification* out,
+                                  meshtastic_Data* data_scratch)
 {
     if (!buffer || !out || size == 0)
     {
         return false;
     }
 
-    meshtastic_Data data = meshtastic_Data_init_default;
+    std::unique_ptr<meshtastic_Data> owned_data;
+    meshtastic_Data* data = acquireDataScratch(data_scratch, owned_data);
     pb_istream_t stream = pb_istream_from_buffer(buffer, size);
-    if (!pb_decode(&stream, meshtastic_Data_fields, &data))
+    if (!pb_decode(&stream, meshtastic_Data_fields, data))
     {
         return false;
     }
 
-    if (data.portnum != meshtastic_PortNum_KEY_VERIFICATION_APP)
+    if (data->portnum != meshtastic_PortNum_KEY_VERIFICATION_APP)
     {
         return false;
     }
 
-    if (data.payload.size == 0 || data.payload.size > sizeof(data.payload.bytes))
+    if (data->payload.size == 0 || data->payload.size > sizeof(data->payload.bytes))
     {
         return false;
     }
 
-    pb_istream_t kv_stream = pb_istream_from_buffer(data.payload.bytes, data.payload.size);
+    pb_istream_t kv_stream = pb_istream_from_buffer(data->payload.bytes, data->payload.size);
     return pb_decode(&kv_stream, meshtastic_KeyVerification_fields, out);
 }
 
 bool encodeNodeInfoMessage(const std::string& user_id, const std::string& long_name,
                            const std::string& short_name, meshtastic_HardwareModel hw_model,
                            const uint8_t macaddr[6], const uint8_t* public_key, size_t public_key_len,
-                           bool want_response, uint8_t* out_buffer, size_t* out_size)
+                           bool want_response, uint8_t* out_buffer, size_t* out_size,
+                           meshtastic_Data* data_scratch)
 {
     if (!out_buffer || !out_size)
     {
@@ -232,21 +260,22 @@ bool encodeNodeInfoMessage(const std::string& user_id, const std::string& long_n
     }
     size_t user_len = user_stream.bytes_written;
 
-    meshtastic_Data data = meshtastic_Data_init_default;
-    data.portnum = meshtastic_PortNum_NODEINFO_APP;
-    data.want_response = want_response;
-    data.has_bitfield = true;
-    data.bitfield = 0;
+    std::unique_ptr<meshtastic_Data> owned_data;
+    meshtastic_Data* data = acquireDataScratch(data_scratch, owned_data);
+    data->portnum = meshtastic_PortNum_NODEINFO_APP;
+    data->want_response = want_response;
+    data->has_bitfield = true;
+    data->bitfield = 0;
 
-    if (user_len > sizeof(data.payload.bytes))
+    if (user_len > sizeof(data->payload.bytes))
     {
         return false;
     }
-    data.payload.size = user_len;
-    memcpy(data.payload.bytes, user_buf, user_len);
+    data->payload.size = user_len;
+    memcpy(data->payload.bytes, user_buf, user_len);
 
     pb_ostream_t data_stream = pb_ostream_from_buffer(out_buffer, *out_size);
-    if (!pb_encode(&data_stream, meshtastic_Data_fields, &data))
+    if (!pb_encode(&data_stream, meshtastic_Data_fields, data))
     {
         return false;
     }
@@ -256,44 +285,54 @@ bool encodeNodeInfoMessage(const std::string& user_id, const std::string& long_n
 }
 
 bool encodeAppData(uint32_t portnum, const uint8_t* payload, size_t payload_len,
-                   bool want_response, uint8_t* out_buffer, size_t* out_size)
+                   bool want_response, uint8_t* out_buffer, size_t* out_size,
+                   meshtastic_Data* data_scratch)
 {
     return encodeAppDataWithRequestId(
-        portnum, payload, payload_len, want_response, 0, out_buffer, out_size);
+        portnum,
+        payload,
+        payload_len,
+        want_response,
+        0,
+        out_buffer,
+        out_size,
+        data_scratch);
 }
 
 bool encodeAppDataWithRequestId(uint32_t portnum, const uint8_t* payload, size_t payload_len,
                                 bool want_response, uint32_t request_id,
-                                uint8_t* out_buffer, size_t* out_size)
+                                uint8_t* out_buffer, size_t* out_size,
+                                meshtastic_Data* data_scratch)
 {
     if (!out_buffer || !out_size)
     {
         return false;
     }
 
-    meshtastic_Data data = meshtastic_Data_init_default;
-    data.portnum = static_cast<meshtastic_PortNum>(portnum);
-    data.want_response = want_response;
-    data.has_bitfield = true;
-    data.bitfield = 0;
-    data.request_id = request_id;
+    std::unique_ptr<meshtastic_Data> owned_data;
+    meshtastic_Data* data = acquireDataScratch(data_scratch, owned_data);
+    data->portnum = static_cast<meshtastic_PortNum>(portnum);
+    data->want_response = want_response;
+    data->has_bitfield = true;
+    data->bitfield = 0;
+    data->request_id = request_id;
 
-    if (payload_len > sizeof(data.payload.bytes))
+    if (payload_len > sizeof(data->payload.bytes))
     {
         return false;
     }
-    data.payload.size = static_cast<pb_size_t>(payload_len);
+    data->payload.size = static_cast<pb_size_t>(payload_len);
     if (payload_len > 0)
     {
         if (!payload)
         {
             return false;
         }
-        memcpy(data.payload.bytes, payload, payload_len);
+        memcpy(data->payload.bytes, payload, payload_len);
     }
 
     pb_ostream_t data_stream = pb_ostream_from_buffer(out_buffer, *out_size);
-    if (!pb_encode(&data_stream, meshtastic_Data_fields, &data))
+    if (!pb_encode(&data_stream, meshtastic_Data_fields, data))
     {
         return false;
     }
@@ -302,21 +341,23 @@ bool encodeAppDataWithRequestId(uint32_t portnum, const uint8_t* payload, size_t
     return true;
 }
 
-bool decodeAppData(const uint8_t* buffer, size_t size, MeshIncomingData* out)
+bool decodeAppData(const uint8_t* buffer, size_t size, MeshIncomingData* out,
+                   meshtastic_Data* data_scratch)
 {
     if (!buffer || !out || size == 0)
     {
         return false;
     }
 
-    meshtastic_Data data = meshtastic_Data_init_default;
+    std::unique_ptr<meshtastic_Data> owned_data;
+    meshtastic_Data* data = acquireDataScratch(data_scratch, owned_data);
     pb_istream_t stream = pb_istream_from_buffer(buffer, size);
-    if (!pb_decode(&stream, meshtastic_Data_fields, &data))
+    if (!pb_decode(&stream, meshtastic_Data_fields, data))
     {
         return false;
     }
 
-    return decodeAppPayload(data, out);
+    return decodeAppPayload(*data, out);
 }
 
 bool decodeAppPayload(const meshtastic_Data& data, MeshIncomingData* out)

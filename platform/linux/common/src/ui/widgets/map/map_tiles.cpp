@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -87,27 +88,39 @@ class StdMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
         return path && std::filesystem::is_directory(std::filesystem::path(path));
     }
 
-    bool readFile(const char* path,
-                  uint8_t* buffer,
-                  std::size_t capacity,
-                  std::size_t& out_size) const override
+    ui::map_tiles::MapTileReadResult readFile(
+        const char* path,
+        uint8_t* buffer,
+        std::size_t capacity) const override
     {
-        out_size = 0;
         if (!path || !buffer || capacity == 0)
         {
-            return false;
+            return {ui::map_tiles::MapTileReadStatus::Invalid, 0, -4};
         }
 
         FILE* file = std::fopen(path, "rb");
         if (!file)
         {
-            return false;
+            return {errno == ENOENT ? ui::map_tiles::MapTileReadStatus::Missing
+                                    : ui::map_tiles::MapTileReadStatus::Error,
+                    0,
+                    errno == ENOENT ? -1 : -2};
         }
 
-        out_size = std::fread(buffer, 1, capacity, file);
+        const std::size_t bytes_read = std::fread(buffer, 1, capacity, file);
         const bool ok = std::ferror(file) == 0;
-        std::fclose(file);
-        return ok;
+        const int close_result = std::fclose(file);
+        if (!ok || close_result != 0)
+        {
+            return {ui::map_tiles::MapTileReadStatus::Error,
+                    bytes_read,
+                    -2};
+        }
+        if (bytes_read == 0)
+        {
+            return {ui::map_tiles::MapTileReadStatus::Invalid, 0, -5};
+        }
+        return {ui::map_tiles::MapTileReadStatus::Ready, bytes_read, 0};
     }
 };
 

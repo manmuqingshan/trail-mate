@@ -41,7 +41,7 @@ constexpr uint8_t kRuntimeCardNone = 0;
 constexpr uint8_t kRuntimeCardSdhc = 3;
 constexpr uint8_t kRuntimeCardUnknown = 4;
 constexpr uint32_t kSdSectorSize = 512;
-constexpr TickType_t kSdRuntimeLockWait = pdMS_TO_TICKS(250);
+constexpr TickType_t kSdRuntimeLockWait = pdMS_TO_TICKS(25);
 
 #ifndef TRAIL_MATE_SD_IO_LOG_ENABLE
 #define TRAIL_MATE_SD_IO_LOG_ENABLE 1
@@ -626,6 +626,100 @@ bool sd_exists(const char* path)
     }
     sd_io_end("exists", normalized, start_ms, false, 0, -1);
     return false;
+}
+
+SdFileReadResult sd_read_file(const char* path,
+                              uint8_t* buffer,
+                              std::size_t capacity)
+{
+    const char* normalized = normalize_sd_path(path);
+    const uint32_t start_ms = sd_io_begin("map_file_read", normalized, capacity);
+    SdFileReadResult result{};
+
+    auto finish = [&](SdFileReadStatus status,
+                      std::size_t bytes_read,
+                      uint64_t file_size,
+                      int32_t error)
+    {
+        result.status = status;
+        result.bytes_read = bytes_read;
+        result.file_size = file_size;
+        result.error = error;
+        sd_io_end("map_file_read",
+                  normalized,
+                  start_ms,
+                  status == SdFileReadStatus::Ready,
+                  bytes_read,
+                  error);
+        return result;
+    };
+
+    if (path_empty(path) || buffer == nullptr || capacity == 0)
+    {
+        return finish(SdFileReadStatus::Invalid, 0, 0, -4);
+    }
+    if (!sd_card_ready() || s_info.backend != SdCardBackend::SdFat)
+    {
+        return finish(SdFileReadStatus::Unavailable, 0, 0, -3);
+    }
+
+    FsFile file;
+    uint64_t file_size = 0;
+    {
+        SdRuntimeBusGuard guard("sd_map_file_open");
+        if (!guard.locked())
+        {
+            return finish(SdFileReadStatus::Busy, 0, 0, -2);
+        }
+
+        file = s_volume.open(normalized, O_RDONLY);
+        if (!file)
+        {
+            return finish(SdFileReadStatus::Missing, 0, 0, -1);
+        }
+
+        file_size = file.fileSize();
+        if (file_size == 0 || file_size > capacity)
+        {
+            file.close();
+            return finish(SdFileReadStatus::Invalid, 0, file_size, -5);
+        }
+    }
+
+    const std::size_t target_size = static_cast<std::size_t>(file_size);
+    std::size_t total_read = 0;
+    while (total_read < target_size)
+    {
+        const std::size_t chunk_size =
+            std::min<std::size_t>(2048U, target_size - total_read);
+        int bytes_read = -1;
+        {
+            SdRuntimeBusGuard guard("sd_map_file_read_chunk");
+            if (!guard.locked())
+            {
+                return finish(SdFileReadStatus::Busy, total_read, file_size, -2);
+            }
+            bytes_read = file.read(buffer + total_read, chunk_size);
+            if (bytes_read <= 0)
+            {
+                file.close();
+                return finish(SdFileReadStatus::IoError, total_read, file_size, -6);
+            }
+        }
+
+        total_read += static_cast<std::size_t>(bytes_read);
+    }
+
+    {
+        SdRuntimeBusGuard guard("sd_map_file_close");
+        if (!guard.locked())
+        {
+            return finish(SdFileReadStatus::Busy, total_read, file_size, -2);
+        }
+        file.close();
+    }
+
+    return finish(SdFileReadStatus::Ready, total_read, file_size, 0);
 }
 
 bool sd_is_directory(const char* path)

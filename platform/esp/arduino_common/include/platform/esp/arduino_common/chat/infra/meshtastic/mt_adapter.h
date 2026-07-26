@@ -16,6 +16,7 @@
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/ports/i_mesh_peer_directory.h"
 #include "chat/runtime/meshtastic_runtime.h"
+#include "chat/runtime/meshtastic_self_announcement_core.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "mesh/domain/peer_identity.h"
@@ -298,6 +299,7 @@ class MtAdapter : public chat::IMeshAdapter
     TxScratchBuffers tx_scratch_;
     RxScratchBuffers rx_scratch_;
     meshtastic_MeshPacket protocol_effect_packet_scratch_ = meshtastic_MeshPacket_init_zero;
+    chat::runtime::MeshtasticAnnouncementPacket node_info_packet_scratch_{};
     PendingAckTable pending_ack_states_;
     std::unique_ptr<::platform::esp::arduino_common::mesh::EspMeshtasticAdapterBridge> core_bridge_;
 

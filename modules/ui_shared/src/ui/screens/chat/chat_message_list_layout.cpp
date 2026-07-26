@@ -5,7 +5,6 @@
  */
 
 #include "ui/screens/chat/chat_message_list_layout.h"
-#include "chat/infra/mesh_protocol_utils.h"
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/components/air_status_footer.h"
 #include "ui/components/info_card.h"
@@ -172,8 +171,7 @@ std::string compact_list_name(const std::string& name)
 
 std::string build_list_title(const chat::ConversationMeta& conv)
 {
-    return "[" + std::string(chat::infra::meshProtocolShortName(conv.id.protocol)) +
-           "] " + compact_list_name(conv.name);
+    return compact_list_name(conv.name);
 }
 
 void style_filter_label(lv_obj_t* label)

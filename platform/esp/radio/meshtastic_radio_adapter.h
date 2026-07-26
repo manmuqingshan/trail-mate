@@ -7,6 +7,7 @@
 #include "chat/infra/meshtastic/mt_codec_pb.h"
 #include "chat/infra/meshtastic/mt_dedup.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include "chat/runtime/meshtastic_self_announcement_core.h"
 #include "idf_lora_radio_pump.h"
 
 #include <array>
@@ -20,6 +21,10 @@ class MeshtasticRadioAdapter final : public chat::IMeshAdapter
 {
   public:
     explicit MeshtasticRadioAdapter(LoraBoard& board);
+
+    static void* operator new(std::size_t size);
+    static void operator delete(void* ptr) noexcept;
+    static void operator delete(void* ptr, std::size_t size) noexcept;
 
     chat::MeshCapabilities getCapabilities() const override;
     bool sendText(chat::ChannelId channel, const std::string& text,
@@ -105,6 +110,9 @@ class MeshtasticRadioAdapter final : public chat::IMeshAdapter
     std::array<uint8_t, kWireScratchSize> wire_scratch_{};
     std::array<uint8_t, kRxScratchSize> payload_scratch_{};
     std::array<uint8_t, kRxScratchSize> plaintext_scratch_{};
+    meshtastic_Data tx_data_scratch_ = meshtastic_Data_init_default;
+    meshtastic_Data rx_data_scratch_ = meshtastic_Data_init_default;
+    chat::runtime::MeshtasticAnnouncementPacket node_info_packet_scratch_{};
 };
 
 } // namespace platform::esp::radio

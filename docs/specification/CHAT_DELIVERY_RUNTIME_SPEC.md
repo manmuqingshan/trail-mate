@@ -111,10 +111,10 @@ authoritative; catalog/read/status are projections. Once an inbound message and
 its required RT LXMF dedup identity are durable, catalog failure must not block
 observer, UI, or notification publication.
 
-On ESP shared-SPI targets, chat append and status transactions use a
-non-blocking outer SPI lease. Failure to obtain the lease produces `Deferred`;
-the hot path must not multiply the storage runtime's per-operation wait or run
-a synchronous full index rebuild.
+On ESP targets, chat append and status transactions call the storage service
+and may produce `Deferred` when the device cannot complete the operation yet.
+The chat runtime does not own or inspect the storage service's physical
+transaction mechanism.
 
 ## Boundaries
 

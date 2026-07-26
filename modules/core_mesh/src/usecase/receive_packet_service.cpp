@@ -18,8 +18,7 @@ ReceivePacketService::ReceivePacketService(MeshProtocolStrategy& protocol,
 
 void ReceivePacketService::onRadioPacket(const RadioRxPacket& packet)
 {
-    MeshProtocolEvent event{};
-    auto parsed = protocol_.parseRadioPacket(packet, event);
+    auto parsed = protocol_.parseRadioPacket(packet, event_scratch_);
     if (!parsed.ok)
     {
         events_.emit(MeshEvent{MeshEventKind::ProtocolError,
@@ -28,13 +27,15 @@ void ReceivePacketService::onRadioPacket(const RadioRxPacket& packet)
         return;
     }
 
-    if (dedup_ && event.packet_id != 0 &&
-        !dedup_->accept(event.peer, event.packet_id, clock_.nowMs()))
+    if (dedup_ && event_scratch_.packet_id != 0 &&
+        !dedup_->accept(event_scratch_.peer,
+                        event_scratch_.packet_id,
+                        clock_.nowMs()))
     {
         return;
     }
 
-    handleProtocolEvent(event);
+    handleProtocolEvent(event_scratch_);
 }
 
 void ReceivePacketService::handleProtocolEvent(const MeshProtocolEvent& event)

@@ -203,8 +203,8 @@ delta thresholds are exceeded:
 
 Normal chat `flush()` does not inspect and compact all healthy journals. It
 only retries a dirty protocol projection, at most once per five seconds. Each
-filesystem operation uses the bounded SD runtime guard; compaction never wraps
-the complete operation sequence in a physical SPI lease.
+filesystem operation goes through the storage service; compaction never wraps
+the complete operation sequence in one device transaction.
 
 Snapshot replacement sequence:
 
@@ -244,18 +244,14 @@ invariants, and the logical transaction that connects them. Recursive locking
 is required because public query/update methods may call another method on the
 same owner. This mutex is a state lock, not a bus lock.
 
-`sd_card_runtime` is the only normal owner of physical SD/display/radio SPI
-arbitration. `open`, `read`, `write`, `flush`, `exists`, `rename`, and `remove`
-take bounded per-operation guards. Store/repository/page-cache code must not
-acquire `PersistenceBusGate` or `SharedSpiBusAdapter` around a sequence of those
-operations. Doing so stretches physical ownership across CPU work and creates
-radio/display starvation even when every nested file call is individually
-bounded.
+The storage service is the only normal owner of physical SD I/O. Store,
+repository, and page-cache code calls semantic storage operations and must not
+open a physical device session around a sequence of those operations. The
+shared-SPI mechanism is defined only in `docs/spi_bus_architecture.md`.
 
 Explicit hardware sessions are separate: SD unmount/recovery, USB mass storage,
-and user-visible external font loading may own an exclusive bus/session token
-under their dedicated lifecycle specification. They must not be copied into a
-normal message, peer, or page-cache repository.
+and user-visible external font loading are owned by their device services.
+They must not be copied into a normal message, peer, or page-cache repository.
 
 No renderer waits for radio TX, MQTT forwarding, LoRa airtime, or projection
 compaction. SPI contention can delay or fail a bounded filesystem operation;

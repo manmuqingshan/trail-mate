@@ -26,8 +26,6 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #endif
 
-#include "platform/esp/common/shared_spi_coordinator.h"
-#include "sys/bus_access_scope.h"
 #include "sys/clock.h"
 
 #include <cmath>
@@ -233,51 +231,7 @@ constexpr bool kEnableSlantCorrection = true;
 constexpr bool kStretch = true;
 constexpr int kSamplesPerBlock = 1024;
 constexpr int kResampleMaxOut = 4096;
-constexpr uint32_t kSstvSaveDeadlineMs = 2000;
 constexpr uint32_t kSstvSaveRowsPerChunk = 8;
-constexpr uint32_t kSstvSaveBusResource = 8;
-constexpr uint32_t kSstvSaveBusOwnerId = 0x53535456u; // 'SSTV'
-constexpr const char* kSstvSaveBusOwner = "sstv_save_sd";
-
-enum class SstvSaveBusCommand : uint8_t
-{
-    Prepare = 1,
-    Header,
-    Rows,
-    Flush,
-    Close,
-};
-
-class SstvSaveBusGate final
-{
-  public:
-    explicit SstvSaveBusGate(SstvSaveBusCommand command, uint32_t deadline_ms)
-        : scope_(::platform::esp::common::shared_spi_coordinator(),
-                 makeRequest(command, deadline_ms))
-    {
-    }
-
-    bool locked() const
-    {
-        return scope_.acquired();
-    }
-
-  private:
-    static sys::runtime::BusAcquireRequest makeRequest(SstvSaveBusCommand command,
-                                                       uint32_t deadline_ms)
-    {
-        sys::runtime::BusAcquireRequest request{};
-        request.resource = kSstvSaveBusResource;
-        request.policy = sys::runtime::BusAccessPolicy::DurableCommit;
-        request.command_id = kSstvSaveBusOwnerId + static_cast<uint32_t>(command);
-        request.origin = kSstvSaveBusOwnerId;
-        request.deadline_ms = deadline_ms;
-        request.owner_label = kSstvSaveBusOwner;
-        return request;
-    }
-
-    sys::runtime::ScopedBusAccessToken scope_;
-};
 
 struct LinearResampler
 {
@@ -505,10 +459,8 @@ bool flush_save_file(FileT& file)
 }
 
 template <typename FileT>
-void close_save_file(FileT& file, uint32_t deadline_ms)
+void close_save_file(FileT& file)
 {
-    SstvSaveBusGate close_gate(SstvSaveBusCommand::Close, deadline_ms);
-    (void)close_gate.locked();
     file.close();
 }
 
@@ -612,7 +564,6 @@ bool save_frame_to_sd()
         return false;
     }
 
-    const uint32_t deadline_ms = sys::millis_now() + kSstvSaveDeadlineMs;
     char path[64];
 
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
@@ -621,44 +572,36 @@ bool save_frame_to_sd()
     ::platform::esp::arduino_common::storage::SdRuntimeFile f;
 #endif
 
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    if (s_tab5_storage.cardType() == CARD_NONE)
+#else
+    if (!::platform::esp::arduino_common::storage::sd_card_ready())
+#endif
     {
-        SstvSaveBusGate prepare_gate(SstvSaveBusCommand::Prepare, deadline_ms);
-        if (!prepare_gate.locked())
-        {
-            set_error("SD busy");
-            return false;
-        }
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
-        if (s_tab5_storage.cardType() == CARD_NONE)
-#else
-        if (!::platform::esp::arduino_common::storage::sd_card_ready())
-#endif
-        {
-            set_error("SD not ready");
-            return false;
-        }
-        if (!ensure_sstv_dir())
-        {
-            set_error("SD mkdir failed");
-            return false;
-        }
+        set_error("SD not ready");
+        return false;
+    }
+    if (!ensure_sstv_dir())
+    {
+        set_error("SD mkdir failed");
+        return false;
+    }
 
-        if (!build_save_path(path, sizeof(path)))
-        {
-            set_error("SD path failed");
-            return false;
-        }
+    if (!build_save_path(path, sizeof(path)))
+    {
+        set_error("SD path failed");
+        return false;
+    }
 
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
-        f = s_tab5_storage.open(path, FILE_WRITE);
-        if (!f)
+    f = s_tab5_storage.open(path, FILE_WRITE);
+    if (!f)
 #else
-        if (!f.open(path, "w"))
+    if (!f.open(path, "w"))
 #endif
-        {
-            set_error("SD open failed");
-            return false;
-        }
+    {
+        set_error("SD open failed");
+        return false;
     }
 
     auto fail_after_open = [&](uint8_t* buffer, const char* message) -> bool
@@ -667,7 +610,7 @@ bool save_frame_to_sd()
         {
             free(buffer);
         }
-        close_save_file(f, deadline_ms);
+        close_save_file(f);
         set_error(message);
         return false;
     };
@@ -709,23 +652,16 @@ bool save_frame_to_sd()
     info_hdr[22] = static_cast<uint8_t>((pixel_bytes >> 16) & 0xFF);
     info_hdr[23] = static_cast<uint8_t>((pixel_bytes >> 24) & 0xFF);
 
+    if (!write_exact(f, file_hdr, sizeof(file_hdr)) ||
+        !write_exact(f, info_hdr, sizeof(info_hdr)))
     {
-        SstvSaveBusGate header_gate(SstvSaveBusCommand::Header, deadline_ms);
-        if (!header_gate.locked())
-        {
-            return fail_after_open(nullptr, "SD busy");
-        }
-        if (!write_exact(f, file_hdr, sizeof(file_hdr)) ||
-            !write_exact(f, info_hdr, sizeof(info_hdr)))
-        {
-            return fail_after_open(nullptr, "SD write failed");
-        }
+        return fail_after_open(nullptr, "SD write failed");
     }
 
     uint8_t* rowbuf = static_cast<uint8_t*>(malloc(row24));
     if (!rowbuf)
     {
-        close_save_file(f, deadline_ms);
+        close_save_file(f);
         set_error("SD buffer fail");
         return false;
     }
@@ -734,26 +670,18 @@ bool save_frame_to_sd()
     uint32_t y = 0;
     while (y < h)
     {
+        uint32_t chunk_end = y + kSstvSaveRowsPerChunk;
+        if (chunk_end > h)
         {
-            SstvSaveBusGate rows_gate(SstvSaveBusCommand::Rows, deadline_ms);
-            if (!rows_gate.locked())
+            chunk_end = h;
+        }
+        for (; y < chunk_end; ++y)
+        {
+            const uint16_t* row = s_frame + (h - 1 - y) * w;
+            fill_bmp_row(rowbuf, row24, row, w);
+            if (!write_exact(f, rowbuf, row24))
             {
-                return fail_after_open(rowbuf, "SD busy");
-            }
-
-            uint32_t chunk_end = y + kSstvSaveRowsPerChunk;
-            if (chunk_end > h)
-            {
-                chunk_end = h;
-            }
-            for (; y < chunk_end; ++y)
-            {
-                const uint16_t* row = s_frame + (h - 1 - y) * w;
-                fill_bmp_row(rowbuf, row24, row, w);
-                if (!write_exact(f, rowbuf, row24))
-                {
-                    return fail_after_open(rowbuf, "SD write failed");
-                }
+                return fail_after_open(rowbuf, "SD write failed");
             }
         }
 
@@ -763,19 +691,12 @@ bool save_frame_to_sd()
         }
     }
 
+    if (!flush_save_file(f))
     {
-        SstvSaveBusGate flush_gate(SstvSaveBusCommand::Flush, deadline_ms);
-        if (!flush_gate.locked())
-        {
-            return fail_after_open(rowbuf, "SD busy");
-        }
-        if (!flush_save_file(f))
-        {
-            return fail_after_open(rowbuf, "SD flush failed");
-        }
+        return fail_after_open(rowbuf, "SD flush failed");
     }
 
-    close_save_file(f, deadline_ms);
+    close_save_file(f);
     free(rowbuf);
 
     snprintf(s_saved_path, sizeof(s_saved_path), "%s", path);

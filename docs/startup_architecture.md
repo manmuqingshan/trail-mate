@@ -61,9 +61,9 @@ timeout or an extra retry could not guarantee that the first frame was ever
 visible.
 
 The new contract makes the dependency explicit: the boot UI is the barrier
-between hardware visibility and service startup. It also keeps the existing
-SPI coordinator semantics intact: the first frame must complete as a physical
-display transaction before shared-SPI users are started.
+between hardware visibility and service startup. The display device service
+must report the first frame as complete before other hardware services are
+started; the physical transaction policy remains inside that device service.
 
 ## Review invariants
 

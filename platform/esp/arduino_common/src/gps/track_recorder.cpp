@@ -1,7 +1,5 @@
 #include "platform/esp/arduino_common/gps/track_recorder.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_coordinator.h"
-#include "sys/bus_access_scope.h"
 
 #include <cmath>
 #include <esp_heap_caps.h>
@@ -42,43 +40,8 @@ constexpr uint8_t kActiveVersion = 1;
 constexpr uint8_t kActiveFlagManual = 0x01;
 constexpr uint8_t kActiveFlagAuto = 0x02;
 constexpr const char* kActivePath = "/trackers/active.bin";
-constexpr uint32_t kTrackBusResource = 3;
-constexpr uint32_t kTrackBusOwnerId = 0x54524B; // 'TRK'
-constexpr const char* kTrackBusOwner = "track_sd";
 constexpr uint32_t kPendingFlushIntervalMs = 5000;
 constexpr size_t kPendingFlushThreshold = 6;
-
-class TrackRecorderBusGate final
-{
-  public:
-    TrackRecorderBusGate(sys::runtime::RuntimeCommandKind kind,
-                         sys::runtime::BusAccessPolicy policy)
-        : scope_(::platform::esp::common::shared_spi_coordinator(),
-                 makeRequest(kind, policy))
-    {
-    }
-
-    bool locked() const
-    {
-        return scope_.acquired();
-    }
-
-  private:
-    static sys::runtime::BusAcquireRequest makeRequest(
-        sys::runtime::RuntimeCommandKind kind,
-        sys::runtime::BusAccessPolicy policy)
-    {
-        sys::runtime::BusAcquireRequest request{};
-        request.resource = kTrackBusResource;
-        request.policy = policy;
-        request.command_id = static_cast<uint32_t>(kind);
-        request.origin = kTrackBusOwnerId;
-        request.owner_label = kTrackBusOwner;
-        return request;
-    }
-
-    sys::runtime::ScopedBusAccessToken scope_;
-};
 
 double deg2rad(double deg)
 {
@@ -285,12 +248,6 @@ bool TrackRecorder::start()
     bool ok = false;
     do
     {
-        TrackRecorderBusGate bus_gate(sys::runtime::RuntimeCommandKind::TrackStart,
-                                      sys::runtime::BusAccessPolicy::DurableCommit);
-        if (!bus_gate.locked())
-        {
-            break;
-        }
         if (!ensureDir())
         {
             break;
@@ -319,17 +276,6 @@ void TrackRecorder::stop()
 {
     if (mutex_ && xSemaphoreTake(mutex_, pdMS_TO_TICKS(400)) != pdTRUE)
     {
-        return;
-    }
-
-    TrackRecorderBusGate bus_gate(sys::runtime::RuntimeCommandKind::TrackStop,
-                                  sys::runtime::BusAccessPolicy::DurableCommit);
-    if (!bus_gate.locked())
-    {
-        if (mutex_)
-        {
-            xSemaphoreGive(mutex_);
-        }
         return;
     }
 
@@ -377,20 +323,6 @@ void TrackRecorder::setAutoRecording(bool enabled)
 {
     if (mutex_ && xSemaphoreTake(mutex_, pdMS_TO_TICKS(200)) != pdTRUE)
     {
-        return;
-    }
-
-    const sys::runtime::RuntimeCommandKind command_kind =
-        enabled ? sys::runtime::RuntimeCommandKind::TrackStart
-                : sys::runtime::RuntimeCommandKind::TrackStop;
-    TrackRecorderBusGate bus_gate(command_kind,
-                                  sys::runtime::BusAccessPolicy::DurableCommit);
-    if (!bus_gate.locked())
-    {
-        if (mutex_)
-        {
-            xSemaphoreGive(mutex_);
-        }
         return;
     }
 
@@ -468,17 +400,6 @@ void TrackRecorder::setFormat(TrackFormat format)
     if (!recording_)
     {
         format_ = format;
-        if (mutex_)
-        {
-            xSemaphoreGive(mutex_);
-        }
-        return;
-    }
-
-    TrackRecorderBusGate bus_gate(sys::runtime::RuntimeCommandKind::TrackFlush,
-                                  sys::runtime::BusAccessPolicy::DurableCommit);
-    if (!bus_gate.locked())
-    {
         if (mutex_)
         {
             xSemaphoreGive(mutex_);
@@ -615,20 +536,6 @@ void TrackRecorder::flushPending(bool force)
         return;
     }
 
-    const sys::runtime::BusAccessPolicy policy =
-        force ? sys::runtime::BusAccessPolicy::DurableCommit
-              : sys::runtime::BusAccessPolicy::UiNeverBlock;
-    TrackRecorderBusGate bus_gate(sys::runtime::RuntimeCommandKind::TrackFlush,
-                                  policy);
-    if (!bus_gate.locked())
-    {
-        if (mutex_)
-        {
-            xSemaphoreGive(mutex_);
-        }
-        return;
-    }
-
     (void)writePendingPointsLocked(force);
 
     if (mutex_)
@@ -711,12 +618,6 @@ bool TrackRecorder::restoreActiveSession()
     bool ok = false;
     do
     {
-        TrackRecorderBusGate bus_gate(sys::runtime::RuntimeCommandKind::TrackStart,
-                                      sys::runtime::BusAccessPolicy::DurableCommit);
-        if (!bus_gate.locked())
-        {
-            break;
-        }
         if (!sd_card_ready())
         {
             break;
@@ -890,14 +791,6 @@ size_t TrackRecorder::listTracks(String* out_names, size_t max_names) const
             xSemaphoreGive(mutex_);
         }
     };
-
-    TrackRecorderBusGate bus_gate(sys::runtime::RuntimeCommandKind::TrackList,
-                                  sys::runtime::BusAccessPolicy::UiNeverBlock);
-    if (!bus_gate.locked())
-    {
-        release_mutex();
-        return 0;
-    }
 
     if (!sd_card_ready())
     {

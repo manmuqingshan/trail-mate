@@ -1529,6 +1529,7 @@ bool load_font_pack(FontPackRecord& pack)
                 static_cast<unsigned long>(pack.estimated_ram_bytes));
 #endif
     ScopedFontLoadOverlay overlay(pack);
+    bool font_fs_busy = false;
     {
         ScopedExternalFontLoadFs fs_scope;
         if (!fs_scope.active())
@@ -1557,23 +1558,27 @@ bool load_font_pack(FontPackRecord& pack)
             return false;
         }
         pack.owned_font = lv_binfont_create(pack.source_path.c_str());
+#if UI_I18N_HAVE_EXTERNAL_FONT_LOAD_FS_SCOPE
+        font_fs_busy = lv_external_font_load_fs_was_busy();
+#endif
     }
     if (pack.owned_font == nullptr)
     {
-        record_font_load_failure(pack,
-                                 sys::millis_now(),
-                                 FontLoadFailureKind::Permanent);
+        const FontLoadFailureKind failure_kind =
+            font_fs_busy ? FontLoadFailureKind::TransientBusBusy
+                         : FontLoadFailureKind::Permanent;
+        record_font_load_failure(pack, sys::millis_now(), failure_kind);
         std::printf("%s font load failed id=%s source=%s reason=%s\n",
                     kLogTag,
                     pack.id.c_str(),
                     pack.source_path.c_str(),
-                    font_load_failure_kind_name(FontLoadFailureKind::Permanent));
+                    font_load_failure_kind_name(failure_kind));
 #if UI_I18N_ROUTE_LOG_ENABLE
         std::printf("%s[route] route=pack_load state=failed id=%s source=%s reason=%s failures=%u\n",
                     kLogTag,
                     pack.id.c_str(),
                     pack.source_path.c_str(),
-                    font_load_failure_kind_name(FontLoadFailureKind::Permanent),
+                    font_load_failure_kind_name(failure_kind),
                     static_cast<unsigned>(pack.load_failure_count));
 #endif
         return false;

@@ -20,6 +20,11 @@ HOT_PATH_PREFIXES = (
     "platform/esp/arduino_common/src/chat/infra/meshtastic/",
     "platform/esp/arduino_common/src/chat/infra/reticulum/",
     "platform/esp/arduino_common/src/chat/infra/rnode/",
+    "platform/esp/radio/",
+    "modules/core_chat/src/infra/meshtastic/",
+    "modules/core_chat/src/runtime/",
+    "modules/core_mesh/src/protocol/meshtastic/",
+    "modules/core_mesh/src/usecase/",
     "modules/core_phone/src/meshtastic/",
 )
 
@@ -64,6 +69,9 @@ HIGH_RISK_PROTOCOL_TYPES = (
     "EncodedAirPacketSet",
     "chat::rnode::EncodedAirPacketSet",
     "QueuedPacket",
+    "RadioRxPacket",
+    "EncodedPacket",
+    "MeshProtocolEvent",
 )
 
 HIGH_RISK_CONFIG_TYPES = (
