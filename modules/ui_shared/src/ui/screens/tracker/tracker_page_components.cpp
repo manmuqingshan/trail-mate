@@ -560,7 +560,7 @@ bool repair_degraded_active_route_from_list()
 {
     auto& state = g_tracker_state;
     app::IAppFacade& app_ctx = app::appFacade();
-    auto& cfg = app_ctx.getConfig();
+    const auto& cfg = app_ctx.getConfig();
     if (!cfg.route_enabled || cfg.route_path[0] == '\0')
     {
         return false;
@@ -578,10 +578,17 @@ bool repair_degraded_active_route_from_list()
 
     const std::string repaired_name = s_route_names.front();
     const std::string repaired_path = route_path_for_name(repaired_name);
-    std::strncpy(cfg.route_path, repaired_path.c_str(), sizeof(cfg.route_path) - 1);
-    cfg.route_path[sizeof(cfg.route_path) - 1] = '\0';
-    cfg.route_enabled = true;
-    app_ctx.saveConfig();
+    auto edit = app_ctx.beginConfigEdit();
+    if (!edit)
+    {
+        return false;
+    }
+    std::strncpy(edit.config().route_path,
+                 repaired_path.c_str(),
+                 sizeof(edit.config().route_path) - 1);
+    edit.config().route_path[sizeof(edit.config().route_path) - 1] = '\0';
+    edit.config().route_enabled = true;
+    edit.commit(app::AppConfigChangeSet::route());
     state.active_route = repaired_name;
     return true;
 }
@@ -3938,13 +3945,17 @@ void on_route_load_clicked(lv_event_t*)
     state.active_route = state.selected_route;
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        auto& cfg = app_ctx.getConfig();
-        cfg.route_enabled = true;
+        auto edit = app_ctx.beginConfigEdit();
+        if (!edit)
+        {
+            return;
+        }
+        edit.config().route_enabled = true;
         char path[96];
         snprintf(path, sizeof(path), "%s/%s", platform::ui::route_storage::route_dir(), state.active_route.c_str());
-        strncpy(cfg.route_path, path, sizeof(cfg.route_path) - 1);
-        cfg.route_path[sizeof(cfg.route_path) - 1] = '\0';
-        app_ctx.saveConfig();
+        strncpy(edit.config().route_path, path, sizeof(edit.config().route_path) - 1);
+        edit.config().route_path[sizeof(edit.config().route_path) - 1] = '\0';
+        edit.commit(app::AppConfigChangeSet::route());
     }
     update_route_status();
 }
@@ -3960,10 +3971,13 @@ void on_route_unload_clicked(lv_event_t*)
     state.active_route.clear();
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        auto& cfg = app_ctx.getConfig();
-        cfg.route_enabled = false;
-        cfg.route_path[0] = '\0';
-        app_ctx.saveConfig();
+        auto edit = app_ctx.beginConfigEdit();
+        if (edit)
+        {
+            edit.config().route_enabled = false;
+            edit.config().route_path[0] = '\0';
+            edit.commit(app::AppConfigChangeSet::route());
+        }
     }
     update_route_status();
 }
@@ -4013,10 +4027,13 @@ void on_del_confirm_clicked(lv_event_t*)
         if (!state.active_route.empty() && state.active_route == state.pending_delete_name)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            auto& cfg = app_ctx.getConfig();
-            cfg.route_enabled = false;
-            cfg.route_path[0] = '\0';
-            app_ctx.saveConfig();
+            auto edit = app_ctx.beginConfigEdit();
+            if (edit)
+            {
+                edit.config().route_enabled = false;
+                edit.config().route_path[0] = '\0';
+                edit.commit(app::AppConfigChangeSet::route());
+            }
             state.active_route.clear();
         }
         ok = platform::ui::route_storage::remove_route(path);

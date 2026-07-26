@@ -805,6 +805,20 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_app_config_defaults_smoke
              COMMAND trailmate_app_config_defaults_smoke)
 
+    add_executable(trailmate_app_config_change_detection_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_app_config_change_detection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_protocol_utils.cpp")
+    target_include_directories(trailmate_app_config_change_detection_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_gps/include")
+    target_compile_definitions(trailmate_app_config_change_detection_smoke
+        PRIVATE TRAIL_MATE_LORA_TX_POWER_MAX_DBM=22)
+    target_compile_features(trailmate_app_config_change_detection_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_app_config_change_detection_smoke
+             COMMAND trailmate_app_config_change_detection_smoke)
     add_executable(trailmate_screen_brightness_steps_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_screen_brightness_steps.cpp")
     target_include_directories(trailmate_screen_brightness_steps_smoke

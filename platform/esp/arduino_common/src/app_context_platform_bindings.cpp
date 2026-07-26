@@ -107,13 +107,19 @@ void init_track_recorder(const app::AppConfig& config)
 
 void deferred_storage_ready(app::IAppFacade& app_facade)
 {
-    app::AppConfig& config = app_facade.getConfig();
+    const app::AppConfig& config = app_facade.getConfig();
     if (chat::infra::isReticulumMeshProtocol(
             chat::infra::normalizeMeshProtocol(config.mesh_protocol)))
     {
+        auto edit = app_facade.beginConfigEdit();
+        if (!edit)
+        {
+            return;
+        }
         const auto status = ::platform::ui::reticulum_groups::load(
-            config.reticulumConfig().reticulum_groups,
+            edit.config().reticulumConfig().reticulum_groups,
             chat::kReticulumGroupDestinationMaxCount);
+        edit.commit(app::AppConfigChangeSet::none());
         Serial.printf("[RTGroupConfig] deferred sd=%u loaded=%u file=%u message=%s detail=%s\n",
                       status.sd_present ? 1U : 0U,
                       status.loaded ? 1U : 0U,

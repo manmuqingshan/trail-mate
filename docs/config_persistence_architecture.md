@@ -14,7 +14,9 @@ code.
 
 `AppConfigChangeSet` is the persistence intent: it says which configuration
 domain changed. It does not name NVS namespaces, files, SD card paths, SPI buses,
-or locks.
+or locks. A domain selects a persistence section, not an individual key. For
+example, a `Map` request permits the ESP adapter to rewrite the map keys in the
+`settings` section; it is not a promise that only `map_source` is written.
 
 The platform persistence backend maps change domains to concrete storage. On
 ESP Arduino today this storage is Preferences/NVS, not SD card and not shared
@@ -48,14 +50,19 @@ request a platform namespace such as `chat`, `settings`, or `gps`.
 
 1. Startup loads `AppConfig` from the platform backend.
 2. `AppContext` copies the loaded config into its PSRAM-backed save baseline.
-3. A save request enqueues a small `AppConfigChangeSet`.
-4. Existing zero-argument `saveConfig()` and `requestSaveConfig()` calls are
-   supported by detecting changed domains against the current baseline.
+3. A writer opens `beginConfigEdit()`. The returned small token holds the
+   configuration mutex while the caller makes one coherent update.
+4. `commit(changes)` publishes the edit and replaces the pending snapshot with
+   the current configuration. The token destructor cancels the edit without
+   publishing it.
 5. The async save worker debounces requests and persists the latest queued
-   snapshot.
+   snapshot. A later edit can replace an older pending snapshot, including by
+   reverting to the last persisted value.
 6. The ESP backend maps domains to Preferences/NVS sections and writes only the
    required sections.
-7. On success, the in-flight snapshot becomes the new save baseline.
+7. On success, the in-flight snapshot becomes the new save baseline. Any
+   pending snapshot is reconciled against that new baseline before another
+   write is allowed.
 8. On failure, the baseline is invalidated and retry conservatively persists all
    persisted domains until a save succeeds.
 
@@ -75,6 +82,39 @@ config, or byte-buffer automatic locals on ESP task stacks.
 This mapping is an adapter concern. It may change per platform without changing
 business code.
 
+## Configuration Ownership
+
+`AppConfig` is still a compatibility aggregate, but every field must have one
+clear persistence owner. The following fields are deliberately not all handled
+by the same mechanism:
+
+| State | Owner | `saveConfig()` meaning |
+| --- | --- | --- |
+| `AppConfig::chat_policy.max_channels` | AppConfig / `chat` section | Persisted as part of `Channels` |
+| `AppConfig::reticulumConfig().reticulum_groups` | Reticulum group storage | Runtime mirror only; loaded and saved by its own SD-backed owner |
+| `AppConfig::ble_enabled` | BLE runtime policy | Not an AppConfig persistence field on ESP Arduino; the backend currently keeps it disabled |
+| Settings backup JSON | Settings backup service | Separate full backup/restore format, not the async NVS section writer |
+
+Adding a field to `AppConfig` does not make it persistent automatically. The
+field must be assigned to a domain, included in change detection, and handled
+by the owning adapter, or explicitly documented as runtime-only.
+
+## Edit Boundary And Platform Semantics
+
+`beginConfigEdit()` is the ownership seam between business code and the
+configuration aggregate. New code must use it for writes so that mutation and
+snapshot creation happen under one synchronization boundary. The mutable
+`getConfig()` overload remains only as deprecated source compatibility for
+legacy call sites; it must not be used for new writes and will be removed after
+the remaining callers migrate.
+
+The scoped `saveConfig(AppConfigChangeSet)` contract is implemented explicitly
+by every facade. ESP Arduino uses the domains to select Preferences sections.
+IDF, Linux, and nRF52 currently use full-blob or full-snapshot persistence, so
+they intentionally expand the request to a complete save until their adapters
+gain section-level writers. This fallback is visible in each implementation and
+is not a silent default in the shared interface.
+
 ## Non-Goals
 
 This mechanism does not define map tile rendering, SD tile storage, contact
@@ -90,8 +130,22 @@ and is not allowed.
 
 ## Implementation Rules
 
-Routine business code should call scoped persistence when it knows the changed
-domain, for example `requestSaveConfig(AppConfigChangeSet::map())`.
+Routine business code should use an edit transaction and commit the domain it
+changed, for example:
+
+```cpp
+auto edit = config_api.beginConfigEdit();
+if (edit)
+{
+    edit.config().map_source = source;
+    edit.commit(AppConfigChangeSet::map());
+}
+```
+
+Code that only has a notification after an already-owned update may call
+`requestSaveConfig(AppConfigChangeSet::map())`. A no-argument save remains a
+compatibility path and is reconciled against the current snapshot; it must not
+be used to hide an unbounded configuration mutation.
 
 Legacy zero-argument saves are tolerated only because `AppContext` detects
 changed domains. New code should not rely on zero-argument saves when the domain

@@ -77,6 +77,7 @@ class LinuxAppServices final
     [[nodiscard]] ::app::AppConfig& getConfig();
     [[nodiscard]] const ::app::AppConfig& getConfig() const;
     void saveConfig();
+    void saveConfig(::app::AppConfigChangeSet changes);
     void applyMeshConfig();
     void applyUserInfo();
     void applyPositionConfig();

@@ -128,10 +128,35 @@ const ::app::AppConfig& MinimalLinuxAppFacade::getConfig() const
     return services_.getConfig();
 }
 
+::app::AppConfigEdit MinimalLinuxAppFacade::beginConfigEdit()
+{
+    return ::app::AppConfigEdit(&services_.getConfig(),
+                                this,
+                                &MinimalLinuxAppFacade::commitConfigEdit,
+                                &MinimalLinuxAppFacade::cancelConfigEdit);
+}
+
 void MinimalLinuxAppFacade::saveConfig()
 {
     services_.saveConfig();
 }
+
+void MinimalLinuxAppFacade::saveConfig(::app::AppConfigChangeSet changes)
+{
+    services_.saveConfig(changes);
+}
+
+void MinimalLinuxAppFacade::commitConfigEdit(void* context,
+                                             ::app::AppConfigChangeSet changes)
+{
+    auto* self = static_cast<MinimalLinuxAppFacade*>(context);
+    if (self)
+    {
+        self->saveConfig(changes);
+    }
+}
+
+void MinimalLinuxAppFacade::cancelConfigEdit(void*) {}
 
 void MinimalLinuxAppFacade::applyMeshConfig()
 {

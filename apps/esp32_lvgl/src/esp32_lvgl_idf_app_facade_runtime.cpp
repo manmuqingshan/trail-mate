@@ -1018,8 +1018,16 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         return background_tasks_started_;
     }
 
-    app::AppConfig& getConfig() override { return config_; }
+    [[deprecated("Use beginConfigEdit() for configuration writes")]] app::AppConfig& getConfig() override { return config_; }
     const app::AppConfig& getConfig() const override { return config_; }
+
+    app::AppConfigEdit beginConfigEdit() override
+    {
+        return app::AppConfigEdit(&config_,
+                                  this,
+                                  &IdfAppFacadeRuntime::commitConfigEdit,
+                                  &IdfAppFacadeRuntime::cancelConfigEdit);
+    }
 
     void saveConfig() override
     {
@@ -1029,6 +1037,12 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
             chat_service_->setActiveProtocol(config_.mesh_protocol);
         }
         (void)saveIdfAppConfig(config_);
+    }
+
+    void saveConfig(app::AppConfigChangeSet changes) override
+    {
+        (void)changes;
+        saveConfig();
     }
 
     void applyMeshConfig() override
@@ -1301,6 +1315,17 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     bool initialized() const { return initialized_; }
 
   private:
+    static void commitConfigEdit(void* context, app::AppConfigChangeSet changes)
+    {
+        auto* self = static_cast<IdfAppFacadeRuntime*>(context);
+        if (self)
+        {
+            self->saveConfig(changes);
+        }
+    }
+
+    static void cancelConfigEdit(void*) {}
+
     static void copyString(char* dst, size_t dst_len, const char* src)
     {
         if (!dst || dst_len == 0)

@@ -173,7 +173,8 @@ inline bool mesh_config_differs(const AppConfig& lhs, const AppConfig& rhs)
 
 inline bool channel_config_differs(const AppConfig& lhs, const AppConfig& rhs)
 {
-    return lhs.primary_enabled != rhs.primary_enabled ||
+    return lhs.chat_policy.max_channels != rhs.chat_policy.max_channels ||
+           lhs.primary_enabled != rhs.primary_enabled ||
            lhs.secondary_enabled != rhs.secondary_enabled ||
            lhs.primary_uplink_enabled != rhs.primary_uplink_enabled ||
            lhs.primary_downlink_enabled != rhs.primary_downlink_enabled ||

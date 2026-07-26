@@ -346,6 +346,34 @@ void AppFacadeRuntime::saveConfig()
     platform::nrf52::debug_console::printf("%s[cfg] save deferred-store queued\n", target_board::kLogTag);
 }
 
+void AppFacadeRuntime::saveConfig(app::AppConfigChangeSet changes)
+{
+    // The nRF52 board store is a complete settings snapshot. The scoped
+    // request is accepted explicitly and expanded at this adapter seam.
+    (void)changes;
+    saveConfig();
+}
+
+app::AppConfigEdit AppFacadeRuntime::beginConfigEdit()
+{
+    return app::AppConfigEdit(&config_,
+                              this,
+                              &AppFacadeRuntime::commitConfigEdit,
+                              &AppFacadeRuntime::cancelConfigEdit);
+}
+
+void AppFacadeRuntime::commitConfigEdit(void* context,
+                                        app::AppConfigChangeSet changes)
+{
+    auto* self = static_cast<AppFacadeRuntime*>(context);
+    if (self)
+    {
+        self->saveConfig(changes);
+    }
+}
+
+void AppFacadeRuntime::cancelConfigEdit(void*) {}
+
 void AppFacadeRuntime::applyMeshConfig()
 {
     if (consumePostSaveApplySkip(kSkipApplyMesh, "applyMesh"))

@@ -51,6 +51,11 @@ class AppConfigChangeSet
         return (bits_ & other.bits_) != 0;
     }
 
+    constexpr bool containsAll(AppConfigChangeSet other) const
+    {
+        return (bits_ & other.bits_) == other.bits_;
+    }
+
     constexpr AppConfigChangeSet merged(AppConfigChangeSet other) const
     {
         return AppConfigChangeSet(bits_ | other.bits_);

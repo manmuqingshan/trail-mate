@@ -74,8 +74,13 @@ ui::UiActionResult RuntimeSettingsActionSink::applySetting(
         }
 
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().gps_enabled = enabled;
-        app_ctx.saveConfig();
+        auto edit = app_ctx.beginConfigEdit();
+        if (!edit)
+        {
+            return ui::UiActionResult::fail(ui::UiActionFailure::NotReady);
+        }
+        edit.config().gps_enabled = enabled;
+        edit.commit(app::AppConfigChangeSet::gps());
         ::platform::ui::gps::set_enabled(enabled);
         return ui::UiActionResult::success();
     }

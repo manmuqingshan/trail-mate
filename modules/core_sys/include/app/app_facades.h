@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "app/app_config_changes.h"
+#include "app/app_config_edit.h"
 #include "chat/domain/chat_types.h"
 
 class BoardBase;
@@ -53,15 +54,13 @@ class IAppConfigFacade
 {
   public:
     virtual ~IAppConfigFacade() = default;
-    virtual AppConfig& getConfig() = 0;
+    // Transitional compatibility only. New writes must use beginConfigEdit().
+    [[deprecated("Use beginConfigEdit() for configuration writes")]] virtual AppConfig& getConfig() = 0;
     virtual const AppConfig& getConfig() const = 0;
+    virtual AppConfigEdit beginConfigEdit() = 0;
     virtual void saveConfig() = 0;
     virtual void requestSaveConfig() { saveConfig(); }
-    virtual void saveConfig(AppConfigChangeSet changes)
-    {
-        (void)changes;
-        saveConfig();
-    }
+    virtual void saveConfig(AppConfigChangeSet changes) = 0;
     virtual void requestSaveConfig(AppConfigChangeSet changes)
     {
         saveConfig(changes);

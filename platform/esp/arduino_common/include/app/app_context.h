@@ -119,7 +119,7 @@ class AppContext final : public IAppBleFacade
         }
     }
 
-    AppConfig& getConfig() override
+    [[deprecated("Use beginConfigEdit() for configuration writes")]] AppConfig& getConfig() override
     {
         return config_;
     }
@@ -166,6 +166,7 @@ class AppContext final : public IAppBleFacade
     void requestSaveConfig() override;
     void saveConfig(AppConfigChangeSet changes) override;
     void requestSaveConfig(AppConfigChangeSet changes) override;
+    AppConfigEdit beginConfigEdit() override;
 
     void applyMeshConfig() override;
     void applyUserInfo() override;
@@ -247,6 +248,13 @@ class AppContext final : public IAppBleFacade
     void initContactServices();
     void ensureConfigSaveWorker();
     void enqueueConfigSave(AppConfigChangeSet requested_changes);
+    bool enqueueConfigSaveLocked(const AppConfig& desired_config,
+                                 AppConfigChangeSet requested_changes,
+                                 uint32_t* out_generation,
+                                 AppConfigChangeSet* out_changes);
+    void finishConfigEdit(AppConfigChangeSet changes);
+    static void commitConfigEdit(void* context, AppConfigChangeSet changes);
+    static void cancelConfigEdit(void* context);
     void configSaveLoop();
     static void configSaveTaskEntry(void* context);
 

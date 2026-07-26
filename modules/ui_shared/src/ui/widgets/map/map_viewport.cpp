@@ -1199,8 +1199,13 @@ bool set_layer_map_source(uint8_t map_source, LayerNotice* out_notice)
 
     if (changed)
     {
-        config_api.getConfig().map_source = normalized;
-        config_api.requestSaveConfig(app::AppConfigChangeSet::map());
+        auto edit = config_api.beginConfigEdit();
+        if (!edit)
+        {
+            return false;
+        }
+        edit.config().map_source = normalized;
+        edit.commit(app::AppConfigChangeSet::map());
     }
 
     if (!platform::ui::device::sd_ready())
@@ -1231,8 +1236,13 @@ bool toggle_layer_contour(LayerNotice* out_notice)
                      enabled ? 1 : 0,
                      static_cast<unsigned>(sanitize_map_source(config_api.getConfig().map_source)));
 
-    config_api.getConfig().map_contour_enabled = enabled;
-    config_api.requestSaveConfig(app::AppConfigChangeSet::map());
+    auto edit = config_api.beginConfigEdit();
+    if (!edit)
+    {
+        return false;
+    }
+    edit.config().map_contour_enabled = enabled;
+    edit.commit(app::AppConfigChangeSet::map());
 
     if (enabled)
     {

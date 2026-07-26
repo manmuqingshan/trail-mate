@@ -1832,6 +1832,14 @@ void LinuxAppServices::saveConfig()
         kConfigNamespace, kConfigBlobKey, &blob, sizeof(blob));
 }
 
+void LinuxAppServices::saveConfig(::app::AppConfigChangeSet changes)
+{
+    // The Linux blob backend has no section-level writer yet. Keep the
+    // scoped request explicit while preserving the complete blob contract.
+    (void)changes;
+    saveConfig();
+}
+
 void LinuxAppServices::applyMeshConfig()
 {
     ensureServicesReady();

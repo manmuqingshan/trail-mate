@@ -7,7 +7,7 @@
 
 #include <Arduino.h>
 
-#include "app/app_config_change_detection.h"
+#include "app/app_config_save_plan.h"
 #include "ble/ble_manager.h"
 #include "board/BoardBase.h"
 #include "board/GpsBoard.h"
@@ -294,6 +294,22 @@ void AppContext::requestSaveConfig(AppConfigChangeSet changes)
     enqueueConfigSave(changes);
 }
 
+AppConfigEdit AppContext::beginConfigEdit()
+{
+    ensureConfigSaveWorker();
+    if (config_save_mutex_ == nullptr ||
+        xSemaphoreTake(config_save_mutex_, kConfigSaveMutexWait) != pdTRUE)
+    {
+        Serial.println("[AppCfg][EDIT] unavailable");
+        return AppConfigEdit();
+    }
+
+    return AppConfigEdit(&config_,
+                         this,
+                         &AppContext::commitConfigEdit,
+                         &AppContext::cancelConfigEdit);
+}
+
 void AppContext::ensureConfigSaveWorker()
 {
     if (config_save_mutex_ == nullptr)
@@ -342,26 +358,19 @@ void AppContext::enqueueConfigSave(AppConfigChangeSet requested_changes)
             return;
         }
 
-        AppConfigChangeSet detected_changes =
-            config_save_baseline_valid_
-                ? detectAppConfigChanges(active_config_save_, config_)
-                : AppConfigChangeSet::allPersisted();
-        detected_changes.mergeIn(requested_changes);
-        if (detected_changes.empty())
+        uint32_t generation = 0;
+        AppConfigChangeSet queued_changes = AppConfigChangeSet::none();
+        const bool should_signal = enqueueConfigSaveLocked(config_,
+                                                           requested_changes,
+                                                           &generation,
+                                                           &queued_changes);
+        xSemaphoreGive(config_save_mutex_);
+
+        if (!should_signal)
         {
-            xSemaphoreGive(config_save_mutex_);
             Serial.println("[AppCfg][SAVE_ASYNC] noop");
             return;
         }
-
-        pending_config_save_ = config_;
-        pending_config_changes_.mergeIn(detected_changes);
-        ++pending_config_save_generation_;
-        const uint32_t generation = pending_config_save_generation_;
-        const AppConfigChangeSet queued_changes = pending_config_changes_;
-        config_save_pending_ = true;
-        config_save_failed_ = false;
-        xSemaphoreGive(config_save_mutex_);
 
         const uint8_t signal = 1;
         if (xQueueOverwrite(config_save_queue_, &signal) != pdTRUE)
@@ -374,6 +383,90 @@ void AppContext::enqueueConfigSave(AppConfigChangeSet requested_changes)
         Serial.printf("[AppCfg][SAVE_ASYNC] queued gen=%lu changes=0x%08lx\n",
                       static_cast<unsigned long>(generation),
                       static_cast<unsigned long>(queued_changes.bits()));
+    }
+}
+
+bool AppContext::enqueueConfigSaveLocked(const AppConfig& desired_config,
+                                         AppConfigChangeSet requested_changes,
+                                         uint32_t* out_generation,
+                                         AppConfigChangeSet* out_changes)
+{
+    const AppConfigSavePlan plan =
+        planAppConfigSave(active_config_save_,
+                          config_save_baseline_valid_,
+                          desired_config,
+                          config_save_busy_,
+                          active_config_save_,
+                          active_config_changes_,
+                          requested_changes);
+
+    pending_config_save_ = desired_config;
+    pending_config_changes_ = plan.changes;
+    config_save_pending_ = plan.queue;
+    config_save_failed_ = false;
+    if (!plan.queue)
+    {
+        pending_config_changes_ = AppConfigChangeSet::none();
+        return false;
+    }
+
+    ++pending_config_save_generation_;
+    if (out_generation)
+    {
+        *out_generation = pending_config_save_generation_;
+    }
+    if (out_changes)
+    {
+        *out_changes = pending_config_changes_;
+    }
+    return true;
+}
+
+void AppContext::finishConfigEdit(AppConfigChangeSet changes)
+{
+    uint32_t generation = 0;
+    AppConfigChangeSet queued_changes = AppConfigChangeSet::none();
+    const bool should_signal = enqueueConfigSaveLocked(config_,
+                                                       changes,
+                                                       &generation,
+                                                       &queued_changes);
+    xSemaphoreGive(config_save_mutex_);
+
+    if (!should_signal)
+    {
+        Serial.println("[AppCfg][EDIT] noop");
+        return;
+    }
+
+    const uint8_t signal = 1;
+    if (config_save_queue_ == nullptr ||
+        xQueueOverwrite(config_save_queue_, &signal) != pdTRUE)
+    {
+        Serial.printf("[AppCfg][EDIT] signal_failed gen=%lu\n",
+                      static_cast<unsigned long>(generation));
+        return;
+    }
+
+    Serial.printf("[AppCfg][EDIT] queued gen=%lu changes=0x%08lx\n",
+                  static_cast<unsigned long>(generation),
+                  static_cast<unsigned long>(queued_changes.bits()));
+}
+
+void AppContext::commitConfigEdit(void* context, AppConfigChangeSet changes)
+{
+    auto* self = static_cast<AppContext*>(context);
+    if (self)
+    {
+        self->finishConfigEdit(changes);
+    }
+}
+
+void AppContext::cancelConfigEdit(void* context)
+{
+    auto* self = static_cast<AppContext*>(context);
+    if (self && self->config_save_mutex_)
+    {
+        xSemaphoreGive(self->config_save_mutex_);
     }
 }
 
@@ -427,6 +520,15 @@ void AppContext::configSaveLoop()
                 {
                     completed_config_save_generation_ = generation;
                     config_save_baseline_valid_ = true;
+                    if (config_save_pending_)
+                    {
+                        pending_config_changes_ =
+                            detectAppConfigChanges(active_config_save_, pending_config_save_);
+                        if (pending_config_changes_.empty())
+                        {
+                            config_save_pending_ = false;
+                        }
+                    }
                 }
                 else if (!config_save_pending_)
                 {

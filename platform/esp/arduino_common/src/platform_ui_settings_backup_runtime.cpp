@@ -1339,14 +1339,19 @@ bool restore()
         return false;
     }
 
-    app::AppConfig restored = app::appFacade().getConfig();
-    restore_app_config_json(cJSON_GetObjectItemCaseSensitive(root, "app_config"), restored);
     restore_extra_settings(root);
+    app::IAppFacade& facade = app::appFacade();
+    auto edit = facade.beginConfigEdit();
+    if (!edit)
+    {
+        cJSON_Delete(root);
+        return false;
+    }
+    restore_app_config_json(cJSON_GetObjectItemCaseSensitive(root, "app_config"),
+                            edit.config());
     cJSON_Delete(root);
 
-    app::IAppFacade& facade = app::appFacade();
-    facade.getConfig() = restored;
-    facade.saveConfig();
+    edit.commit(app::AppConfigChangeSet::allPersisted());
     return true;
 }
 

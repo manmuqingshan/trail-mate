@@ -817,7 +817,7 @@ bool route_path_looks_degraded(const std::string& path)
 bool resolve_configured_route_path(std::string& out_path, bool show_fail_toast)
 {
     auto& config_facade = app::configFacade();
-    auto& config = config_facade.getConfig();
+    const auto& config = config_facade.getConfig();
     if (!config.route_enabled || config.route_path[0] == '\0')
     {
         out_path.clear();
@@ -836,10 +836,17 @@ bool resolve_configured_route_path(std::string& out_path, bool show_fail_toast)
         routes.size() == 1)
     {
         out_path = route_file_path_for_name(routes.front());
-        std::strncpy(config.route_path, out_path.c_str(), sizeof(config.route_path) - 1);
-        config.route_path[sizeof(config.route_path) - 1] = '\0';
-        config.route_enabled = true;
-        config_facade.saveConfig();
+        auto edit = config_facade.beginConfigEdit();
+        if (!edit)
+        {
+            return false;
+        }
+        std::strncpy(edit.config().route_path,
+                     out_path.c_str(),
+                     sizeof(edit.config().route_path) - 1);
+        edit.config().route_path[sizeof(edit.config().route_path) - 1] = '\0';
+        edit.config().route_enabled = true;
+        edit.commit(app::AppConfigChangeSet::route());
         return true;
     }
 

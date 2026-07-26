@@ -31,9 +31,11 @@ class MinimalLinuxAppFacade final : public ::app::IAppFacade
     void shutdown();
     bool is_initialized() const noexcept;
 
-    ::app::AppConfig& getConfig() override;
+    [[deprecated("Use beginConfigEdit() for configuration writes")]] ::app::AppConfig& getConfig() override;
     const ::app::AppConfig& getConfig() const override;
+    ::app::AppConfigEdit beginConfigEdit() override;
     void saveConfig() override;
+    void saveConfig(::app::AppConfigChangeSet changes) override;
     void applyMeshConfig() override;
     void applyUserInfo() override;
     void applyPositionConfig() override;
@@ -79,6 +81,9 @@ class MinimalLinuxAppFacade final : public ::app::IAppFacade
     void dispatchPendingEvents(std::size_t max_events = 32) override;
 
   private:
+    static void commitConfigEdit(void* context, ::app::AppConfigChangeSet changes);
+    static void cancelConfigEdit(void* context);
+
     ::trailmate::linux_app::LinuxAppServices services_;
     ::chat::ui::IChatUiRuntime* chat_ui_runtime_ = nullptr;
 };
