@@ -39,6 +39,9 @@ class ChatMessageListScreen
     ~ChatMessageListScreen();
 
     void setConversations(const std::vector<chat::ConversationMeta>& convs);
+    // A false-ready chat snapshot is not an empty inbox. Keep that transient
+    // projection distinct from a successfully loaded list with zero rows.
+    void setDataLoading(bool loading);
     void updateBatteryFromBoard();
 
     void setSelected(int index);
@@ -137,6 +140,7 @@ class ChatMessageListScreen
     int selected_index_ = -1;
     FilterMode filter_mode_ = FilterMode::Direct;
     bool filter_panel_visible_ = true;
+    bool data_loading_ = false;
     char search_query_[32] = {};
     ::ui::components::floating_search_box::State search_box_{};
 

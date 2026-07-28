@@ -29,10 +29,10 @@ void stop_deferred_storage();
 // exclusive hydration phase.
 bool hydration_active();
 
-// Optional interactive SD reads, such as map tiles, must defer while the
-// shared-display-SPI startup hydration barrier is active. The query is false
-// for independent storage topologies.
-bool interactive_storage_reads_deferred();
+// Returns true from the initial arm through successful initial hydration,
+// including the display gate and retry backoff. User-facing pages use this to
+// distinguish a loading cache from a genuinely empty store.
+bool initial_hydration_pending();
 
 // Returns true once after the initial hydration has completed successfully.
 // The foreground loop uses this edge to apply non-critical SD-backed state.

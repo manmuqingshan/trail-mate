@@ -1,6 +1,6 @@
 {
   "name": "SdFat",
-  "version": "2.3.1-trailmate.1",
+  "version": "2.3.1-trailmate.2",
   "frameworks": [
     "arduino"
   ],

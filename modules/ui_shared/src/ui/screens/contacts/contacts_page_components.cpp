@@ -4618,12 +4618,45 @@ void refresh_ui()
         bind_page_shortcuts(add_item);
     }
 
-    if (current_list->empty() &&
-        search_active() &&
-        is_searchable_contacts_mode(g_contacts_state.current_mode))
+    const bool searchable_mode =
+        is_searchable_contacts_mode(g_contacts_state.current_mode);
+    const bool empty_contact_data_mode =
+        g_contacts_state.current_mode == ContactsMode::Contacts ||
+        g_contacts_state.current_mode == ContactsMode::Nearby ||
+        g_contacts_state.current_mode == ContactsMode::Ignored;
+    const bool show_hydration_loading =
+        current_list->empty() && !search_active() && empty_contact_data_mode &&
+        g_contacts_state.contacts_data_hydration_pending;
+    const bool show_empty_data_hint =
+        current_list->empty() && !search_active() && empty_contact_data_mode &&
+        !g_contacts_state.contacts_data_hydration_pending;
+    const bool show_no_matches =
+        current_list->empty() && search_active() && searchable_mode;
+    if (show_hydration_loading || show_empty_data_hint || show_no_matches)
     {
+        const char* label_text = "";
+        if (show_hydration_loading)
+        {
+            label_text = "Loading contacts...";
+        }
+        else if (show_no_matches)
+        {
+            label_text = "No matches";
+        }
+        else if (g_contacts_state.current_mode == ContactsMode::Nearby)
+        {
+            label_text = "No nearby nodes";
+        }
+        else if (g_contacts_state.current_mode == ContactsMode::Ignored)
+        {
+            label_text = "No ignored nodes";
+        }
+        else
+        {
+            label_text = "No contacts yet";
+        }
         g_contacts_state.empty_label = lv_label_create(g_contacts_state.sub_container);
-        ::ui::i18n::set_label_text(g_contacts_state.empty_label, "No matches");
+        ::ui::i18n::set_label_text(g_contacts_state.empty_label, label_text);
         contacts::ui::style::apply_label_muted(g_contacts_state.empty_label);
         lv_obj_set_width(g_contacts_state.empty_label, LV_PCT(100));
         lv_obj_set_style_pad_all(g_contacts_state.empty_label, 8, LV_PART_MAIN);

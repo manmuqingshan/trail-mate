@@ -94,6 +94,9 @@ struct ContactsPageState
     uint32_t contacts_data_revision = 0;
     uint32_t rendered_data_revision = 0;
     bool contacts_data_signature_valid = false;
+    // True until the platform finishes the initial durable peer-directory hydration.
+    // This keeps an empty startup cache distinct from a real empty contacts list.
+    bool contacts_data_hydration_pending = false;
     ContactsMode focused_filter_mode = ContactsMode::Contacts;
     bool focused_filter_mode_valid = false;
 

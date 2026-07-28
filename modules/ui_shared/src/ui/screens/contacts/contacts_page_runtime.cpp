@@ -21,6 +21,14 @@
 #include "ui/widgets/ime/ime_widget.h"
 #include "ui/widgets/top_bar.h"
 
+#if defined(ARDUINO_ARCH_ESP32) && \
+    __has_include("platform/esp/arduino_common/storage/storage_runtime.h")
+#define TRAIL_MATE_CONTACTS_HAS_STORAGE_HYDRATION_STATUS 1
+#include "platform/esp/arduino_common/storage/storage_runtime.h"
+#else
+#define TRAIL_MATE_CONTACTS_HAS_STORAGE_HYDRATION_STATUS 0
+#endif
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -49,6 +57,15 @@ constexpr uint32_t kContactsRefreshIntervalMs = 2000;
 constexpr std::size_t kReticulumDirectoryProjectionLimit = 100;
 
 const Host* s_host = nullptr;
+
+bool contacts_initial_hydration_pending()
+{
+#if TRAIL_MATE_CONTACTS_HAS_STORAGE_HYDRATION_STATUS
+    return ::platform::esp::arduino_common::storage::initial_hydration_pending();
+#else
+    return false;
+#endif
+}
 
 void destroy_contacts_page_runtime()
 {
@@ -283,11 +300,15 @@ void contacts_refresh_timer_cb(lv_timer_t* timer)
     const size_t before_contacts = g_contacts_state.contacts_list.size();
     const size_t before_nearby = g_contacts_state.nearby_list.size();
     const size_t before_ignored = g_contacts_state.ignored_list.size();
+    const bool before_hydration_pending = g_contacts_state.contacts_data_hydration_pending;
 
     const uint32_t before_revision = g_contacts_state.contacts_data_revision;
     refresh_contacts_data();
+    g_contacts_state.contacts_data_hydration_pending = contacts_initial_hydration_pending();
     const bool data_changed =
         before_revision != g_contacts_state.contacts_data_revision;
+    const bool hydration_changed =
+        before_hydration_pending != g_contacts_state.contacts_data_hydration_pending;
     if (before_contacts != g_contacts_state.contacts_list.size() ||
         before_nearby != g_contacts_state.nearby_list.size() ||
         before_ignored != g_contacts_state.ignored_list.size())
@@ -297,10 +318,27 @@ void contacts_refresh_timer_cb(lv_timer_t* timer)
                     static_cast<unsigned>(g_contacts_state.nearby_list.size()),
                     static_cast<unsigned>(g_contacts_state.ignored_list.size()));
     }
-    if (data_changed ||
+    if (data_changed || hydration_changed ||
         g_contacts_state.rendered_data_revision != g_contacts_state.contacts_data_revision)
     {
         refresh_ui();
+        std::printf("[DEBUG-contacts] refresh_applied revision=%lu mode=%u "
+                    "contacts=%u nearby=%u groups=%u ignored=%u rendered_rows=%u total_items=%u "
+                    "hydration_pending=%u root_valid=%u list_valid=%u\n",
+                    static_cast<unsigned long>(g_contacts_state.contacts_data_revision),
+                    static_cast<unsigned>(g_contacts_state.current_mode),
+                    static_cast<unsigned>(g_contacts_state.contacts_list.size()),
+                    static_cast<unsigned>(g_contacts_state.nearby_list.size()),
+                    static_cast<unsigned>(g_contacts_state.reticulum_group_list.size()),
+                    static_cast<unsigned>(g_contacts_state.ignored_list.size()),
+                    static_cast<unsigned>(g_contacts_state.list_items.size()),
+                    static_cast<unsigned>(g_contacts_state.total_items),
+                    g_contacts_state.contacts_data_hydration_pending ? 1U : 0U,
+                    g_contacts_state.root != nullptr && lv_obj_is_valid(g_contacts_state.root) ? 1U : 0U,
+                    g_contacts_state.list_panel != nullptr &&
+                            lv_obj_is_valid(g_contacts_state.list_panel)
+                        ? 1U
+                        : 0U);
     }
 }
 
@@ -702,19 +740,23 @@ void enter(const shell::Host* host, lv_obj_t* parent)
     g_contacts_state.contacts_data_revision = 0;
     g_contacts_state.rendered_data_revision = 0;
     g_contacts_state.contacts_data_signature_valid = false;
+    g_contacts_state.contacts_data_hydration_pending = false;
     g_contacts_state.focused_filter_mode = ContactsMode::Contacts;
     g_contacts_state.focused_filter_mode_valid = false;
 
     init_contacts_input();
     refresh_contacts_data();
-    std::printf("[Contacts] open protocol=%s contacts=%u nearby=%u groups=%u ignored=%u\n",
+    g_contacts_state.contacts_data_hydration_pending = contacts_initial_hydration_pending();
+    std::printf("[Contacts] open protocol=%s contacts=%u nearby=%u groups=%u ignored=%u "
+                "hydration_pending=%u\n",
                 chat::infra::meshProtocolName(
                     chat::infra::normalizeMeshProtocol(
                         app::configFacade().getConfig().mesh_protocol)),
                 static_cast<unsigned>(g_contacts_state.contacts_list.size()),
                 static_cast<unsigned>(g_contacts_state.nearby_list.size()),
                 static_cast<unsigned>(g_contacts_state.reticulum_group_list.size()),
-                static_cast<unsigned>(g_contacts_state.ignored_list.size()));
+                static_cast<unsigned>(g_contacts_state.ignored_list.size()),
+                g_contacts_state.contacts_data_hydration_pending ? 1U : 0U);
     refresh_ui();
     g_contacts_state.refresh_timer =
         lv_timer_create(contacts_refresh_timer_cb, kContactsRefreshIntervalMs, nullptr);

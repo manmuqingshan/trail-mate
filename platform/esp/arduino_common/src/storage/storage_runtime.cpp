@@ -13,8 +13,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include <atomic>
-
 namespace platform::esp::arduino_common::storage
 {
 namespace
@@ -47,7 +45,6 @@ using ResultKind =
 
 WorkerContext s_context{};
 Owner s_owner{};
-std::atomic<bool> s_defer_interactive_storage_reads{false};
 
 Result makeResult(Operation operation,
                   OperationGeneration generation,
@@ -379,16 +376,13 @@ void start_deferred_storage(chat::SdStore* chat_store,
     config.on_started = &ownerStarted;
     config.on_finished = &ownerFinished;
     s_owner.configure(config);
-    const bool armed = s_owner.arm(millis(), startupGateSatisfied());
-    s_defer_interactive_storage_reads.store(armed && shared_storage_topology,
-                                            std::memory_order_release);
+    (void)s_owner.arm(millis(), startupGateSatisfied());
 }
 
 void tick_deferred_storage()
 {
     if (!s_owner.isArmed())
     {
-        s_defer_interactive_storage_reads.store(false, std::memory_order_release);
         return;
     }
 
@@ -411,7 +405,6 @@ void tick_deferred_storage()
 void stop_deferred_storage()
 {
     (void)s_owner.requestStop();
-    s_defer_interactive_storage_reads.store(false, std::memory_order_release);
 }
 
 bool hydration_active()
@@ -419,10 +412,9 @@ bool hydration_active()
     return s_owner.hydrationActive();
 }
 
-bool interactive_storage_reads_deferred()
+bool initial_hydration_pending()
 {
-    return s_defer_interactive_storage_reads.load(std::memory_order_acquire) &&
-           s_owner.initialHydrationPending();
+    return s_owner.initialHydrationPending();
 }
 
 bool consume_hydration_ready()

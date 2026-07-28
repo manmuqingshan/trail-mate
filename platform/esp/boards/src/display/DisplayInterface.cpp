@@ -294,6 +294,7 @@ bool LilyGoDispArduinoSPI::pushColorsResult(uint16_t x1,
                                             uint16_t* color)
 {
     const uint32_t sequence = ++s_display_frame_log_count;
+    const uint32_t pixels = static_cast<uint32_t>(x2) * static_cast<uint32_t>(y2);
     sys::runtime::ScopedBusAccessToken bus(
         platform::esp::common::shared_spi_coordinator(),
         make_display_request(sys::runtime::BusAccessPolicy::DisplayFrameCritical,
@@ -320,10 +321,10 @@ bool LilyGoDispArduinoSPI::pushColorsResult(uint16_t x1,
                       static_cast<unsigned>(y1),
                       static_cast<unsigned>(x2),
                       static_cast<unsigned>(y2),
-                      static_cast<unsigned long>(x2 * y2));
+                      static_cast<unsigned long>(pixels));
     }
     setAddrWindowLocked(x1, y1, x1 + x2 - 1, y1 + y2 - 1);
-    pushColorsLocked(color, x2 * y2);
+    pushColorsLocked(color, pixels);
     bus.release();
     if (sequence <= 8U)
     {

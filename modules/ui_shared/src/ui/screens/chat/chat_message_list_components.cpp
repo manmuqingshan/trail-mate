@@ -577,6 +577,17 @@ void ChatMessageListScreen::setConversations(const std::vector<chat::Conversatio
     }
 }
 
+void ChatMessageListScreen::setDataLoading(const bool loading)
+{
+    if (!guard_ || !guard_->alive || data_loading_ == loading)
+    {
+        return;
+    }
+
+    data_loading_ = loading;
+    rebuildList();
+}
+
 void ChatMessageListScreen::setSelected(int index)
 {
     if (!guard_ || !guard_->alive)
@@ -1164,7 +1175,10 @@ void ChatMessageListScreen::rebuildList()
     {
         lv_obj_t* placeholder = chat::ui::layout::create_placeholder(list_panel_);
         chat::ui::message_list::styles::apply_label_placeholder(placeholder);
-        ::ui::i18n::set_label_text(placeholder, searchActive() ? "No matches" : "No messages");
+        const char* placeholder_text = searchActive()
+                                           ? "No matches"
+                                           : (data_loading_ ? "Loading messages..." : "No messages");
+        ::ui::i18n::set_label_text(placeholder, placeholder_text);
         ::ui::fonts::apply_localized_font(placeholder, lv_label_get_text(placeholder), ::ui::fonts::ui_chrome_font());
     }
 

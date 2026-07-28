@@ -1727,6 +1727,7 @@ void UiController::applyConversationListToUi()
         return;
     }
 
+    channel_list_->setDataLoading(!conversation_list_loaded_);
     channel_list_->setConversations(cached_conversations_);
     channel_list_->updateBatteryFromBoard();
 }
