@@ -7,6 +7,7 @@
 
 #include <cstdint>
 
+#include "board/BoardBase.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -43,13 +44,14 @@ constexpr const char* kSettingsNs = "settings";
 constexpr const char* kScreenTimeoutKey = "screen_timeout";
 constexpr std::uint32_t kQueueDepth = 32;
 constexpr std::uint32_t kTaskPeriodMs = 100;
+constexpr std::uint8_t kIdfMaxBrightnessLevel = 16U;
 
 ScreenSleepHooks s_hooks{};
 StateMachine s_machine{};
 SemaphoreHandle_t s_state_mutex = nullptr;
 QueueHandle_t s_event_queue = nullptr;
 TaskHandle_t s_task = nullptr;
-std::uint8_t s_saved_screen_brightness = DEVICE_MAX_BRIGHTNESS_LEVEL;
+std::uint8_t s_saved_screen_brightness = kIdfMaxBrightnessLevel;
 
 std::uint32_t now_ms()
 {

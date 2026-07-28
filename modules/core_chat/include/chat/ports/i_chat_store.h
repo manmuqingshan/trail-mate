@@ -24,6 +24,17 @@ class IChatStore
     virtual ~IChatStore() = default;
 
     /**
+     * Report whether the store's authoritative in-memory view is available.
+     *
+     * This is a logical data-availability contract. It does not expose a
+     * device session, bus ownership, or a lock state to callers.
+     *
+     * Volatile stores are ready by default. Persistent stores return false
+     * until their maintenance-owned hydration has completed.
+     */
+    virtual bool isReady() const { return true; }
+
+    /**
      * @brief Append message to storage
      * @param msg Message to append
      */

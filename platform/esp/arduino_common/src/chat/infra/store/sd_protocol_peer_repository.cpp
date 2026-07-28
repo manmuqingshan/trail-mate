@@ -16,6 +16,81 @@ namespace
 {
 namespace storage_runtime = ::platform::esp::arduino_common::storage;
 namespace storage_v2 = ::chat::storage::v2;
+namespace storage_contracts = ::platform::esp::common::storage;
+
+storage_contracts::StorageOperationResultKind stateLockFailure(
+    storage_runtime::StateLockResult result)
+{
+    return result == storage_runtime::StateLockResult::Unavailable
+               ? storage_contracts::StorageOperationResultKind::
+                     DeviceUnavailable
+               : storage_contracts::StorageOperationResultKind::StateBusy;
+}
+
+MeshPeerDirectoryStatus stateLockStatus(
+    storage_runtime::StateLockResult result)
+{
+    return MeshPeerDirectoryStatus::fail(
+        result == storage_runtime::StateLockResult::Unavailable
+            ? MeshPeerDirectoryStatusCode::DeviceUnavailable
+            : MeshPeerDirectoryStatusCode::Busy);
+}
+
+MeshPeerDirectoryStatus ioFailureStatus()
+{
+    return MeshPeerDirectoryStatus::fail(
+        storage_runtime::sd_card_ready()
+            ? MeshPeerDirectoryStatusCode::IoError
+            : MeshPeerDirectoryStatusCode::DeviceUnavailable);
+}
+
+storage_contracts::StorageOperationResultKind operationFailureKind(
+    MeshPeerDirectoryStatusCode code)
+{
+    switch (code)
+    {
+    case MeshPeerDirectoryStatusCode::Busy:
+        return storage_contracts::StorageOperationResultKind::StateBusy;
+    case MeshPeerDirectoryStatusCode::DeviceUnavailable:
+    case MeshPeerDirectoryStatusCode::StorageUnavailable:
+        return storage_contracts::StorageOperationResultKind::
+            DeviceUnavailable;
+    case MeshPeerDirectoryStatusCode::IoError:
+    default:
+        return storage_contracts::StorageOperationResultKind::IoError;
+    }
+}
+
+MeshPeerDirectoryStatus maintenanceStatus(
+    const storage_contracts::StorageOperationResult& result)
+{
+    switch (result.kind)
+    {
+    case storage_contracts::StorageOperationResultKind::StateBusy:
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::Busy);
+    case storage_contracts::StorageOperationResultKind::DeviceUnavailable:
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::DeviceUnavailable);
+    case storage_contracts::StorageOperationResultKind::IoError:
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::IoError);
+    case storage_contracts::StorageOperationResultKind::RetryLater:
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::Busy);
+    case storage_contracts::StorageOperationResultKind::StaleGeneration:
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::Busy);
+    case storage_contracts::StorageOperationResultKind::Cancelled:
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::StorageUnavailable);
+    case storage_contracts::StorageOperationResultKind::Completed:
+    case storage_contracts::StorageOperationResultKind::InProgress:
+    default:
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::IoError);
+    }
+}
 
 constexpr const char* kRoot = "/data/v2";
 constexpr MeshProtocol kProtocols[] = {
@@ -29,6 +104,8 @@ constexpr std::size_t kPeerHotCacheCapacity[] = {16U, 128U, 64U};
 constexpr uint32_t kBootCompactionDeltaThreshold = 1024U;
 constexpr std::size_t kPendingFlushBudget = 4U;
 constexpr std::size_t kPendingObservationCapacity = 64U;
+constexpr uint8_t kMaintenanceJournalCount = 4U;
+constexpr TickType_t kPersistenceLeaseWaitTicks = pdMS_TO_TICKS(50U);
 using ScopedRepositoryLock = storage_runtime::ScopedRecursiveStateLock;
 
 bool hasText(const char* text)
@@ -63,9 +140,15 @@ SdProtocolPeerRepository::SdProtocolPeerRepository(IChatStore& chat_store)
     peers_.reserve(256U);
     contacts_.reserve(64U);
     pending_peer_deltas_.reserve(16U);
+    pending_contact_deltas_.reserve(16U);
     pending_peer_observations_.reserve(kPendingObservationCapacity);
+    flush_peer_batch_.reserve(kPendingFlushBudget);
+    flush_contact_batch_.reserve(kPendingFlushBudget);
+    flush_peer_snapshot_.reserve(256U);
     pending_observation_mutex_ = xSemaphoreCreateMutex();
+    persistence_mutex_ = xSemaphoreCreateMutex();
     slot_scratch_.resize(512U, 0U);
+    maintenance_scratch_.resize(512U, 0U);
 }
 
 SdProtocolPeerRepository::~SdProtocolPeerRepository()
@@ -80,6 +163,885 @@ SdProtocolPeerRepository::~SdProtocolPeerRepository()
         vSemaphoreDelete(pending_observation_mutex_);
         pending_observation_mutex_ = nullptr;
     }
+    if (persistence_mutex_)
+    {
+        vSemaphoreDelete(persistence_mutex_);
+        persistence_mutex_ = nullptr;
+    }
+}
+
+bool SdProtocolPeerRepository::acquirePersistenceLease(TickType_t wait_ticks)
+{
+    return persistence_mutex_ &&
+           xSemaphoreTake(persistence_mutex_, wait_ticks) == pdTRUE;
+}
+
+void SdProtocolPeerRepository::releasePersistenceLease()
+{
+    if (persistence_mutex_)
+    {
+        xSemaphoreGive(persistence_mutex_);
+    }
+}
+
+void SdProtocolPeerRepository::releaseMaintenanceLease()
+{
+    if (maintenance_persistence_locked_)
+    {
+        maintenance_persistence_locked_ = false;
+        releasePersistenceLease();
+    }
+}
+
+platform::esp::common::storage::StorageOperationResult
+SdProtocolPeerRepository::beginMaintenance(
+    platform::esp::common::storage::StorageOperation operation,
+    platform::esp::common::storage::StorageOperationGeneration generation)
+{
+    if (operation != storage_contracts::StorageOperation::Hydrate &&
+        operation != storage_contracts::StorageOperation::Persist &&
+        operation != storage_contracts::StorageOperation::Compact)
+    {
+        return storage_contracts::StorageOperationResult::failure(
+            storage_contracts::StorageOperationResultKind::Cancelled,
+            operation,
+            generation);
+    }
+    if (operation == storage_contracts::StorageOperation::Hydrate && hydrated_)
+    {
+        return storage_contracts::StorageOperationResult::completedResult(
+            operation,
+            generation);
+    }
+    if (operation == storage_contracts::StorageOperation::Persist &&
+        !persistencePending())
+    {
+        return storage_contracts::StorageOperationResult::completedResult(
+            operation,
+            generation);
+    }
+    // A composite adapter may revisit this repository after a later stage in
+    // the same generation asked the owner to retry. Preserve the completed
+    // stage instead of resetting its cursor.
+    if (maintenance_.operation == operation &&
+        maintenance_.generation == generation &&
+        maintenance_.phase == MaintenancePhase::Complete)
+    {
+        return storage_contracts::StorageOperationResult::completedResult(
+            operation,
+            generation);
+    }
+
+    // The persistence lease is the repository's logical maintenance
+    // ownership, not the physical SD/SPI transaction lease. Keep that
+    // ownership across a retry so foreground persistence cannot interleave
+    // between generations.
+    if (maintenance_.operation == operation &&
+        maintenance_.generation == generation &&
+        maintenance_.phase != MaintenancePhase::Idle &&
+        maintenance_.phase != MaintenancePhase::Complete &&
+        maintenance_.phase != MaintenancePhase::Failed)
+    {
+        if (!maintenance_persistence_locked_ &&
+            !acquirePersistenceLease(kPersistenceLeaseWaitTicks))
+        {
+            return storage_contracts::StorageOperationResult::failure(
+                storage_contracts::StorageOperationResultKind::StateBusy,
+                operation,
+                generation);
+        }
+        maintenance_persistence_locked_ = true;
+        if (operation == storage_contracts::StorageOperation::Hydrate)
+        {
+            hydrating_.store(true, std::memory_order_release);
+        }
+        return storage_contracts::StorageOperationResult::inProgressResult(
+            operation,
+            generation);
+    }
+
+    if (!acquirePersistenceLease(kPersistenceLeaseWaitTicks))
+    {
+        return storage_contracts::StorageOperationResult::failure(
+            storage_contracts::StorageOperationResultKind::StateBusy,
+            operation,
+            generation);
+    }
+    if (maintenance_.phase != MaintenancePhase::Idle &&
+        maintenance_.phase != MaintenancePhase::Complete &&
+        maintenance_.phase != MaintenancePhase::Failed)
+    {
+        releasePersistenceLease();
+        return storage_contracts::StorageOperationResult::failure(
+            storage_contracts::StorageOperationResultKind::StateBusy,
+            operation,
+            generation);
+    }
+    if (operation == storage_contracts::StorageOperation::Hydrate &&
+        !begun_)
+    {
+        releasePersistenceLease();
+        return storage_contracts::StorageOperationResult::failure(
+            storage_contracts::StorageOperationResultKind::StateBusy,
+            operation,
+            generation);
+    }
+
+    maintenance_ = {};
+    maintenance_.operation = operation;
+    maintenance_.generation = generation;
+    maintenance_.phase =
+        operation == storage_contracts::StorageOperation::Hydrate
+            ? MaintenancePhase::HydrationPrepare
+        : operation == storage_contracts::StorageOperation::Persist
+            ? MaintenancePhase::PersistenceFlush
+            : MaintenancePhase::CompactionPrepare;
+    if (operation == storage_contracts::StorageOperation::Hydrate)
+    {
+        hydrating_.store(true, std::memory_order_release);
+    }
+    maintenance_persistence_locked_ = true;
+    return storage_contracts::StorageOperationResult::inProgressResult(
+        operation,
+        generation);
+}
+
+platform::esp::common::storage::StorageOperationResult
+SdProtocolPeerRepository::stepMaintenance(
+    platform::esp::common::storage::StorageOperation operation,
+    platform::esp::common::storage::StorageOperationGeneration generation,
+    const platform::esp::common::storage::StorageOperationBudget& budget)
+{
+    if (maintenance_.operation != operation ||
+        maintenance_.generation != generation)
+    {
+        return storage_contracts::StorageOperationResult::failure(
+            storage_contracts::StorageOperationResultKind::StaleGeneration,
+            operation,
+            generation);
+    }
+    if (maintenance_.phase == MaintenancePhase::Complete)
+    {
+        releaseMaintenanceLease();
+        return storage_contracts::StorageOperationResult::completedResult(
+            operation,
+            generation);
+    }
+    if (maintenance_.phase == MaintenancePhase::Failed)
+    {
+        releaseMaintenanceLease();
+        return maintenanceFailure(
+            storage_contracts::StorageOperationResultKind::IoError);
+    }
+    const auto result =
+        operation == storage_contracts::StorageOperation::Hydrate
+            ? stepHydration(budget)
+        : operation == storage_contracts::StorageOperation::Persist
+            ? stepPersistence(budget)
+            : stepCompaction(budget);
+    if (result.completed() ||
+        result.kind == storage_contracts::StorageOperationResultKind::Cancelled ||
+        maintenance_.phase == MaintenancePhase::Failed)
+    {
+        releaseMaintenanceLease();
+    }
+    return result;
+}
+
+void SdProtocolPeerRepository::cancelMaintenance(
+    platform::esp::common::storage::StorageOperation operation,
+    platform::esp::common::storage::StorageOperationGeneration generation)
+{
+    if (maintenance_.operation != operation ||
+        maintenance_.generation != generation)
+    {
+        return;
+    }
+    maintenance_journal_.reset();
+    maintenance_.phase = MaintenancePhase::Failed;
+    if (operation == storage_contracts::StorageOperation::Hydrate)
+    {
+        hydrating_.store(false, std::memory_order_release);
+    }
+    releaseMaintenanceLease();
+}
+
+platform::esp::common::storage::StorageOperationResult
+SdProtocolPeerRepository::maintenanceFailure(
+    platform::esp::common::storage::StorageOperationResultKind kind) const
+{
+    return storage_contracts::StorageOperationResult::failure(
+        kind,
+        maintenance_.operation,
+        maintenance_.generation);
+}
+
+bool SdProtocolPeerRepository::prepareMaintenanceJournal()
+{
+    const MeshProtocol protocol = kProtocols[maintenance_.protocol_index];
+    const uint8_t index = maintenance_.journal_index;
+    const char* name = nullptr;
+    storage_v2::JournalKind kind = storage_v2::JournalKind::PeerSnapshot;
+    std::size_t slot_size = 0U;
+    switch (index)
+    {
+    case 0U:
+        name = "peers.snapshot";
+        kind = storage_v2::JournalKind::PeerSnapshot;
+        slot_size = storage_v2::peerSlotSize(protocol);
+        break;
+    case 1U:
+        name = "peers.delta";
+        kind = storage_v2::JournalKind::PeerDelta;
+        slot_size = storage_v2::peerSlotSize(protocol);
+        break;
+    case 2U:
+        name = "contacts.snapshot";
+        kind = storage_v2::JournalKind::ContactSnapshot;
+        slot_size = storage_v2::contactSlotSize(protocol);
+        break;
+    case 3U:
+        name = "contacts.delta";
+        kind = storage_v2::JournalKind::ContactDelta;
+        slot_size = storage_v2::contactSlotSize(protocol);
+        break;
+    default:
+        return false;
+    }
+
+    buildProtocolPath(protocol,
+                      name,
+                      maintenance_path_,
+                      sizeof(maintenance_path_));
+    maintenance_protocol_ = protocol;
+    maintenance_kind_ = kind;
+    maintenance_slot_size_ = slot_size;
+    maintenance_.journal_started = maintenance_journal_.begin(
+        journal_,
+        maintenance_path_,
+        protocol,
+        kind,
+        slot_size);
+    return maintenance_.journal_started;
+}
+
+bool SdProtocolPeerRepository::applyHydrationJournalSlot(
+    MeshProtocol protocol,
+    storage_v2::JournalKind kind)
+{
+    if (maintenance_slot_size_ > maintenance_scratch_.size())
+    {
+        return false;
+    }
+    ScopedRepositoryLock lock(mutex_);
+    if (!lock.locked())
+    {
+        return false;
+    }
+    if (kind == storage_v2::JournalKind::PeerSnapshot ||
+        kind == storage_v2::JournalKind::PeerDelta)
+    {
+        storage_v2::PeerProjection projection{};
+        if (!storage_v2::decodePeerSlot(protocol,
+                                        maintenance_scratch_.data(),
+                                        maintenance_slot_size_,
+                                        projection))
+        {
+            return true;
+        }
+        (void)applyPeerProjection(projection);
+        return true;
+    }
+    storage_v2::ContactProjection projection{};
+    if (!storage_v2::decodeContactSlot(protocol,
+                                       maintenance_scratch_.data(),
+                                       maintenance_slot_size_,
+                                       projection))
+    {
+        return true;
+    }
+    (void)applyContactProjection(projection);
+    return true;
+}
+
+platform::esp::common::storage::StorageOperationResult
+SdProtocolPeerRepository::stepHydration(
+    const platform::esp::common::storage::StorageOperationBudget& budget)
+{
+    const uint8_t work_items = std::max<uint8_t>(1U, budget.max_work_items);
+    for (uint8_t work = 0U; work < work_items; ++work)
+    {
+        switch (maintenance_.phase)
+        {
+        case MaintenancePhase::HydrationPrepare:
+        {
+            if (!storage_runtime::sd_card_ready() || !ensureLayout())
+            {
+                maintenance_.phase = MaintenancePhase::Failed;
+                hydrating_.store(false, std::memory_order_release);
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::
+                        DeviceUnavailable);
+            }
+            ScopedRepositoryLock lock(mutex_);
+            if (!lock.locked())
+            {
+                return maintenanceFailure(
+                    stateLockFailure(lock.result()));
+            }
+            peers_.clear();
+            contacts_.clear();
+            pending_peer_deltas_.clear();
+            pending_peer_head_ = 0U;
+            pending_contact_deltas_.clear();
+            pending_contact_head_ = 0U;
+            pending_peer_revision_ = 0U;
+            pending_contact_revision_ = 0U;
+            std::memset(protocol_reset_pending_, 0, sizeof(protocol_reset_pending_));
+            std::memset(protocol_reset_revision_,
+                        0,
+                        sizeof(protocol_reset_revision_));
+            std::memset(partitions_, 0, sizeof(partitions_));
+            persistence_pending_.store(false,
+                                       std::memory_order_release);
+            compaction_pending_.store(false,
+                                      std::memory_order_release);
+            maintenance_.phase = MaintenancePhase::HydrationJournal;
+            break;
+        }
+
+        case MaintenancePhase::HydrationJournal:
+            if (!maintenance_.journal_started &&
+                !prepareMaintenanceJournal())
+            {
+                maintenance_.phase = MaintenancePhase::Failed;
+                hydrating_.store(false, std::memory_order_release);
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::IoError);
+            }
+            {
+                const auto status = maintenance_journal_.next(
+                    journal_,
+                    maintenance_scratch_.data(),
+                    maintenance_scratch_.size());
+                if (status == storage_v2::FixedSlotJournalCursor::StepStatus::
+                                  Item)
+                {
+                    if (!applyHydrationJournalSlot(maintenance_protocol_,
+                                                   maintenance_kind_))
+                    {
+                        return maintenanceFailure(
+                            storage_contracts::StorageOperationResultKind::
+                                StateBusy);
+                    }
+                    break;
+                }
+                if (status == storage_v2::FixedSlotJournalCursor::StepStatus::
+                                  Unavailable)
+                {
+                    return maintenanceFailure(
+                        storage_contracts::StorageOperationResultKind::
+                            RetryLater);
+                }
+                if (status == storage_v2::FixedSlotJournalCursor::StepStatus::
+                                  Invalid)
+                {
+                    return maintenanceFailure(
+                        storage_contracts::StorageOperationResultKind::IoError);
+                }
+                if (status == storage_v2::FixedSlotJournalCursor::StepStatus::
+                                  Complete)
+                {
+                    const auto& inspection = maintenance_journal_.inspection();
+                    if (maintenance_kind_ ==
+                        storage_v2::JournalKind::PeerDelta)
+                    {
+                        partitions_[protocolIndex(maintenance_protocol_)]
+                            .peer_delta_count = inspection.slot_count;
+                    }
+                    else if (maintenance_kind_ ==
+                             storage_v2::JournalKind::ContactDelta)
+                    {
+                        partitions_[protocolIndex(maintenance_protocol_)]
+                            .contact_delta_count = inspection.slot_count;
+                    }
+                }
+                maintenance_journal_.reset();
+                maintenance_.journal_started = false;
+                ++maintenance_.journal_index;
+                if (maintenance_.journal_index >= kMaintenanceJournalCount)
+                {
+                    maintenance_.journal_index = 0U;
+                    ++maintenance_.protocol_index;
+                    if (maintenance_.protocol_index >=
+                        static_cast<uint8_t>(sizeof(kProtocols) /
+                                             sizeof(kProtocols[0])))
+                    {
+                        maintenance_.phase = MaintenancePhase::HydrationFinalize;
+                    }
+                }
+            }
+            break;
+
+        case MaintenancePhase::HydrationFinalize:
+        {
+            ScopedRepositoryLock lock(mutex_);
+            if (!lock.locked())
+            {
+                return maintenanceFailure(
+                    stateLockFailure(lock.result()));
+            }
+            for (MeshProtocol protocol : kProtocols)
+            {
+                reconcileStableIdentities(protocol);
+            }
+            overlayContactFacts();
+            drainDeferredObservationsLocked();
+            hydrated_ = true;
+            hydrating_.store(false, std::memory_order_release);
+            maintenance_.phase = MaintenancePhase::Complete;
+            return storage_contracts::StorageOperationResult::completedResult(
+                maintenance_.operation,
+                maintenance_.generation);
+        }
+
+        case MaintenancePhase::Complete:
+            return storage_contracts::StorageOperationResult::completedResult(
+                maintenance_.operation,
+                maintenance_.generation);
+
+        default:
+            return maintenanceFailure(
+                storage_contracts::StorageOperationResultKind::StateBusy);
+        }
+    }
+    return storage_contracts::StorageOperationResult::inProgressResult(
+        maintenance_.operation,
+        maintenance_.generation);
+}
+
+platform::esp::common::storage::StorageOperationResult
+SdProtocolPeerRepository::stepPersistence(
+    const platform::esp::common::storage::StorageOperationBudget& budget)
+{
+    if (!begun_ || !hydrated_ ||
+        hydrating_.load(std::memory_order_acquire))
+    {
+        return maintenanceFailure(
+            storage_contracts::StorageOperationResultKind::StateBusy);
+    }
+
+    const MeshPeerDirectoryStatus flush_status = flushPendingDeltas(
+        std::max<std::size_t>(1U, budget.max_work_items));
+    if (!flush_status.succeeded())
+    {
+        return maintenanceFailure(operationFailureKind(flush_status.code));
+    }
+    if (!persistencePending())
+    {
+        return storage_contracts::StorageOperationResult::completedResult(
+            maintenance_.operation,
+            maintenance_.generation);
+    }
+    return storage_contracts::StorageOperationResult::inProgressResult(
+        maintenance_.operation,
+        maintenance_.generation);
+}
+
+platform::esp::common::storage::StorageOperationResult
+SdProtocolPeerRepository::stepCompaction(
+    const platform::esp::common::storage::StorageOperationBudget& budget)
+{
+    if (!begun_ || !hydrated_ ||
+        hydrating_.load(std::memory_order_acquire))
+    {
+        return maintenanceFailure(
+            storage_contracts::StorageOperationResultKind::StateBusy);
+    }
+
+    const uint8_t work_items = std::max<uint8_t>(1U, budget.max_work_items);
+    for (uint8_t work = 0U; work < work_items; ++work)
+    {
+        switch (maintenance_.phase)
+        {
+        case MaintenancePhase::CompactionPrepare:
+        {
+            ScopedRepositoryLock lock(mutex_);
+            if (!lock.locked())
+            {
+                return maintenanceFailure(
+                    stateLockFailure(lock.result()));
+            }
+            compaction_peers_ = peers_;
+            compaction_contacts_ = contacts_;
+            maintenance_.protocol_index = 0U;
+            maintenance_.compaction_projection_index = 0U;
+            maintenance_.compaction_inspection_index = 0U;
+            maintenance_.compaction_record_index = 0U;
+            maintenance_.compact_peers = false;
+            maintenance_.compact_contacts = false;
+            std::memset(compaction_force_peers_,
+                        0,
+                        sizeof(compaction_force_peers_));
+            std::memset(compaction_force_contacts_,
+                        0,
+                        sizeof(compaction_force_contacts_));
+            std::memcpy(compaction_reset_revision_,
+                        protocol_reset_revision_,
+                        sizeof(compaction_reset_revision_));
+            compaction_peer_revision_ = pending_peer_revision_;
+            compaction_contact_revision_ = pending_contact_revision_;
+            for (std::size_t index = pending_peer_head_;
+                 index < pending_peer_deltas_.size();
+                 ++index)
+            {
+                compaction_force_peers_[protocolIndex(
+                    pending_peer_deltas_[index].record.identity.protocol)] =
+                    true;
+            }
+            for (std::size_t index = pending_contact_head_;
+                 index < pending_contact_deltas_.size();
+                 ++index)
+            {
+                compaction_force_contacts_[protocolIndex(
+                    pending_contact_deltas_[index].identity.protocol)] = true;
+            }
+            for (std::size_t index = 0U; index < 3U; ++index)
+            {
+                compaction_force_peers_[index] =
+                    compaction_force_peers_[index] ||
+                    protocol_reset_pending_[index];
+            }
+            maintenance_.phase = MaintenancePhase::CompactionInspect;
+            break;
+        }
+
+        case MaintenancePhase::CompactionInspect:
+        {
+            if (maintenance_.protocol_index >=
+                static_cast<uint8_t>(sizeof(kProtocols) /
+                                     sizeof(kProtocols[0])))
+            {
+                maintenance_.phase = MaintenancePhase::Complete;
+                return storage_contracts::StorageOperationResult::
+                    completedResult(maintenance_.operation,
+                                    maintenance_.generation);
+            }
+            const MeshProtocol protocol =
+                kProtocols[maintenance_.protocol_index];
+            const uint8_t index = maintenance_.compaction_inspection_index;
+            const char* name = index == 0U ? "peers.delta"
+                                           : "contacts.delta";
+            const storage_v2::JournalKind kind =
+                index == 0U ? storage_v2::JournalKind::PeerDelta
+                            : storage_v2::JournalKind::ContactDelta;
+            const std::size_t slot_size =
+                index == 0U ? storage_v2::peerSlotSize(protocol)
+                            : storage_v2::contactSlotSize(protocol);
+            char path[96] = {};
+            buildProtocolPath(protocol, name, path, sizeof(path));
+            const auto inspection =
+                journal_.inspect(path, protocol, kind, slot_size);
+            if (inspection.state ==
+                storage_v2::FixedSlotJournalEngine::State::IoError)
+            {
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::
+                        RetryLater);
+            }
+            if (inspection.state ==
+                storage_v2::FixedSlotJournalEngine::State::Incompatible)
+            {
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::IoError);
+            }
+            const bool should_compact =
+                inspection.slot_count >= kBootCompactionDeltaThreshold ||
+                (index == 0U ? compaction_force_peers_
+                                   [protocolIndex(protocol)]
+                             : compaction_force_contacts_
+                                   [protocolIndex(protocol)]);
+            if (index == 0U)
+            {
+                maintenance_.compact_peers = should_compact;
+            }
+            else
+            {
+                maintenance_.compact_contacts = should_compact;
+            }
+            ++maintenance_.compaction_inspection_index;
+            if (maintenance_.compaction_inspection_index >= 2U)
+            {
+                maintenance_.compaction_inspection_index = 0U;
+                maintenance_.compaction_projection_index = 0U;
+                maintenance_.phase = MaintenancePhase::CompactionCreate;
+            }
+            break;
+        }
+
+        case MaintenancePhase::CompactionCreate:
+        {
+            while (maintenance_.compaction_projection_index < 2U)
+            {
+                const bool enabled =
+                    maintenance_.compaction_projection_index == 0U
+                        ? maintenance_.compact_peers
+                        : maintenance_.compact_contacts;
+                if (enabled)
+                {
+                    break;
+                }
+                ++maintenance_.compaction_projection_index;
+            }
+            if (maintenance_.compaction_projection_index >= 2U)
+            {
+                maintenance_.phase = MaintenancePhase::CompactionAdvance;
+                break;
+            }
+
+            const MeshProtocol protocol =
+                kProtocols[maintenance_.protocol_index];
+            const bool peers =
+                maintenance_.compaction_projection_index == 0U;
+            const char* base = peers ? "peers" : "contacts";
+            maintenance_kind_ =
+                peers ? storage_v2::JournalKind::PeerSnapshot
+                      : storage_v2::JournalKind::ContactSnapshot;
+            maintenance_slot_size_ =
+                peers ? storage_v2::peerSlotSize(protocol)
+                      : storage_v2::contactSlotSize(protocol);
+            maintenance_protocol_ = protocol;
+            char final_name[40] = {};
+            char temp_name[40] = {};
+            char backup_name[40] = {};
+            char delta_name[40] = {};
+            std::snprintf(final_name,
+                          sizeof(final_name),
+                          "%s.snapshot",
+                          base);
+            std::snprintf(temp_name,
+                          sizeof(temp_name),
+                          "%s.snapshot.tmp",
+                          base);
+            std::snprintf(backup_name,
+                          sizeof(backup_name),
+                          "%s.snapshot.bak",
+                          base);
+            std::snprintf(delta_name,
+                          sizeof(delta_name),
+                          "%s.delta",
+                          base);
+            buildProtocolPath(protocol,
+                              final_name,
+                              maintenance_final_path_,
+                              sizeof(maintenance_final_path_));
+            buildProtocolPath(protocol,
+                              temp_name,
+                              maintenance_path_,
+                              sizeof(maintenance_path_));
+            buildProtocolPath(protocol,
+                              backup_name,
+                              maintenance_backup_path_,
+                              sizeof(maintenance_backup_path_));
+            buildProtocolPath(protocol,
+                              delta_name,
+                              maintenance_delta_path_,
+                              sizeof(maintenance_delta_path_));
+            (void)storage_runtime::sd_remove(maintenance_path_);
+            if (!journal_.create(maintenance_path_,
+                                 protocol,
+                                 maintenance_kind_,
+                                 maintenance_slot_size_))
+            {
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::IoError);
+            }
+            maintenance_.compaction_record_index = 0U;
+            maintenance_.phase = MaintenancePhase::CompactionWrite;
+            break;
+        }
+
+        case MaintenancePhase::CompactionWrite:
+        {
+            const MeshProtocol protocol =
+                kProtocols[maintenance_.protocol_index];
+            const bool peers =
+                maintenance_.compaction_projection_index == 0U;
+            while (true)
+            {
+                if (peers)
+                {
+                    if (maintenance_.compaction_record_index >=
+                        compaction_peers_.size())
+                    {
+                        break;
+                    }
+                    const MeshPeerRecord& peer =
+                        compaction_peers_[maintenance_.compaction_record_index++];
+                    if (!meshPeerSameProtocol(peer.identity.protocol,
+                                              protocol))
+                    {
+                        continue;
+                    }
+                    const storage_v2::PeerProjection projection{peer, false};
+                    if (!storage_v2::encodePeerSlot(
+                            protocol,
+                            projection,
+                            maintenance_scratch_.data(),
+                            maintenance_slot_size_))
+                    {
+                        return maintenanceFailure(
+                            storage_contracts::StorageOperationResultKind::
+                                IoError);
+                    }
+                }
+                else
+                {
+                    if (maintenance_.compaction_record_index >=
+                        compaction_contacts_.size())
+                    {
+                        break;
+                    }
+                    const auto& contact =
+                        compaction_contacts_[maintenance_.compaction_record_index++];
+                    if (!meshPeerSameProtocol(contact.identity.protocol,
+                                              protocol))
+                    {
+                        continue;
+                    }
+                    if (!storage_v2::encodeContactSlot(
+                            protocol,
+                            contact,
+                            maintenance_scratch_.data(),
+                            maintenance_slot_size_))
+                    {
+                        return maintenanceFailure(
+                            storage_contracts::StorageOperationResultKind::
+                                IoError);
+                    }
+                }
+                if (!journal_.append(maintenance_path_,
+                                     protocol,
+                                     maintenance_kind_,
+                                     maintenance_slot_size_,
+                                     maintenance_scratch_.data()))
+                {
+                    return maintenanceFailure(
+                        storage_contracts::StorageOperationResultKind::IoError);
+                }
+                return storage_contracts::StorageOperationResult::
+                    inProgressResult(maintenance_.operation,
+                                     maintenance_.generation);
+            }
+            maintenance_.phase = MaintenancePhase::CompactionReplace;
+            break;
+        }
+
+        case MaintenancePhase::CompactionReplace:
+        {
+            if (!storage_v2::replaceFileAtomically(
+                    maintenance_path_,
+                    maintenance_final_path_,
+                    maintenance_backup_path_))
+            {
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::IoError);
+            }
+            const MeshProtocol protocol =
+                kProtocols[maintenance_.protocol_index];
+            const bool peers =
+                maintenance_.compaction_projection_index == 0U;
+            const storage_v2::JournalKind delta_kind =
+                peers ? storage_v2::JournalKind::PeerDelta
+                      : storage_v2::JournalKind::ContactDelta;
+            if (!journal_.create(maintenance_delta_path_,
+                                 protocol,
+                                 delta_kind,
+                                 maintenance_slot_size_))
+            {
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::IoError);
+            }
+            {
+                ScopedRepositoryLock lock(mutex_);
+                if (!lock.locked())
+                {
+                    return maintenanceFailure(
+                        stateLockFailure(lock.result()));
+                }
+                if (peers)
+                {
+                    partitions_[protocolIndex(protocol)].peer_delta_count =
+                        0U;
+                }
+                else
+                {
+                    partitions_[protocolIndex(protocol)].contact_delta_count =
+                        0U;
+                }
+            }
+            ++maintenance_.compaction_projection_index;
+            maintenance_.phase = MaintenancePhase::CompactionCreate;
+            break;
+        }
+
+        case MaintenancePhase::CompactionAdvance:
+            ++maintenance_.protocol_index;
+            if (maintenance_.protocol_index >=
+                static_cast<uint8_t>(sizeof(kProtocols) /
+                                     sizeof(kProtocols[0])))
+            {
+                ScopedRepositoryLock lock(mutex_);
+                if (!lock.locked())
+                {
+                    return maintenanceFailure(
+                        stateLockFailure(lock.result()));
+                }
+                if (pending_peer_revision_ == compaction_peer_revision_)
+                {
+                    pending_peer_deltas_.clear();
+                    pending_peer_head_ = 0U;
+                }
+                if (pending_contact_revision_ == compaction_contact_revision_)
+                {
+                    pending_contact_deltas_.clear();
+                    pending_contact_head_ = 0U;
+                }
+                for (std::size_t index = 0U; index < 3U; ++index)
+                {
+                    if (protocol_reset_pending_[index] &&
+                        protocol_reset_revision_[index] ==
+                            compaction_reset_revision_[index])
+                    {
+                        protocol_reset_pending_[index] = false;
+                    }
+                }
+                refreshPersistenceDemandLocked();
+                compaction_peers_.clear();
+                compaction_contacts_.clear();
+                maintenance_.phase = MaintenancePhase::Complete;
+                return storage_contracts::StorageOperationResult::
+                    completedResult(maintenance_.operation,
+                                    maintenance_.generation);
+            }
+            maintenance_.compaction_inspection_index = 0U;
+            maintenance_.compaction_projection_index = 0U;
+            maintenance_.phase = MaintenancePhase::CompactionInspect;
+            break;
+
+        case MaintenancePhase::Complete:
+            return storage_contracts::StorageOperationResult::completedResult(
+                maintenance_.operation,
+                maintenance_.generation);
+
+        default:
+            return maintenanceFailure(
+                storage_contracts::StorageOperationResultKind::StateBusy);
+        }
+    }
+    return storage_contracts::StorageOperationResult::inProgressResult(
+        maintenance_.operation,
+        maintenance_.generation);
 }
 
 MeshPeerDirectoryStatus SdProtocolPeerRepository::begin()
@@ -87,8 +1049,7 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::begin()
     ScopedRepositoryLock lock(mutex_);
     if (!lock.locked())
     {
-        return MeshPeerDirectoryStatus::fail(
-            MeshPeerDirectoryStatusCode::StorageUnavailable);
+        return stateLockStatus(lock.result());
     }
     if (begun_)
     {
@@ -98,98 +1059,6 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::begin()
     begun_ = true;
     Serial.printf("[PeerStoreV2] begun=1 hydration=pending root=%s\n", kRoot);
     return MeshPeerDirectoryStatus::success();
-}
-
-MeshPeerDirectoryStatus SdProtocolPeerRepository::hydrateFromStorage()
-{
-    ScopedRepositoryLock lock(mutex_, portMAX_DELAY);
-    if (!lock.locked() || !begun_)
-    {
-        return MeshPeerDirectoryStatus::fail(
-            MeshPeerDirectoryStatusCode::StorageUnavailable);
-    }
-    if (hydrated_)
-    {
-        return MeshPeerDirectoryStatus::success();
-    }
-    const uint32_t started_ms = millis();
-    if (!storage_runtime::sd_card_ready() || !ensureLayout())
-    {
-        return MeshPeerDirectoryStatus::fail(
-            MeshPeerDirectoryStatusCode::StorageUnavailable);
-    }
-
-    PeerVector live_peers = std::move(peers_);
-    ContactVector live_contacts = std::move(contacts_);
-    PendingPeerVector live_pending = std::move(pending_peer_deltas_);
-    peers_.clear();
-    contacts_.clear();
-    pending_peer_deltas_.clear();
-    pending_peer_head_ = 0U;
-    std::memset(partitions_, 0, sizeof(partitions_));
-
-    bool ok = true;
-    for (MeshProtocol protocol : kProtocols)
-    {
-        ok = loadProtocol(protocol) && ok;
-    }
-    if (!ok)
-    {
-        peers_ = std::move(live_peers);
-        contacts_ = std::move(live_contacts);
-        pending_peer_deltas_ = std::move(live_pending);
-        pending_peer_head_ = 0U;
-        return MeshPeerDirectoryStatus::fail(MeshPeerDirectoryStatusCode::IoError);
-    }
-
-    for (const MeshPeerRecord& peer : live_peers)
-    {
-        (void)applyPeerProjection({peer, false});
-    }
-    for (const storage_v2::ContactProjection& contact : live_contacts)
-    {
-        (void)applyContactProjection(contact);
-    }
-    pending_peer_deltas_ = std::move(live_pending);
-    pending_peer_head_ = 0U;
-    for (MeshProtocol protocol : kProtocols)
-    {
-        reconcileStableIdentities(protocol);
-    }
-    overlayContactFacts();
-    drainDeferredObservationsLocked();
-    hydrated_ = true;
-    Serial.printf("[PeerStoreV2] hydration ready=1 peers=%u contacts=%u elapsed_ms=%lu\n",
-                  static_cast<unsigned>(peers_.size()),
-                  static_cast<unsigned>(contacts_.size()),
-                  static_cast<unsigned long>(millis() - started_ms));
-    return MeshPeerDirectoryStatus::success();
-}
-
-MeshPeerDirectoryStatus SdProtocolPeerRepository::compactDeferred()
-{
-    ScopedRepositoryLock lock(mutex_, portMAX_DELAY);
-    if (!lock.locked() || !begun_ || !hydrated_)
-    {
-        return MeshPeerDirectoryStatus::fail(
-            MeshPeerDirectoryStatusCode::StorageUnavailable);
-    }
-    const uint32_t started_ms = millis();
-    bool ok = true;
-    for (MeshProtocol protocol : kProtocols)
-    {
-        if (!compactProtocolAtBoot(protocol))
-        {
-            Serial.printf("[PeerStoreV2] deferred compaction failed protocol=%s\n",
-                          protocolSlug(protocol));
-            ok = false;
-        }
-    }
-    Serial.printf("[PeerStoreV2] deferred_compaction ok=%u elapsed_ms=%lu\n",
-                  ok ? 1U : 0U,
-                  static_cast<unsigned long>(millis() - started_ms));
-    return ok ? MeshPeerDirectoryStatus::success()
-              : MeshPeerDirectoryStatus::fail(MeshPeerDirectoryStatusCode::IoError);
 }
 
 bool SdProtocolPeerRepository::ensureLayout()
@@ -214,231 +1083,11 @@ bool SdProtocolPeerRepository::ensureProtocolLayout(MeshProtocol protocol)
     return ensureDirectory(path);
 }
 
-bool SdProtocolPeerRepository::loadProtocol(MeshProtocol protocol)
+bool SdProtocolPeerRepository::rewritePeerSnapshotFrom(
+    MeshProtocol protocol,
+    const PeerVector& snapshot)
 {
-    for (const char* base : {"peers", "contacts"})
-    {
-        char final_path[96] = {};
-        char temp_path[96] = {};
-        char backup_path[96] = {};
-        char name[32] = {};
-        std::snprintf(name, sizeof(name), "%s.snapshot", base);
-        buildProtocolPath(protocol,
-                          name,
-                          final_path,
-                          sizeof(final_path));
-        std::snprintf(name, sizeof(name), "%s.snapshot.tmp", base);
-        buildProtocolPath(protocol,
-                          name,
-                          temp_path,
-                          sizeof(temp_path));
-        std::snprintf(name, sizeof(name), "%s.snapshot.bak", base);
-        buildProtocolPath(protocol,
-                          name,
-                          backup_path,
-                          sizeof(backup_path));
-        if (!storage_v2::recoverAtomicFile(final_path,
-                                           temp_path,
-                                           backup_path))
-        {
-            return false;
-        }
-    }
-    return loadPeerJournal(protocol, "peers.snapshot") &&
-           loadPeerJournal(protocol, "peers.delta") &&
-           loadContactJournal(protocol, "contacts.snapshot") &&
-           loadContactJournal(protocol, "contacts.delta");
-}
-
-bool SdProtocolPeerRepository::loadPeerJournal(MeshProtocol protocol,
-                                               const char* name)
-{
-    char path[96] = {};
-    buildProtocolPath(protocol, name, path, sizeof(path));
-    const std::size_t slot_size = storage_v2::peerSlotSize(protocol);
-    const storage_v2::JournalKind kind =
-        std::strstr(name, ".snapshot")
-            ? storage_v2::JournalKind::PeerSnapshot
-            : storage_v2::JournalKind::PeerDelta;
-    const auto inspection = journal_.inspect(path, protocol, kind, slot_size);
-    if (inspection.state == storage_v2::FixedSlotJournalEngine::State::Missing)
-    {
-        return true;
-    }
-    if (inspection.state != storage_v2::FixedSlotJournalEngine::State::Ready &&
-        inspection.state !=
-            storage_v2::FixedSlotJournalEngine::State::PartialTail)
-    {
-        Serial.printf("[PeerStoreV2] incompatible path=%s state=%u\n",
-                      path,
-                      static_cast<unsigned>(inspection.state));
-        return false;
-    }
-    if (slot_size > slot_scratch_.size())
-    {
-        return false;
-    }
-    uint32_t decode_failures = 0U;
-    uint32_t first_decode_failure = inspection.slot_count;
-    uint32_t last_decode_failure = 0U;
-    for (uint32_t index = 0; index < inspection.slot_count; ++index)
-    {
-        storage_v2::PeerProjection projection{};
-        const auto read_status = journal_.readStatus(path,
-                                                     protocol,
-                                                     kind,
-                                                     slot_size,
-                                                     inspection,
-                                                     index,
-                                                     slot_scratch_.data());
-        if (read_status !=
-            storage_v2::FixedSlotJournalEngine::ReadStatus::Ok)
-        {
-            Serial.printf("[PeerStoreV2] hydration deferred path=%s index=%lu read_status=%u\n",
-                          path,
-                          static_cast<unsigned long>(index),
-                          static_cast<unsigned>(read_status));
-            return false;
-        }
-        if (!storage_v2::decodePeerSlot(protocol,
-                                        slot_scratch_.data(),
-                                        slot_size,
-                                        projection))
-        {
-            ++decode_failures;
-            first_decode_failure =
-                std::min(first_decode_failure, index);
-            last_decode_failure = index;
-            continue;
-        }
-        (void)applyPeerProjection(projection);
-    }
-    if (decode_failures > 0U)
-    {
-        Serial.printf("[PeerStoreV2] invalid peer slots path=%s count=%lu first=%lu last=%lu\n",
-                      path,
-                      static_cast<unsigned long>(decode_failures),
-                      static_cast<unsigned long>(first_decode_failure),
-                      static_cast<unsigned long>(last_decode_failure));
-    }
-    if (kind == storage_v2::JournalKind::PeerDelta)
-    {
-        partitions_[protocolIndex(protocol)].peer_delta_count =
-            inspection.slot_count;
-    }
-    if (inspection.state ==
-        storage_v2::FixedSlotJournalEngine::State::PartialTail)
-    {
-        Serial.printf("[PeerStoreV2] partial peer tail path=%s valid=%lu\n",
-                      path,
-                      static_cast<unsigned long>(inspection.slot_count));
-    }
-    return true;
-}
-
-bool SdProtocolPeerRepository::loadContactJournal(MeshProtocol protocol,
-                                                  const char* name)
-{
-    char path[96] = {};
-    buildProtocolPath(protocol, name, path, sizeof(path));
-    const std::size_t slot_size = storage_v2::contactSlotSize(protocol);
-    const storage_v2::JournalKind kind =
-        std::strstr(name, ".snapshot")
-            ? storage_v2::JournalKind::ContactSnapshot
-            : storage_v2::JournalKind::ContactDelta;
-    const auto inspection = journal_.inspect(path, protocol, kind, slot_size);
-    if (inspection.state == storage_v2::FixedSlotJournalEngine::State::Missing)
-    {
-        return true;
-    }
-    if (inspection.state != storage_v2::FixedSlotJournalEngine::State::Ready &&
-        inspection.state !=
-            storage_v2::FixedSlotJournalEngine::State::PartialTail)
-    {
-        Serial.printf("[PeerStoreV2] incompatible path=%s state=%u\n",
-                      path,
-                      static_cast<unsigned>(inspection.state));
-        return false;
-    }
-    if (slot_size > slot_scratch_.size())
-    {
-        return false;
-    }
-    uint32_t decode_failures = 0U;
-    uint32_t first_decode_failure = inspection.slot_count;
-    uint32_t last_decode_failure = 0U;
-    for (uint32_t index = 0; index < inspection.slot_count; ++index)
-    {
-        storage_v2::ContactProjection projection{};
-        const auto read_status = journal_.readStatus(path,
-                                                     protocol,
-                                                     kind,
-                                                     slot_size,
-                                                     inspection,
-                                                     index,
-                                                     slot_scratch_.data());
-        if (read_status !=
-            storage_v2::FixedSlotJournalEngine::ReadStatus::Ok)
-        {
-            Serial.printf("[PeerStoreV2] hydration deferred path=%s index=%lu read_status=%u\n",
-                          path,
-                          static_cast<unsigned long>(index),
-                          static_cast<unsigned>(read_status));
-            return false;
-        }
-        if (!storage_v2::decodeContactSlot(protocol,
-                                           slot_scratch_.data(),
-                                           slot_size,
-                                           projection))
-        {
-            ++decode_failures;
-            first_decode_failure =
-                std::min(first_decode_failure, index);
-            last_decode_failure = index;
-            continue;
-        }
-        (void)applyContactProjection(projection);
-    }
-    if (decode_failures > 0U)
-    {
-        Serial.printf("[PeerStoreV2] invalid contact slots path=%s count=%lu first=%lu last=%lu\n",
-                      path,
-                      static_cast<unsigned long>(decode_failures),
-                      static_cast<unsigned long>(first_decode_failure),
-                      static_cast<unsigned long>(last_decode_failure));
-    }
-    if (kind == storage_v2::JournalKind::ContactDelta)
-    {
-        partitions_[protocolIndex(protocol)].contact_delta_count =
-            inspection.slot_count;
-    }
-    if (inspection.state ==
-        storage_v2::FixedSlotJournalEngine::State::PartialTail)
-    {
-        Serial.printf("[PeerStoreV2] partial contact tail path=%s valid=%lu\n",
-                      path,
-                      static_cast<unsigned long>(inspection.slot_count));
-    }
-    return true;
-}
-
-bool SdProtocolPeerRepository::compactProtocolAtBoot(MeshProtocol protocol)
-{
-    PartitionState& state = partitions_[protocolIndex(protocol)];
-    bool ok = true;
-    if (state.peer_delta_count >= kBootCompactionDeltaThreshold)
-    {
-        ok = rewritePeerSnapshot(protocol) && ok;
-    }
-    if (state.contact_delta_count >= kBootCompactionDeltaThreshold)
-    {
-        ok = rewriteContactSnapshot(protocol) && ok;
-    }
-    return ok;
-}
-
-bool SdProtocolPeerRepository::rewritePeerSnapshot(MeshProtocol protocol)
-{
+    protocol = normalizeProtocol(protocol);
     char target[96] = {};
     char temp[96] = {};
     char backup[96] = {};
@@ -450,19 +1099,19 @@ bool SdProtocolPeerRepository::rewritePeerSnapshot(MeshProtocol protocol)
                       backup,
                       sizeof(backup));
     buildProtocolPath(protocol, "peers.delta", delta, sizeof(delta));
-    if (storage_runtime::sd_exists(temp))
-    {
-        storage_runtime::sd_remove(temp);
-    }
+
+    (void)storage_runtime::sd_remove(temp);
     const std::size_t slot_size = storage_v2::peerSlotSize(protocol);
-    if (!journal_.create(temp,
+    if (slot_size == 0U || slot_size > slot_scratch_.size() ||
+        !journal_.create(temp,
                          protocol,
                          storage_v2::JournalKind::PeerSnapshot,
                          slot_size))
     {
         return false;
     }
-    for (const MeshPeerRecord& peer : peers_)
+
+    for (const MeshPeerRecord& peer : snapshot)
     {
         if (!meshPeerSameProtocol(peer.identity.protocol, protocol))
         {
@@ -479,10 +1128,11 @@ bool SdProtocolPeerRepository::rewritePeerSnapshot(MeshProtocol protocol)
                              slot_size,
                              slot_scratch_.data()))
         {
-            storage_runtime::sd_remove(temp);
+            (void)storage_runtime::sd_remove(temp);
             return false;
         }
     }
+
     if (!storage_v2::replaceFileAtomically(temp, target, backup) ||
         !journal_.create(delta,
                          protocol,
@@ -491,64 +1141,6 @@ bool SdProtocolPeerRepository::rewritePeerSnapshot(MeshProtocol protocol)
     {
         return false;
     }
-    partitions_[protocolIndex(protocol)].peer_delta_count = 0U;
-    return true;
-}
-
-bool SdProtocolPeerRepository::rewriteContactSnapshot(MeshProtocol protocol)
-{
-    char target[96] = {};
-    char temp[96] = {};
-    char backup[96] = {};
-    char delta[96] = {};
-    buildProtocolPath(protocol, "contacts.snapshot", target, sizeof(target));
-    buildProtocolPath(protocol, "contacts.snapshot.tmp", temp, sizeof(temp));
-    buildProtocolPath(protocol,
-                      "contacts.snapshot.bak",
-                      backup,
-                      sizeof(backup));
-    buildProtocolPath(protocol, "contacts.delta", delta, sizeof(delta));
-    if (storage_runtime::sd_exists(temp))
-    {
-        storage_runtime::sd_remove(temp);
-    }
-    const std::size_t slot_size = storage_v2::contactSlotSize(protocol);
-    if (!journal_.create(temp,
-                         protocol,
-                         storage_v2::JournalKind::ContactSnapshot,
-                         slot_size))
-    {
-        return false;
-    }
-    for (const storage_v2::ContactProjection& contact : contacts_)
-    {
-        if (!meshPeerSameProtocol(contact.identity.protocol, protocol))
-        {
-            continue;
-        }
-        if (!storage_v2::encodeContactSlot(protocol,
-                                           contact,
-                                           slot_scratch_.data(),
-                                           slot_size) ||
-            !journal_.append(temp,
-                             protocol,
-                             storage_v2::JournalKind::ContactSnapshot,
-                             slot_size,
-                             slot_scratch_.data()))
-        {
-            storage_runtime::sd_remove(temp);
-            return false;
-        }
-    }
-    if (!storage_v2::replaceFileAtomically(temp, target, backup) ||
-        !journal_.create(delta,
-                         protocol,
-                         storage_v2::JournalKind::ContactDelta,
-                         slot_size))
-    {
-        return false;
-    }
-    partitions_[protocolIndex(protocol)].contact_delta_count = 0U;
     return true;
 }
 
@@ -576,7 +1168,6 @@ bool SdProtocolPeerRepository::appendPeerDelta(
     {
         return false;
     }
-    ++partitions_[protocolIndex(protocol)].peer_delta_count;
     return true;
 }
 
@@ -603,54 +1194,86 @@ bool SdProtocolPeerRepository::appendContactDelta(
     {
         return false;
     }
-    ++partitions_[protocolIndex(protocol)].contact_delta_count;
     return true;
 }
 
-bool SdProtocolPeerRepository::queueOrAppendPeerDelta(
+bool SdProtocolPeerRepository::queuePeerDelta(
     const storage_v2::PeerProjection& projection)
 {
-    if (pending_peer_head_ < pending_peer_deltas_.size())
+    prunePendingDeltasLocked();
+    if (!pending_peer_deltas_.empty())
     {
         storage_v2::PeerProjection& newest = pending_peer_deltas_.back();
-        if (newest.deleted == projection.deleted &&
-            sameMeshPeerIdentity(newest.record.identity,
+        if (sameMeshPeerIdentity(newest.record.identity,
                                  projection.record.identity))
         {
             newest = projection;
+            ++pending_peer_revision_;
+            refreshPersistenceDemandLocked();
             return false;
         }
-        pending_peer_deltas_.push_back(projection);
-        return false;
-    }
-    if (appendPeerDelta(projection))
-    {
-        return true;
     }
     pending_peer_deltas_.push_back(projection);
+    ++pending_peer_revision_;
+    refreshPersistenceDemandLocked();
     return false;
 }
 
-bool SdProtocolPeerRepository::drainPendingPeerDeltas(std::size_t budget)
+bool SdProtocolPeerRepository::queueContactDelta(
+    const storage_v2::ContactProjection& projection)
 {
-    std::size_t drained = 0U;
-    while (pending_peer_head_ < pending_peer_deltas_.size() &&
-           drained < budget)
+    prunePendingDeltasLocked();
+    if (!pending_contact_deltas_.empty())
     {
-        if (!appendPeerDelta(pending_peer_deltas_[pending_peer_head_]))
+        storage_v2::ContactProjection& newest = pending_contact_deltas_.back();
+        if (sameMeshPeerIdentity(newest.identity, projection.identity))
         {
-            return false;
+            newest = projection;
+            ++pending_contact_revision_;
+            refreshPersistenceDemandLocked();
+            return true;
         }
-        ++pending_peer_head_;
-        ++drained;
     }
+    pending_contact_deltas_.push_back(projection);
+    ++pending_contact_revision_;
+    refreshPersistenceDemandLocked();
+    return true;
+}
+
+void SdProtocolPeerRepository::prunePendingDeltasLocked()
+{
     if (pending_peer_head_ == pending_peer_deltas_.size())
     {
         pending_peer_deltas_.clear();
         pending_peer_head_ = 0U;
-        return true;
     }
-    return false;
+    if (pending_contact_head_ == pending_contact_deltas_.size())
+    {
+        pending_contact_deltas_.clear();
+        pending_contact_head_ = 0U;
+    }
+}
+
+void SdProtocolPeerRepository::refreshPersistenceDemandLocked()
+{
+    const bool has_pending_deltas =
+        pending_peer_head_ < pending_peer_deltas_.size() ||
+        pending_contact_head_ < pending_contact_deltas_.size();
+    persistence_pending_.store(has_pending_deltas,
+                               std::memory_order_release);
+
+    bool needs_compaction = false;
+    for (std::size_t index = 0U; index < 3U; ++index)
+    {
+        needs_compaction =
+            needs_compaction || protocol_reset_pending_[index] ||
+            partitions_[index].peer_delta_count >=
+                kBootCompactionDeltaThreshold ||
+            partitions_[index].contact_delta_count >=
+                kBootCompactionDeltaThreshold;
+    }
+    compaction_pending_.store(needs_compaction,
+                              std::memory_order_release);
 }
 
 bool SdProtocolPeerRepository::applyPeerProjection(
@@ -874,7 +1497,13 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::record(
             MeshPeerDirectoryStatusCode::InvalidArgument);
     }
     ScopedRepositoryLock lock(mutex_);
-    if (!lock.locked() || !begun_)
+    if (!lock.locked())
+    {
+        (void)queueDeferredObservation(input);
+        return stateLockStatus(lock.result());
+    }
+    if (!begun_ || !hydrated_ ||
+        hydrating_.load(std::memory_order_acquire))
     {
         (void)queueDeferredObservation(input);
         return MeshPeerDirectoryStatus::fail(
@@ -940,13 +1569,13 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::recordLocked(
     }
 
     const storage_v2::PeerProjection next_projection{next, false};
-    const bool immediately_durable = queueOrAppendPeerDelta(next_projection);
+    (void)queuePeerDelta(next_projection);
     if (identity_upgrade)
     {
         storage_v2::PeerProjection tombstone{};
         tombstone.record = peers_[merge_index];
         tombstone.deleted = true;
-        (void)queueOrAppendPeerDelta(tombstone);
+        (void)queuePeerDelta(tombstone);
     }
 
     if (merge_index < peers_.size())
@@ -961,13 +1590,6 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::recordLocked(
     {
         overlayContactFactsForPeer(peers_[merge_index]);
     }
-    if (!immediately_durable)
-    {
-        Serial.printf("[PeerStoreV2] peer queued protocol=%s pending=%u\n",
-                      protocolSlug(next.identity.protocol),
-                      static_cast<unsigned>(pending_peer_deltas_.size() -
-                                            pending_peer_head_));
-    }
     return MeshPeerDirectoryStatus::success();
 }
 
@@ -978,8 +1600,7 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::find(
     ScopedRepositoryLock lock(mutex_);
     if (!lock.locked())
     {
-        return MeshPeerDirectoryStatus::fail(
-            MeshPeerDirectoryStatusCode::StorageUnavailable);
+        return stateLockStatus(lock.result());
     }
     const std::size_t index = findPeerIndex(identity);
     if (index >= peers_.size())
@@ -996,11 +1617,15 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::findByNodeId(
     NodeId node_id,
     MeshPeerRecord& out_record)
 {
-    ScopedRepositoryLock lock(mutex_);
-    if (!lock.locked() || node_id == 0U)
+    if (node_id == 0U)
     {
         return MeshPeerDirectoryStatus::fail(
             MeshPeerDirectoryStatusCode::InvalidArgument);
+    }
+    ScopedRepositoryLock lock(mutex_);
+    if (!lock.locked())
+    {
+        return stateLockStatus(lock.result());
     }
     const std::size_t index = findPeerIndexByNodeId(protocol, node_id);
     if (index >= peers_.size())
@@ -1018,11 +1643,15 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::loadRecent(
     std::size_t max_records,
     std::size_t* out_count)
 {
-    ScopedRepositoryLock lock(mutex_);
-    if (!lock.locked() || !out_count || (!out_records && max_records > 0U))
+    if (!out_count || (!out_records && max_records > 0U))
     {
         return MeshPeerDirectoryStatus::fail(
             MeshPeerDirectoryStatusCode::InvalidArgument);
+    }
+    ScopedRepositoryLock lock(mutex_);
+    if (!lock.locked())
+    {
+        return stateLockStatus(lock.result());
     }
     protocol = normalizeProtocol(protocol);
     using PeerPtrVector = std::vector<
@@ -1059,12 +1688,15 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::search(
     std::size_t max_records,
     std::size_t* out_count)
 {
-    ScopedRepositoryLock lock(mutex_);
-    if (!lock.locked() || !query || !out_count ||
-        (!out_records && max_records > 0U))
+    if (!query || !out_count || (!out_records && max_records > 0U))
     {
         return MeshPeerDirectoryStatus::fail(
             MeshPeerDirectoryStatusCode::InvalidArgument);
+    }
+    ScopedRepositoryLock lock(mutex_);
+    if (!lock.locked())
+    {
+        return stateLockStatus(lock.result());
     }
     protocol = normalizeProtocol(protocol);
     using PeerPtrVector = std::vector<
@@ -1108,8 +1740,7 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::setUserFlags(
     ScopedRepositoryLock lock(mutex_);
     if (!lock.locked())
     {
-        return MeshPeerDirectoryStatus::fail(
-            MeshPeerDirectoryStatusCode::StorageUnavailable);
+        return stateLockStatus(lock.result());
     }
     const std::size_t peer_index = findPeerIndex(identity);
     if (peer_index >= peers_.size())
@@ -1143,6 +1774,11 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::visit(
 {
     ScopedRepositoryLock lock(mutex_);
     if (!lock.locked())
+    {
+        return stateLockStatus(lock.result());
+    }
+    if (!begun_ || !hydrated_ ||
+        hydrating_.load(std::memory_order_acquire))
     {
         return MeshPeerDirectoryStatus::fail(
             MeshPeerDirectoryStatusCode::StorageUnavailable);
@@ -1182,8 +1818,7 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::setUserAlias(
     ScopedRepositoryLock lock(mutex_);
     if (!lock.locked())
     {
-        return MeshPeerDirectoryStatus::fail(
-            MeshPeerDirectoryStatusCode::StorageUnavailable);
+        return stateLockStatus(lock.result());
     }
     const std::size_t peer_index = findPeerIndex(identity);
     if (peer_index >= peers_.size())
@@ -1214,8 +1849,7 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::setKeyManuallyVerified(
     ScopedRepositoryLock lock(mutex_);
     if (!lock.locked())
     {
-        return MeshPeerDirectoryStatus::fail(
-            MeshPeerDirectoryStatusCode::StorageUnavailable);
+        return stateLockStatus(lock.result());
     }
     const std::size_t index = findPeerIndex(identity);
     if (index >= peers_.size())
@@ -1240,11 +1874,7 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::setKeyManuallyVerified(
         return MeshPeerDirectoryStatus::fail(
             MeshPeerDirectoryStatusCode::Unsupported);
     }
-    if (!appendPeerDelta(storage_v2::PeerProjection{next, false}))
-    {
-        return MeshPeerDirectoryStatus::fail(
-            MeshPeerDirectoryStatusCode::StorageUnavailable);
-    }
+    (void)queuePeerDelta(storage_v2::PeerProjection{next, false});
     peers_[index] = next;
     return MeshPeerDirectoryStatus::success();
 }
@@ -1255,8 +1885,7 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::remove(
     ScopedRepositoryLock lock(mutex_);
     if (!lock.locked())
     {
-        return MeshPeerDirectoryStatus::fail(
-            MeshPeerDirectoryStatusCode::StorageUnavailable);
+        return stateLockStatus(lock.result());
     }
     const std::size_t index = findPeerIndex(identity);
     if (index >= peers_.size())
@@ -1272,7 +1901,7 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::remove(
     storage_v2::PeerProjection tombstone{};
     tombstone.record = peers_[index];
     tombstone.deleted = true;
-    (void)queueOrAppendPeerDelta(tombstone);
+    (void)queuePeerDelta(tombstone);
     peers_.erase(peers_.begin() + static_cast<std::ptrdiff_t>(index));
     return MeshPeerDirectoryStatus::success();
 }
@@ -1281,7 +1910,11 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::clearProtocol(
     MeshProtocol protocol)
 {
     ScopedRepositoryLock lock(mutex_);
-    if (!lock.locked() || !begun_)
+    if (!lock.locked())
+    {
+        return stateLockStatus(lock.result());
+    }
+    if (!begun_)
     {
         return MeshPeerDirectoryStatus::fail(
             MeshPeerDirectoryStatusCode::StorageUnavailable);
@@ -1314,12 +1947,19 @@ MeshPeerDirectoryStatus SdProtocolPeerRepository::clearProtocol(
                                protocol);
                        }),
         pending_peer_deltas_.end());
+    prunePendingDeltasLocked();
+    ++pending_peer_revision_;
     overlayContactFacts();
-
-    if (!rewritePeerSnapshot(protocol))
+    const std::size_t index = protocolIndex(protocol);
+    protocol_reset_pending_[index] = true;
+    ++protocol_reset_revision_[index];
+    if (protocol_reset_revision_[index] == 0U)
     {
-        return MeshPeerDirectoryStatus::fail(MeshPeerDirectoryStatusCode::IoError);
+        protocol_reset_revision_[index] = 1U;
     }
+    refreshPersistenceDemandLocked();
+    Serial.printf("[PeerStoreV2] protocol_reset queued protocol=%s\n",
+                  protocolSlug(protocol));
     return MeshPeerDirectoryStatus::success();
 }
 
@@ -1331,18 +1971,196 @@ MeshPeerDirectoryCapacity SdProtocolPeerRepository::capacityFor(
                                      kPeerHotCacheCapacity[index]};
 }
 
+MeshPeerDirectoryStatus SdProtocolPeerRepository::flushProtocolReset()
+{
+    MeshProtocol protocol = MeshProtocol::Meshtastic;
+    uint32_t reset_revision = 0U;
+    {
+        ScopedRepositoryLock lock(mutex_);
+        if (!lock.locked())
+        {
+            return stateLockStatus(lock.result());
+        }
+        std::size_t index = 0U;
+        while (index < 3U && !protocol_reset_pending_[index])
+        {
+            ++index;
+        }
+        if (index >= 3U)
+        {
+            return MeshPeerDirectoryStatus::success();
+        }
+        protocol = kProtocols[index];
+        reset_revision = protocol_reset_revision_[index];
+        flush_peer_snapshot_ = peers_;
+    }
+
+    if (!rewritePeerSnapshotFrom(protocol, flush_peer_snapshot_))
+    {
+        return ioFailureStatus();
+    }
+
+    ScopedRepositoryLock lock(mutex_);
+    if (!lock.locked())
+    {
+        return stateLockStatus(lock.result());
+    }
+    const std::size_t index = protocolIndex(protocol);
+    if (protocol_reset_revision_[index] == reset_revision)
+    {
+        protocol_reset_pending_[index] = false;
+        partitions_[index].peer_delta_count = 0U;
+    }
+    refreshPersistenceDemandLocked();
+    return MeshPeerDirectoryStatus::success();
+}
+
+MeshPeerDirectoryStatus SdProtocolPeerRepository::flushPendingDeltas(
+    std::size_t budget)
+{
+    flush_peer_batch_.clear();
+    flush_contact_batch_.clear();
+    std::size_t peer_start = 0U;
+    std::size_t contact_start = 0U;
+    uint32_t peer_revision = 0U;
+    uint32_t contact_revision = 0U;
+    {
+        ScopedRepositoryLock lock(mutex_);
+        if (!lock.locked())
+        {
+            return stateLockStatus(lock.result());
+        }
+        prunePendingDeltasLocked();
+        peer_start = pending_peer_head_;
+        contact_start = pending_contact_head_;
+        peer_revision = pending_peer_revision_;
+        contact_revision = pending_contact_revision_;
+        const std::size_t peer_end =
+            std::min(pending_peer_deltas_.size(), peer_start + budget);
+        const std::size_t contact_end =
+            std::min(pending_contact_deltas_.size(), contact_start + budget);
+        flush_peer_batch_.assign(pending_peer_deltas_.begin() +
+                                     static_cast<std::ptrdiff_t>(peer_start),
+                                 pending_peer_deltas_.begin() +
+                                     static_cast<std::ptrdiff_t>(peer_end));
+        flush_contact_batch_.assign(pending_contact_deltas_.begin() +
+                                        static_cast<std::ptrdiff_t>(
+                                            contact_start),
+                                    pending_contact_deltas_.begin() +
+                                        static_cast<std::ptrdiff_t>(contact_end));
+    }
+
+    std::size_t peer_written = 0U;
+    std::size_t contact_written = 0U;
+    uint32_t peer_counts[3] = {};
+    uint32_t contact_counts[3] = {};
+    for (const auto& projection : flush_peer_batch_)
+    {
+        if (!appendPeerDelta(projection))
+        {
+            break;
+        }
+        ++peer_written;
+        ++peer_counts[protocolIndex(projection.record.identity.protocol)];
+    }
+    if (peer_written != flush_peer_batch_.size())
+    {
+        ScopedRepositoryLock lock(mutex_);
+        if (!lock.locked())
+        {
+            return stateLockStatus(lock.result());
+        }
+        for (std::size_t index = 0U; index < 3U; ++index)
+        {
+            partitions_[index].peer_delta_count += peer_counts[index];
+        }
+        if (pending_peer_revision_ == peer_revision)
+        {
+            pending_peer_head_ = peer_start + peer_written;
+            prunePendingDeltasLocked();
+        }
+        refreshPersistenceDemandLocked();
+        return ioFailureStatus();
+    }
+    for (const auto& projection : flush_contact_batch_)
+    {
+        if (!appendContactDelta(projection))
+        {
+            break;
+        }
+        ++contact_written;
+        ++contact_counts[protocolIndex(projection.identity.protocol)];
+    }
+
+    ScopedRepositoryLock lock(mutex_);
+    if (!lock.locked())
+    {
+        return stateLockStatus(lock.result());
+    }
+    for (std::size_t index = 0U; index < 3U; ++index)
+    {
+        partitions_[index].peer_delta_count += peer_counts[index];
+        partitions_[index].contact_delta_count += contact_counts[index];
+    }
+    if (pending_peer_revision_ == peer_revision)
+    {
+        pending_peer_head_ = peer_start + peer_written;
+        prunePendingDeltasLocked();
+    }
+    if (pending_contact_revision_ == contact_revision)
+    {
+        pending_contact_head_ = contact_start + contact_written;
+        prunePendingDeltasLocked();
+    }
+    refreshPersistenceDemandLocked();
+    return contact_written == flush_contact_batch_.size()
+               ? MeshPeerDirectoryStatus::success()
+               : ioFailureStatus();
+}
+
 MeshPeerDirectoryStatus SdProtocolPeerRepository::flush()
 {
-    ScopedRepositoryLock lock(mutex_);
-    if (!lock.locked() || !begun_)
+    if (!acquirePersistenceLease(kPersistenceLeaseWaitTicks))
     {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::Busy);
+    }
+    bool begun = false;
+    MeshPeerDirectoryStatus lock_status =
+        MeshPeerDirectoryStatus::success();
+    {
+        ScopedRepositoryLock lock(mutex_);
+        if (!lock.locked())
+        {
+            lock_status = stateLockStatus(lock.result());
+        }
+        else
+        {
+            begun = begun_;
+        }
+    }
+    if (!lock_status.succeeded())
+    {
+        releasePersistenceLease();
+        return lock_status;
+    }
+    if (!begun)
+    {
+        releasePersistenceLease();
         return MeshPeerDirectoryStatus::fail(
             MeshPeerDirectoryStatusCode::StorageUnavailable);
     }
-    return drainPendingPeerDeltas(kPendingFlushBudget)
-               ? MeshPeerDirectoryStatus::success()
-               : MeshPeerDirectoryStatus::fail(
-                     MeshPeerDirectoryStatusCode::StorageUnavailable);
+
+    const MeshPeerDirectoryStatus reset_status = flushProtocolReset();
+    if (!reset_status.succeeded())
+    {
+        releasePersistenceLease();
+        return reset_status;
+    }
+    const MeshPeerDirectoryStatus deltas_status =
+        flushPendingDeltas(kPendingFlushBudget);
+    releasePersistenceLease();
+    return deltas_status;
 }
 
 std::size_t SdProtocolPeerRepository::findPeerIndex(
@@ -1535,7 +2353,7 @@ bool SdProtocolPeerRepository::evictOldestEphemeral(MeshProtocol protocol)
     storage_v2::PeerProjection tombstone{};
     tombstone.record = peers_[candidate];
     tombstone.deleted = true;
-    (void)queueOrAppendPeerDelta(tombstone);
+    (void)queuePeerDelta(tombstone);
     peers_.erase(peers_.begin() + static_cast<std::ptrdiff_t>(candidate));
     return true;
 }
@@ -1566,10 +2384,7 @@ bool SdProtocolPeerRepository::persistContactFacts(
     {
         projection.node_id_hint = projectedNodeId(peers_[peer_index]);
     }
-    if (!appendContactDelta(projection))
-    {
-        return false;
-    }
+    (void)queueContactDelta(projection);
     (void)applyContactProjection(projection);
     if (peer_index < peers_.size())
     {

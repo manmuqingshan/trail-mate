@@ -17,6 +17,9 @@ namespace
 constexpr const char* kRelativePath = "trailmate/reticulum/groups.tsv";
 constexpr const char* kLogicalPath = "/trailmate/reticulum/groups.tsv";
 constexpr std::size_t kMaxConfigBytes = 2048;
+chat::ReticulumGroupDestinationConfig
+    s_pending_groups[chat::kReticulumGroupDestinationMaxCount] = {};
+bool s_pending = false;
 
 void copy_text(char* out, std::size_t out_len, const char* text)
 {
@@ -195,6 +198,57 @@ Status load(chat::ReticulumGroupDestinationConfig* groups, std::size_t group_cou
     out.loaded = true;
     set_status(out, slot == 0 ? "No Reticulum groups" : "Reticulum groups loaded", kLogicalPath);
     return out;
+}
+
+Status submit(const chat::ReticulumGroupDestinationConfig* groups,
+              std::size_t group_count)
+{
+    Status out{};
+    out.supported = true;
+    if (!groups || group_count == 0 ||
+        group_count > chat::kReticulumGroupDestinationMaxCount)
+    {
+        set_status(out, "Group storage unavailable", kLogicalPath);
+        return out;
+    }
+    std::memcpy(s_pending_groups,
+                groups,
+                group_count * sizeof(chat::ReticulumGroupDestinationConfig));
+    for (std::size_t index = group_count;
+         index < chat::kReticulumGroupDestinationMaxCount;
+         ++index)
+    {
+        s_pending_groups[index] = chat::ReticulumGroupDestinationConfig{};
+    }
+    s_pending = true;
+    out.queued = true;
+    set_status(out, "Reticulum groups save queued", kLogicalPath);
+    return out;
+}
+
+Status flushPending()
+{
+    if (!s_pending)
+    {
+        Status out{};
+        out.supported = true;
+        out.saved = true;
+        set_status(out, "Reticulum groups idle", kLogicalPath);
+        return out;
+    }
+
+    const Status out = save(s_pending_groups,
+                            chat::kReticulumGroupDestinationMaxCount);
+    if (out.saved)
+    {
+        s_pending = false;
+    }
+    return out;
+}
+
+bool hasPending()
+{
+    return s_pending;
 }
 
 Status save(const chat::ReticulumGroupDestinationConfig* groups, std::size_t group_count)

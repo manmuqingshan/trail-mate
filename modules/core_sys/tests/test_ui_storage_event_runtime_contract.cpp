@@ -1,6 +1,5 @@
 #include "gps/track_runtime.h"
 #include "sys/feedback_runtime.h"
-#include "sys/persistence_runtime.h"
 #include "sys/runtime_harness.h"
 #include "ui_map_runtime/map_tiles/map_tile_async_runtime.h"
 
@@ -190,28 +189,6 @@ void test_map_tile_runtime_contract()
     assert(runtime.snapshot().ready_count == 1);
 }
 
-void test_persistence_runtime_contract()
-{
-    sys::runtime::RuntimeHarness harness;
-    sys::runtime::DirtyStoreRegistry<4> registry;
-    sys::runtime::DefaultPersistencePolicy policy;
-    sys::runtime::PersistenceWorker worker(harness.storage(),
-                                           harness.storage(),
-                                           harness.events(),
-                                           policy);
-    sys::runtime::PersistenceRuntime<4> runtime(registry,
-                                                worker,
-                                                harness.events(),
-                                                policy);
-
-    assert(runtime.markDirty("nodes", 0));
-    runtime.tick(100);
-    assert(harness.storage().writeCount() == 0);
-    runtime.tick(150);
-    assert(harness.storage().writeCount() == 1);
-    assert(harness.events().persistenceCount() >= 3);
-}
-
 void test_feedback_runtime_contract()
 {
     sys::runtime::RuntimeHarness harness;
@@ -379,7 +356,6 @@ void test_runtime_harness_keeps_ui_drain_separate()
 int main()
 {
     test_map_tile_runtime_contract();
-    test_persistence_runtime_contract();
     test_feedback_runtime_contract();
     test_track_runtime_contract();
     test_track_worker_failure_completes_semantically();

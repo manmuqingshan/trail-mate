@@ -17,6 +17,8 @@ enum class MeshPeerDirectoryStatusCode : uint8_t
     IoError = 4,
     CapacityExceeded = 5,
     Unsupported = 6,
+    Busy = 7,
+    DeviceUnavailable = 8,
 };
 
 struct MeshPeerDirectoryStatus

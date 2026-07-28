@@ -705,11 +705,21 @@ void ContactService::buildCache() const
     {
         return;
     }
-    cached_nodes_.clear();
-    ProjectionVisitor visitor(cached_nodes_);
-    (void)directory_.visit(active_protocol_,
-                           MeshPeerDirectoryView::All,
-                           visitor);
+    std::vector<PeerDirectoryItem> next_nodes;
+    ProjectionVisitor visitor(next_nodes);
+    const MeshPeerDirectoryStatus status =
+        directory_.visit(active_protocol_,
+                         MeshPeerDirectoryView::All,
+                         visitor);
+    if (!status.succeeded())
+    {
+        // A persistent directory may not have installed its authoritative
+        // projection yet. Keep the last visible cache instead of turning a
+        // transient retry into a blank contact list.
+        cache_timestamp_ = now_ms;
+        return;
+    }
+    cached_nodes_.swap(next_nodes);
     cache_timestamp_ = now_ms;
 }
 

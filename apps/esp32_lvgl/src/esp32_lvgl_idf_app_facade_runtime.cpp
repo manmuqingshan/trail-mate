@@ -4,6 +4,7 @@
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
 #include "app/app_facades.h"
+#include "app/config_persistence_runtime.h"
 #include "board/BoardBase.h"
 #include "chat/delivery/chat_delivery_event_port.h"
 #include "chat/delivery/chat_delivery_event_projector.h"
@@ -17,6 +18,7 @@
 #include "chat/ports/i_mesh_peer_directory_blob_store.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_random.h"
@@ -63,6 +65,7 @@
 #include <cstring>
 #include <ctime>
 #include <memory>
+#include <new>
 #include <string>
 #include <vector>
 #endif
@@ -82,7 +85,6 @@ constexpr const char* kIdfMeshPeersFile = "/mesh/peers.bin";
 constexpr size_t kIdfReadChunkBytes = 256;
 constexpr uint32_t kIdfAppConfigMagic = 0x50344346UL; // P4CF
 constexpr uint16_t kIdfAppConfigVersion = 1;
-constexpr uint32_t kIdfPeerDirectoryFlushIntervalMs = 5000UL;
 constexpr size_t kIdfMaxMeshPeerBlobBytes = 768U * 1024U;
 constexpr const char* kIdfTeamTag = "idf-team";
 constexpr size_t kTeamAeadTagBytes = 16;
@@ -98,7 +100,29 @@ struct IdfPersistedAppConfig
     app::AppConfig config{};
 };
 
-IdfPersistedAppConfig s_config_blob_scratch{};
+IdfPersistedAppConfig* s_config_blob_scratch = nullptr;
+
+IdfPersistedAppConfig* ensureConfigBlobScratch()
+{
+    if (s_config_blob_scratch)
+    {
+        return s_config_blob_scratch;
+    }
+
+    void* psram_storage =
+        heap_caps_malloc(sizeof(IdfPersistedAppConfig),
+                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (psram_storage)
+    {
+        s_config_blob_scratch = new (psram_storage) IdfPersistedAppConfig();
+    }
+    else
+    {
+        s_config_blob_scratch =
+            new (std::nothrow) IdfPersistedAppConfig();
+    }
+    return s_config_blob_scratch;
+}
 
 uint32_t fnv1a32(const void* data, size_t len)
 {
@@ -195,45 +219,56 @@ void normalizeIdfAppConfig(app::AppConfig& config)
 
 bool loadIdfAppConfig(app::AppConfig& out)
 {
-    std::vector<uint8_t> blob;
-    if (!platform::ui::settings_store::get_blob(kIdfSettingsNs, kIdfConfigKey, blob))
+    IdfPersistedAppConfig* scratch = ensureConfigBlobScratch();
+    if (!scratch)
+    {
+        ESP_LOGE(kIdfConfigTag, "config scratch allocation failed");
+        return false;
+    }
+
+    std::size_t blob_size = 0U;
+    if (!platform::ui::settings_store::get_blob_into(
+            kIdfSettingsNs,
+            kIdfConfigKey,
+            scratch,
+            sizeof(*scratch),
+            &blob_size))
     {
         return false;
     }
-    if (blob.size() != sizeof(IdfPersistedAppConfig))
+    if (blob_size != sizeof(IdfPersistedAppConfig))
     {
         ESP_LOGW(kIdfConfigTag,
                  "load rejected size=%u expected=%u",
-                 static_cast<unsigned>(blob.size()),
+                 static_cast<unsigned>(blob_size),
                  static_cast<unsigned>(sizeof(IdfPersistedAppConfig)));
         return false;
     }
 
-    std::memcpy(&s_config_blob_scratch, blob.data(), sizeof(s_config_blob_scratch));
-    if (s_config_blob_scratch.magic != kIdfAppConfigMagic ||
-        s_config_blob_scratch.version != kIdfAppConfigVersion ||
-        s_config_blob_scratch.payload_size != sizeof(app::AppConfig))
+    if (scratch->magic != kIdfAppConfigMagic ||
+        scratch->version != kIdfAppConfigVersion ||
+        scratch->payload_size != sizeof(app::AppConfig))
     {
         ESP_LOGW(kIdfConfigTag,
                  "load rejected magic=%08lx version=%u payload=%u",
-                 static_cast<unsigned long>(s_config_blob_scratch.magic),
-                 static_cast<unsigned>(s_config_blob_scratch.version),
-                 static_cast<unsigned>(s_config_blob_scratch.payload_size));
+                 static_cast<unsigned long>(scratch->magic),
+                 static_cast<unsigned>(scratch->version),
+                 static_cast<unsigned>(scratch->payload_size));
         return false;
     }
 
     const uint32_t checksum =
-        fnv1a32(&s_config_blob_scratch.config, sizeof(s_config_blob_scratch.config));
-    if (checksum != s_config_blob_scratch.checksum)
+        fnv1a32(&scratch->config, sizeof(scratch->config));
+    if (checksum != scratch->checksum)
     {
         ESP_LOGW(kIdfConfigTag,
                  "load rejected checksum stored=%08lx actual=%08lx",
-                 static_cast<unsigned long>(s_config_blob_scratch.checksum),
+                 static_cast<unsigned long>(scratch->checksum),
                  static_cast<unsigned long>(checksum));
         return false;
     }
 
-    out = s_config_blob_scratch.config;
+    out = scratch->config;
     normalizeIdfAppConfig(out);
     ESP_LOGI(kIdfConfigTag,
              "loaded app config proto=%u region=%u tx=%d",
@@ -245,19 +280,26 @@ bool loadIdfAppConfig(app::AppConfig& out)
 
 bool saveIdfAppConfig(const app::AppConfig& config)
 {
-    s_config_blob_scratch = IdfPersistedAppConfig{};
-    s_config_blob_scratch.magic = kIdfAppConfigMagic;
-    s_config_blob_scratch.version = kIdfAppConfigVersion;
-    s_config_blob_scratch.payload_size = static_cast<uint16_t>(sizeof(app::AppConfig));
-    s_config_blob_scratch.config = config;
-    s_config_blob_scratch.checksum =
-        fnv1a32(&s_config_blob_scratch.config, sizeof(s_config_blob_scratch.config));
+    IdfPersistedAppConfig* scratch = ensureConfigBlobScratch();
+    if (!scratch)
+    {
+        ESP_LOGE(kIdfConfigTag, "config scratch allocation failed");
+        return false;
+    }
+
+    *scratch = IdfPersistedAppConfig{};
+    scratch->magic = kIdfAppConfigMagic;
+    scratch->version = kIdfAppConfigVersion;
+    scratch->payload_size = static_cast<uint16_t>(sizeof(app::AppConfig));
+    scratch->config = config;
+    scratch->checksum =
+        fnv1a32(&scratch->config, sizeof(scratch->config));
 
     const bool ok = platform::ui::settings_store::put_blob(
         kIdfSettingsNs,
         kIdfConfigKey,
-        &s_config_blob_scratch,
-        sizeof(s_config_blob_scratch));
+        scratch,
+        sizeof(*scratch));
     ESP_LOGI(kIdfConfigTag,
              "save app config proto=%u region=%u tx=%d ok=%u",
              static_cast<unsigned>(config.mesh_protocol),
@@ -434,6 +476,60 @@ class IdfSdMeshPeerDirectoryBlobStore final
                  kIdfMeshPeersFile,
                  static_cast<unsigned>(out.size()));
         return chat::MeshPeerDirectoryBlobLoadResult::Loaded;
+    }
+
+    chat::MeshPeerDirectoryBlobLoadResult loadBlobTo(
+        chat::IMeshPeerDirectoryBlobSink& sink) override
+    {
+        if (!platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready())
+        {
+            return chat::MeshPeerDirectoryBlobLoadResult::Unavailable;
+        }
+
+        const std::string path = makeSdPath(kIdfMeshPeersFile);
+        if (!platform::esp::arduino_common::storage::sd_exists(path.c_str()))
+        {
+            return chat::MeshPeerDirectoryBlobLoadResult::Missing;
+        }
+
+        platform::esp::arduino_common::storage::SdRuntimeFile file;
+        if (!file.open(path.c_str(), "rb"))
+        {
+            return chat::MeshPeerDirectoryBlobLoadResult::IoError;
+        }
+        const uint64_t file_size = file.size();
+        if (file_size == 0U || file_size > kIdfMaxMeshPeerBlobBytes ||
+            !file.seek(0))
+        {
+            file.close();
+            return chat::MeshPeerDirectoryBlobLoadResult::IoError;
+        }
+
+        const std::size_t size = static_cast<std::size_t>(file_size);
+        if (!sink.begin(size))
+        {
+            file.close();
+            return chat::MeshPeerDirectoryBlobLoadResult::IoError;
+        }
+
+        uint8_t buffer[kIdfReadChunkBytes];
+        std::size_t total_read = 0U;
+        while (total_read < size)
+        {
+            const std::size_t chunk =
+                std::min(kIdfReadChunkBytes, size - total_read);
+            const int read = file.read(buffer, chunk);
+            if (read < 0 || static_cast<std::size_t>(read) != chunk ||
+                !sink.write(buffer, chunk))
+            {
+                file.close();
+                return chat::MeshPeerDirectoryBlobLoadResult::IoError;
+            }
+            total_read += chunk;
+        }
+        file.close();
+        return sink.finish() ? chat::MeshPeerDirectoryBlobLoadResult::Loaded
+                             : chat::MeshPeerDirectoryBlobLoadResult::IoError;
     }
 
     bool saveBlob(const uint8_t* data, size_t len) override
@@ -931,17 +1027,24 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
         mesh_peer_directory_.setAutoSaveEnabled(false);
         const chat::MeshPeerDirectoryStatus peer_directory_status =
-            mesh_peer_directory_.begin();
+            mesh_peer_directory_.beginEmpty();
         mesh_peer_directory_ready_ = peer_directory_status.succeeded();
         platform::ui::reticulum_directory::bind_mesh_peer_directory(
             mesh_peer_directory_ready_ ? &mesh_peer_directory_ : nullptr);
         ESP_LOGI(kIdfStoreTag,
-                 "mesh peer directory path=%s status=%u",
+                 "mesh peer directory path=%s status=%u hydration=deferred",
                  kIdfMeshPeersFile,
                  static_cast<unsigned>(peer_directory_status.code));
 
         if (!sys::EventBus::init())
         {
+            return false;
+        }
+
+        chat_store_ = createIdfChatStore(&deferred_chat_store_);
+        if (!chat_store_)
+        {
+            ESP_LOGE(kIdfStoreTag, "chat store allocation failed");
             return false;
         }
 
@@ -969,14 +1072,9 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         applyUserInfo();
         applyNetworkLimits();
         applyPrivacyConfig();
+        config_persistence_runtime_.initialize(config_);
 
         contact_service_.begin();
-        chat_store_ = createIdfChatStore(&deferred_chat_store_);
-        if (!chat_store_)
-        {
-            ESP_LOGE(kIdfStoreTag, "chat store allocation failed");
-            return false;
-        }
         chat_service_.reset(new chat::ChatService(chat_model_, meshAdapter(), *chat_store_));
         chat_service_->setDeliveryEventPort(&delivery_event_port_);
         chat_service_->setActiveProtocol(config_.mesh_protocol);
@@ -1000,7 +1098,8 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         }
         deferred_storage_started_ = true;
         platform::esp::idf_common::storage::start_deferred_storage(
-            deferred_chat_store_);
+            deferred_chat_store_,
+            mesh_peer_directory_ready_ ? &mesh_peer_directory_ : nullptr);
     }
 
     bool startBackgroundTasks()
@@ -1018,6 +1117,32 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         return background_tasks_started_;
     }
 
+    bool waitForInitialStorageHydration(uint32_t timeout_ms = 15000U)
+    {
+        const uint32_t started_ms = persistenceNowMs();
+        bool ready = platform::esp::idf_common::storage::
+            consume_hydration_ready();
+        while (!ready &&
+               platform::esp::idf_common::storage::hydration_active())
+        {
+            vTaskDelay(pdMS_TO_TICKS(10U));
+            ready = platform::esp::idf_common::storage::
+                consume_hydration_ready();
+            if (static_cast<uint32_t>(persistenceNowMs() - started_ms) >=
+                timeout_ms)
+            {
+                return false;
+            }
+        }
+        if (!ready)
+        {
+            ready = platform::esp::idf_common::storage::
+                consume_hydration_ready();
+        }
+        mesh_peer_directory_hydrated_ = ready;
+        return ready;
+    }
+
     [[deprecated("Use beginConfigEdit() for configuration writes")]] app::AppConfig& getConfig() override { return config_; }
     const app::AppConfig& getConfig() const override { return config_; }
 
@@ -1031,18 +1156,28 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     void saveConfig() override
     {
+        saveConfig(app::AppConfigChangeSet::allPersisted());
+    }
+
+    void saveConfig(app::AppConfigChangeSet changes) override
+    {
         normalizeIdfAppConfig(config_);
         if (chat_service_)
         {
             chat_service_->setActiveProtocol(config_.mesh_protocol);
         }
-        (void)saveIdfAppConfig(config_);
-    }
 
-    void saveConfig(app::AppConfigChangeSet changes) override
-    {
-        (void)changes;
-        saveConfig();
+        const uint32_t now_ms = persistenceNowMs();
+        const auto submission = config_persistence_runtime_.submit(
+            config_,
+            changes,
+            now_ms,
+            app::ConfigPersistenceUrgency::Debounced);
+        ESP_LOGI(kIdfConfigTag,
+                 "config intent queued=%u generation=%lu changes=0x%08lx",
+                 submission.queued ? 1U : 0U,
+                 static_cast<unsigned long>(submission.generation),
+                 static_cast<unsigned long>(submission.changes.bits()));
     }
 
     void applyMeshConfig() override
@@ -1244,10 +1379,20 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     void updateCoreServices() override
     {
+        flushConfigPersistence(persistenceNowMs());
+        if (!mesh_peer_directory_hydrated_ &&
+            platform::esp::idf_common::storage::consume_hydration_ready())
+        {
+            mesh_peer_directory_hydrated_ = true;
+            ESP_LOGI(kIdfStoreTag, "mesh peer directory hydration ready");
+        }
+        if (::platform::ui::reticulum_groups::hasPending())
+        {
+            (void)::platform::ui::reticulum_groups::flushPending();
+        }
         platform::ui::tracker::poll();
         chat_service_->processIncoming();
         chat_service_->flushStore();
-        flushPeerDirectoryIfDue();
         if (team_service_)
         {
             team_service_->processIncoming();
@@ -1315,6 +1460,28 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     bool initialized() const { return initialized_; }
 
   private:
+    static uint32_t persistenceNowMs()
+    {
+        return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
+    }
+
+    void flushConfigPersistence(uint32_t now_ms)
+    {
+        app::ConfigPersistenceWork work{};
+        if (!config_persistence_runtime_.takeDue(now_ms, work) ||
+            work.snapshot == nullptr)
+        {
+            return;
+        }
+
+        const bool ok = saveIdfAppConfig(*work.snapshot);
+        config_persistence_runtime_.complete(
+            work.generation,
+            ok ? app::ConfigPersistenceResultKind::Completed
+               : app::ConfigPersistenceResultKind::IoError,
+            persistenceNowMs());
+    }
+
     static void commitConfigEdit(void* context, app::AppConfigChangeSet changes)
     {
         auto* self = static_cast<IdfAppFacadeRuntime*>(context);
@@ -1485,22 +1652,6 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         return null_mesh_adapter_;
     }
 
-    void flushPeerDirectoryIfDue()
-    {
-        const uint32_t now_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
-        if ((now_ms - last_peer_directory_flush_ms_) <
-            kIdfPeerDirectoryFlushIntervalMs)
-        {
-            return;
-        }
-        last_peer_directory_flush_ms_ = now_ms;
-        if (mesh_peer_directory_ready_ &&
-            !mesh_peer_directory_.flush().succeeded())
-        {
-            ESP_LOGW(kIdfStoreTag, "mesh peer directory flush failed");
-        }
-    }
-
     static bool isTeamRuntimeEvent(sys::EventType type)
     {
         return type == sys::EventType::TeamKick ||
@@ -1645,6 +1796,7 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     BoardBase* board_ = nullptr;
     LoraBoard* lora_board_ = nullptr;
     app::AppConfig config_{};
+    app::ConfigPersistenceRuntime config_persistence_runtime_{};
     IdfSdMeshPeerDirectoryBlobStore mesh_peer_directory_blob_store_{};
     chat::MeshPeerDirectoryCore mesh_peer_directory_{mesh_peer_directory_blob_store_};
     chat::contacts::ContactService contact_service_{mesh_peer_directory_};
@@ -1652,6 +1804,7 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     std::unique_ptr<chat::IChatStore> chat_store_{};
     chat::SdStore* deferred_chat_store_ = nullptr;
     bool deferred_storage_started_ = false;
+    bool mesh_peer_directory_hydrated_ = false;
     IdfNullMeshAdapter null_mesh_adapter_{};
     chat::MeshAdapterRouter mesh_router_{};
     chat::IMeshAdapter* mesh_adapter_ = &null_mesh_adapter_;
@@ -1673,10 +1826,27 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     chat::ui::IChatUiRuntime* chat_ui_runtime_ = nullptr;
     bool mesh_peer_directory_ready_ = false;
     bool background_tasks_started_ = false;
-    uint32_t last_peer_directory_flush_ms_ = 0;
 };
 
-IdfAppFacadeRuntime s_runtime{};
+IdfAppFacadeRuntime* s_runtime = nullptr;
+
+IdfAppFacadeRuntime* createRuntime()
+{
+    void* psram_storage =
+        heap_caps_malloc(sizeof(IdfAppFacadeRuntime),
+                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (psram_storage)
+    {
+        ESP_LOGI(kIdfConfigTag,
+                 "app facade runtime allocated in PSRAM bytes=%u",
+                 static_cast<unsigned>(sizeof(IdfAppFacadeRuntime)));
+        return new (psram_storage) IdfAppFacadeRuntime();
+    }
+
+    ESP_LOGW(kIdfConfigTag,
+             "app facade runtime PSRAM allocation failed; using internal heap");
+    return new (std::nothrow) IdfAppFacadeRuntime();
+}
 #endif
 
 } // namespace
@@ -1696,14 +1866,27 @@ bool initialize(const platform::esp::boards::AppContextInitHandles& handles,
         return true;
     }
 
-    if (!s_runtime.begin(*handles.board, handles.lora_board))
+    if (s_runtime == nullptr)
+    {
+        s_runtime = createRuntime();
+    }
+    if (s_runtime == nullptr ||
+        !s_runtime->begin(*handles.board, handles.lora_board))
     {
         ESP_LOGE(config.log_tag, "IDF AppFacade runtime initialization failed for %s", config.target_name);
         return false;
     }
 
-    app::bindAppFacade(s_runtime);
-    if (!s_runtime.startBackgroundTasks())
+    app::bindAppFacade(*s_runtime);
+    s_runtime->startDeferredStorage();
+    if (!s_runtime->waitForInitialStorageHydration())
+    {
+        ESP_LOGE(config.log_tag,
+                 "initial storage hydration did not reach a ready state for %s",
+                 config.target_name);
+        return false;
+    }
+    if (!s_runtime->startBackgroundTasks())
     {
         ESP_LOGE(config.log_tag,
                  "IDF shared ESP background tasks unavailable for %s; radio TX/RX remains disabled",
@@ -1712,9 +1895,10 @@ bool initialize(const platform::esp::boards::AppContextInitHandles& handles,
     ESP_LOGI(config.log_tag,
              "IDF AppFacade runtime bound for %s self=%08lX mesh_backend=%s",
              config.target_name,
-             static_cast<unsigned long>(s_runtime.getSelfNodeId()),
-             s_runtime.getMeshAdapter() != nullptr && s_runtime.getMeshAdapter()->isReady()
-                 ? chat::infra::meshProtocolName(s_runtime.getMeshProtocol())
+             static_cast<unsigned long>(s_runtime->getSelfNodeId()),
+             s_runtime->getMeshAdapter() != nullptr &&
+                     s_runtime->getMeshAdapter()->isReady()
+                 ? chat::infra::meshProtocolName(s_runtime->getMeshProtocol())
                  : "not_ready");
     return true;
 #else
@@ -1727,7 +1911,7 @@ bool initialize(const platform::esp::boards::AppContextInitHandles& handles,
 bool isInitialized()
 {
 #if defined(ESP_PLATFORM)
-    return s_runtime.initialized();
+    return s_runtime != nullptr && s_runtime->initialized();
 #else
     return false;
 #endif
@@ -1736,7 +1920,10 @@ bool isInitialized()
 void startDeferredStorage()
 {
 #if defined(ESP_PLATFORM)
-    s_runtime.startDeferredStorage();
+    if (s_runtime != nullptr)
+    {
+        s_runtime->startDeferredStorage();
+    }
 #endif
 }
 

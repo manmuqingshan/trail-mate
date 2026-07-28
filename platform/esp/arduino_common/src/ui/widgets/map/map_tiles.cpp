@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/arduino_common/storage/storage_runtime.h"
 #include "src/draw/lv_image_decoder_private.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include "sys/clock.h"
@@ -173,6 +174,11 @@ class SdMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
         uint8_t* buffer,
         std::size_t capacity) const override
     {
+        if (::platform::esp::arduino_common::storage::
+                interactive_storage_reads_deferred())
+        {
+            return {ui::map_tiles::MapTileReadStatus::RetryLater, 0U, 0};
+        }
         const auto result =
             ::platform::esp::arduino_common::storage::sd_read_file(
                 path,

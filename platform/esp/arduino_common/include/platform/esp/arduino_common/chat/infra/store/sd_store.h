@@ -9,6 +9,8 @@
 #include "platform/esp/arduino_common/chat/infra/store/fixed_slot_journal.h"
 #include "platform/esp/arduino_common/chat/infra/store/protocol_chat_codec.h"
 #include "platform/esp/arduino_common/memory/psram_allocator.h"
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/common/storage/storage_contracts.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -36,16 +38,36 @@ class SdStore final : public IChatStore
     SdStore();
     ~SdStore() override;
 
-    bool isReady() const { return ready_.load(std::memory_order_acquire); }
+    bool isReady() const override
+    {
+        return ready_.load(std::memory_order_acquire);
+    }
     bool isHydrating() const
     {
         return hydrating_.load(std::memory_order_acquire);
     }
+    bool compactionPending() const
+    {
+        return maintenance_compaction_requested_.load(
+            std::memory_order_acquire);
+    }
 
     // Construction is intentionally empty. Disk recovery is an explicit
     // background lifecycle step so AppContext can become interactive first.
-    bool hydrateFromStorage();
-    bool compactDeferred();
+    // Same operation/generation resumes the current maintenance cursor after
+    // a retryable physical SD/device transaction miss; logical maintenance
+    // ownership remains with this operation until completion or cancellation.
+    // A new generation starts fresh.
+    platform::esp::common::storage::StorageOperationResult beginMaintenance(
+        platform::esp::common::storage::StorageOperation operation,
+        platform::esp::common::storage::StorageOperationGeneration generation);
+    platform::esp::common::storage::StorageOperationResult stepMaintenance(
+        platform::esp::common::storage::StorageOperation operation,
+        platform::esp::common::storage::StorageOperationGeneration generation,
+        const platform::esp::common::storage::StorageOperationBudget& budget);
+    void cancelMaintenance(
+        platform::esp::common::storage::StorageOperation operation,
+        platform::esp::common::storage::StorageOperationGeneration generation);
 
     void append(const ChatMessage& msg) override;
     bool appendDurably(const ChatMessage& msg) override;
@@ -114,23 +136,32 @@ class SdStore final : public IChatStore
     static constexpr std::size_t kCatalogCompactThreshold = 512;
     static constexpr std::size_t kReadCompactThreshold = 256;
     static constexpr std::size_t kStatusCompactThreshold = 2048;
-    static constexpr uint32_t kProjectionRetryIntervalMs = 5000U;
 
     bool appendInternal(const ChatMessage& msg, bool incoming_commit);
     bool ensureLayout() const;
     bool ensureProtocolLayout(MeshProtocol protocol) const;
-    bool loadRuntimeState();
-    bool loadProtocolState(MeshProtocol protocol);
-    bool loadCatalogJournal(MeshProtocol protocol, const char* name);
-    bool loadReadJournal(MeshProtocol protocol, const char* name);
-    bool loadStatusJournal(MeshProtocol protocol, const char* name);
-    bool loadSeenJournal();
-    bool rebuildSeenJournalFromMessages();
     bool recoverProjectionSnapshot(MeshProtocol protocol,
                                    const char* base_name);
-    bool reconcileProtocolCatalog(MeshProtocol protocol);
-    bool reconcileConversationDirectory(MeshProtocol protocol,
-                                        const char* directory_name);
+    enum class ReconcileStepResult : uint8_t
+    {
+        InProgress,
+        Complete,
+        Failed,
+    };
+    enum class ConversationReconcilePhase : uint8_t
+    {
+        ScanSegments,
+        RepairSegment,
+        ReadLatest,
+        ScanUnread,
+        Commit,
+    };
+    ReconcileStepResult stepConversationDirectoryReconcile(
+        MeshProtocol protocol,
+        const char* directory_name);
+    ReconcileStepResult stepProtocolCatalogReconcile(MeshProtocol protocol);
+    ReconcileStepResult stepSeenRebuild();
+    bool beginSeenRebuild();
 
     std::size_t slotsPerMessageSegment(MeshProtocol protocol) const;
     uint32_t messageCountOnDisk(const ConversationId& conv) const;
@@ -160,6 +191,10 @@ class SdStore final : public IChatStore
     bool appendSeenProjection(
         const storage::v2::ReticulumSeenProjection& projection) const;
     bool rememberReticulumHash(const uint8_t* hash);
+    bool acquirePersistenceLease(TickType_t wait_ticks);
+    void releasePersistenceLease();
+    void releaseMaintenanceLease();
+    void resetCatalogReconcileCursor();
 
     storage::v2::ChatCatalogProjection* findCatalog(
         const ConversationId& conversation);
@@ -179,20 +214,6 @@ class SdStore final : public IChatStore
                               uint32_t last_read_sequence) const;
     uint32_t sequenceForUnread(const ConversationId& conversation,
                                uint32_t unread) const;
-
-    bool rewriteCatalogSnapshot(MeshProtocol protocol);
-    bool rewriteReadSnapshot(MeshProtocol protocol);
-    bool rewriteStatusSnapshot(MeshProtocol protocol);
-    bool compactProtocolProjections(MeshProtocol protocol);
-    bool rewriteJournalFromCatalog(MeshProtocol protocol,
-                                   const char* final_path,
-                                   const char* temp_path);
-    bool rewriteJournalFromReadState(MeshProtocol protocol,
-                                     const char* final_path,
-                                     const char* temp_path);
-    bool rewriteJournalFromStatus(MeshProtocol protocol,
-                                  const char* final_path,
-                                  const char* temp_path);
 
     static MeshProtocol normalizeProtocol(MeshProtocol protocol);
     static const char* protocolRoot(MeshProtocol protocol);
@@ -216,18 +237,114 @@ class SdStore final : public IChatStore
     static bool ensureDirectory(const char* path);
     static bool removeTree(const char* path);
 
+    enum class MaintenancePhase : uint8_t
+    {
+        Idle,
+        HydrationPrepare,
+        HydrationRecover,
+        HydrationJournal,
+        HydrationReconcile,
+        HydrationSeen,
+        HydrationRebuildSeen,
+        CompactionPrepare,
+        CompactionInspect,
+        CompactionCreate,
+        CompactionWrite,
+        CompactionReplace,
+        CompactionRemove,
+        CompactionAdvance,
+        Complete,
+        Failed,
+    };
+
+    struct MaintenanceState
+    {
+        MaintenancePhase phase = MaintenancePhase::Idle;
+        platform::esp::common::storage::StorageOperation operation =
+            platform::esp::common::storage::StorageOperation::None;
+        platform::esp::common::storage::StorageOperationGeneration generation =
+            0U;
+        uint8_t protocol_index = 0U;
+        uint8_t journal_index = 0U;
+        uint8_t recovery_index = 0U;
+        bool journal_started = false;
+        bool seen_journal_found = false;
+        bool seen_rebuild_required = false;
+        uint8_t compaction_projection_index = 0U;
+        uint8_t compaction_inspection_index = 0U;
+        uint32_t compaction_record_index = 0U;
+        bool compact_catalog = false;
+        bool compact_read = false;
+        bool compact_status = false;
+    };
+
+    bool prepareMaintenanceJournal();
+    bool applyHydrationJournalSlot(MeshProtocol protocol,
+                                   storage::v2::JournalKind kind);
+    bool advanceHydrationJournal();
+    bool recoverHydrationSnapshot();
+    bool resetHydrationState();
+    platform::esp::common::storage::StorageOperationResult stepHydration(
+        const platform::esp::common::storage::StorageOperationBudget& budget);
+    platform::esp::common::storage::StorageOperationResult stepCompaction(
+        const platform::esp::common::storage::StorageOperationBudget& budget);
+    platform::esp::common::storage::StorageOperationResult maintenanceFailure(
+        platform::esp::common::storage::StorageOperationResultKind kind) const;
+    static const char* hydrationRecoveryName(uint8_t index);
+
     storage::v2::FixedSlotJournalEngine journal_{};
+    storage::v2::FixedSlotJournalCursor maintenance_journal_{};
     mutable SemaphoreHandle_t mutex_ = nullptr;
+    mutable SemaphoreHandle_t persistence_mutex_ = nullptr;
+    bool maintenance_persistence_locked_ = false;
+    ::platform::esp::arduino_common::storage::SdRuntimeDir
+        maintenance_directory_{};
+    bool maintenance_directory_open_ = false;
     CatalogList catalog_{};
     ReadStateList read_state_{};
     StatusList statuses_{};
     mutable SeenList seen_hot_{};
     mutable ScratchBuffer scratch_{};
+    mutable ScratchBuffer maintenance_scratch_{};
+    ChatMessage maintenance_seen_message_{};
+    storage::v2::ChatCatalogProjection maintenance_seen_catalog_{};
+    ConversationId maintenance_seen_conversation_{};
+    uint32_t maintenance_seen_catalog_index_ = 0U;
+    uint32_t maintenance_seen_message_count_ = 0U;
+    uint32_t maintenance_seen_message_ordinal_ = 0U;
+    bool maintenance_seen_rebuild_started_ = false;
+    char maintenance_reconcile_name_[80] = {};
+    char maintenance_reconcile_directory_path_[128] = {};
+    ChatMessage maintenance_reconcile_latest_message_{};
+    storage::v2::ChatCatalogProjection
+        maintenance_reconcile_projection_{};
+    bool maintenance_reconcile_conversation_active_ = false;
+    ConversationReconcilePhase maintenance_reconcile_phase_ =
+        ConversationReconcilePhase::ScanSegments;
+    uint32_t maintenance_reconcile_segment_ = 0U;
+    uint32_t maintenance_reconcile_total_count_ = 0U;
+    uint32_t maintenance_reconcile_last_segment_ = 0U;
+    uint32_t maintenance_reconcile_last_segment_count_ = 0U;
+    uint32_t maintenance_reconcile_unread_ordinal_ = 0U;
+    uint32_t maintenance_reconcile_unread_count_ = 0U;
+    bool maintenance_reconcile_found_segment_ = false;
+    bool maintenance_reconcile_catalog_current_ = false;
+    CatalogList compaction_catalog_{};
+    ReadStateList compaction_read_state_{};
+    StatusList compaction_statuses_{};
+    MaintenanceState maintenance_{};
+    char maintenance_path_[128] = {};
+    char maintenance_final_path_[128] = {};
+    char maintenance_backup_path_[128] = {};
+    char maintenance_delta_path_[128] = {};
+    MeshProtocol maintenance_protocol_ = MeshProtocol::Meshtastic;
+    storage::v2::JournalKind maintenance_kind_ =
+        storage::v2::JournalKind::MessageSegment;
+    std::size_t maintenance_slot_size_ = 0U;
     bool projection_dirty_[3] = {};
-    uint8_t flush_protocol_cursor_ = 0;
-    uint32_t last_projection_retry_ms_ = 0;
     std::atomic<bool> ready_{false};
     std::atomic<bool> hydrating_{false};
+    mutable std::atomic<bool> maintenance_compaction_requested_{false};
 };
 
 } // namespace chat

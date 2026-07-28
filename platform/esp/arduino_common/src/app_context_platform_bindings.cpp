@@ -370,7 +370,7 @@ void finalize_startup(app::IAppFacade& app_facade)
     (void)ui_get_timezone_offset_min();
 
     // Team snapshot restore is performed by deferred_storage_ready() after
-    // the shell is interactive and the storage worker has hydrated.
+    // the shell is interactive and maintenance hydration has completed.
 }
 
 chat::NodeId get_self_node_id()

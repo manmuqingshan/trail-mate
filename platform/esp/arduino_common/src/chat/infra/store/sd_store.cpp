@@ -24,6 +24,44 @@ namespace
 {
 namespace storage_runtime = ::platform::esp::arduino_common::storage;
 namespace storage_v2 = ::chat::storage::v2;
+namespace storage_contracts = ::platform::esp::common::storage;
+
+storage_contracts::StorageOperationResultKind stateLockFailure(
+    storage_runtime::StateLockResult result)
+{
+    return result == storage_runtime::StateLockResult::Unavailable
+               ? storage_contracts::StorageOperationResultKind::
+                     DeviceUnavailable
+               : storage_contracts::StorageOperationResultKind::StateBusy;
+}
+
+class ScopedPersistenceLease final
+{
+  public:
+    ScopedPersistenceLease(SemaphoreHandle_t mutex, TickType_t wait_ticks)
+        : mutex_(mutex)
+    {
+        locked_ = mutex_ &&
+                  xSemaphoreTakeRecursive(mutex_, wait_ticks) == pdTRUE;
+    }
+
+    ~ScopedPersistenceLease()
+    {
+        if (locked_)
+        {
+            xSemaphoreGiveRecursive(mutex_);
+        }
+    }
+
+    ScopedPersistenceLease(const ScopedPersistenceLease&) = delete;
+    ScopedPersistenceLease& operator=(const ScopedPersistenceLease&) = delete;
+
+    bool locked() const { return locked_; }
+
+  private:
+    SemaphoreHandle_t mutex_ = nullptr;
+    bool locked_ = false;
+};
 
 uint32_t monotonic_millis()
 {
@@ -45,6 +83,10 @@ constexpr MeshProtocol kProtocols[] = {
     MeshProtocol::MeshCore,
     MeshProtocol::Reticulum,
 };
+
+constexpr uint8_t kHydrationJournalCount = 6U;
+constexpr uint8_t kHydrationRecoveryCount = 3U;
+constexpr TickType_t kPersistenceLeaseWaitTicks = pdMS_TO_TICKS(50U);
 
 std::size_t protocolIndex(MeshProtocol protocol)
 {
@@ -120,22 +162,6 @@ bool hasSuffix(const char* value, const char* suffix)
                        suffix_len) == 0;
 }
 
-bool replaceSnapshot(const char* temp_path, const char* final_path)
-{
-    if (!temp_path || !final_path)
-    {
-        return false;
-    }
-    char backup_path[160] = {};
-    std::snprintf(backup_path,
-                  sizeof(backup_path),
-                  "%s.bak",
-                  final_path);
-    return storage_v2::replaceFileAtomically(temp_path,
-                                             final_path,
-                                             backup_path);
-}
-
 void hashToHex(const uint8_t* hash, char* out, std::size_t out_len)
 {
     static constexpr char kHex[] = "0123456789abcdef";
@@ -157,76 +183,1440 @@ SdStore::SdStore()
     : mutex_(xSemaphoreCreateRecursiveMutex())
 {
     scratch_.resize(kScratchCapacity);
+    maintenance_scratch_.resize(kScratchCapacity);
     catalog_.reserve(64);
     read_state_.reserve(64);
     statuses_.reserve(256);
     seen_hot_.reserve(256);
+    persistence_mutex_ = xSemaphoreCreateRecursiveMutex();
     CHAT_STORE_LOG("[ChatStoreV2] constructed ready=0 hydration=pending root=%s\n", kRoot);
 }
 
 SdStore::~SdStore()
 {
+    resetCatalogReconcileCursor();
     if (mutex_)
     {
         vSemaphoreDelete(mutex_);
         mutex_ = nullptr;
     }
+    if (persistence_mutex_)
+    {
+        vSemaphoreDelete(persistence_mutex_);
+        persistence_mutex_ = nullptr;
+    }
 }
 
-bool SdStore::hydrateFromStorage()
+bool SdStore::acquirePersistenceLease(TickType_t wait_ticks)
 {
-    if (ready_.load(std::memory_order_acquire))
-    {
-        return true;
-    }
-    if (hydrating_.exchange(true, std::memory_order_acq_rel))
-    {
-        return false;
-    }
-
-    const uint32_t started_ms = monotonic_millis();
-    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_, portMAX_DELAY);
-    const bool ok = state_lock.locked() && storage_runtime::sd_card_ready() &&
-                    ensureLayout() && loadRuntimeState();
-    if (ok)
-    {
-        ready_.store(true, std::memory_order_release);
-    }
-    hydrating_.store(false, std::memory_order_release);
-    CHAT_STORE_LOG("[ChatStoreV2] hydration ready=%u elapsed_ms=%lu conversations=%u statuses=%u seen_hot=%u\n",
-                   ok ? 1U : 0U,
-                   static_cast<unsigned long>(monotonic_millis() - started_ms),
-                   static_cast<unsigned>(catalog_.size()),
-                   static_cast<unsigned>(statuses_.size()),
-                   static_cast<unsigned>(seen_hot_.size()));
-    return ok;
+    return persistence_mutex_ &&
+           xSemaphoreTakeRecursive(persistence_mutex_, wait_ticks) == pdTRUE;
 }
 
-bool SdStore::compactDeferred()
+void SdStore::releasePersistenceLease()
 {
-    if (!ready_.load(std::memory_order_acquire))
+    if (persistence_mutex_)
     {
-        return false;
+        xSemaphoreGiveRecursive(persistence_mutex_);
     }
-    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_, portMAX_DELAY);
+}
+
+void SdStore::releaseMaintenanceLease()
+{
+    if (maintenance_persistence_locked_)
+    {
+        maintenance_persistence_locked_ = false;
+        releasePersistenceLease();
+    }
+}
+
+void SdStore::resetCatalogReconcileCursor()
+{
+    maintenance_directory_.close();
+    maintenance_directory_open_ = false;
+    maintenance_reconcile_name_[0] = '\0';
+    maintenance_reconcile_directory_path_[0] = '\0';
+    maintenance_reconcile_projection_ = {};
+    maintenance_reconcile_conversation_active_ = false;
+    maintenance_reconcile_phase_ =
+        ConversationReconcilePhase::ScanSegments;
+    maintenance_reconcile_segment_ = 0U;
+    maintenance_reconcile_total_count_ = 0U;
+    maintenance_reconcile_last_segment_ = 0U;
+    maintenance_reconcile_last_segment_count_ = 0U;
+    maintenance_reconcile_unread_ordinal_ = 0U;
+    maintenance_reconcile_unread_count_ = 0U;
+    maintenance_reconcile_found_segment_ = false;
+    maintenance_reconcile_catalog_current_ = false;
+}
+
+const char* SdStore::hydrationRecoveryName(uint8_t index)
+{
+    switch (index)
+    {
+    case 0U:
+        return "catalog";
+    case 1U:
+        return "read";
+    case 2U:
+        return "status";
+    default:
+        return nullptr;
+    }
+}
+
+bool SdStore::resetHydrationState()
+{
+    resetCatalogReconcileCursor();
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
     if (!state_lock.locked())
     {
         return false;
     }
-    const uint32_t started_ms = monotonic_millis();
-    bool ok = true;
-    for (MeshProtocol protocol : kProtocols)
+    catalog_.clear();
+    read_state_.clear();
+    statuses_.clear();
+    seen_hot_.clear();
+    projection_dirty_[0] = false;
+    projection_dirty_[1] = false;
+    projection_dirty_[2] = false;
+    maintenance_.protocol_index = 0U;
+    maintenance_.journal_index = 0U;
+    maintenance_.recovery_index = 0U;
+    maintenance_.journal_started = false;
+    maintenance_.seen_journal_found = false;
+    maintenance_.seen_rebuild_required = false;
+    maintenance_journal_.reset();
+    maintenance_path_[0] = '\0';
+    maintenance_seen_catalog_index_ = 0U;
+    maintenance_seen_message_count_ = 0U;
+    maintenance_seen_message_ordinal_ = 0U;
+    maintenance_seen_rebuild_started_ = false;
+    maintenance_reconcile_name_[0] = '\0';
+    return true;
+}
+
+bool SdStore::beginSeenRebuild()
+{
+    if (maintenance_seen_rebuild_started_)
     {
-        if (!compactProtocolProjections(protocol))
+        return true;
+    }
+    buildProjectionPath(MeshProtocol::Reticulum,
+                        "seen.snapshot",
+                        maintenance_final_path_,
+                        sizeof(maintenance_final_path_));
+    buildProjectionPath(MeshProtocol::Reticulum,
+                        "seen.snapshot.tmp",
+                        maintenance_path_,
+                        sizeof(maintenance_path_));
+    buildProjectionPath(MeshProtocol::Reticulum,
+                        "seen.snapshot.bak",
+                        maintenance_backup_path_,
+                        sizeof(maintenance_backup_path_));
+    buildProjectionPath(MeshProtocol::Reticulum,
+                        "seen.delta",
+                        maintenance_delta_path_,
+                        sizeof(maintenance_delta_path_));
+    (void)storage_runtime::sd_remove(maintenance_path_);
+    const std::size_t slot_size = storage_v2::reticulumSeenSlotSize();
+    if (!journal_.create(maintenance_path_,
+                         MeshProtocol::Reticulum,
+                         storage_v2::JournalKind::ReticulumSeen,
+                         slot_size))
+    {
+        return false;
+    }
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked())
+    {
+        return false;
+    }
+    seen_hot_.clear();
+    maintenance_seen_catalog_index_ = 0U;
+    maintenance_seen_message_count_ = 0U;
+    maintenance_seen_message_ordinal_ = 0U;
+    maintenance_seen_rebuild_started_ = true;
+    return true;
+}
+
+SdStore::ReconcileStepResult SdStore::stepSeenRebuild()
+{
+    if (!beginSeenRebuild())
+    {
+        return ReconcileStepResult::Failed;
+    }
+
+    bool rebuild_complete = false;
+    {
+        storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+        if (!state_lock.locked())
         {
-            projection_dirty_[protocolIndex(protocol)] = true;
-            ok = false;
+            return ReconcileStepResult::InProgress;
+        }
+        if (maintenance_seen_catalog_index_ >= catalog_.size())
+        {
+            rebuild_complete = true;
+        }
+        else
+        {
+            maintenance_seen_catalog_ =
+                catalog_[maintenance_seen_catalog_index_];
         }
     }
-    CHAT_STORE_LOG("[ChatStoreV2] deferred_compaction ok=%u elapsed_ms=%lu\n",
-                   ok ? 1U : 0U,
-                   static_cast<unsigned long>(monotonic_millis() - started_ms));
-    return ok;
+    if (rebuild_complete)
+    {
+        if (!storage_v2::replaceFileAtomically(maintenance_path_,
+                                               maintenance_final_path_,
+                                               maintenance_backup_path_))
+        {
+            return ReconcileStepResult::Failed;
+        }
+        (void)storage_runtime::sd_remove(maintenance_delta_path_);
+        maintenance_seen_rebuild_started_ = false;
+        return ReconcileStepResult::Complete;
+    }
+
+    if (maintenance_seen_catalog_.deleted ||
+        !sameProtocol(maintenance_seen_catalog_.conversation.protocol,
+                      MeshProtocol::Reticulum))
+    {
+        ++maintenance_seen_catalog_index_;
+        maintenance_seen_message_count_ = 0U;
+        maintenance_seen_message_ordinal_ = 0U;
+        return ReconcileStepResult::InProgress;
+    }
+
+    if (maintenance_seen_message_count_ == 0U)
+    {
+        maintenance_seen_conversation_ =
+            maintenance_seen_catalog_.conversation;
+        maintenance_seen_message_count_ =
+            messageCountOnDisk(maintenance_seen_conversation_);
+    }
+    if (maintenance_seen_message_ordinal_ >=
+        maintenance_seen_message_count_)
+    {
+        ++maintenance_seen_catalog_index_;
+        maintenance_seen_message_count_ = 0U;
+        maintenance_seen_message_ordinal_ = 0U;
+        return ReconcileStepResult::InProgress;
+    }
+
+    if (!readMessageByOrdinal(maintenance_seen_conversation_,
+                              maintenance_seen_message_ordinal_,
+                              maintenance_seen_message_))
+    {
+        return ReconcileStepResult::Failed;
+    }
+    if (chat::hasReticulumLxmfMessageHash(maintenance_seen_message_))
+    {
+        storage_v2::ReticulumSeenProjection projection{};
+        std::memcpy(projection.hash,
+                    maintenance_seen_message_.reticulum_lxmf_hash,
+                    sizeof(projection.hash));
+        const std::size_t slot_size = storage_v2::reticulumSeenSlotSize();
+        if (!storage_v2::encodeReticulumSeenSlot(projection,
+                                                 maintenance_scratch_.data(),
+                                                 slot_size) ||
+            !journal_.append(maintenance_path_,
+                             MeshProtocol::Reticulum,
+                             storage_v2::JournalKind::ReticulumSeen,
+                             slot_size,
+                             maintenance_scratch_.data()))
+        {
+            return ReconcileStepResult::Failed;
+        }
+        storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+        if (!state_lock.locked())
+        {
+            return ReconcileStepResult::InProgress;
+        }
+        if (seen_hot_.size() == kSeenHotCapacity)
+        {
+            seen_hot_.erase(seen_hot_.begin());
+        }
+        seen_hot_.push_back(projection);
+    }
+    ++maintenance_seen_message_ordinal_;
+    return ReconcileStepResult::InProgress;
+}
+
+SdStore::ReconcileStepResult SdStore::stepProtocolCatalogReconcile(
+    MeshProtocol protocol)
+{
+    protocol = normalizeProtocol(protocol);
+    if (!maintenance_directory_open_)
+    {
+        {
+            storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+            if (!state_lock.locked())
+            {
+                return ReconcileStepResult::InProgress;
+            }
+            for (storage_v2::ChatCatalogProjection& projection : catalog_)
+            {
+                if (sameProtocol(projection.conversation.protocol, protocol))
+                {
+                    projection.deleted = true;
+                }
+            }
+            std::snprintf(maintenance_path_,
+                          sizeof(maintenance_path_),
+                          "%s/conversations",
+                          protocolRoot(protocol));
+        }
+        if (!maintenance_directory_.open(maintenance_path_))
+        {
+            return ReconcileStepResult::Failed;
+        }
+        maintenance_directory_open_ = true;
+    }
+
+    if (maintenance_reconcile_conversation_active_)
+    {
+        const ReconcileStepResult result =
+            stepConversationDirectoryReconcile(
+                protocol,
+                maintenance_reconcile_name_);
+        if (result == ReconcileStepResult::Complete)
+        {
+            maintenance_reconcile_conversation_active_ = false;
+            return ReconcileStepResult::InProgress;
+        }
+        if (result == ReconcileStepResult::Failed)
+        {
+            maintenance_reconcile_conversation_active_ = false;
+            storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+            if (state_lock.locked())
+            {
+                projection_dirty_[protocolIndex(protocol)] = true;
+            }
+            return ReconcileStepResult::InProgress;
+        }
+        return result;
+    }
+
+    bool is_directory = false;
+    if (!maintenance_directory_.read_next(maintenance_reconcile_name_,
+                                          sizeof(maintenance_reconcile_name_),
+                                          &is_directory))
+    {
+        maintenance_directory_.close();
+        maintenance_directory_open_ = false;
+        storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+        if (!state_lock.locked())
+        {
+            return ReconcileStepResult::InProgress;
+        }
+        catalog_.erase(std::remove_if(catalog_.begin(),
+                                      catalog_.end(),
+                                      [&](const auto& value)
+                                      {
+                                          return sameProtocol(
+                                                     value.conversation.protocol,
+                                                     protocol) &&
+                                                 value.deleted;
+                                      }),
+                       catalog_.end());
+        return ReconcileStepResult::Complete;
+    }
+    if (is_directory && maintenance_reconcile_name_[0] != '\0')
+    {
+        std::snprintf(maintenance_reconcile_directory_path_,
+                      sizeof(maintenance_reconcile_directory_path_),
+                      "%s/conversations/%s",
+                      protocolRoot(protocol),
+                      maintenance_reconcile_name_);
+        maintenance_reconcile_conversation_active_ = true;
+        maintenance_reconcile_phase_ =
+            ConversationReconcilePhase::ScanSegments;
+        maintenance_reconcile_projection_ = {};
+        maintenance_reconcile_segment_ = 0U;
+        maintenance_reconcile_total_count_ = 0U;
+        maintenance_reconcile_last_segment_ = 0U;
+        maintenance_reconcile_last_segment_count_ = 0U;
+        maintenance_reconcile_unread_ordinal_ = 0U;
+        maintenance_reconcile_unread_count_ = 0U;
+        maintenance_reconcile_found_segment_ = false;
+        maintenance_reconcile_catalog_current_ = false;
+    }
+    return ReconcileStepResult::InProgress;
+}
+
+platform::esp::common::storage::StorageOperationResult
+SdStore::beginMaintenance(
+    platform::esp::common::storage::StorageOperation operation,
+    platform::esp::common::storage::StorageOperationGeneration generation)
+{
+    if (operation != storage_contracts::StorageOperation::Hydrate &&
+        operation != storage_contracts::StorageOperation::Compact)
+    {
+        return storage_contracts::StorageOperationResult::failure(
+            storage_contracts::StorageOperationResultKind::Cancelled,
+            operation,
+            generation);
+    }
+    if (operation == storage_contracts::StorageOperation::Hydrate &&
+        ready_.load(std::memory_order_acquire))
+    {
+        return storage_contracts::StorageOperationResult::completedResult(
+            operation,
+            generation);
+    }
+    // A composite adapter may revisit this store after a later store in the
+    // same generation asked the owner to retry. Do not reset a completed
+    // first stage, especially when the operation is Compaction.
+    if (maintenance_.operation == operation &&
+        maintenance_.generation == generation &&
+        maintenance_.phase == MaintenancePhase::Complete)
+    {
+        return storage_contracts::StorageOperationResult::completedResult(
+            operation,
+            generation);
+    }
+
+    // The persistence lease is the store's logical maintenance ownership, not
+    // the physical SD/SPI transaction lease. Keep that ownership across a
+    // retry so foreground persistence cannot interleave between generations.
+    if (maintenance_.operation == operation &&
+        maintenance_.generation == generation &&
+        maintenance_.phase != MaintenancePhase::Idle &&
+        maintenance_.phase != MaintenancePhase::Complete &&
+        maintenance_.phase != MaintenancePhase::Failed)
+    {
+        if (!maintenance_persistence_locked_ &&
+            !acquirePersistenceLease(kPersistenceLeaseWaitTicks))
+        {
+            return storage_contracts::StorageOperationResult::failure(
+                storage_contracts::StorageOperationResultKind::StateBusy,
+                operation,
+                generation);
+        }
+        maintenance_persistence_locked_ = true;
+        if (operation == storage_contracts::StorageOperation::Hydrate)
+        {
+            hydrating_.store(true, std::memory_order_release);
+        }
+        return storage_contracts::StorageOperationResult::inProgressResult(
+            operation,
+            generation);
+    }
+
+    if (!acquirePersistenceLease(kPersistenceLeaseWaitTicks))
+    {
+        return storage_contracts::StorageOperationResult::failure(
+            storage_contracts::StorageOperationResultKind::StateBusy,
+            operation,
+            generation);
+    }
+    if (maintenance_.phase != MaintenancePhase::Idle &&
+        maintenance_.phase != MaintenancePhase::Complete &&
+        maintenance_.phase != MaintenancePhase::Failed)
+    {
+        releasePersistenceLease();
+        return storage_contracts::StorageOperationResult::failure(
+            storage_contracts::StorageOperationResultKind::StateBusy,
+            operation,
+            generation);
+    }
+
+    resetCatalogReconcileCursor();
+    maintenance_seen_rebuild_started_ = false;
+    maintenance_ = {};
+    maintenance_.operation = operation;
+    maintenance_.generation = generation;
+    maintenance_.phase = operation == storage_contracts::StorageOperation::Hydrate
+                             ? MaintenancePhase::HydrationPrepare
+                             : MaintenancePhase::CompactionPrepare;
+    if (operation == storage_contracts::StorageOperation::Hydrate)
+    {
+        hydrating_.store(true, std::memory_order_release);
+    }
+    maintenance_persistence_locked_ = true;
+    return storage_contracts::StorageOperationResult::inProgressResult(
+        operation,
+        generation);
+}
+
+platform::esp::common::storage::StorageOperationResult
+SdStore::stepMaintenance(
+    platform::esp::common::storage::StorageOperation operation,
+    platform::esp::common::storage::StorageOperationGeneration generation,
+    const platform::esp::common::storage::StorageOperationBudget& budget)
+{
+    if (maintenance_.operation != operation ||
+        maintenance_.generation != generation)
+    {
+        return storage_contracts::StorageOperationResult::failure(
+            storage_contracts::StorageOperationResultKind::StaleGeneration,
+            operation,
+            generation);
+    }
+    if (maintenance_.phase == MaintenancePhase::Failed)
+    {
+        releaseMaintenanceLease();
+        return maintenanceFailure(
+            storage_contracts::StorageOperationResultKind::IoError);
+    }
+    if (maintenance_.phase == MaintenancePhase::Complete)
+    {
+        releaseMaintenanceLease();
+        return storage_contracts::StorageOperationResult::completedResult(
+            operation,
+            generation);
+    }
+
+    const auto result = operation == storage_contracts::StorageOperation::Hydrate
+                            ? stepHydration(budget)
+                        : operation == storage_contracts::StorageOperation::Compact
+                            ? stepCompaction(budget)
+                            : maintenanceFailure(
+                                  storage_contracts::StorageOperationResultKind::
+                                      Cancelled);
+    if (result.completed() ||
+        result.kind == storage_contracts::StorageOperationResultKind::Cancelled ||
+        maintenance_.phase == MaintenancePhase::Failed)
+    {
+        releaseMaintenanceLease();
+    }
+    return result;
+}
+
+void SdStore::cancelMaintenance(
+    platform::esp::common::storage::StorageOperation operation,
+    platform::esp::common::storage::StorageOperationGeneration generation)
+{
+    if (maintenance_.operation != operation ||
+        maintenance_.generation != generation)
+    {
+        return;
+    }
+    maintenance_journal_.reset();
+    resetCatalogReconcileCursor();
+    maintenance_seen_rebuild_started_ = false;
+    maintenance_.phase = MaintenancePhase::Failed;
+    if (operation == storage_contracts::StorageOperation::Hydrate)
+    {
+        hydrating_.store(false, std::memory_order_release);
+    }
+    releaseMaintenanceLease();
+}
+
+platform::esp::common::storage::StorageOperationResult
+SdStore::maintenanceFailure(
+    platform::esp::common::storage::StorageOperationResultKind kind) const
+{
+    return storage_contracts::StorageOperationResult::failure(
+        kind,
+        maintenance_.operation,
+        maintenance_.generation);
+}
+
+bool SdStore::prepareMaintenanceJournal()
+{
+    const MeshProtocol protocol =
+        kProtocols[maintenance_.protocol_index];
+    const uint8_t index = maintenance_.journal_index;
+    const char* name = nullptr;
+    storage_v2::JournalKind kind = storage_v2::JournalKind::MessageSegment;
+    std::size_t slot_size = 0U;
+
+    switch (index)
+    {
+    case 0U:
+        name = "catalog.snapshot";
+        kind = storage_v2::JournalKind::CatalogSnapshot;
+        slot_size = storage_v2::catalogSlotSize(protocol);
+        break;
+    case 1U:
+        name = "catalog.delta";
+        kind = storage_v2::JournalKind::CatalogDelta;
+        slot_size = storage_v2::catalogSlotSize(protocol);
+        break;
+    case 2U:
+        name = "read.snapshot";
+        kind = storage_v2::JournalKind::ReadStateSnapshot;
+        slot_size = storage_v2::readStateSlotSize(protocol);
+        break;
+    case 3U:
+        name = "read.delta";
+        kind = storage_v2::JournalKind::ReadStateDelta;
+        slot_size = storage_v2::readStateSlotSize(protocol);
+        break;
+    case 4U:
+        name = "status.snapshot";
+        kind = storage_v2::JournalKind::StatusSnapshot;
+        slot_size = storage_v2::statusSlotSize();
+        break;
+    case 5U:
+        name = "status.delta";
+        kind = storage_v2::JournalKind::StatusDelta;
+        slot_size = storage_v2::statusSlotSize();
+        break;
+    default:
+        return false;
+    }
+
+    buildProjectionPath(protocol,
+                        name,
+                        maintenance_path_,
+                        sizeof(maintenance_path_));
+    maintenance_protocol_ = protocol;
+    maintenance_kind_ = kind;
+    maintenance_slot_size_ = slot_size;
+    maintenance_.journal_started = maintenance_journal_.begin(
+        journal_,
+        maintenance_path_,
+        protocol,
+        kind,
+        slot_size);
+    return maintenance_.journal_started;
+}
+
+bool SdStore::applyHydrationJournalSlot(MeshProtocol protocol,
+                                        storage_v2::JournalKind kind)
+{
+    if (maintenance_slot_size_ > maintenance_scratch_.size())
+    {
+        return false;
+    }
+
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked())
+    {
+        return false;
+    }
+
+    if (kind == storage_v2::JournalKind::CatalogSnapshot ||
+        kind == storage_v2::JournalKind::CatalogDelta)
+    {
+        storage_v2::ChatCatalogProjection projection{};
+        if (!storage_v2::decodeCatalogSlot(protocol,
+                                           maintenance_scratch_.data(),
+                                           maintenance_slot_size_,
+                                           projection))
+        {
+            projection_dirty_[protocolIndex(protocol)] = true;
+            return true;
+        }
+        storage_v2::ChatCatalogProjection* existing =
+            findCatalog(projection.conversation);
+        if (projection.deleted)
+        {
+            if (existing)
+            {
+                catalog_.erase(catalog_.begin() +
+                               static_cast<std::ptrdiff_t>(existing -
+                                                           catalog_.data()));
+            }
+        }
+        else if (existing)
+        {
+            *existing = projection;
+        }
+        else
+        {
+            catalog_.push_back(projection);
+        }
+        return true;
+    }
+
+    if (kind == storage_v2::JournalKind::ReadStateSnapshot ||
+        kind == storage_v2::JournalKind::ReadStateDelta)
+    {
+        storage_v2::ChatReadProjection projection{};
+        if (!storage_v2::decodeReadStateSlot(protocol,
+                                             maintenance_scratch_.data(),
+                                             maintenance_slot_size_,
+                                             projection))
+        {
+            projection_dirty_[protocolIndex(protocol)] = true;
+            return true;
+        }
+        storage_v2::ChatReadProjection* existing =
+            findReadState(projection.conversation);
+        if (projection.deleted)
+        {
+            if (existing)
+            {
+                read_state_.erase(
+                    read_state_.begin() +
+                    static_cast<std::ptrdiff_t>(existing - read_state_.data()));
+            }
+        }
+        else if (existing)
+        {
+            *existing = projection;
+        }
+        else
+        {
+            read_state_.push_back(projection);
+        }
+        return true;
+    }
+
+    storage_v2::ChatStatusProjection projection{};
+    if (!storage_v2::decodeStatusSlot(maintenance_scratch_.data(),
+                                      maintenance_slot_size_,
+                                      projection))
+    {
+        projection_dirty_[protocolIndex(protocol)] = true;
+        return true;
+    }
+    storage_v2::ChatStatusProjection* existing =
+        findStatus(projection.message_id, protocol);
+    if (existing)
+    {
+        *existing = projection;
+    }
+    else
+    {
+        ProtocolStatusProjection state{};
+        state.protocol = normalizeProtocol(protocol);
+        state.value = projection;
+        statuses_.push_back(state);
+    }
+    return true;
+}
+
+bool SdStore::advanceHydrationJournal()
+{
+    maintenance_journal_.reset();
+    maintenance_.journal_started = false;
+    ++maintenance_.journal_index;
+    if (maintenance_.journal_index < kHydrationJournalCount)
+    {
+        return true;
+    }
+    maintenance_.journal_index = 0U;
+    ++maintenance_.protocol_index;
+    if (maintenance_.protocol_index <
+        static_cast<uint8_t>(sizeof(kProtocols) / sizeof(kProtocols[0])))
+    {
+        maintenance_.phase = MaintenancePhase::HydrationRecover;
+        maintenance_.recovery_index = 0U;
+    }
+    else
+    {
+        maintenance_.phase = MaintenancePhase::HydrationSeen;
+        maintenance_.protocol_index = 0U;
+        maintenance_.recovery_index = 0U;
+    }
+    return true;
+}
+
+bool SdStore::recoverHydrationSnapshot()
+{
+    const char* base_name =
+        hydrationRecoveryName(maintenance_.recovery_index);
+    if (!base_name)
+    {
+        maintenance_.phase = MaintenancePhase::HydrationJournal;
+        return true;
+    }
+    const bool ok = recoverProjectionSnapshot(
+        kProtocols[maintenance_.protocol_index],
+        base_name);
+    ++maintenance_.recovery_index;
+    if (!ok)
+    {
+        return false;
+    }
+    if (maintenance_.recovery_index >= kHydrationRecoveryCount)
+    {
+        maintenance_.phase = MaintenancePhase::HydrationJournal;
+    }
+    return true;
+}
+
+platform::esp::common::storage::StorageOperationResult
+SdStore::stepHydration(
+    const platform::esp::common::storage::StorageOperationBudget& budget)
+{
+    const uint8_t work_items = std::max<uint8_t>(1U, budget.max_work_items);
+    for (uint8_t work = 0U; work < work_items; ++work)
+    {
+        switch (maintenance_.phase)
+        {
+        case MaintenancePhase::HydrationPrepare:
+            if (!storage_runtime::sd_card_ready() || !ensureLayout() ||
+                !resetHydrationState())
+            {
+                maintenance_.phase = MaintenancePhase::Failed;
+                hydrating_.store(false, std::memory_order_release);
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::
+                        DeviceUnavailable);
+            }
+            maintenance_.phase = MaintenancePhase::HydrationRecover;
+            break;
+
+        case MaintenancePhase::HydrationRecover:
+            if (!recoverHydrationSnapshot())
+            {
+                maintenance_.phase = MaintenancePhase::Failed;
+                hydrating_.store(false, std::memory_order_release);
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::IoError);
+            }
+            break;
+
+        case MaintenancePhase::HydrationJournal:
+            if (!maintenance_.journal_started &&
+                !prepareMaintenanceJournal())
+            {
+                maintenance_.phase = MaintenancePhase::Failed;
+                hydrating_.store(false, std::memory_order_release);
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::IoError);
+            }
+            {
+                const auto status = maintenance_journal_.next(
+                    journal_,
+                    maintenance_scratch_.data(),
+                    maintenance_scratch_.size());
+                if (status == storage_v2::FixedSlotJournalCursor::StepStatus::
+                                  Item)
+                {
+                    if (!applyHydrationJournalSlot(maintenance_protocol_,
+                                                   maintenance_kind_))
+                    {
+                        return maintenanceFailure(
+                            storage_contracts::StorageOperationResultKind::
+                                StateBusy);
+                    }
+                    break;
+                }
+                if (status == storage_v2::FixedSlotJournalCursor::StepStatus::
+                                  Unavailable)
+                {
+                    return maintenanceFailure(
+                        storage_contracts::StorageOperationResultKind::
+                            RetryLater);
+                }
+                if (status == storage_v2::FixedSlotJournalCursor::StepStatus::
+                                  Invalid)
+                {
+                    {
+                        storage_runtime::ScopedRecursiveStateLock state_lock(
+                            mutex_);
+                        if (!state_lock.locked())
+                        {
+                            return maintenanceFailure(
+                                stateLockFailure(state_lock.result()));
+                        }
+                        projection_dirty_[protocolIndex(maintenance_protocol_)] =
+                            true;
+                    }
+                }
+                if (status == storage_v2::FixedSlotJournalCursor::StepStatus::
+                                  Missing ||
+                    status == storage_v2::FixedSlotJournalCursor::StepStatus::
+                                  Complete ||
+                    status == storage_v2::FixedSlotJournalCursor::StepStatus::
+                                  Invalid)
+                {
+                    if (!advanceHydrationJournal())
+                    {
+                        return maintenanceFailure(
+                            storage_contracts::StorageOperationResultKind::
+                                IoError);
+                    }
+                }
+            }
+            break;
+
+        case MaintenancePhase::HydrationSeen:
+            if (maintenance_.recovery_index == 0U)
+            {
+                if (!recoverProjectionSnapshot(MeshProtocol::Reticulum,
+                                               "seen"))
+                {
+                    maintenance_.phase = MaintenancePhase::Failed;
+                    hydrating_.store(false, std::memory_order_release);
+                    return maintenanceFailure(
+                        storage_contracts::StorageOperationResultKind::
+                            IoError);
+                }
+                maintenance_.recovery_index = 1U;
+                break;
+            }
+            if (!maintenance_.journal_started)
+            {
+                if (maintenance_.journal_index >= 2U)
+                {
+                    if (!maintenance_.seen_journal_found)
+                    {
+                        storage_runtime::ScopedRecursiveStateLock lock(mutex_);
+                        if (!lock.locked())
+                        {
+                            return maintenanceFailure(
+                                stateLockFailure(lock.result()));
+                        }
+                        for (const auto& projection : catalog_)
+                        {
+                            if (!projection.deleted &&
+                                sameProtocol(
+                                    projection.conversation.protocol,
+                                    MeshProtocol::Reticulum) &&
+                                projection.message_count > 0U)
+                            {
+                                maintenance_.seen_rebuild_required = true;
+                                break;
+                            }
+                        }
+                    }
+                    maintenance_.protocol_index = 0U;
+                    maintenance_.phase =
+                        maintenance_.seen_rebuild_required
+                            ? MaintenancePhase::HydrationRebuildSeen
+                            : MaintenancePhase::HydrationReconcile;
+                    break;
+                }
+                const char* name = maintenance_.journal_index == 0U
+                                       ? "seen.snapshot"
+                                       : "seen.delta";
+                buildProjectionPath(MeshProtocol::Reticulum,
+                                    name,
+                                    maintenance_path_,
+                                    sizeof(maintenance_path_));
+                maintenance_protocol_ = MeshProtocol::Reticulum;
+                maintenance_kind_ = storage_v2::JournalKind::ReticulumSeen;
+                maintenance_slot_size_ =
+                    storage_v2::reticulumSeenSlotSize();
+                if (!maintenance_journal_.begin(
+                        journal_,
+                        maintenance_path_,
+                        maintenance_protocol_,
+                        maintenance_kind_,
+                        maintenance_slot_size_))
+                {
+                    return maintenanceFailure(
+                        storage_contracts::StorageOperationResultKind::
+                            IoError);
+                }
+                const auto& inspection = maintenance_journal_.inspection();
+                if (inspection.state ==
+                    storage_v2::FixedSlotJournalEngine::State::IoError)
+                {
+                    return maintenanceFailure(
+                        storage_contracts::StorageOperationResultKind::
+                            RetryLater);
+                }
+                maintenance_.seen_journal_found |=
+                    inspection.state !=
+                    storage_v2::FixedSlotJournalEngine::State::Missing;
+                maintenance_.seen_rebuild_required |=
+                    inspection.state ==
+                    storage_v2::FixedSlotJournalEngine::State::PartialTail;
+                const uint32_t start =
+                    inspection.slot_count > kSeenHotCapacity
+                        ? inspection.slot_count -
+                              static_cast<uint32_t>(kSeenHotCapacity)
+                        : 0U;
+                (void)maintenance_journal_.seek(start);
+                maintenance_.journal_started = true;
+            }
+            {
+                const auto status = maintenance_journal_.next(
+                    journal_,
+                    maintenance_scratch_.data(),
+                    maintenance_scratch_.size());
+                if (status == storage_v2::FixedSlotJournalCursor::StepStatus::
+                                  Item)
+                {
+                    storage_v2::ReticulumSeenProjection projection{};
+                    if (!storage_v2::decodeReticulumSeenSlot(
+                            maintenance_scratch_.data(),
+                            maintenance_slot_size_,
+                            projection))
+                    {
+                        maintenance_.seen_rebuild_required = true;
+                        break;
+                    }
+                    storage_runtime::ScopedRecursiveStateLock lock(mutex_);
+                    if (!lock.locked())
+                    {
+                        return maintenanceFailure(
+                            stateLockFailure(lock.result()));
+                    }
+                    if (seen_hot_.size() == kSeenHotCapacity)
+                    {
+                        seen_hot_.erase(seen_hot_.begin());
+                    }
+                    seen_hot_.push_back(projection);
+                    break;
+                }
+                if (status == storage_v2::FixedSlotJournalCursor::StepStatus::
+                                  Unavailable)
+                {
+                    return maintenanceFailure(
+                        storage_contracts::StorageOperationResultKind::
+                            RetryLater);
+                }
+                if (status == storage_v2::FixedSlotJournalCursor::StepStatus::
+                                  Invalid)
+                {
+                    maintenance_.seen_rebuild_required = true;
+                }
+                maintenance_journal_.reset();
+                maintenance_.journal_started = false;
+                ++maintenance_.journal_index;
+            }
+            break;
+
+        case MaintenancePhase::HydrationRebuildSeen:
+        {
+            const ReconcileStepResult result = stepSeenRebuild();
+            if (result == ReconcileStepResult::Failed)
+            {
+                maintenance_.phase = MaintenancePhase::Failed;
+                hydrating_.store(false, std::memory_order_release);
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::IoError);
+            }
+            if (result == ReconcileStepResult::Complete)
+            {
+                maintenance_.protocol_index = 0U;
+                maintenance_.phase = MaintenancePhase::HydrationReconcile;
+            }
+            break;
+        }
+
+        case MaintenancePhase::HydrationReconcile:
+        {
+            if (maintenance_.protocol_index >=
+                static_cast<uint8_t>(sizeof(kProtocols) /
+                                     sizeof(kProtocols[0])))
+            {
+                ready_.store(true, std::memory_order_release);
+                maintenance_compaction_requested_.store(
+                    projection_dirty_[0] || projection_dirty_[1] ||
+                        projection_dirty_[2],
+                    std::memory_order_release);
+                hydrating_.store(false, std::memory_order_release);
+                maintenance_.phase = MaintenancePhase::Complete;
+                return storage_contracts::StorageOperationResult::
+                    completedResult(maintenance_.operation,
+                                    maintenance_.generation);
+            }
+            const ReconcileStepResult result =
+                stepProtocolCatalogReconcile(
+                    kProtocols[maintenance_.protocol_index]);
+            if (result == ReconcileStepResult::Failed)
+            {
+                maintenance_.phase = MaintenancePhase::Failed;
+                hydrating_.store(false, std::memory_order_release);
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::IoError);
+            }
+            if (result == ReconcileStepResult::Complete)
+            {
+                ++maintenance_.protocol_index;
+            }
+            break;
+        }
+
+        case MaintenancePhase::Complete:
+            return storage_contracts::StorageOperationResult::completedResult(
+                maintenance_.operation,
+                maintenance_.generation);
+
+        case MaintenancePhase::Failed:
+            return maintenanceFailure(
+                storage_contracts::StorageOperationResultKind::IoError);
+
+        default:
+            return maintenanceFailure(
+                storage_contracts::StorageOperationResultKind::StateBusy);
+        }
+    }
+    return storage_contracts::StorageOperationResult::inProgressResult(
+        maintenance_.operation,
+        maintenance_.generation);
+}
+
+platform::esp::common::storage::StorageOperationResult
+SdStore::stepCompaction(
+    const platform::esp::common::storage::StorageOperationBudget& budget)
+{
+    if (!ready_.load(std::memory_order_acquire))
+    {
+        return maintenanceFailure(
+            storage_contracts::StorageOperationResultKind::StateBusy);
+    }
+
+    const uint8_t work_items = std::max<uint8_t>(1U, budget.max_work_items);
+    for (uint8_t work = 0U; work < work_items; ++work)
+    {
+        switch (maintenance_.phase)
+        {
+        case MaintenancePhase::CompactionPrepare:
+        {
+            storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+            if (!state_lock.locked())
+            {
+                return maintenanceFailure(
+                    stateLockFailure(state_lock.result()));
+            }
+            compaction_catalog_ = catalog_;
+            compaction_read_state_ = read_state_;
+            compaction_statuses_ = statuses_;
+            maintenance_.protocol_index = 0U;
+            maintenance_.compaction_projection_index = 0U;
+            maintenance_.compaction_inspection_index = 0U;
+            maintenance_.compaction_record_index = 0U;
+            maintenance_.compact_catalog = false;
+            maintenance_.compact_read = false;
+            maintenance_.compact_status = false;
+            maintenance_.phase = MaintenancePhase::CompactionInspect;
+            break;
+        }
+
+        case MaintenancePhase::CompactionInspect:
+        {
+            if (maintenance_.protocol_index >=
+                static_cast<uint8_t>(sizeof(kProtocols) /
+                                     sizeof(kProtocols[0])))
+            {
+                maintenance_compaction_requested_.store(
+                    false,
+                    std::memory_order_release);
+                maintenance_.phase = MaintenancePhase::Complete;
+                return storage_contracts::StorageOperationResult::
+                    completedResult(maintenance_.operation,
+                                    maintenance_.generation);
+            }
+
+            const MeshProtocol protocol =
+                kProtocols[maintenance_.protocol_index];
+            const uint8_t index = maintenance_.compaction_inspection_index;
+            const char* name = nullptr;
+            storage_v2::JournalKind kind =
+                storage_v2::JournalKind::CatalogDelta;
+            std::size_t slot_size = 0U;
+            switch (index)
+            {
+            case 0U:
+                name = "catalog.delta";
+                kind = storage_v2::JournalKind::CatalogDelta;
+                slot_size = storage_v2::catalogSlotSize(protocol);
+                break;
+            case 1U:
+                name = "read.delta";
+                kind = storage_v2::JournalKind::ReadStateDelta;
+                slot_size = storage_v2::readStateSlotSize(protocol);
+                break;
+            case 2U:
+                name = "status.delta";
+                kind = storage_v2::JournalKind::StatusDelta;
+                slot_size = storage_v2::statusSlotSize();
+                break;
+            default:
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::IoError);
+            }
+            char path[128] = {};
+            buildProjectionPath(protocol, name, path, sizeof(path));
+            const auto inspection =
+                journal_.inspect(path, protocol, kind, slot_size);
+            if (inspection.state ==
+                storage_v2::FixedSlotJournalEngine::State::IoError)
+            {
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::
+                        RetryLater);
+            }
+            if (inspection.state ==
+                storage_v2::FixedSlotJournalEngine::State::Incompatible)
+            {
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::IoError);
+            }
+            bool dirty_catalog = false;
+            if (index == 0U)
+            {
+                storage_runtime::ScopedRecursiveStateLock lock(mutex_);
+                if (!lock.locked())
+                {
+                    return maintenanceFailure(
+                        stateLockFailure(lock.result()));
+                }
+                dirty_catalog = projection_dirty_[protocolIndex(protocol)];
+            }
+            const bool should_compact = dirty_catalog ||
+                                        inspection.slot_count >=
+                                            (index == 0U
+                                                 ? kCatalogCompactThreshold
+                                             : index == 1U
+                                                 ? kReadCompactThreshold
+                                                 : kStatusCompactThreshold);
+            if (index == 0U)
+            {
+                maintenance_.compact_catalog = should_compact;
+            }
+            else if (index == 1U)
+            {
+                maintenance_.compact_read = should_compact;
+            }
+            else
+            {
+                maintenance_.compact_status = should_compact;
+            }
+            ++maintenance_.compaction_inspection_index;
+            if (maintenance_.compaction_inspection_index >= 3U)
+            {
+                maintenance_.compaction_inspection_index = 0U;
+                maintenance_.compaction_projection_index = 0U;
+                maintenance_.phase = MaintenancePhase::CompactionCreate;
+            }
+            break;
+        }
+
+        case MaintenancePhase::CompactionCreate:
+        {
+            while (maintenance_.compaction_projection_index < 3U)
+            {
+                const bool enabled =
+                    maintenance_.compaction_projection_index == 0U
+                        ? maintenance_.compact_catalog
+                    : maintenance_.compaction_projection_index == 1U
+                        ? maintenance_.compact_read
+                        : maintenance_.compact_status;
+                if (enabled)
+                {
+                    break;
+                }
+                ++maintenance_.compaction_projection_index;
+            }
+            if (maintenance_.compaction_projection_index >= 3U)
+            {
+                maintenance_.phase = MaintenancePhase::CompactionAdvance;
+                break;
+            }
+
+            const MeshProtocol protocol =
+                kProtocols[maintenance_.protocol_index];
+            const uint8_t index = maintenance_.compaction_projection_index;
+            const char* base = index == 0U
+                                   ? "catalog"
+                               : index == 1U ? "read"
+                                             : "status";
+            const storage_v2::JournalKind snapshot_kind =
+                index == 0U
+                    ? storage_v2::JournalKind::CatalogSnapshot
+                : index == 1U
+                    ? storage_v2::JournalKind::ReadStateSnapshot
+                    : storage_v2::JournalKind::StatusSnapshot;
+            maintenance_slot_size_ =
+                index == 0U
+                    ? storage_v2::catalogSlotSize(protocol)
+                : index == 1U ? storage_v2::readStateSlotSize(protocol)
+                              : storage_v2::statusSlotSize();
+            maintenance_protocol_ = protocol;
+            maintenance_kind_ = snapshot_kind;
+            char final_name[40] = {};
+            char temp_name[40] = {};
+            char backup_name[40] = {};
+            char delta_name[40] = {};
+            std::snprintf(final_name,
+                          sizeof(final_name),
+                          "%s.snapshot",
+                          base);
+            std::snprintf(temp_name,
+                          sizeof(temp_name),
+                          "%s.snapshot.tmp",
+                          base);
+            std::snprintf(backup_name,
+                          sizeof(backup_name),
+                          "%s.snapshot.bak",
+                          base);
+            std::snprintf(delta_name,
+                          sizeof(delta_name),
+                          "%s.delta",
+                          base);
+            buildProjectionPath(protocol,
+                                final_name,
+                                maintenance_final_path_,
+                                sizeof(maintenance_final_path_));
+            buildProjectionPath(protocol,
+                                temp_name,
+                                maintenance_path_,
+                                sizeof(maintenance_path_));
+            buildProjectionPath(protocol,
+                                backup_name,
+                                maintenance_backup_path_,
+                                sizeof(maintenance_backup_path_));
+            buildProjectionPath(protocol,
+                                delta_name,
+                                maintenance_delta_path_,
+                                sizeof(maintenance_delta_path_));
+            (void)storage_runtime::sd_remove(maintenance_path_);
+            if (!journal_.create(maintenance_path_,
+                                 protocol,
+                                 snapshot_kind,
+                                 maintenance_slot_size_))
+            {
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::IoError);
+            }
+            maintenance_.compaction_record_index = 0U;
+            maintenance_.phase = MaintenancePhase::CompactionWrite;
+            break;
+        }
+
+        case MaintenancePhase::CompactionWrite:
+        {
+            const uint8_t index = maintenance_.compaction_projection_index;
+            const MeshProtocol protocol =
+                kProtocols[maintenance_.protocol_index];
+            bool has_record = false;
+            while (true)
+            {
+                if (index == 0U)
+                {
+                    if (maintenance_.compaction_record_index >=
+                        compaction_catalog_.size())
+                    {
+                        break;
+                    }
+                    const auto& projection =
+                        compaction_catalog_[maintenance_.compaction_record_index++];
+                    if (!sameProtocol(projection.conversation.protocol,
+                                      protocol) ||
+                        projection.deleted)
+                    {
+                        continue;
+                    }
+                    has_record =
+                        storage_v2::encodeCatalogSlot(protocol,
+                                                      projection,
+                                                      maintenance_scratch_.data(),
+                                                      maintenance_slot_size_);
+                }
+                else if (index == 1U)
+                {
+                    if (maintenance_.compaction_record_index >=
+                        compaction_read_state_.size())
+                    {
+                        break;
+                    }
+                    const auto& projection =
+                        compaction_read_state_[maintenance_.compaction_record_index++];
+                    if (!sameProtocol(projection.conversation.protocol,
+                                      protocol) ||
+                        projection.deleted)
+                    {
+                        continue;
+                    }
+                    has_record =
+                        storage_v2::encodeReadStateSlot(protocol,
+                                                        projection,
+                                                        maintenance_scratch_.data(),
+                                                        maintenance_slot_size_);
+                }
+                else
+                {
+                    if (maintenance_.compaction_record_index >=
+                        compaction_statuses_.size())
+                    {
+                        break;
+                    }
+                    const auto& state =
+                        compaction_statuses_[maintenance_.compaction_record_index++];
+                    if (!sameProtocol(state.protocol, protocol))
+                    {
+                        continue;
+                    }
+                    has_record =
+                        storage_v2::encodeStatusSlot(
+                            state.value,
+                            maintenance_scratch_.data(),
+                            maintenance_slot_size_);
+                }
+                if (!has_record ||
+                    !journal_.append(maintenance_path_,
+                                     protocol,
+                                     maintenance_kind_,
+                                     maintenance_slot_size_,
+                                     maintenance_scratch_.data()))
+                {
+                    return maintenanceFailure(
+                        storage_contracts::StorageOperationResultKind::IoError);
+                }
+                return storage_contracts::StorageOperationResult::
+                    inProgressResult(maintenance_.operation,
+                                     maintenance_.generation);
+            }
+            maintenance_.phase = MaintenancePhase::CompactionReplace;
+            break;
+        }
+
+        case MaintenancePhase::CompactionReplace:
+            if (!storage_v2::replaceFileAtomically(
+                    maintenance_path_,
+                    maintenance_final_path_,
+                    maintenance_backup_path_))
+            {
+                return maintenanceFailure(
+                    storage_contracts::StorageOperationResultKind::IoError);
+            }
+            maintenance_.phase = MaintenancePhase::CompactionRemove;
+            break;
+
+        case MaintenancePhase::CompactionRemove:
+            (void)storage_runtime::sd_remove(maintenance_delta_path_);
+            if (maintenance_.compaction_projection_index == 0U)
+            {
+                storage_runtime::ScopedRecursiveStateLock lock(mutex_);
+                if (!lock.locked())
+                {
+                    return maintenanceFailure(
+                        stateLockFailure(lock.result()));
+                }
+                projection_dirty_[protocolIndex(maintenance_protocol_)] =
+                    false;
+            }
+            ++maintenance_.compaction_projection_index;
+            maintenance_.phase = MaintenancePhase::CompactionCreate;
+            break;
+
+        case MaintenancePhase::CompactionAdvance:
+            ++maintenance_.protocol_index;
+            if (maintenance_.protocol_index >=
+                static_cast<uint8_t>(sizeof(kProtocols) /
+                                     sizeof(kProtocols[0])))
+            {
+                compaction_catalog_.clear();
+                compaction_read_state_.clear();
+                compaction_statuses_.clear();
+                maintenance_compaction_requested_.store(
+                    false,
+                    std::memory_order_release);
+                maintenance_.phase = MaintenancePhase::Complete;
+                return storage_contracts::StorageOperationResult::
+                    completedResult(maintenance_.operation,
+                                    maintenance_.generation);
+            }
+            maintenance_.compaction_inspection_index = 0U;
+            maintenance_.compaction_projection_index = 0U;
+            maintenance_.phase = MaintenancePhase::CompactionInspect;
+            break;
+
+        case MaintenancePhase::Complete:
+            return storage_contracts::StorageOperationResult::completedResult(
+                maintenance_.operation,
+                maintenance_.generation);
+
+        default:
+            return maintenanceFailure(
+                storage_contracts::StorageOperationResultKind::StateBusy);
+        }
+    }
+    return storage_contracts::StorageOperationResult::inProgressResult(
+        maintenance_.operation,
+        maintenance_.generation);
 }
 
 void SdStore::append(const ChatMessage& msg)
@@ -263,8 +1653,13 @@ bool SdStore::appendInternal(const ChatMessage& input, bool incoming_commit)
     {
         return false;
     }
-    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
-    if (!state_lock.locked() || !ready_)
+    ScopedPersistenceLease persistence_lease(persistence_mutex_,
+                                             kPersistenceLeaseWaitTicks);
+    if (!persistence_lease.locked())
+    {
+        return false;
+    }
+    if (!ready_.load(std::memory_order_acquire))
     {
         return false;
     }
@@ -310,44 +1705,78 @@ bool SdStore::appendInternal(const ChatMessage& input, bool incoming_commit)
         return false;
     }
 
-    storage_v2::ChatCatalogProjection* projection = findCatalog(conversation);
-    const bool new_projection = projection == nullptr;
-    if (!projection)
+    storage_v2::ChatCatalogProjection projection_snapshot{};
+    uint32_t last_read_sequence = 0U;
+    bool projection_was_current = false;
     {
-        storage_v2::ChatCatalogProjection created{};
-        created.conversation = conversation;
-        catalog_.push_back(created);
-        projection = &catalog_.back();
-    }
-    const bool projection_was_current =
-        projection->message_count == stored_count &&
-        projection->last_message_id == message.msg_id;
-    if (!projection_was_current || new_projection)
-    {
-        projection->conversation = conversation;
-        projection->message_count = stored_count;
-        projection->last_sequence = stored_count;
-        projection->last_message_id = message.msg_id;
-        projection->last_timestamp = message.timestamp;
-        projection->last_status = message.status;
-        projection->deleted = false;
-        const storage_v2::ChatReadProjection* read_state =
-            findReadState(conversation);
-        projection->unread = countUnreadAfter(
-            conversation,
-            read_state ? read_state->last_read_sequence : 0U);
-        copyTextPreview(projection->preview,
-                        sizeof(projection->preview),
-                        message.text);
-        if (!appendCatalogProjection(*projection))
+        storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+        if (!state_lock.locked() || !ready_)
         {
-            projection_dirty_[protocolIndex(message.protocol)] = true;
-            CHAT_STORE_LOG("[ChatStoreV2] projection deferred protocol=%s msg=%08lX authoritative=1\n",
-                           protocolSlug(message.protocol),
-                           static_cast<unsigned long>(message.msg_id));
+            return false;
+        }
+        if (const storage_v2::ChatCatalogProjection* projection =
+                findCatalog(conversation))
+        {
+            projection_snapshot = *projection;
+            projection_was_current =
+                projection->message_count == stored_count &&
+                projection->last_message_id == message.msg_id;
+        }
+        else
+        {
+            projection_snapshot.conversation = conversation;
+        }
+        if (const storage_v2::ChatReadProjection* read_state =
+                findReadState(conversation))
+        {
+            last_read_sequence = read_state->last_read_sequence;
         }
     }
 
+    bool projection_persisted = true;
+    if (!projection_was_current)
+    {
+        projection_snapshot.conversation = conversation;
+        projection_snapshot.message_count = stored_count;
+        projection_snapshot.last_sequence = stored_count;
+        projection_snapshot.last_message_id = message.msg_id;
+        projection_snapshot.last_timestamp = message.timestamp;
+        projection_snapshot.last_status = message.status;
+        projection_snapshot.deleted = false;
+        projection_snapshot.unread =
+            countUnreadAfter(conversation, last_read_sequence);
+        copyTextPreview(projection_snapshot.preview,
+                        sizeof(projection_snapshot.preview),
+                        message.text);
+        projection_persisted =
+            appendCatalogProjection(projection_snapshot);
+
+        storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+        if (!state_lock.locked() || !ready_)
+        {
+            return false;
+        }
+        if (storage_v2::ChatCatalogProjection* projection =
+                findCatalog(conversation))
+        {
+            *projection = projection_snapshot;
+        }
+        else
+        {
+            catalog_.push_back(projection_snapshot);
+        }
+        if (!projection_persisted)
+        {
+            projection_dirty_[protocolIndex(message.protocol)] = true;
+        }
+    }
+
+    if (!projection_persisted)
+    {
+        CHAT_STORE_LOG("[ChatStoreV2] projection deferred protocol=%s msg=%08lX authoritative=1\n",
+                       protocolSlug(message.protocol),
+                       static_cast<unsigned long>(message.msg_id));
+    }
     CHAT_STORE_LOG("[ChatStoreV2] commit protocol=%s msg=%08lX seq=%lu duplicate=%u publish=1\n",
                    protocolSlug(message.protocol),
                    static_cast<unsigned long>(message.msg_id),
@@ -380,8 +1809,10 @@ std::vector<ChatMessage> SdStore::loadPageFromLatest(
         }
         return {};
     }
-    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
-    if (!state_lock.locked() || !ready_)
+    ScopedPersistenceLease persistence_lease(persistence_mutex_,
+                                             kPersistenceLeaseWaitTicks);
+    if (!persistence_lease.locked() ||
+        !ready_.load(std::memory_order_acquire))
     {
         if (total)
         {
@@ -533,18 +1964,34 @@ bool SdStore::setUnread(const ConversationId& input, int unread)
     {
         return false;
     }
-    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
-    if (!state_lock.locked() || !ready_)
+    ScopedPersistenceLease persistence_lease(persistence_mutex_,
+                                             kPersistenceLeaseWaitTicks);
+    if (!persistence_lease.locked())
+    {
+        return false;
+    }
+    if (!ready_.load(std::memory_order_acquire))
     {
         return false;
     }
     ConversationId conversation = input;
     conversation.protocol = normalizeProtocol(conversation.protocol);
-    storage_v2::ChatCatalogProjection* catalog = findCatalog(conversation);
-    if (!catalog)
+    storage_v2::ChatCatalogProjection catalog_snapshot{};
     {
-        return unread == 0;
+        storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+        if (!state_lock.locked() || !ready_)
+        {
+            return false;
+        }
+        const storage_v2::ChatCatalogProjection* catalog =
+            findCatalog(conversation);
+        if (!catalog)
+        {
+            return unread == 0;
+        }
+        catalog_snapshot = *catalog;
     }
+
     const uint32_t bounded_unread =
         unread <= 0 ? 0U : static_cast<uint32_t>(unread);
     storage_v2::ChatReadProjection projection{};
@@ -555,8 +2002,19 @@ bool SdStore::setUnread(const ConversationId& input, int unread)
     {
         return false;
     }
-    storage_v2::ChatReadProjection* current = findReadState(conversation);
-    if (current)
+    catalog_snapshot.unread =
+        countUnreadAfter(conversation,
+                         projection.last_read_sequence);
+    const bool catalog_persisted =
+        appendCatalogProjection(catalog_snapshot);
+
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked() || !ready_)
+    {
+        return false;
+    }
+    if (storage_v2::ChatReadProjection* current =
+            findReadState(conversation))
     {
         *current = projection;
     }
@@ -564,9 +2022,16 @@ bool SdStore::setUnread(const ConversationId& input, int unread)
     {
         read_state_.push_back(projection);
     }
-    catalog->unread = countUnreadAfter(conversation,
-                                       projection.last_read_sequence);
-    if (!appendCatalogProjection(*catalog))
+    if (storage_v2::ChatCatalogProjection* catalog =
+            findCatalog(conversation))
+    {
+        *catalog = catalog_snapshot;
+    }
+    else
+    {
+        catalog_.push_back(catalog_snapshot);
+    }
+    if (!catalog_persisted)
     {
         projection_dirty_[protocolIndex(conversation.protocol)] = true;
     }
@@ -597,13 +2062,32 @@ void SdStore::clearConversation(const ConversationId& input)
     {
         return;
     }
-    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
-    if (!state_lock.locked() || !ready_)
+    ScopedPersistenceLease persistence_lease(persistence_mutex_,
+                                             kPersistenceLeaseWaitTicks);
+    if (!persistence_lease.locked())
+    {
+        return;
+    }
+    if (!ready_.load(std::memory_order_acquire))
     {
         return;
     }
     ConversationId conversation = input;
     conversation.protocol = normalizeProtocol(conversation.protocol);
+    storage_v2::ChatCatalogProjection tombstone{};
+    {
+        storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+        if (!state_lock.locked() || !ready_)
+        {
+            return;
+        }
+        if (const storage_v2::ChatCatalogProjection* existing =
+                findCatalog(conversation))
+        {
+            tombstone = *existing;
+        }
+    }
+
     char path[128]{};
     buildConversationDirectory(conversation, path, sizeof(path));
     if (!removeTree(path))
@@ -611,21 +2095,22 @@ void SdStore::clearConversation(const ConversationId& input)
         return;
     }
 
-    storage_v2::ChatCatalogProjection tombstone{};
-    if (const storage_v2::ChatCatalogProjection* existing =
-            findCatalog(conversation))
-    {
-        tombstone = *existing;
-    }
     tombstone.conversation = conversation;
     tombstone.deleted = true;
-    (void)appendCatalogProjection(tombstone);
+    const bool catalog_persisted =
+        appendCatalogProjection(tombstone);
 
     storage_v2::ChatReadProjection read_tombstone{};
     read_tombstone.conversation = conversation;
     read_tombstone.deleted = true;
-    (void)appendReadProjection(read_tombstone);
+    const bool read_persisted =
+        appendReadProjection(read_tombstone);
 
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked())
+    {
+        return;
+    }
     catalog_.erase(std::remove_if(catalog_.begin(),
                                   catalog_.end(),
                                   [&](const auto& value)
@@ -644,6 +2129,10 @@ void SdStore::clearConversation(const ConversationId& input)
                                              conversation);
                                      }),
                       read_state_.end());
+    if (!catalog_persisted || !read_persisted)
+    {
+        projection_dirty_[protocolIndex(conversation.protocol)] = true;
+    }
 }
 
 void SdStore::clearAll()
@@ -652,8 +2141,9 @@ void SdStore::clearAll()
     {
         return;
     }
-    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
-    if (!state_lock.locked())
+    ScopedPersistenceLease persistence_lease(persistence_mutex_,
+                                             kPersistenceLeaseWaitTicks);
+    if (!persistence_lease.locked())
     {
         return;
     }
@@ -661,17 +2151,33 @@ void SdStore::clearAll()
     {
         (void)removeTree(protocolRoot(protocol));
     }
+    const bool layout_ready = ensureLayout();
+
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked())
+    {
+        return;
+    }
     catalog_.clear();
     read_state_.clear();
     statuses_.clear();
     seen_hot_.clear();
     std::memset(projection_dirty_, 0, sizeof(projection_dirty_));
-    ready_ = ensureLayout();
+    ready_.store(layout_ready, std::memory_order_release);
+    maintenance_compaction_requested_.store(
+        false,
+        std::memory_order_release);
 }
 
 bool SdStore::updateMessageStatus(MessageId msg_id, MessageStatus status)
 {
     if (!ready_.load(std::memory_order_acquire))
+    {
+        return false;
+    }
+    ScopedPersistenceLease persistence_lease(persistence_mutex_,
+                                             kPersistenceLeaseWaitTicks);
+    if (!persistence_lease.locked())
     {
         return false;
     }
@@ -691,8 +2197,13 @@ bool SdStore::updateMessageStatusForProtocol(MessageId msg_id,
     {
         return false;
     }
-    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
-    if (!state_lock.locked() || !ready_)
+    ScopedPersistenceLease persistence_lease(persistence_mutex_,
+                                             kPersistenceLeaseWaitTicks);
+    if (!persistence_lease.locked())
+    {
+        return false;
+    }
+    if (!ready_.load(std::memory_order_acquire))
     {
         return false;
     }
@@ -711,21 +2222,49 @@ bool SdStore::updateMessageStatusForProtocol(MessageId msg_id,
     storage_v2::ChatStatusProjection projection{};
     projection.message_id = msg_id;
     projection.status = status;
-    if (const storage_v2::ChatStatusProjection* current =
-            findStatus(msg_id, protocol))
+    storage_v2::ChatCatalogProjection catalog_snapshot{};
+    bool update_catalog = false;
     {
-        projection.sequence = current->sequence + 1U;
+        storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+        if (!state_lock.locked() || !ready_)
+        {
+            return false;
+        }
+        if (const storage_v2::ChatStatusProjection* current =
+                findStatus(msg_id, protocol))
+        {
+            projection.sequence = current->sequence + 1U;
+        }
+        else
+        {
+            projection.sequence = 1U;
+        }
+        const ConversationId conversation =
+            conversationIdForMessage(message);
+        if (const storage_v2::ChatCatalogProjection* catalog =
+                findCatalog(conversation);
+            catalog && catalog->last_message_id == msg_id)
+        {
+            catalog_snapshot = *catalog;
+            catalog_snapshot.last_status = status;
+            update_catalog = true;
+        }
     }
-    else
-    {
-        projection.sequence = 1U;
-    }
+
     if (!appendStatusProjection(protocol, projection))
     {
         return false;
     }
-    storage_v2::ChatStatusProjection* current = findStatus(msg_id, protocol);
-    if (current)
+    const bool catalog_persisted =
+        !update_catalog || appendCatalogProjection(catalog_snapshot);
+
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked() || !ready_)
+    {
+        return false;
+    }
+    if (storage_v2::ChatStatusProjection* current =
+            findStatus(msg_id, protocol))
     {
         *current = projection;
     }
@@ -736,13 +2275,14 @@ bool SdStore::updateMessageStatusForProtocol(MessageId msg_id,
         state.value = projection;
         statuses_.push_back(state);
     }
-
-    const ConversationId conversation = conversationIdForMessage(message);
-    storage_v2::ChatCatalogProjection* catalog = findCatalog(conversation);
-    if (catalog && catalog->last_message_id == msg_id)
+    if (update_catalog)
     {
-        catalog->last_status = status;
-        if (!appendCatalogProjection(*catalog))
+        if (storage_v2::ChatCatalogProjection* catalog =
+                findCatalog(catalog_snapshot.conversation))
+        {
+            *catalog = catalog_snapshot;
+        }
+        if (!catalog_persisted)
         {
             projection_dirty_[protocolIndex(protocol)] = true;
         }
@@ -756,8 +2296,10 @@ bool SdStore::getMessage(MessageId msg_id, ChatMessage* out) const
     {
         return false;
     }
-    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
-    if (!state_lock.locked() || !ready_)
+    ScopedPersistenceLease persistence_lease(persistence_mutex_,
+                                             kPersistenceLeaseWaitTicks);
+    if (!persistence_lease.locked() ||
+        !ready_.load(std::memory_order_acquire))
     {
         return false;
     }
@@ -779,8 +2321,10 @@ bool SdStore::getMessageForProtocol(MessageId msg_id,
     {
         return false;
     }
-    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
-    if (!state_lock.locked() || !ready_)
+    ScopedPersistenceLease persistence_lease(persistence_mutex_,
+                                             kPersistenceLeaseWaitTicks);
+    if (!persistence_lease.locked() ||
+        !ready_.load(std::memory_order_acquire))
     {
         return false;
     }
@@ -789,13 +2333,28 @@ bool SdStore::getMessageForProtocol(MessageId msg_id,
     {
         return false;
     }
-    for (const storage_v2::ChatCatalogProjection& projection : catalog_)
+
+    CatalogList catalog_snapshot{};
     {
-        if (projection.deleted ||
-            !sameProtocol(projection.conversation.protocol, protocol))
+        storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+        if (!state_lock.locked() || !ready_)
         {
-            continue;
+            return false;
         }
+        catalog_snapshot.reserve(catalog_.size());
+        for (const storage_v2::ChatCatalogProjection& projection : catalog_)
+        {
+            if (!projection.deleted &&
+                sameProtocol(projection.conversation.protocol, protocol))
+            {
+                catalog_snapshot.push_back(projection);
+            }
+        }
+    }
+
+    for (const storage_v2::ChatCatalogProjection& projection :
+         catalog_snapshot)
+    {
         for (uint32_t ordinal = projection.message_count; ordinal > 0U;
              --ordinal)
         {
@@ -823,20 +2382,29 @@ bool SdStore::hasReticulumLxmfMessageHash(const uint8_t* hash) const
     {
         return false;
     }
-    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
-    if (!state_lock.locked() || !ready_)
-    {
-        return false;
-    }
     if (!hash || isAllZeroKeyBytes(hash, kReticulumLxmfHashSize))
     {
         return false;
     }
-    for (const storage_v2::ReticulumSeenProjection& seen : seen_hot_)
+    ScopedPersistenceLease persistence_lease(persistence_mutex_,
+                                             kPersistenceLeaseWaitTicks);
+    if (!persistence_lease.locked() ||
+        !ready_.load(std::memory_order_acquire))
     {
-        if (std::memcmp(seen.hash, hash, sizeof(seen.hash)) == 0)
+        return false;
+    }
+    {
+        storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+        if (!state_lock.locked() || !ready_)
         {
-            return true;
+            return false;
+        }
+        for (const storage_v2::ReticulumSeenProjection& seen : seen_hot_)
+        {
+            if (std::memcmp(seen.hash, hash, sizeof(seen.hash)) == 0)
+            {
+                return true;
+            }
         }
     }
 
@@ -879,41 +2447,9 @@ bool SdStore::hasReticulumLxmfMessageHash(const uint8_t* hash) const
 
 void SdStore::flush()
 {
-    if (!ready_.load(std::memory_order_acquire))
-    {
-        return;
-    }
-    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
-    if (!state_lock.locked())
-    {
-        return;
-    }
-    const uint32_t now_ms = monotonic_millis();
-    if (last_projection_retry_ms_ != 0U &&
-        now_ms - last_projection_retry_ms_ < kProjectionRetryIntervalMs)
-    {
-        return;
-    }
-    MeshProtocol protocol = MeshProtocol::Meshtastic;
-    bool found_dirty = false;
-    for (std::size_t offset = 0U; offset < 3U; ++offset)
-    {
-        const std::size_t index =
-            (static_cast<std::size_t>(flush_protocol_cursor_) + offset) % 3U;
-        if (projection_dirty_[index])
-        {
-            protocol = kProtocols[index];
-            flush_protocol_cursor_ = static_cast<uint8_t>((index + 1U) % 3U);
-            found_dirty = true;
-            break;
-        }
-    }
-    if (!found_dirty)
-    {
-        return;
-    }
-    last_projection_retry_ms_ = now_ms;
-    (void)compactProtocolProjections(protocol);
+    // Record appends are already durable. Projection compaction belongs to
+    // StorageMaintenanceOwner, so a foreground flush never starts filesystem
+    // work or competes with the logical state lock.
 }
 
 bool SdStore::ensureLayout() const
@@ -953,400 +2489,6 @@ bool SdStore::ensureProtocolLayout(MeshProtocol protocol) const
            ensureDirectory(conversations);
 }
 
-bool SdStore::loadRuntimeState()
-{
-    catalog_.clear();
-    read_state_.clear();
-    statuses_.clear();
-    seen_hot_.clear();
-    bool ok = true;
-    for (MeshProtocol protocol : kProtocols)
-    {
-        ok = loadProtocolState(protocol) && ok;
-    }
-    ok = loadSeenJournal() && ok;
-    return ok;
-}
-
-bool SdStore::loadProtocolState(MeshProtocol protocol)
-{
-    if (!recoverProjectionSnapshot(protocol, "catalog") ||
-        !recoverProjectionSnapshot(protocol, "read") ||
-        !recoverProjectionSnapshot(protocol, "status"))
-    {
-        return false;
-    }
-    bool ok = true;
-    ok = loadCatalogJournal(protocol, "catalog.snapshot") && ok;
-    ok = loadCatalogJournal(protocol, "catalog.delta") && ok;
-    ok = loadReadJournal(protocol, "read.snapshot") && ok;
-    ok = loadReadJournal(protocol, "read.delta") && ok;
-    ok = loadStatusJournal(protocol, "status.snapshot") && ok;
-    ok = loadStatusJournal(protocol, "status.delta") && ok;
-    return reconcileProtocolCatalog(protocol) && ok;
-}
-
-bool SdStore::loadCatalogJournal(MeshProtocol protocol, const char* name)
-{
-    char path[128]{};
-    buildProjectionPath(protocol, name, path, sizeof(path));
-    const auto inspection = journal_.inspect(
-        path,
-        protocol,
-        hasSuffix(name, ".snapshot")
-            ? storage_v2::JournalKind::CatalogSnapshot
-            : storage_v2::JournalKind::CatalogDelta,
-        storage_v2::catalogSlotSize(protocol));
-    if (inspection.state == storage_v2::FixedSlotJournalEngine::State::Missing)
-    {
-        return true;
-    }
-    if (inspection.state != storage_v2::FixedSlotJournalEngine::State::Ready &&
-        inspection.state !=
-            storage_v2::FixedSlotJournalEngine::State::PartialTail)
-    {
-        projection_dirty_[protocolIndex(protocol)] = true;
-        return true;
-    }
-    const storage_v2::JournalKind kind =
-        hasSuffix(name, ".snapshot")
-            ? storage_v2::JournalKind::CatalogSnapshot
-            : storage_v2::JournalKind::CatalogDelta;
-    for (uint32_t index = 0; index < inspection.slot_count; ++index)
-    {
-        storage_v2::ChatCatalogProjection projection{};
-        if (!journal_.read(path,
-                           protocol,
-                           kind,
-                           storage_v2::catalogSlotSize(protocol),
-                           index,
-                           scratch_.data()) ||
-            !storage_v2::decodeCatalogSlot(protocol,
-                                           scratch_.data(),
-                                           storage_v2::catalogSlotSize(protocol),
-                                           projection))
-        {
-            projection_dirty_[protocolIndex(protocol)] = true;
-            continue;
-        }
-        storage_v2::ChatCatalogProjection* existing =
-            findCatalog(projection.conversation);
-        if (projection.deleted)
-        {
-            if (existing)
-            {
-                catalog_.erase(catalog_.begin() +
-                               static_cast<std::ptrdiff_t>(existing -
-                                                           catalog_.data()));
-            }
-        }
-        else if (existing)
-        {
-            *existing = projection;
-        }
-        else
-        {
-            catalog_.push_back(projection);
-        }
-    }
-    return true;
-}
-
-bool SdStore::loadReadJournal(MeshProtocol protocol, const char* name)
-{
-    char path[128]{};
-    buildProjectionPath(protocol, name, path, sizeof(path));
-    const storage_v2::JournalKind kind =
-        hasSuffix(name, ".snapshot")
-            ? storage_v2::JournalKind::ReadStateSnapshot
-            : storage_v2::JournalKind::ReadStateDelta;
-    const auto inspection = journal_.inspect(
-        path,
-        protocol,
-        kind,
-        storage_v2::readStateSlotSize(protocol));
-    if (inspection.state == storage_v2::FixedSlotJournalEngine::State::Missing)
-    {
-        return true;
-    }
-    if (inspection.state != storage_v2::FixedSlotJournalEngine::State::Ready &&
-        inspection.state !=
-            storage_v2::FixedSlotJournalEngine::State::PartialTail)
-    {
-        projection_dirty_[protocolIndex(protocol)] = true;
-        return true;
-    }
-    for (uint32_t index = 0; index < inspection.slot_count; ++index)
-    {
-        storage_v2::ChatReadProjection projection{};
-        if (!journal_.read(path,
-                           protocol,
-                           kind,
-                           storage_v2::readStateSlotSize(protocol),
-                           index,
-                           scratch_.data()) ||
-            !storage_v2::decodeReadStateSlot(
-                protocol,
-                scratch_.data(),
-                storage_v2::readStateSlotSize(protocol),
-                projection))
-        {
-            projection_dirty_[protocolIndex(protocol)] = true;
-            continue;
-        }
-        storage_v2::ChatReadProjection* existing =
-            findReadState(projection.conversation);
-        if (projection.deleted)
-        {
-            if (existing)
-            {
-                read_state_.erase(
-                    read_state_.begin() +
-                    static_cast<std::ptrdiff_t>(existing - read_state_.data()));
-            }
-        }
-        else if (existing)
-        {
-            *existing = projection;
-        }
-        else
-        {
-            read_state_.push_back(projection);
-        }
-    }
-    return true;
-}
-
-bool SdStore::loadStatusJournal(MeshProtocol protocol, const char* name)
-{
-    char path[128]{};
-    buildProjectionPath(protocol, name, path, sizeof(path));
-    const storage_v2::JournalKind kind =
-        hasSuffix(name, ".snapshot")
-            ? storage_v2::JournalKind::StatusSnapshot
-            : storage_v2::JournalKind::StatusDelta;
-    const auto inspection = journal_.inspect(path,
-                                             protocol,
-                                             kind,
-                                             storage_v2::statusSlotSize());
-    if (inspection.state == storage_v2::FixedSlotJournalEngine::State::Missing)
-    {
-        return true;
-    }
-    if (inspection.state != storage_v2::FixedSlotJournalEngine::State::Ready &&
-        inspection.state !=
-            storage_v2::FixedSlotJournalEngine::State::PartialTail)
-    {
-        projection_dirty_[protocolIndex(protocol)] = true;
-        return true;
-    }
-    for (uint32_t index = 0; index < inspection.slot_count; ++index)
-    {
-        storage_v2::ChatStatusProjection projection{};
-        if (!journal_.read(path,
-                           protocol,
-                           kind,
-                           storage_v2::statusSlotSize(),
-                           index,
-                           scratch_.data()) ||
-            !storage_v2::decodeStatusSlot(scratch_.data(),
-                                          storage_v2::statusSlotSize(),
-                                          projection))
-        {
-            projection_dirty_[protocolIndex(protocol)] = true;
-            continue;
-        }
-        storage_v2::ChatStatusProjection* existing =
-            findStatus(projection.message_id, protocol);
-        if (existing)
-        {
-            *existing = projection;
-        }
-        else
-        {
-            ProtocolStatusProjection state{};
-            state.protocol = normalizeProtocol(protocol);
-            state.value = projection;
-            statuses_.push_back(state);
-        }
-    }
-    return true;
-}
-
-bool SdStore::loadSeenJournal()
-{
-    if (!recoverProjectionSnapshot(MeshProtocol::Reticulum, "seen"))
-    {
-        return false;
-    }
-    bool journal_found = false;
-    bool rebuild_required = false;
-    for (const char* name : {"seen.snapshot", "seen.delta"})
-    {
-        char path[128]{};
-        buildProjectionPath(MeshProtocol::Reticulum,
-                            name,
-                            path,
-                            sizeof(path));
-        const auto inspection = journal_.inspect(
-            path,
-            MeshProtocol::Reticulum,
-            storage_v2::JournalKind::ReticulumSeen,
-            storage_v2::reticulumSeenSlotSize());
-        if (inspection.state ==
-            storage_v2::FixedSlotJournalEngine::State::Missing)
-        {
-            continue;
-        }
-        journal_found = true;
-        if (inspection.state !=
-                storage_v2::FixedSlotJournalEngine::State::Ready &&
-            inspection.state !=
-                storage_v2::FixedSlotJournalEngine::State::PartialTail)
-        {
-            rebuild_required = true;
-            continue;
-        }
-        if (inspection.state ==
-            storage_v2::FixedSlotJournalEngine::State::PartialTail)
-        {
-            rebuild_required = true;
-        }
-        const uint32_t start =
-            inspection.slot_count > kSeenHotCapacity
-                ? inspection.slot_count - static_cast<uint32_t>(kSeenHotCapacity)
-                : 0U;
-        for (uint32_t index = start; index < inspection.slot_count; ++index)
-        {
-            storage_v2::ReticulumSeenProjection projection{};
-            if (!journal_.read(path,
-                               MeshProtocol::Reticulum,
-                               storage_v2::JournalKind::ReticulumSeen,
-                               storage_v2::reticulumSeenSlotSize(),
-                               index,
-                               scratch_.data()) ||
-                !storage_v2::decodeReticulumSeenSlot(
-                    scratch_.data(),
-                    storage_v2::reticulumSeenSlotSize(),
-                    projection))
-            {
-                rebuild_required = true;
-                continue;
-            }
-            if (seen_hot_.size() == kSeenHotCapacity)
-            {
-                seen_hot_.erase(seen_hot_.begin());
-            }
-            seen_hot_.push_back(projection);
-        }
-    }
-    if (!journal_found)
-    {
-        for (const storage_v2::ChatCatalogProjection& projection : catalog_)
-        {
-            if (!projection.deleted &&
-                sameProtocol(projection.conversation.protocol,
-                             MeshProtocol::Reticulum) &&
-                messageCountOnDisk(projection.conversation) > 0U)
-            {
-                rebuild_required = true;
-                break;
-            }
-        }
-    }
-    return !rebuild_required || rebuildSeenJournalFromMessages();
-}
-
-bool SdStore::rebuildSeenJournalFromMessages()
-{
-    char final_path[128] = {};
-    char temp_path[128] = {};
-    char backup_path[128] = {};
-    char delta_path[128] = {};
-    buildProjectionPath(MeshProtocol::Reticulum,
-                        "seen.snapshot",
-                        final_path,
-                        sizeof(final_path));
-    buildProjectionPath(MeshProtocol::Reticulum,
-                        "seen.snapshot.tmp",
-                        temp_path,
-                        sizeof(temp_path));
-    buildProjectionPath(MeshProtocol::Reticulum,
-                        "seen.snapshot.bak",
-                        backup_path,
-                        sizeof(backup_path));
-    buildProjectionPath(MeshProtocol::Reticulum,
-                        "seen.delta",
-                        delta_path,
-                        sizeof(delta_path));
-    (void)storage_runtime::sd_remove(temp_path);
-    const std::size_t slot_size = storage_v2::reticulumSeenSlotSize();
-    if (!journal_.create(temp_path,
-                         MeshProtocol::Reticulum,
-                         storage_v2::JournalKind::ReticulumSeen,
-                         slot_size))
-    {
-        return false;
-    }
-
-    seen_hot_.clear();
-    uint32_t rebuilt = 0U;
-    for (const storage_v2::ChatCatalogProjection& catalog : catalog_)
-    {
-        if (catalog.deleted ||
-            !sameProtocol(catalog.conversation.protocol,
-                          MeshProtocol::Reticulum))
-        {
-            continue;
-        }
-        const uint32_t message_count =
-            messageCountOnDisk(catalog.conversation);
-        for (uint32_t ordinal = 0U; ordinal < message_count; ++ordinal)
-        {
-            ChatMessage message{};
-            if (!readMessageByOrdinal(catalog.conversation,
-                                      ordinal,
-                                      message) ||
-                !chat::hasReticulumLxmfMessageHash(message))
-            {
-                continue;
-            }
-            storage_v2::ReticulumSeenProjection projection{};
-            std::memcpy(projection.hash,
-                        message.reticulum_lxmf_hash,
-                        sizeof(projection.hash));
-            if (!storage_v2::encodeReticulumSeenSlot(projection,
-                                                     scratch_.data(),
-                                                     slot_size) ||
-                !journal_.append(temp_path,
-                                 MeshProtocol::Reticulum,
-                                 storage_v2::JournalKind::ReticulumSeen,
-                                 slot_size,
-                                 scratch_.data()))
-            {
-                (void)storage_runtime::sd_remove(temp_path);
-                return false;
-            }
-            if (seen_hot_.size() == kSeenHotCapacity)
-            {
-                seen_hot_.erase(seen_hot_.begin());
-            }
-            seen_hot_.push_back(projection);
-            ++rebuilt;
-        }
-    }
-    if (!storage_v2::replaceFileAtomically(temp_path,
-                                           final_path,
-                                           backup_path))
-    {
-        return false;
-    }
-    (void)storage_runtime::sd_remove(delta_path);
-    CHAT_STORE_LOG("[ChatStoreV2] seen rebuilt hashes=%lu authoritative=messages\n",
-                   static_cast<unsigned long>(rebuilt));
-    return true;
-}
-
 bool SdStore::recoverProjectionSnapshot(MeshProtocol protocol,
                                         const char* base_name)
 {
@@ -1369,174 +2511,276 @@ bool SdStore::recoverProjectionSnapshot(MeshProtocol protocol,
                                          backup_path);
 }
 
-bool SdStore::reconcileProtocolCatalog(MeshProtocol protocol)
+SdStore::ReconcileStepResult
+SdStore::stepConversationDirectoryReconcile(
+    MeshProtocol protocol,
+    const char* directory_name)
 {
     protocol = normalizeProtocol(protocol);
-    for (storage_v2::ChatCatalogProjection& projection : catalog_)
+    if (!directory_name || directory_name[0] == '\0')
     {
-        if (sameProtocol(projection.conversation.protocol, protocol))
-        {
-            projection.deleted = true;
-        }
+        return ReconcileStepResult::Failed;
     }
 
-    char conversations_path[96]{};
-    std::snprintf(conversations_path,
-                  sizeof(conversations_path),
-                  "%s/conversations",
-                  protocolRoot(protocol));
-    storage_runtime::SdRuntimeDir directory;
-    if (!directory.open(conversations_path))
-    {
-        return false;
-    }
-    char name[80]{};
-    bool is_directory = false;
-    while (directory.read_next(name, sizeof(name), &is_directory))
-    {
-        if (is_directory && name[0] != '\0' &&
-            !reconcileConversationDirectory(protocol, name))
-        {
-            projection_dirty_[protocolIndex(protocol)] = true;
-        }
-    }
-    catalog_.erase(std::remove_if(catalog_.begin(),
-                                  catalog_.end(),
-                                  [&](const auto& value)
-                                  {
-                                      return sameProtocol(
-                                                 value.conversation.protocol,
-                                                 protocol) &&
-                                             value.deleted;
-                                  }),
-                   catalog_.end());
-    return true;
-}
-
-bool SdStore::reconcileConversationDirectory(MeshProtocol protocol,
-                                             const char* directory_name)
-{
-    char directory_path[128]{};
-    std::snprintf(directory_path,
-                  sizeof(directory_path),
-                  "%s/conversations/%s",
-                  protocolRoot(protocol),
-                  directory_name);
     const std::size_t slot_size = storage_v2::messageSlotSize(protocol);
-    uint32_t total_count = 0;
-    uint32_t last_segment = 0;
-    uint32_t last_segment_count = 0;
-    bool found_segment = false;
-    for (uint32_t segment = 0; segment < 10000U; ++segment)
+    if (slot_size == 0U || slot_size > scratch_.size())
+    {
+        return ReconcileStepResult::Failed;
+    }
+
+    switch (maintenance_reconcile_phase_)
+    {
+    case ConversationReconcilePhase::ScanSegments:
+    {
+        if (maintenance_reconcile_segment_ >= 10000U)
+        {
+            maintenance_reconcile_phase_ =
+                ConversationReconcilePhase::ReadLatest;
+            return ReconcileStepResult::InProgress;
+        }
+
+        char path[160]{};
+        std::snprintf(path,
+                      sizeof(path),
+                      "%s/%04lu.msg",
+                      maintenance_reconcile_directory_path_,
+                      static_cast<unsigned long>(
+                          maintenance_reconcile_segment_));
+        const auto inspection = journal_.inspect(
+            path,
+            protocol,
+            storage_v2::JournalKind::MessageSegment,
+            slot_size);
+        if (inspection.state ==
+            storage_v2::FixedSlotJournalEngine::State::Missing)
+        {
+            if (!maintenance_reconcile_found_segment_)
+            {
+                return ReconcileStepResult::Complete;
+            }
+            maintenance_reconcile_phase_ =
+                ConversationReconcilePhase::ReadLatest;
+            return ReconcileStepResult::InProgress;
+        }
+        if (inspection.state ==
+            storage_v2::FixedSlotJournalEngine::State::PartialTail)
+        {
+            maintenance_reconcile_phase_ =
+                ConversationReconcilePhase::RepairSegment;
+            return ReconcileStepResult::InProgress;
+        }
+        if (inspection.state !=
+            storage_v2::FixedSlotJournalEngine::State::Ready)
+        {
+            return ReconcileStepResult::Failed;
+        }
+
+        maintenance_reconcile_found_segment_ = true;
+        maintenance_reconcile_total_count_ += inspection.slot_count;
+        maintenance_reconcile_last_segment_ =
+            maintenance_reconcile_segment_;
+        maintenance_reconcile_last_segment_count_ =
+            inspection.slot_count;
+        ++maintenance_reconcile_segment_;
+        if (inspection.slot_count < slotsPerMessageSegment(protocol))
+        {
+            maintenance_reconcile_phase_ =
+                ConversationReconcilePhase::ReadLatest;
+        }
+        return ReconcileStepResult::InProgress;
+    }
+
+    case ConversationReconcilePhase::RepairSegment:
     {
         char path[160]{};
         std::snprintf(path,
                       sizeof(path),
                       "%s/%04lu.msg",
-                      directory_path,
-                      static_cast<unsigned long>(segment));
-        auto inspection = journal_.inspect(
-            path,
-            protocol,
-            storage_v2::JournalKind::MessageSegment,
-            slot_size);
-        if (inspection.state == storage_v2::FixedSlotJournalEngine::State::Missing)
-        {
-            break;
-        }
-        if (inspection.state ==
-            storage_v2::FixedSlotJournalEngine::State::PartialTail)
-        {
-            if (!repairPartialJournal(path,
-                                      protocol,
-                                      storage_v2::JournalKind::MessageSegment,
-                                      slot_size))
-            {
-                return false;
-            }
-            inspection = journal_.inspect(
+                      maintenance_reconcile_directory_path_,
+                      static_cast<unsigned long>(
+                          maintenance_reconcile_segment_));
+        if (!repairPartialJournal(
                 path,
                 protocol,
                 storage_v2::JournalKind::MessageSegment,
-                slot_size);
-        }
-        if (inspection.state != storage_v2::FixedSlotJournalEngine::State::Ready)
+                slot_size))
         {
-            return false;
+            return ReconcileStepResult::Failed;
         }
-        found_segment = true;
-        total_count += inspection.slot_count;
-        last_segment = segment;
-        last_segment_count = inspection.slot_count;
-        if (inspection.slot_count < slotsPerMessageSegment(protocol))
-        {
-            break;
-        }
-    }
-    if (!found_segment || total_count == 0U || last_segment_count == 0U)
-    {
-        return true;
+        maintenance_reconcile_phase_ =
+            ConversationReconcilePhase::ScanSegments;
+        return ReconcileStepResult::InProgress;
     }
 
-    char last_path[160]{};
-    std::snprintf(last_path,
-                  sizeof(last_path),
-                  "%s/%04lu.msg",
-                  directory_path,
-                  static_cast<unsigned long>(last_segment));
-    if (!journal_.read(last_path,
-                       protocol,
-                       storage_v2::JournalKind::MessageSegment,
-                       slot_size,
-                       last_segment_count - 1U,
-                       scratch_.data()))
+    case ConversationReconcilePhase::ReadLatest:
     {
-        return false;
+        if (!maintenance_reconcile_found_segment_ ||
+            maintenance_reconcile_total_count_ == 0U ||
+            maintenance_reconcile_last_segment_count_ == 0U)
+        {
+            return ReconcileStepResult::Complete;
+        }
+
+        char last_path[160]{};
+        std::snprintf(
+            last_path,
+            sizeof(last_path),
+            "%s/%04lu.msg",
+            maintenance_reconcile_directory_path_,
+            static_cast<unsigned long>(
+                maintenance_reconcile_last_segment_));
+        if (!journal_.read(
+                last_path,
+                protocol,
+                storage_v2::JournalKind::MessageSegment,
+                slot_size,
+                maintenance_reconcile_last_segment_count_ - 1U,
+                scratch_.data()))
+        {
+            return ReconcileStepResult::Failed;
+        }
+        uint32_t sequence = 0U;
+        if (!storage_v2::decodeMessageSlot(
+                protocol,
+                scratch_.data(),
+                slot_size,
+                maintenance_reconcile_latest_message_,
+                &sequence))
+        {
+            return ReconcileStepResult::Failed;
+        }
+
+        ConversationId conversation{};
+        uint32_t last_read = 0U;
+        {
+            storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+            if (!state_lock.locked())
+            {
+                return ReconcileStepResult::InProgress;
+            }
+            ChatMessage& latest =
+                maintenance_reconcile_latest_message_;
+            applyStoredStatus(latest);
+            conversation = conversationIdForMessage(latest);
+            if (const storage_v2::ChatCatalogProjection* projection =
+                    findCatalog(conversation))
+            {
+                maintenance_reconcile_projection_ = *projection;
+                maintenance_reconcile_catalog_current_ =
+                    projection->message_count ==
+                        maintenance_reconcile_total_count_ &&
+                    projection->last_message_id == latest.msg_id &&
+                    projection->last_sequence == sequence;
+            }
+            else
+            {
+                maintenance_reconcile_projection_ = {};
+                maintenance_reconcile_catalog_current_ = false;
+            }
+            if (const storage_v2::ChatReadProjection* read_state =
+                    findReadState(conversation))
+            {
+                last_read = read_state->last_read_sequence;
+            }
+        }
+
+        ChatMessage& latest = maintenance_reconcile_latest_message_;
+        storage_v2::ChatCatalogProjection& projection =
+            maintenance_reconcile_projection_;
+        projection.conversation = conversation;
+        projection.message_count =
+            maintenance_reconcile_total_count_;
+        projection.last_sequence = sequence;
+        projection.last_message_id = latest.msg_id;
+        projection.last_timestamp = latest.timestamp;
+        projection.last_status = latest.status;
+        projection.deleted = false;
+        copyTextPreview(projection.preview,
+                        sizeof(projection.preview),
+                        latest.text);
+
+        maintenance_reconcile_unread_ordinal_ = last_read;
+        maintenance_reconcile_unread_count_ = 0U;
+        if (maintenance_reconcile_catalog_current_)
+        {
+            maintenance_reconcile_phase_ =
+                ConversationReconcilePhase::Commit;
+        }
+        else
+        {
+            projection.unread = 0U;
+            maintenance_reconcile_phase_ =
+                last_read < maintenance_reconcile_total_count_
+                    ? ConversationReconcilePhase::ScanUnread
+                    : ConversationReconcilePhase::Commit;
+        }
+        return ReconcileStepResult::InProgress;
     }
-    ChatMessage latest{};
-    uint32_t sequence = 0;
-    if (!storage_v2::decodeMessageSlot(protocol,
-                                       scratch_.data(),
-                                       slot_size,
-                                       latest,
-                                       &sequence))
+
+    case ConversationReconcilePhase::ScanUnread:
     {
-        return false;
+        if (maintenance_reconcile_unread_ordinal_ >=
+            maintenance_reconcile_total_count_)
+        {
+            maintenance_reconcile_projection_.unread =
+                maintenance_reconcile_unread_count_;
+            maintenance_reconcile_phase_ =
+                ConversationReconcilePhase::Commit;
+            return ReconcileStepResult::InProgress;
+        }
+
+        uint32_t sequence = 0U;
+        if (!readMessageByOrdinal(
+                maintenance_reconcile_projection_.conversation,
+                maintenance_reconcile_unread_ordinal_,
+                maintenance_reconcile_latest_message_,
+                &sequence))
+        {
+            return ReconcileStepResult::Failed;
+        }
+        if (sequence > maintenance_reconcile_unread_ordinal_ &&
+            maintenance_reconcile_latest_message_.status ==
+                MessageStatus::Incoming)
+        {
+            ++maintenance_reconcile_unread_count_;
+        }
+        ++maintenance_reconcile_unread_ordinal_;
+        if (maintenance_reconcile_unread_ordinal_ >=
+            maintenance_reconcile_total_count_)
+        {
+            maintenance_reconcile_projection_.unread =
+                maintenance_reconcile_unread_count_;
+            maintenance_reconcile_phase_ =
+                ConversationReconcilePhase::Commit;
+        }
+        return ReconcileStepResult::InProgress;
     }
-    applyStoredStatus(latest);
-    const ConversationId conversation = conversationIdForMessage(latest);
-    storage_v2::ChatCatalogProjection* projection = findCatalog(conversation);
-    const bool catalog_current =
-        projection && projection->message_count == total_count &&
-        projection->last_message_id == latest.msg_id &&
-        projection->last_sequence == sequence;
-    if (!projection)
+
+    case ConversationReconcilePhase::Commit:
     {
-        storage_v2::ChatCatalogProjection created{};
-        created.conversation = conversation;
-        catalog_.push_back(created);
-        projection = &catalog_.back();
+        storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+        if (!state_lock.locked())
+        {
+            return ReconcileStepResult::InProgress;
+        }
+        if (storage_v2::ChatCatalogProjection* projection =
+                findCatalog(
+                    maintenance_reconcile_projection_.conversation))
+        {
+            *projection = maintenance_reconcile_projection_;
+        }
+        else
+        {
+            catalog_.push_back(maintenance_reconcile_projection_);
+        }
+        if (!maintenance_reconcile_catalog_current_)
+        {
+            projection_dirty_[protocolIndex(protocol)] = true;
+        }
+        return ReconcileStepResult::Complete;
     }
-    const uint32_t last_read =
-        findReadState(conversation)
-            ? findReadState(conversation)->last_read_sequence
-            : 0U;
-    projection->conversation = conversation;
-    projection->message_count = total_count;
-    projection->last_sequence = sequence;
-    projection->last_message_id = latest.msg_id;
-    projection->last_timestamp = latest.timestamp;
-    projection->last_status = latest.status;
-    projection->deleted = false;
-    copyTextPreview(projection->preview,
-                    sizeof(projection->preview),
-                    latest.text);
-    if (!catalog_current)
-    {
-        projection->unread = countUnreadAfter(conversation, last_read);
-        projection_dirty_[protocolIndex(protocol)] = true;
     }
-    return true;
+    return ReconcileStepResult::Failed;
 }
 
 std::size_t SdStore::slotsPerMessageSegment(MeshProtocol protocol) const
@@ -1617,7 +2861,14 @@ bool SdStore::readMessageByOrdinal(const ConversationId& input,
     {
         return false;
     }
-    applyStoredStatus(out_message);
+    {
+        storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+        if (!state_lock.locked())
+        {
+            return false;
+        }
+        applyStoredStatus(out_message);
+    }
     return true;
 }
 
@@ -1798,11 +3049,18 @@ bool SdStore::appendCatalogProjection(
     }
     char path[128]{};
     buildProjectionPath(protocol, "catalog.delta", path, sizeof(path));
-    return journal_.append(path,
-                           protocol,
-                           storage_v2::JournalKind::CatalogDelta,
-                           slot_size,
-                           scratch_.data());
+    const bool ok = journal_.append(path,
+                                    protocol,
+                                    storage_v2::JournalKind::CatalogDelta,
+                                    slot_size,
+                                    scratch_.data());
+    if (ok)
+    {
+        maintenance_compaction_requested_.store(
+            true,
+            std::memory_order_release);
+    }
+    return ok;
 }
 
 bool SdStore::appendReadProjection(
@@ -1840,11 +3098,18 @@ bool SdStore::appendReadProjection(
     {
         return false;
     }
-    return journal_.append(path,
-                           protocol,
-                           storage_v2::JournalKind::ReadStateDelta,
-                           slot_size,
-                           scratch_.data());
+    const bool ok = journal_.append(path,
+                                    protocol,
+                                    storage_v2::JournalKind::ReadStateDelta,
+                                    slot_size,
+                                    scratch_.data());
+    if (ok)
+    {
+        maintenance_compaction_requested_.store(
+            true,
+            std::memory_order_release);
+    }
+    return ok;
 }
 
 bool SdStore::appendStatusProjection(
@@ -1880,11 +3145,18 @@ bool SdStore::appendStatusProjection(
     {
         return false;
     }
-    return journal_.append(path,
-                           protocol,
-                           storage_v2::JournalKind::StatusDelta,
-                           slot_size,
-                           scratch_.data());
+    const bool ok = journal_.append(path,
+                                    protocol,
+                                    storage_v2::JournalKind::StatusDelta,
+                                    slot_size,
+                                    scratch_.data());
+    if (ok)
+    {
+        maintenance_compaction_requested_.store(
+            true,
+            std::memory_order_release);
+    }
+    return ok;
 }
 
 bool SdStore::appendSeenProjection(
@@ -1922,11 +3194,19 @@ bool SdStore::appendSeenProjection(
     {
         return false;
     }
-    return journal_.append(path,
-                           MeshProtocol::Reticulum,
-                           storage_v2::JournalKind::ReticulumSeen,
-                           slot_size,
-                           scratch_.data());
+    const bool ok = journal_.append(
+        path,
+        MeshProtocol::Reticulum,
+        storage_v2::JournalKind::ReticulumSeen,
+        slot_size,
+        scratch_.data());
+    if (ok)
+    {
+        maintenance_compaction_requested_.store(
+            true,
+            std::memory_order_release);
+    }
+    return ok;
 }
 
 bool SdStore::rememberReticulumHash(const uint8_t* hash)
@@ -1938,6 +3218,11 @@ bool SdStore::rememberReticulumHash(const uint8_t* hash)
     storage_v2::ReticulumSeenProjection projection{};
     std::memcpy(projection.hash, hash, sizeof(projection.hash));
     if (!appendSeenProjection(projection))
+    {
+        return false;
+    }
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked())
     {
         return false;
     }
@@ -2093,228 +3378,6 @@ uint32_t SdStore::sequenceForUnread(const ConversationId& conversation,
         }
     }
     return 0U;
-}
-
-bool SdStore::rewriteCatalogSnapshot(MeshProtocol protocol)
-{
-    char final_path[128]{};
-    char temp_path[128]{};
-    buildProjectionPath(protocol,
-                        "catalog.snapshot",
-                        final_path,
-                        sizeof(final_path));
-    buildProjectionPath(protocol,
-                        "catalog.snapshot.tmp",
-                        temp_path,
-                        sizeof(temp_path));
-    return rewriteJournalFromCatalog(protocol, final_path, temp_path);
-}
-
-bool SdStore::rewriteReadSnapshot(MeshProtocol protocol)
-{
-    char final_path[128]{};
-    char temp_path[128]{};
-    buildProjectionPath(protocol,
-                        "read.snapshot",
-                        final_path,
-                        sizeof(final_path));
-    buildProjectionPath(protocol,
-                        "read.snapshot.tmp",
-                        temp_path,
-                        sizeof(temp_path));
-    return rewriteJournalFromReadState(protocol, final_path, temp_path);
-}
-
-bool SdStore::rewriteStatusSnapshot(MeshProtocol protocol)
-{
-    char final_path[128]{};
-    char temp_path[128]{};
-    buildProjectionPath(protocol,
-                        "status.snapshot",
-                        final_path,
-                        sizeof(final_path));
-    buildProjectionPath(protocol,
-                        "status.snapshot.tmp",
-                        temp_path,
-                        sizeof(temp_path));
-    return rewriteJournalFromStatus(protocol, final_path, temp_path);
-}
-
-bool SdStore::compactProtocolProjections(MeshProtocol protocol)
-{
-    protocol = normalizeProtocol(protocol);
-    char catalog_delta[128]{};
-    char read_delta[128]{};
-    char status_delta[128]{};
-    buildProjectionPath(protocol,
-                        "catalog.delta",
-                        catalog_delta,
-                        sizeof(catalog_delta));
-    buildProjectionPath(protocol,
-                        "read.delta",
-                        read_delta,
-                        sizeof(read_delta));
-    buildProjectionPath(protocol,
-                        "status.delta",
-                        status_delta,
-                        sizeof(status_delta));
-    const auto catalog_inspection = journal_.inspect(
-        catalog_delta,
-        protocol,
-        storage_v2::JournalKind::CatalogDelta,
-        storage_v2::catalogSlotSize(protocol));
-    const auto read_inspection = journal_.inspect(
-        read_delta,
-        protocol,
-        storage_v2::JournalKind::ReadStateDelta,
-        storage_v2::readStateSlotSize(protocol));
-    const auto status_inspection = journal_.inspect(
-        status_delta,
-        protocol,
-        storage_v2::JournalKind::StatusDelta,
-        storage_v2::statusSlotSize());
-    const bool compact_catalog =
-        projection_dirty_[protocolIndex(protocol)] ||
-        catalog_inspection.slot_count >= kCatalogCompactThreshold;
-    const bool compact_read =
-        read_inspection.slot_count >= kReadCompactThreshold;
-    const bool compact_status =
-        status_inspection.slot_count >= kStatusCompactThreshold;
-    if (compact_catalog && !rewriteCatalogSnapshot(protocol))
-    {
-        return false;
-    }
-    if (compact_read && !rewriteReadSnapshot(protocol))
-    {
-        return false;
-    }
-    if (compact_status && !rewriteStatusSnapshot(protocol))
-    {
-        return false;
-    }
-    if (compact_catalog)
-    {
-        (void)storage_runtime::sd_remove(catalog_delta);
-        projection_dirty_[protocolIndex(protocol)] = false;
-    }
-    if (compact_read)
-    {
-        (void)storage_runtime::sd_remove(read_delta);
-    }
-    if (compact_status)
-    {
-        (void)storage_runtime::sd_remove(status_delta);
-    }
-    return true;
-}
-
-bool SdStore::rewriteJournalFromCatalog(MeshProtocol protocol,
-                                        const char* final_path,
-                                        const char* temp_path)
-{
-    const std::size_t slot_size = storage_v2::catalogSlotSize(protocol);
-    (void)storage_runtime::sd_remove(temp_path);
-    if (!journal_.create(temp_path,
-                         protocol,
-                         storage_v2::JournalKind::CatalogSnapshot,
-                         slot_size))
-    {
-        return false;
-    }
-    for (const storage_v2::ChatCatalogProjection& projection : catalog_)
-    {
-        if (!sameProtocol(projection.conversation.protocol, protocol) ||
-            projection.deleted)
-        {
-            continue;
-        }
-        if (!storage_v2::encodeCatalogSlot(protocol,
-                                           projection,
-                                           scratch_.data(),
-                                           slot_size) ||
-            !journal_.append(temp_path,
-                             protocol,
-                             storage_v2::JournalKind::CatalogSnapshot,
-                             slot_size,
-                             scratch_.data()))
-        {
-            (void)storage_runtime::sd_remove(temp_path);
-            return false;
-        }
-    }
-    return replaceSnapshot(temp_path, final_path);
-}
-
-bool SdStore::rewriteJournalFromReadState(MeshProtocol protocol,
-                                          const char* final_path,
-                                          const char* temp_path)
-{
-    const std::size_t slot_size = storage_v2::readStateSlotSize(protocol);
-    (void)storage_runtime::sd_remove(temp_path);
-    if (!journal_.create(temp_path,
-                         protocol,
-                         storage_v2::JournalKind::ReadStateSnapshot,
-                         slot_size))
-    {
-        return false;
-    }
-    for (const storage_v2::ChatReadProjection& projection : read_state_)
-    {
-        if (!sameProtocol(projection.conversation.protocol, protocol) ||
-            projection.deleted)
-        {
-            continue;
-        }
-        if (!storage_v2::encodeReadStateSlot(protocol,
-                                             projection,
-                                             scratch_.data(),
-                                             slot_size) ||
-            !journal_.append(temp_path,
-                             protocol,
-                             storage_v2::JournalKind::ReadStateSnapshot,
-                             slot_size,
-                             scratch_.data()))
-        {
-            (void)storage_runtime::sd_remove(temp_path);
-            return false;
-        }
-    }
-    return replaceSnapshot(temp_path, final_path);
-}
-
-bool SdStore::rewriteJournalFromStatus(MeshProtocol protocol,
-                                       const char* final_path,
-                                       const char* temp_path)
-{
-    const std::size_t slot_size = storage_v2::statusSlotSize();
-    (void)storage_runtime::sd_remove(temp_path);
-    if (!journal_.create(temp_path,
-                         protocol,
-                         storage_v2::JournalKind::StatusSnapshot,
-                         slot_size))
-    {
-        return false;
-    }
-    for (const ProtocolStatusProjection& state : statuses_)
-    {
-        if (!sameProtocol(state.protocol, protocol))
-        {
-            continue;
-        }
-        if (!storage_v2::encodeStatusSlot(state.value,
-                                          scratch_.data(),
-                                          slot_size) ||
-            !journal_.append(temp_path,
-                             protocol,
-                             storage_v2::JournalKind::StatusSnapshot,
-                             slot_size,
-                             scratch_.data()))
-        {
-            (void)storage_runtime::sd_remove(temp_path);
-            return false;
-        }
-    }
-    return replaceSnapshot(temp_path, final_path);
 }
 
 MeshProtocol SdStore::normalizeProtocol(MeshProtocol protocol)

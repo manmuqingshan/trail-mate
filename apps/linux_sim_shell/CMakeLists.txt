@@ -336,6 +336,17 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_lxmf_deferred_discovery_queue_smoke
              COMMAND trailmate_lxmf_deferred_discovery_queue_smoke)
 
+    add_executable(trailmate_storage_maintenance_state_machine_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/common/tests/test_storage_maintenance_state_machine.cpp")
+    target_include_directories(trailmate_storage_maintenance_state_machine_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/platform/esp/common/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+    target_compile_features(trailmate_storage_maintenance_state_machine_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_storage_maintenance_state_machine_smoke
+             COMMAND trailmate_storage_maintenance_state_machine_smoke)
+
     add_executable(trailmate_protocol_chat_storage_v2_codec_smoke
         "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_protocol_chat_storage_v2_codec.cpp"
         "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/store/protocol_chat_codec.cpp")
@@ -819,6 +830,22 @@ if(BUILD_TESTING)
         PRIVATE cxx_std_17)
     add_test(NAME trailmate_app_config_change_detection_smoke
              COMMAND trailmate_app_config_change_detection_smoke)
+
+    add_executable(trailmate_config_persistence_runtime_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_config_persistence_runtime.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_protocol_utils.cpp")
+    target_include_directories(trailmate_config_persistence_runtime_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_gps/include")
+    target_compile_definitions(trailmate_config_persistence_runtime_smoke
+        PRIVATE TRAIL_MATE_LORA_TX_POWER_MAX_DBM=22)
+    target_compile_features(trailmate_config_persistence_runtime_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_config_persistence_runtime_smoke
+             COMMAND trailmate_config_persistence_runtime_smoke)
+
     add_executable(trailmate_screen_brightness_steps_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_screen_brightness_steps.cpp")
     target_include_directories(trailmate_screen_brightness_steps_smoke
@@ -844,16 +871,6 @@ if(BUILD_TESTING)
         add_test(NAME trailmate_reticulum_call_runtime_smoke
                  COMMAND trailmate_reticulum_call_runtime_smoke)
     endif()
-
-    add_executable(trailmate_storage_event_runtime_smoke
-        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_storage_event_runtime.cpp")
-    target_include_directories(trailmate_storage_event_runtime_smoke
-        PRIVATE
-            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
-    target_compile_features(trailmate_storage_event_runtime_smoke
-        PRIVATE cxx_std_17)
-    add_test(NAME trailmate_storage_event_runtime_smoke
-             COMMAND trailmate_storage_event_runtime_smoke)
 
     add_executable(trailmate_map_tile_async_runtime_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_map_runtime/tests/test_map_tile_async_runtime.cpp"

@@ -219,7 +219,6 @@ void show_menu_internal()
 #endif
     std::printf("[UI][Lifecycle] menu visible=1 active=%s scene=menu\n",
                 s_active_app ? s_active_app->name() : "<none>");
-    ui_clear_active_app();
     set_default_group(menu_g);
     ui::menu_layout::setMenuVisible(true);
     ui::menu_runtime::setScene(ui::menu_runtime::Scene::Menu);
@@ -377,6 +376,17 @@ void menu_show()
     {
         return;
     }
+
+    // Showing the menu while an app is active is a lifecycle transition, not
+    // a visual shortcut. The app owns timers, LVGL children, and device
+    // leases that must be released by its exit callback before the menu can
+    // become the active scene.
+    if (s_active_app != nullptr)
+    {
+        ui_request_exit_to_menu();
+        return;
+    }
+
     show_menu_internal();
 }
 

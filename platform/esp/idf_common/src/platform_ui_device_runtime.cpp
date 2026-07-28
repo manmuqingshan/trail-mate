@@ -26,7 +26,8 @@ namespace platform::ui::device
 namespace
 {
 
-uint8_t s_brightness_level = DEVICE_MAX_BRIGHTNESS_LEVEL;
+constexpr uint8_t kIdfMaxBrightnessLevel = 16U;
+uint8_t s_brightness_level = kIdfMaxBrightnessLevel;
 constexpr ::time_t kMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
 
 bool is_valid_epoch(::time_t value)
@@ -142,7 +143,7 @@ uint8_t screen_brightness()
 
 uint8_t screen_brightness_max()
 {
-    return DEVICE_MAX_BRIGHTNESS_LEVEL;
+    return kIdfMaxBrightnessLevel;
 }
 
 void set_screen_brightness(uint8_t level)
@@ -150,10 +151,11 @@ void set_screen_brightness(uint8_t level)
     const uint8_t max_level = screen_brightness_max();
     const uint8_t clamped = level > max_level ? max_level : level;
     s_brightness_level = clamped;
-    const int percent = (DEVICE_MAX_BRIGHTNESS_LEVEL <= 0)
+    const int percent = (kIdfMaxBrightnessLevel == 0U)
                             ? 100
                             : static_cast<int>((static_cast<uint32_t>(clamped) * 100U) /
-                                               static_cast<uint32_t>(DEVICE_MAX_BRIGHTNESS_LEVEL));
+                                               static_cast<uint32_t>(
+                                                   kIdfMaxBrightnessLevel));
     (void)platform::esp::idf_common::bsp_runtime::set_display_brightness(percent);
 }
 
@@ -169,7 +171,7 @@ uint8_t keyboard_backlight()
 
 uint8_t keyboard_backlight_max()
 {
-    return DEVICE_MAX_BRIGHTNESS_LEVEL;
+    return kIdfMaxBrightnessLevel;
 }
 
 void set_keyboard_backlight(uint8_t level)
@@ -180,7 +182,8 @@ void set_keyboard_backlight(uint8_t level)
     {
         return;
     }
-    const uint8_t clamped = level > DEVICE_MAX_BRIGHTNESS_LEVEL ? DEVICE_MAX_BRIGHTNESS_LEVEL : level;
+    const uint8_t clamped =
+        level > kIdfMaxBrightnessLevel ? kIdfMaxBrightnessLevel : level;
     board.keyboardSetBrightness(clamped);
 #else
     (void)level;

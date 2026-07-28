@@ -272,6 +272,16 @@ void set_mesh_peer_directory_failure(Status& out,
                    "Mesh peer directory storage unavailable",
                    kMeshPeerDirectoryLogicalPath);
         break;
+    case chat::MeshPeerDirectoryStatusCode::Busy:
+        set_status(out,
+                   "Mesh peer directory busy",
+                   kMeshPeerDirectoryLogicalPath);
+        break;
+    case chat::MeshPeerDirectoryStatusCode::DeviceUnavailable:
+        set_status(out,
+                   "Mesh peer directory device unavailable",
+                   kMeshPeerDirectoryLogicalPath);
+        break;
     case chat::MeshPeerDirectoryStatusCode::IoError:
         set_status(out,
                    "Cannot access mesh peer directory",

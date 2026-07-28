@@ -16,6 +16,11 @@
 #include "boards/tlora_pager/platform_esp_board_runtime.h"
 #endif
 
+#if defined(ARDUINO_T_DECK_PRO) || defined(ARDUINO_T_DECK) || \
+    defined(ARDUINO_T_LORA_PAGER)
+#include "platform/esp/common/shared_spi_coordinator.h"
+#endif
+
 namespace platform::esp::boards
 {
 
@@ -99,6 +104,36 @@ BoardIdentity defaultIdentity()
     return detail::defaultIdentity();
 #else
     return {};
+#endif
+}
+
+BoardStorageCapabilities storageCapabilities()
+{
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || \
+    defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    return {StorageBusTopology::Sdmmc};
+#elif defined(ARDUINO_T_DECK_PRO) || defined(ARDUINO_T_DECK) || \
+    defined(ARDUINO_T_LORA_PAGER)
+    return {StorageBusTopology::SharedDisplaySpi};
+#else
+    return {StorageBusTopology::DedicatedSpi};
+#endif
+}
+
+bool storageStartupGateSatisfied()
+{
+    if (!storageCapabilities().requiresDisplayTransactionGate())
+    {
+        return true;
+    }
+#if defined(ARDUINO_T_DECK_PRO) || defined(ARDUINO_T_DECK) || \
+    defined(ARDUINO_T_LORA_PAGER)
+    return platform::esp::common::shared_spi_coordinator()
+               .displayFrameCompletions() > 0U;
+#else
+    // A shared-display-SPI IDF board must provide a board-local completion
+    // signal before hydration can be enabled.
+    return false;
 #endif
 }
 

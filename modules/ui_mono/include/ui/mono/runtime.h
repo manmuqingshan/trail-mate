@@ -223,7 +223,6 @@ class Runtime : public chat::ChatService::IncomingTextObserver,
     void retrySelectedMessage();
     void executeNewChatPageItem(size_t index);
     void executeDiscoverPageItem(size_t index);
-    void commitConfig();
     void ensureBootExit();
     void ensureSleepTimeout(InputAction action);
     void beginSettingPopup(Page owner, size_t index);

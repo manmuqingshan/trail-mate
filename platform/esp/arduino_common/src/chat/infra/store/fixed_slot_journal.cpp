@@ -184,6 +184,96 @@ FixedSlotJournalEngine::ReadStatus FixedSlotJournalEngine::readStatus(
     return ReadStatus::Ok;
 }
 
+bool FixedSlotJournalCursor::begin(const FixedSlotJournalEngine& engine,
+                                   const char* path,
+                                   MeshProtocol protocol,
+                                   JournalKind kind,
+                                   std::size_t slot_size)
+{
+    reset();
+    if (!path || path[0] == '\0' || slot_size == 0U ||
+        std::strlen(path) >= sizeof(path_))
+    {
+        return false;
+    }
+
+    std::strncpy(path_, path, sizeof(path_) - 1U);
+    path_[sizeof(path_) - 1U] = '\0';
+    protocol_ = protocol;
+    kind_ = kind;
+    slot_size_ = slot_size;
+    inspection_ = engine.inspect(path_, protocol_, kind_, slot_size_);
+    active_ = true;
+    return true;
+}
+
+FixedSlotJournalCursor::StepStatus FixedSlotJournalCursor::next(
+    const FixedSlotJournalEngine& engine,
+    void* out_slot,
+    std::size_t out_len)
+{
+    if (!active_ || !out_slot || out_len < slot_size_)
+    {
+        return StepStatus::Invalid;
+    }
+    if (inspection_.state ==
+        FixedSlotJournalEngine::State::Missing)
+    {
+        active_ = false;
+        return StepStatus::Missing;
+    }
+    if (inspection_.state != FixedSlotJournalEngine::State::Ready &&
+        inspection_.state != FixedSlotJournalEngine::State::PartialTail)
+    {
+        active_ = false;
+        return StepStatus::Invalid;
+    }
+    if (next_index_ >= inspection_.slot_count)
+    {
+        active_ = false;
+        return StepStatus::Complete;
+    }
+
+    const FixedSlotJournalEngine::ReadStatus status =
+        engine.readStatus(path_,
+                          protocol_,
+                          kind_,
+                          slot_size_,
+                          inspection_,
+                          next_index_,
+                          out_slot);
+    if (status != FixedSlotJournalEngine::ReadStatus::Ok)
+    {
+        return status == FixedSlotJournalEngine::ReadStatus::Unavailable
+                   ? StepStatus::Unavailable
+                   : StepStatus::Invalid;
+    }
+
+    ++next_index_;
+    return StepStatus::Item;
+}
+
+bool FixedSlotJournalCursor::seek(uint32_t slot_index)
+{
+    if (!active_ || slot_index > inspection_.slot_count)
+    {
+        return false;
+    }
+    next_index_ = slot_index;
+    return true;
+}
+
+void FixedSlotJournalCursor::reset()
+{
+    path_[0] = '\0';
+    protocol_ = MeshProtocol::Meshtastic;
+    kind_ = JournalKind::MessageSegment;
+    slot_size_ = 0U;
+    inspection_ = {};
+    next_index_ = 0U;
+    active_ = false;
+}
+
 bool FixedSlotJournalEngine::validDescriptor(MeshProtocol protocol,
                                              JournalKind kind,
                                              std::size_t slot_size)

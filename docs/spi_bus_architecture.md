@@ -29,6 +29,12 @@ The current board profiles are intentionally different:
   may have no coordinator, one coordinator, or several independent
   coordinators; the business layer remains unaware of that topology.
 
+The Arduino storage runtime consumes `BoardStorageCapabilities` from the board
+runtime. Its `StorageBusTopology` values are `SharedDisplaySpi`,
+`DedicatedSpi`, and `Sdmmc`; the storage worker does not maintain a second
+board-name mapping. A shared-display board selects the display-transaction
+startup gate, while `DedicatedSpi` and `Sdmmc` select the immediate gate.
+
 ## Why the old model failed
 
 The old implementation had one physical mutex but several independent policy
@@ -265,9 +271,11 @@ The display flush API returns a transaction result:
 - `Failed`: the transaction started but the driver reported failure; the
   caller completes the failure path and requests a full redraw.
 
-`lv_display_flush_ready()` is called only after `Completed` or after the
-explicit recovery path has recorded a dropped/invalidated frame. A lock timeout
-must not be silently presented as success.
+`lv_display_flush_ready()` is called only after `Completed`. When acquisition
+returns `Busy` or `Unavailable`, the display adapter retains the exact area and
+pixel-buffer ownership, and the LVGL flush-wait callback retries that transfer.
+The buffer must not be reused and the flush must not be completed while the
+pixels remain unsent. A lock timeout must not be silently presented as success.
 
 The first boot frame and the first wake redraw use the same path as normal
 frames. A completed display transaction means only that the coordinator granted
@@ -306,9 +314,15 @@ The SD adapter has two distinct scopes:
   the SD device adapter and is invisible to business code.
 - The physical shared-SPI ownership is acquired by the SdFat driver at its
   `activate`/`deactivate` transaction boundary. On shared-SPI boards, payload
-  reads and writes are sliced to at most one 512-byte sector so the display or
-  radio can be granted between physical transactions. On SDMMC or independent
-  buses, this hook is not used.
+  reads and writes are sliced to at most one 512-byte sector where the SdFat
+  driver permits a transaction boundary. On SDMMC or independent buses, this
+  hook is not used.
+- High-level SdFat metadata calls such as `open`, `exists`, directory
+  traversal, and `close` are not automatically preemptible. The coordinator
+  cannot interrupt an active SD command safely. Device adapters must therefore
+  measure these holds, keep them out of latency-critical interaction windows
+  where possible, and never claim a hard hold budget that the underlying
+  driver does not enforce.
 
 The logical session may remain open while an interactive read-only `FsFile`
 object is alive, but it must not hold the physical coordinator across sectors.
@@ -352,15 +366,16 @@ flush requested
   -> lv_display_flush_ready()
 ```
 
-If the coordinator cannot grant the frame before the bounded retry budget:
+If the coordinator cannot grant the frame on the first attempt:
 
 ```text
 flush requested
   -> coordinator reports Busy
-  -> frame is marked pending
-  -> lower-priority work is not granted while pending
-  -> retry is scheduled
-  -> LVGL is completed only by the defined recovery path
+  -> display adapter retains the area and LVGL buffer
+  -> LVGL flush remains incomplete
+  -> flush-wait callback retries the same transfer
+  -> transfer completes
+  -> lv_display_flush_ready()
 ```
 
 The implementation must maintain counters for:
@@ -369,7 +384,7 @@ The implementation must maintain counters for:
 - completed frames;
 - busy retries;
 - failed transfers;
-- invalidated/dropped frames;
+- deferred frames that are waiting for bus ownership;
 - maximum frame wait;
 - maximum frame hold;
 - current owner and waiter class.
@@ -410,7 +425,9 @@ The design is internally consistent under the following assumptions:
 2. No caller retains a direct physical mutex handle.
 3. Every hardware transaction can be bounded and split from software work.
 4. LVGL flush completion is coupled to a real transaction result.
-5. Hydration and compaction re-check the foreground gate between operations.
+5. Hydration, persistence, and compaction re-check the foreground gate between
+   operations. Persistence may drain one bounded immutable delta batch while
+   the foreground is active; compaction waits for a stable idle gate.
 6. The coordinator is initialized before any display, SD, or radio request.
 
 Under those assumptions, the design addresses the observed failures:

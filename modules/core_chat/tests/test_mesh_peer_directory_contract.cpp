@@ -1,5 +1,6 @@
 #include "chat/infra/mesh_peer_directory_core.h"
 #include "chat/usecase/contact_service.h"
+#include "sys/clock.h"
 
 #include <algorithm>
 #include <cassert>
@@ -8,6 +9,13 @@
 
 namespace
 {
+
+uint32_t g_fake_millis = 0;
+
+uint32_t fake_millis()
+{
+    return g_fake_millis;
+}
 
 chat::NodeId reticulum_node_id_from_destination_hash(const uint8_t* destination_hash)
 {
@@ -221,6 +229,14 @@ class MemoryMeshPeerDirectory final : public chat::IMeshPeerDirectory
         chat::MeshPeerDirectoryView view,
         chat::IMeshPeerDirectoryVisitor& visitor) override
     {
+        ++visit_count;
+        if (!next_visit_status_.succeeded())
+        {
+            const chat::MeshPeerDirectoryStatus status = next_visit_status_;
+            next_visit_status_ = chat::MeshPeerDirectoryStatus::success();
+            return status;
+        }
+
         for (const auto& record : records_)
         {
             const bool contact = chat::meshPeerIsContact(record);
@@ -238,6 +254,11 @@ class MemoryMeshPeerDirectory final : public chat::IMeshPeerDirectory
             }
         }
         return chat::MeshPeerDirectoryStatus::success();
+    }
+
+    void failNextVisit(chat::MeshPeerDirectoryStatusCode code)
+    {
+        next_visit_status_ = chat::MeshPeerDirectoryStatus::fail(code);
     }
 
     chat::MeshPeerDirectoryStatus setUserAlias(
@@ -344,6 +365,7 @@ class MemoryMeshPeerDirectory final : public chat::IMeshPeerDirectory
     chat::MeshPeerDirectoryCapacity meshtastic_capacity{2, 1};
     chat::MeshPeerDirectoryCapacity meshcore_capacity{1, 1};
     chat::MeshPeerDirectoryCapacity reticulum_capacity{3, 1};
+    std::size_t visit_count = 0;
 
   private:
     std::size_t countForProtocol(chat::MeshProtocol protocol) const
@@ -381,6 +403,7 @@ class MemoryMeshPeerDirectory final : public chat::IMeshPeerDirectory
     }
 
     bool begun_ = false;
+    chat::MeshPeerDirectoryStatus next_visit_status_{};
     std::vector<chat::MeshPeerRecord> records_;
 };
 
@@ -429,6 +452,41 @@ class CountingMeshPeerDirectoryBlobStore final
     int load_count = 0;
     int save_count = 0;
     int clear_count = 0;
+};
+
+class CollectingMeshPeerDirectoryBlobSink final
+    : public chat::IMeshPeerDirectoryBlobSink
+{
+  public:
+    bool begin(std::size_t expected_size) override
+    {
+        data.clear();
+        data.reserve(expected_size);
+        return true;
+    }
+
+    bool write(const uint8_t* bytes, std::size_t len) override
+    {
+        if (len == 0U)
+        {
+            return true;
+        }
+        if (!bytes)
+        {
+            return false;
+        }
+        data.insert(data.end(), bytes, bytes + len);
+        return true;
+    }
+
+    bool finish() override
+    {
+        finished = true;
+        return true;
+    }
+
+    std::vector<uint8_t> data;
+    bool finished = false;
 };
 
 chat::ReticulumPeerIdentity makeReticulumIdentity(uint8_t seed)
@@ -666,6 +724,53 @@ void core_persists_reticulum_ratchet()
                            original.reticulum.ratchet_pub,
                            chat::kMeshPeerReticulumRatchetLen) == 0);
     }
+}
+
+void deferred_hydration_keeps_storage_out_of_directory_begin()
+{
+    CountingMeshPeerDirectoryBlobStore blob;
+    chat::MeshPeerDirectoryCore::Options options{};
+    options.auto_save = false;
+    const auto original = makeMeshCorePeer(0x91, "deferred peer", 77);
+
+    {
+        chat::MeshPeerDirectoryCore writer(blob, options);
+        assert(writer.beginEmpty().succeeded());
+        assert(writer.record(original).succeeded());
+        assert(writer.flush().succeeded());
+    }
+
+    chat::MeshPeerDirectoryCore reader(blob, options);
+    assert(reader.beginEmpty().succeeded());
+    assert(reader.count(chat::MeshProtocol::MeshCore) == 0U);
+
+    std::vector<uint8_t> encoded;
+    assert(reader.loadPersistenceBlob(encoded) ==
+           chat::MeshPeerDirectoryBlobLoadResult::Loaded);
+    CollectingMeshPeerDirectoryBlobSink streamed;
+    assert(reader.streamPersistenceBlob(streamed) ==
+           chat::MeshPeerDirectoryBlobLoadResult::Loaded);
+    assert(streamed.finished);
+    assert(streamed.data == encoded);
+    assert(reader.hydratePersistenceBlob(encoded.data(), encoded.size())
+               .succeeded());
+
+    chat::MeshPeerRecord loaded{};
+    assert(reader.find(original.identity, loaded).succeeded());
+    assert(std::strcmp(loaded.display_name, "deferred peer") == 0);
+
+    assert(reader.record(makeMeshCorePeer(0x92, "new peer", 78)).succeeded());
+    const std::size_t snapshot_size = reader.persistenceSnapshotSize();
+    std::vector<uint8_t> snapshot(snapshot_size);
+    uint32_t revision = 0U;
+    assert(reader.encodePersistenceSnapshot(snapshot.data(),
+                                            snapshot.size(),
+                                            &revision));
+    assert(reader.record(makeMeshCorePeer(0x93, "newer peer", 79)).succeeded());
+    assert(!reader.persistEncodedSnapshot(snapshot.data(),
+                                          snapshot.size(),
+                                          revision));
+    assert(reader.persistencePending());
 }
 
 void capacity_is_protocol_policy_not_interface_shape()
@@ -973,6 +1078,37 @@ void contact_service_projects_one_directory_without_legacy_stores()
     assert(all.front().display_name == "Alias");
 }
 
+void contact_service_preserves_projection_when_visit_temporarily_fails()
+{
+    sys::set_millis_provider(fake_millis);
+    g_fake_millis = 1000;
+
+    MemoryMeshPeerDirectory directory;
+    chat::contacts::ContactService contacts(directory);
+    contacts.begin();
+
+    constexpr chat::NodeId node_id = 0x10203040U;
+    assert(directory.record(makeMeshtasticPeer(node_id, "Cached", 1))
+               .succeeded());
+    assert(contacts.addContact(node_id, "Cached"));
+
+    const auto initial = contacts.getContacts();
+    assert(initial.size() == 1U);
+    assert(initial.front().node_id == node_id);
+    assert(initial.front().display_name == "Cached");
+    const std::size_t visits_after_initial = directory.visit_count;
+
+    g_fake_millis = 2501;
+    directory.failNextVisit(chat::MeshPeerDirectoryStatusCode::DeviceUnavailable);
+    const auto preserved = contacts.getContacts();
+    assert(directory.visit_count == visits_after_initial + 1U);
+    assert(preserved.size() == 1U);
+    assert(preserved.front().node_id == node_id);
+    assert(preserved.front().display_name == "Cached");
+
+    sys::set_millis_provider(nullptr);
+}
+
 } // namespace
 
 int main()
@@ -980,6 +1116,7 @@ int main()
     upsert_preserves_first_seen_and_updates_peer_facts();
     protocol_identity_shapes_do_not_collapse();
     core_persists_reticulum_ratchet();
+    deferred_hydration_keeps_storage_out_of_directory_begin();
     capacity_is_protocol_policy_not_interface_shape();
     search_and_user_flags_are_directory_behaviors();
     find_by_node_id_preserves_reticulum_destination_identity();
@@ -988,5 +1125,6 @@ int main()
     verified_keys_cannot_be_replaced_by_runtime_observations();
     remove_and_clear_protocol_are_directory_behaviors();
     contact_service_projects_one_directory_without_legacy_stores();
+    contact_service_preserves_projection_when_visit_temporarily_fails();
     return 0;
 }

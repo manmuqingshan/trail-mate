@@ -6,9 +6,16 @@
 namespace platform::esp::arduino_common::storage
 {
 
-// Storage recovery owns this lock for bounded SD transactions. Every caller
-// must fail fast instead of turning SD latency into a UI/radio stall.
+// This lock protects logical in-memory state only. Filesystem and device
+// transactions must happen before or after its lifetime.
 constexpr TickType_t kStateLockWaitTicks = pdMS_TO_TICKS(50);
+
+enum class StateLockResult : uint8_t
+{
+    Acquired = 0,
+    Busy,
+    Unavailable,
+};
 
 class ScopedRecursiveStateLock final
 {
@@ -16,15 +23,25 @@ class ScopedRecursiveStateLock final
     explicit ScopedRecursiveStateLock(
         SemaphoreHandle_t mutex,
         TickType_t wait_ticks = kStateLockWaitTicks)
-        : mutex_(mutex),
-          locked_(mutex_ &&
-                  xSemaphoreTakeRecursive(mutex_, wait_ticks) == pdTRUE)
+        : mutex_(mutex)
     {
+        if (!mutex_)
+        {
+            result_ = StateLockResult::Unavailable;
+        }
+        else if (xSemaphoreTakeRecursive(mutex_, wait_ticks) == pdTRUE)
+        {
+            result_ = StateLockResult::Acquired;
+        }
+        else
+        {
+            result_ = StateLockResult::Busy;
+        }
     }
 
     ~ScopedRecursiveStateLock()
     {
-        if (locked_)
+        if (result_ == StateLockResult::Acquired)
         {
             xSemaphoreGiveRecursive(mutex_);
         }
@@ -35,12 +52,13 @@ class ScopedRecursiveStateLock final
 
     bool locked() const
     {
-        return locked_;
+        return result_ == StateLockResult::Acquired;
     }
+    StateLockResult result() const { return result_; }
 
   private:
     SemaphoreHandle_t mutex_ = nullptr;
-    bool locked_ = false;
+    StateLockResult result_ = StateLockResult::Unavailable;
 };
 
 } // namespace platform::esp::arduino_common::storage

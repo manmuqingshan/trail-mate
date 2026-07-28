@@ -121,6 +121,20 @@ bool apply_live_config()
     return true;
 }
 
+template <typename Mutator>
+bool edit_reticulum_config(app::IAppFacade& app_ctx, Mutator mutator)
+{
+    auto edit = app_ctx.beginConfigEdit();
+    if (!edit)
+    {
+        return false;
+    }
+
+    mutator(edit.config().reticulumConfig());
+    edit.commit(app::AppConfigChangeSet::mesh());
+    return true;
+}
+
 void note_rx()
 {
     hostlink::note_rx(s_session);
@@ -329,7 +343,6 @@ void process_command(uint8_t command, const uint8_t* payload, size_t len)
     note_rx();
 
     app::IAppFacade& app_ctx = app::appFacade();
-    chat::MeshConfig& cfg = app_ctx.getConfig().reticulumConfig();
     chat::rnode::RNodeAdapter* backend = get_backend();
 
     switch (command)
@@ -352,8 +365,10 @@ void process_command(uint8_t command, const uint8_t* payload, size_t len)
     case kCmdFrequency:
         if (len >= 4)
         {
-            cfg.override_frequency_mhz = static_cast<float>(decode_u32(payload, len)) / 1000000.0f;
-            if (s_radio_state == kRadioStateOn)
+            const float frequency_mhz = static_cast<float>(decode_u32(payload, len)) / 1000000.0f;
+            if (edit_reticulum_config(app_ctx, [frequency_mhz](chat::MeshConfig& config)
+                                      { config.override_frequency_mhz = frequency_mhz; }) &&
+                s_radio_state == kRadioStateOn)
             {
                 (void)apply_live_config();
             }
@@ -363,8 +378,10 @@ void process_command(uint8_t command, const uint8_t* payload, size_t len)
     case kCmdBandwidth:
         if (len >= 4)
         {
-            cfg.bandwidth_khz = static_cast<float>(decode_u32(payload, len)) / 1000.0f;
-            if (s_radio_state == kRadioStateOn)
+            const float bandwidth_khz = static_cast<float>(decode_u32(payload, len)) / 1000.0f;
+            if (edit_reticulum_config(app_ctx, [bandwidth_khz](chat::MeshConfig& config)
+                                      { config.bandwidth_khz = bandwidth_khz; }) &&
+                s_radio_state == kRadioStateOn)
             {
                 (void)apply_live_config();
             }
@@ -374,8 +391,10 @@ void process_command(uint8_t command, const uint8_t* payload, size_t len)
     case kCmdTxPower:
         if (len >= 1)
         {
-            cfg.tx_power = static_cast<int8_t>(payload[0]);
-            if (s_radio_state == kRadioStateOn)
+            const int8_t tx_power = static_cast<int8_t>(payload[0]);
+            if (edit_reticulum_config(app_ctx, [tx_power](chat::MeshConfig& config)
+                                      { config.tx_power = tx_power; }) &&
+                s_radio_state == kRadioStateOn)
             {
                 (void)apply_live_config();
             }
@@ -385,8 +404,10 @@ void process_command(uint8_t command, const uint8_t* payload, size_t len)
     case kCmdSf:
         if (len >= 1)
         {
-            cfg.spread_factor = payload[0];
-            if (s_radio_state == kRadioStateOn)
+            const uint8_t spread_factor = payload[0];
+            if (edit_reticulum_config(app_ctx, [spread_factor](chat::MeshConfig& config)
+                                      { config.spread_factor = spread_factor; }) &&
+                s_radio_state == kRadioStateOn)
             {
                 (void)apply_live_config();
             }
@@ -396,8 +417,10 @@ void process_command(uint8_t command, const uint8_t* payload, size_t len)
     case kCmdCr:
         if (len >= 1)
         {
-            cfg.coding_rate = payload[0];
-            if (s_radio_state == kRadioStateOn)
+            const uint8_t coding_rate = payload[0];
+            if (edit_reticulum_config(app_ctx, [coding_rate](chat::MeshConfig& config)
+                                      { config.coding_rate = coding_rate; }) &&
+                s_radio_state == kRadioStateOn)
             {
                 (void)apply_live_config();
             }

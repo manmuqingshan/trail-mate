@@ -231,6 +231,12 @@ void set_mesh_peer_directory_failure(Status& out,
     case chat::MeshPeerDirectoryStatusCode::StorageUnavailable:
         set_status(out, "Mesh peer directory storage unavailable", kLxmfAddressesPath);
         break;
+    case chat::MeshPeerDirectoryStatusCode::Busy:
+        set_status(out, "Mesh peer directory busy", kLxmfAddressesPath);
+        break;
+    case chat::MeshPeerDirectoryStatusCode::DeviceUnavailable:
+        set_status(out, "Mesh peer directory device unavailable", kLxmfAddressesPath);
+        break;
     case chat::MeshPeerDirectoryStatusCode::IoError:
         set_status(out, "Cannot access mesh peer directory", kLxmfAddressesPath);
         break;

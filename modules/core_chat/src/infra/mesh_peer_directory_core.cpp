@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <utility>
 
 #if defined(_MSC_VER)
 #define TRAILMATE_PACK_PUSH __pragma(pack(push, 1))
@@ -590,6 +591,27 @@ NodeId reticulumNodeIdFromDestinationHash(const uint8_t* destination_hash)
 
 } // namespace
 
+MeshPeerDirectoryBlobLoadResult IMeshPeerDirectoryBlobStore::loadBlobTo(
+    IMeshPeerDirectoryBlobSink& sink)
+{
+    std::vector<uint8_t> buffer;
+    const MeshPeerDirectoryBlobLoadResult result = loadBlob(buffer);
+    if (result != MeshPeerDirectoryBlobLoadResult::Loaded)
+    {
+        return result;
+    }
+    if (!sink.begin(buffer.size()))
+    {
+        return MeshPeerDirectoryBlobLoadResult::IoError;
+    }
+    if (!buffer.empty() && !sink.write(buffer.data(), buffer.size()))
+    {
+        return MeshPeerDirectoryBlobLoadResult::IoError;
+    }
+    return sink.finish() ? MeshPeerDirectoryBlobLoadResult::Loaded
+                         : MeshPeerDirectoryBlobLoadResult::IoError;
+}
+
 MeshPeerRecord mergeMeshPeerRecordFacts(const MeshPeerRecord& existing,
                                         const MeshPeerRecord& incoming)
 {
@@ -617,7 +639,7 @@ void MeshPeerDirectoryCore::setAutoSaveEnabled(bool enabled)
 MeshPeerDirectoryStatus MeshPeerDirectoryCore::begin()
 {
     std::vector<uint8_t> blob;
-    const auto loaded = blob_store_.loadBlob(blob);
+    const auto loaded = loadPersistenceBlob(blob);
     if (loaded == MeshPeerDirectoryBlobLoadResult::Unavailable)
     {
         begun_ = false;
@@ -630,18 +652,65 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::begin()
         return MeshPeerDirectoryStatus::fail(MeshPeerDirectoryStatusCode::IoError);
     }
 
-    records_.clear();
-    dirty_ = false;
-    begun_ = true;
+    const MeshPeerDirectoryStatus empty_status = beginEmpty();
+    if (!empty_status.succeeded())
+    {
+        return empty_status;
+    }
     if (loaded == MeshPeerDirectoryBlobLoadResult::Missing || blob.empty())
     {
         return MeshPeerDirectoryStatus::success();
     }
-    if (!decodeBlob(records_, blob.data(), blob.size()))
+
+    return hydratePersistenceBlob(blob.data(), blob.size());
+}
+
+MeshPeerDirectoryStatus MeshPeerDirectoryCore::beginEmpty()
+{
+    records_.clear();
+    dirty_ = false;
+    begun_ = true;
+    return MeshPeerDirectoryStatus::success();
+}
+
+MeshPeerDirectoryBlobLoadResult MeshPeerDirectoryCore::loadPersistenceBlob(
+    std::vector<uint8_t>& out) const
+{
+    return blob_store_.loadBlob(out);
+}
+
+MeshPeerDirectoryBlobLoadResult MeshPeerDirectoryCore::streamPersistenceBlob(
+    IMeshPeerDirectoryBlobSink& sink) const
+{
+    return blob_store_.loadBlobTo(sink);
+}
+
+MeshPeerDirectoryStatus MeshPeerDirectoryCore::hydratePersistenceBlob(
+    const uint8_t* data,
+    std::size_t len)
+{
+    if (!begun_ || (!data && len != 0U))
+    {
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::InvalidArgument);
+    }
+    if (len == 0U)
     {
         records_.clear();
-        return MeshPeerDirectoryStatus::fail(MeshPeerDirectoryStatusCode::IoError);
+        dirty_ = false;
+        return MeshPeerDirectoryStatus::success();
     }
+
+    std::vector<MeshPeerRecord> decoded;
+    if (!decodeBlob(decoded, data, len))
+    {
+        records_.clear();
+        dirty_ = false;
+        return MeshPeerDirectoryStatus::fail(
+            MeshPeerDirectoryStatusCode::IoError);
+    }
+    records_ = std::move(decoded);
+    dirty_ = false;
     return MeshPeerDirectoryStatus::success();
 }
 
@@ -660,7 +729,7 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::record(
         const MeshPeerRecord& existing = records_[existing_index];
         MeshPeerRecord next = mergeMeshPeerRecordFacts(existing, record);
         records_[existing_index] = next;
-        dirty_ = true;
+        markDirty();
         maybeSave();
         return MeshPeerDirectoryStatus::success();
     }
@@ -680,7 +749,7 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::record(
         next.last_seen_s = next.first_seen_s;
     }
     records_.push_back(next);
-    dirty_ = true;
+    markDirty();
     maybeSave();
     return MeshPeerDirectoryStatus::success();
 }
@@ -855,7 +924,7 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::setUserAlias(
                      sizeof(records_[index].user_alias),
                      alias);
     records_[index].flags.favorite = alias[0] != '\0';
-    dirty_ = true;
+    markDirty();
     maybeSave();
     return MeshPeerDirectoryStatus::success();
 }
@@ -876,7 +945,7 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::setUserFlags(
             MeshPeerDirectoryStatusCode::NotFound);
     }
     records_[index].flags = flags;
-    dirty_ = true;
+    markDirty();
     maybeSave();
     return MeshPeerDirectoryStatus::success();
 }
@@ -908,7 +977,7 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::setKeyManuallyVerified(
         return MeshPeerDirectoryStatus::fail(
             MeshPeerDirectoryStatusCode::Unsupported);
     }
-    dirty_ = true;
+    markDirty();
     maybeSave();
     return MeshPeerDirectoryStatus::success();
 }
@@ -923,7 +992,7 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::remove(
             MeshPeerDirectoryStatusCode::NotFound);
     }
     records_.erase(records_.begin() + static_cast<std::ptrdiff_t>(index));
-    dirty_ = true;
+    markDirty();
     maybeSave();
     return MeshPeerDirectoryStatus::success();
 }
@@ -942,7 +1011,7 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::clearProtocol(MeshProtocol protoc
                    records_.end());
     if (records_.size() != old_size)
     {
-        dirty_ = true;
+        markDirty();
         maybeSave();
     }
     return MeshPeerDirectoryStatus::success();
@@ -975,6 +1044,72 @@ MeshPeerDirectoryStatus MeshPeerDirectoryCore::flush()
     return saveRecords();
 }
 
+bool MeshPeerDirectoryCore::persistencePending() const
+{
+    return dirty_;
+}
+
+uint32_t MeshPeerDirectoryCore::persistenceRevision() const
+{
+    return persistence_revision_;
+}
+
+std::size_t MeshPeerDirectoryCore::persistenceSnapshotSize() const
+{
+    return sizeof(PersistedMeshPeerDirectoryHeaderV1) +
+           records_.size() * sizeof(PersistedMeshPeerEntryV2);
+}
+
+bool MeshPeerDirectoryCore::encodePersistenceSnapshot(
+    uint8_t* out,
+    std::size_t out_len,
+    uint32_t* out_revision) const
+{
+    if (!out || !out_revision || out_len < persistenceSnapshotSize())
+    {
+        return false;
+    }
+
+    const std::size_t entries_len =
+        records_.size() * sizeof(PersistedMeshPeerEntryV2);
+    auto* entries_data =
+        out + sizeof(PersistedMeshPeerDirectoryHeaderV1);
+    for (std::size_t index = 0; index < records_.size(); ++index)
+    {
+        PersistedMeshPeerEntryV2 persisted{};
+        copyIntoPersisted(persisted, records_[index]);
+        std::memcpy(entries_data + index * sizeof(PersistedMeshPeerEntryV2),
+                    &persisted,
+                    sizeof(persisted));
+    }
+
+    PersistedMeshPeerDirectoryHeaderV1 header{};
+    header.count = static_cast<uint32_t>(records_.size());
+    header.crc = computeBlobCrc(entries_data, entries_len);
+    std::memcpy(out, &header, sizeof(header));
+    *out_revision = persistence_revision_;
+    return true;
+}
+
+bool MeshPeerDirectoryCore::persistEncodedSnapshot(const uint8_t* data,
+                                                   std::size_t len,
+                                                   uint32_t revision)
+{
+    if (!data || len == 0 || revision != persistence_revision_)
+    {
+        return false;
+    }
+    if (!blob_store_.saveBlob(data, len))
+    {
+        return false;
+    }
+    if (revision == persistence_revision_)
+    {
+        dirty_ = false;
+    }
+    return true;
+}
+
 std::size_t MeshPeerDirectoryCore::count(MeshProtocol protocol) const
 {
     return countForProtocol(protocol);
@@ -983,7 +1118,7 @@ std::size_t MeshPeerDirectoryCore::count(MeshProtocol protocol) const
 void MeshPeerDirectoryCore::clear()
 {
     records_.clear();
-    dirty_ = true;
+    markDirty();
     blob_store_.clearBlob();
     dirty_ = false;
 }
@@ -1135,15 +1270,29 @@ void MeshPeerDirectoryCore::evictOldest(MeshProtocol protocol)
     }
 }
 
+void MeshPeerDirectoryCore::markDirty()
+{
+    dirty_ = true;
+    ++persistence_revision_;
+    if (persistence_revision_ == 0)
+    {
+        persistence_revision_ = 1;
+    }
+}
+
 MeshPeerDirectoryStatus MeshPeerDirectoryCore::saveRecords()
 {
     std::vector<uint8_t> blob;
     encodeBlob(blob, records_);
+    const uint32_t revision = persistence_revision_;
     if (!blob_store_.saveBlob(blob.empty() ? nullptr : blob.data(), blob.size()))
     {
         return MeshPeerDirectoryStatus::fail(MeshPeerDirectoryStatusCode::IoError);
     }
-    dirty_ = false;
+    if (revision == persistence_revision_)
+    {
+        dirty_ = false;
+    }
     return MeshPeerDirectoryStatus::success();
 }
 

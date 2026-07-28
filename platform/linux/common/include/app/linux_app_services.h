@@ -1,9 +1,12 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 
 #include "app/app_config.h"
+#include "app/app_config_edit.h"
+#include "app/config_persistence_runtime.h"
 #include "chat/domain/chat_types.h"
 #include "platform/linux/runtime_mode.h"
 
@@ -76,6 +79,7 @@ class LinuxAppServices final
     [[nodiscard]] const ::app::AppConfig& config() const;
     [[nodiscard]] ::app::AppConfig& getConfig();
     [[nodiscard]] const ::app::AppConfig& getConfig() const;
+    [[nodiscard]] ::app::AppConfigEdit beginConfigEdit();
     void saveConfig();
     void saveConfig(::app::AppConfigChangeSet changes);
     void applyMeshConfig();
@@ -129,9 +133,15 @@ class LinuxAppServices final
     void seedDefaultIdentity();
     void syncLocalIdentity();
     void ensureServicesReady();
+    void flushConfigPersistence(uint32_t now_ms);
+    bool writePersistedConfig(const ::app::AppConfig& config);
+    static void commitConfigEdit(void* context,
+                                 ::app::AppConfigChangeSet changes);
+    static void cancelConfigEdit(void* context);
 
     LinuxAppServicesOptions options_{};
     ::app::AppConfig config_{};
+    ::app::ConfigPersistenceRuntime config_persistence_runtime_{};
     std::unique_ptr<Implementation> impl_;
     UiEventDispatcher ui_event_dispatcher_ = nullptr;
     void* ui_event_context_ = nullptr;

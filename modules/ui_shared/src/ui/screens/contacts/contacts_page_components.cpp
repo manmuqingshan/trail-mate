@@ -2124,9 +2124,16 @@ static void show_reticulum_group_error(const char* message)
 
 static bool reticulum_group_storage_ready_for_edit()
 {
-    app::AppConfig& config = app::configFacade().getConfig();
+    auto groups = std::unique_ptr<chat::ReticulumGroupDestinationConfig[]>(
+        new (std::nothrow)
+            chat::ReticulumGroupDestinationConfig[chat::kReticulumGroupDestinationMaxCount]);
+    if (!groups)
+    {
+        return false;
+    }
+
     const auto status = ::platform::ui::reticulum_groups::load(
-        config.reticulumConfig().reticulum_groups,
+        groups.get(),
         chat::kReticulumGroupDestinationMaxCount);
     g_contacts_state.reticulum_group_storage_supported = status.supported;
     g_contacts_state.reticulum_group_storage_ready = status.sd_present;
@@ -3530,12 +3537,29 @@ static void on_reticulum_group_save_clicked(lv_event_t* /*e*/)
         return;
     }
 
-    app::AppConfig& config = app::configFacade().getConfig();
-    chat::MeshConfig& reticulum_config = config.reticulumConfig();
+    auto groups = std::unique_ptr<chat::ReticulumGroupDestinationConfig[]>(
+        new (std::nothrow)
+            chat::ReticulumGroupDestinationConfig[chat::kReticulumGroupDestinationMaxCount]);
+    if (!groups)
+    {
+        show_reticulum_group_error("Group storage unavailable");
+        return;
+    }
+    const auto load_status = ::platform::ui::reticulum_groups::load(
+        groups.get(),
+        chat::kReticulumGroupDestinationMaxCount);
+    if (!load_status.loaded)
+    {
+        show_reticulum_group_error(
+            load_status.message[0] != '\0' ? load_status.message
+                                           : "Cannot load groups");
+        return;
+    }
+
     int free_slot = -1;
     for (std::size_t index = 0; index < chat::kReticulumGroupDestinationMaxCount; ++index)
     {
-        auto& group = reticulum_config.reticulum_groups[index];
+        auto& group = groups[index];
         if (group.enabled && chat::hasReticulumDestinationIdentity(group.identity) &&
             chat::sameReticulumDestinationHash(group.identity, identity))
         {
@@ -3555,16 +3579,23 @@ static void on_reticulum_group_save_clicked(lv_event_t* /*e*/)
         return;
     }
 
-    auto& group = reticulum_config.reticulum_groups[free_slot];
+    auto& group = groups[free_slot];
     group = chat::ReticulumGroupDestinationConfig{};
     group.enabled = true;
     std::snprintf(group.name, sizeof(group.name), "%s", name);
     group.identity = identity;
 
-    const auto save_status = ::platform::ui::reticulum_groups::save(
-        reticulum_config.reticulum_groups,
+    app::AppConfigEdit edit = app::configFacade().beginConfigEdit();
+    if (!edit)
+    {
+        show_reticulum_group_error("Configuration busy");
+        return;
+    }
+
+    const auto save_status = ::platform::ui::reticulum_groups::submit(
+        groups.get(),
         chat::kReticulumGroupDestinationMaxCount);
-    if (!save_status.saved)
+    if (!save_status.queued)
     {
         show_reticulum_group_error(save_status.message[0] != '\0'
                                        ? save_status.message
@@ -3572,6 +3603,11 @@ static void on_reticulum_group_save_clicked(lv_event_t* /*e*/)
         return;
     }
 
+    std::memcpy(edit.config().reticulumConfig().reticulum_groups,
+                groups.get(),
+                chat::kReticulumGroupDestinationMaxCount *
+                    sizeof(chat::ReticulumGroupDestinationConfig));
+    edit.commit(app::AppConfigChangeSet::mesh());
     app::configFacade().applyMeshConfig();
 
     g_contacts_state.reticulum_group_name_textarea = nullptr;

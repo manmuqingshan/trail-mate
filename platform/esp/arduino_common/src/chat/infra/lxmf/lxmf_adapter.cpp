@@ -9718,6 +9718,8 @@ LxmfAdapter::PeerInfo* LxmfAdapter::findOrLoadPeerByNodeId(NodeId node_id)
     if (!result.status.succeeded())
     {
         if (result.status.code != MeshPeerDirectoryStatusCode::StorageUnavailable &&
+            result.status.code != MeshPeerDirectoryStatusCode::Busy &&
+            result.status.code != MeshPeerDirectoryStatusCode::DeviceUnavailable &&
             result.status.code != MeshPeerDirectoryStatusCode::InvalidArgument)
         {
             Serial.printf("[LXMF][Directory] peer_lookup miss node=%08lX status=%u\n",
@@ -9749,6 +9751,8 @@ LxmfAdapter::PeerInfo* LxmfAdapter::findOrLoadPeerByDestinationHash(
     if (!result.status.succeeded())
     {
         if (result.status.code != MeshPeerDirectoryStatusCode::StorageUnavailable &&
+            result.status.code != MeshPeerDirectoryStatusCode::Busy &&
+            result.status.code != MeshPeerDirectoryStatusCode::DeviceUnavailable &&
             result.status.code != MeshPeerDirectoryStatusCode::InvalidArgument)
         {
             char dest[12] = {};
@@ -9796,6 +9800,8 @@ bool LxmfAdapter::recordPeerInDirectory(const PeerInfo& peer,
     if (!result.record_status.succeeded())
     {
         if (result.record_status.code != MeshPeerDirectoryStatusCode::StorageUnavailable &&
+            result.record_status.code != MeshPeerDirectoryStatusCode::Busy &&
+            result.record_status.code != MeshPeerDirectoryStatusCode::DeviceUnavailable &&
             result.record_status.code != MeshPeerDirectoryStatusCode::InvalidArgument)
         {
             Serial.printf("[LXMF][Directory] address_save failed status=%u\n",
@@ -9807,6 +9813,8 @@ bool LxmfAdapter::recordPeerInDirectory(const PeerInfo& peer,
     if (!result.flags_status.succeeded())
     {
         if (result.flags_status.code != MeshPeerDirectoryStatusCode::StorageUnavailable &&
+            result.flags_status.code != MeshPeerDirectoryStatusCode::Busy &&
+            result.flags_status.code != MeshPeerDirectoryStatusCode::DeviceUnavailable &&
             result.flags_status.code != MeshPeerDirectoryStatusCode::InvalidArgument)
         {
             Serial.printf("[LXMF][Directory] flag_save failed status=%u\n",

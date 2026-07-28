@@ -61,4 +61,20 @@ Status save(const chat::ReticulumGroupDestinationConfig*, std::size_t)
     return out;
 }
 
+Status submit(const chat::ReticulumGroupDestinationConfig* groups,
+              std::size_t group_count)
+{
+    return save(groups, group_count);
+}
+
+Status flushPending()
+{
+    return save(nullptr, 0);
+}
+
+bool hasPending()
+{
+    return false;
+}
+
 } // namespace platform::ui::reticulum_groups

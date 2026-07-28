@@ -785,6 +785,14 @@ void UiController::update()
 {
     // Refresh UI only when an event marks the conversation list dirty.
     refreshUnreadCounts(false);
+    if (state_ == State::Conversation && conversation_ &&
+        !team_conv_active_ && !conversation_view_loaded_)
+    {
+        // A visible thread has its own projection state. Do not let a
+        // temporary not-ready result during page entry become a permanent
+        // empty message list just because the conversation list has loaded.
+        reloadConversationView();
+    }
     const auto receive = ::platform::ui::reticulum_receive::snapshot();
     if (state_ == State::Conversation && conversation_ &&
         (receive.active || receive_status_visible_))
@@ -1013,6 +1021,7 @@ void UiController::switchToConversation(chat::ConversationId conv)
     current_channel_ = conv.channel;
     current_conv_ = conv;
     team_conv_active_ = isTeamConversation(conv);
+    conversation_view_loaded_ = false;
     stopTeamConversationTimer();
     CHAT_UI_LOG("[UiController] switchToConversation: parent=%p active=%p sleeping=%d conv_peer=%08lX\n",
                 parent_, lv_screen_active(), platform::ui::screen::is_sleeping() ? 1 : 0,
@@ -1092,6 +1101,7 @@ void UiController::switchToConversation(chat::ConversationId conv)
         {
             applySnapshotMessagesToConversation(team_chat_snapshot_buffer_, *conversation_);
         }
+        conversation_view_loaded_ = loaded;
         startTeamConversationTimer();
         if (loaded && unread != 0)
         {
@@ -1159,6 +1169,7 @@ void UiController::switchToConversation(chat::ConversationId conv)
     {
         applySnapshotMessagesToConversation(chat_snapshot_buffer_, *conversation_);
     }
+    conversation_view_loaded_ = snapshot_loaded;
     CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation mark_read begin elapsed_ms=%lu\n",
                 static_cast<unsigned long>(lv_tick_elaps(started_ms)));
     const ::ui::UiActionResult mark_read_result = chat_model_.markRead(ui_conv);
@@ -1626,23 +1637,32 @@ void UiController::refreshUnreadCounts(const bool force_reload)
 
 void UiController::syncConversationListFromStore()
 {
-    cached_conversations_.clear();
-    if (loadChatSnapshot())
+    const bool chat_loaded = loadChatSnapshot();
+    std::vector<chat::ConversationMeta> next_conversations;
+    if (chat_loaded)
     {
         appendSnapshotConversationsToControllerList(chat_snapshot_buffer_,
-                                                    cached_conversations_);
+                                                    next_conversations);
     }
-    normalizeConversationNames(cached_conversations_);
+    normalizeConversationNames(next_conversations);
 
     chat::ConversationMeta team_conv;
-    if (loadTeamChatSnapshot() &&
+    if (chat_loaded && loadTeamChatSnapshot() &&
         teamConversationMetaFromSnapshot(team_chat_snapshot_buffer_, team_conv))
     {
-        cached_conversations_.insert(cached_conversations_.begin(), team_conv);
+        next_conversations.insert(next_conversations.begin(), team_conv);
     }
 
-    conversation_list_dirty_ = false;
-    conversation_list_loaded_ = true;
+    if (chat_loaded)
+    {
+        cached_conversations_.swap(next_conversations);
+    }
+
+    // A not-ready store is retryable. Do not turn its temporary empty
+    // projection into a permanently loaded conversation list or erase the
+    // last visible projection when a retry fails.
+    conversation_list_dirty_ = !chat_loaded;
+    conversation_list_loaded_ = chat_loaded;
 }
 
 void UiController::normalizeConversationNames(std::vector<chat::ConversationMeta>& convs) const
@@ -1777,7 +1797,9 @@ void UiController::reloadConversationView()
         return;
     }
 
-    if (!loadChatSnapshot())
+    const bool snapshot_loaded = loadChatSnapshot();
+    conversation_view_loaded_ = snapshot_loaded;
+    if (!snapshot_loaded)
     {
         return;
     }

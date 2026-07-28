@@ -401,6 +401,16 @@ bool ChatPresentationSource::buildChatWorkspaceSnapshot(
                         static_cast<unsigned>(request.conversation_offset),
                         static_cast<unsigned>(request.message_offset));
     ui::chat::resetChatWorkspaceSnapshot(out);
+    if (!chat_service_.isDataReady())
+    {
+        CHAT_SNAPSHOT_TRACE(
+            "[ChatUiTrace] stage=snapshot_source reject reason=data_not_ready elapsed_ms=%lld\n",
+            static_cast<long long>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - started)
+                    .count()));
+        return false;
+    }
     out.header.valid = true;
     out.header.version = 1;
     ui::copyText(out.workspace_title, "Chat");

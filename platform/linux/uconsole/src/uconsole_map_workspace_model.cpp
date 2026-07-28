@@ -498,8 +498,13 @@ UConsoleMapWorkspaceModel::ensureContourTiles(
 void UConsoleMapWorkspaceModel::setSource(
     ::platform::linux_runtime::MapBaseSource source_value)
 {
-    services_.config().map_source = static_cast<std::uint8_t>(source_value);
-    services_.saveConfig();
+    auto edit = services_.beginConfigEdit();
+    if (!edit)
+    {
+        return;
+    }
+    edit.config().map_source = static_cast<std::uint8_t>(source_value);
+    edit.commit(::app::AppConfigChangeSet::map());
 }
 
 void UConsoleMapWorkspaceModel::setZoom(int zoom)
@@ -516,8 +521,13 @@ void UConsoleMapWorkspaceModel::setShowMqttNodes(bool enabled)
 
 void UConsoleMapWorkspaceModel::setContourEnabled(bool enabled)
 {
-    services_.config().map_contour_enabled = enabled;
-    services_.saveConfig();
+    auto edit = services_.beginConfigEdit();
+    if (!edit)
+    {
+        return;
+    }
+    edit.config().map_contour_enabled = enabled;
+    edit.commit(::app::AppConfigChangeSet::map());
 }
 
 void UConsoleMapWorkspaceModel::setContourUltraFineEnabled(bool enabled)

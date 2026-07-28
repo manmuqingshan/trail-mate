@@ -120,6 +120,15 @@ class ChatService
                                                       size_t limit,
                                                       size_t* total) const;
     std::vector<ConversationMeta> getConversations(size_t offset, size_t limit, size_t* total) const;
+
+    /**
+     * Report whether the store-backed conversation projection is available.
+     *
+     * This is intentionally a domain-level readiness signal. The service
+     * does not expose how the store obtains or protects its data.
+     */
+    bool isDataReady() const { return store_.isReady(); }
+
     int getTotalUnread() const;
 
     /**

@@ -1755,6 +1755,7 @@ bool LinuxAppServices::initialize()
 
     loadPersistedConfig();
     seedDefaultIdentity();
+    config_persistence_runtime_.initialize(config_);
     (void)::sys::EventBus::init();
     ensureServicesReady();
     syncLocalIdentity();
@@ -1795,7 +1796,15 @@ bool LinuxAppServices::dispatchUiEvent(::sys::Event* event)
 
 void LinuxAppServices::tick(std::size_t max_events)
 {
-    if (!initialized_) return;
+    if (!initialized_)
+    {
+        return;
+    }
+    flushConfigPersistence(::sys::millis_now());
+    if (::platform::ui::reticulum_groups::hasPending())
+    {
+        (void)::platform::ui::reticulum_groups::flushPending();
+    }
     updateCoreServices();
     tickEventRuntime();
     dispatchPendingEvents(max_events);
@@ -1821,23 +1830,69 @@ const ::app::AppConfig& LinuxAppServices::getConfig() const
     return config_;
 }
 
+::app::AppConfigEdit LinuxAppServices::beginConfigEdit()
+{
+    return ::app::AppConfigEdit(&config_,
+                                this,
+                                &LinuxAppServices::commitConfigEdit,
+                                &LinuxAppServices::cancelConfigEdit);
+}
+
 void LinuxAppServices::saveConfig()
 {
-    ::app::AppConfig persisted = config_;
-    persisted.mesh_protocol = ::chat::infra::normalizeMeshProtocol(persisted.mesh_protocol);
-    const PersistedConfigBlob blob{.magic = kConfigBlobMagic,
-                                   .version = kConfigBlobVersion,
-                                   .config = persisted};
-    (void)::platform::ui::settings_store::put_blob(
-        kConfigNamespace, kConfigBlobKey, &blob, sizeof(blob));
+    saveConfig(::app::AppConfigChangeSet::allPersisted());
 }
 
 void LinuxAppServices::saveConfig(::app::AppConfigChangeSet changes)
 {
     // The Linux blob backend has no section-level writer yet. Keep the
     // scoped request explicit while preserving the complete blob contract.
-    (void)changes;
-    saveConfig();
+    config_.mesh_protocol =
+        ::chat::infra::normalizeMeshProtocol(config_.mesh_protocol);
+    const uint32_t now_ms = ::sys::millis_now();
+    const auto submission = config_persistence_runtime_.submit(
+        config_, changes, now_ms, ::app::ConfigPersistenceUrgency::Debounced);
+    (void)submission;
+}
+
+void LinuxAppServices::flushConfigPersistence(uint32_t now_ms)
+{
+    ::app::ConfigPersistenceWork work{};
+    if (!config_persistence_runtime_.takeDue(now_ms, work) ||
+        work.snapshot == nullptr)
+    {
+        return;
+    }
+
+    const bool ok = writePersistedConfig(*work.snapshot);
+    config_persistence_runtime_.complete(
+        work.generation,
+        ok ? ::app::ConfigPersistenceResultKind::Completed
+           : ::app::ConfigPersistenceResultKind::IoError,
+        ::sys::millis_now());
+}
+
+bool LinuxAppServices::writePersistedConfig(const ::app::AppConfig& config)
+{
+    const PersistedConfigBlob blob{.magic = kConfigBlobMagic,
+                                   .version = kConfigBlobVersion,
+                                   .config = config};
+    return ::platform::ui::settings_store::put_blob(
+        kConfigNamespace, kConfigBlobKey, &blob, sizeof(blob));
+}
+
+void LinuxAppServices::commitConfigEdit(void* context,
+                                        ::app::AppConfigChangeSet changes)
+{
+    auto* self = static_cast<LinuxAppServices*>(context);
+    if (self != nullptr)
+    {
+        self->saveConfig(changes);
+    }
+}
+
+void LinuxAppServices::cancelConfigEdit(void*)
+{
 }
 
 void LinuxAppServices::applyMeshConfig()

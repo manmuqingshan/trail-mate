@@ -14,6 +14,7 @@ struct Status
     bool file_present = false;
     bool loaded = false;
     bool saved = false;
+    bool queued = false;
     char message[96] = {};
     char detail[128] = {};
 };
@@ -21,6 +22,10 @@ struct Status
 const char* config_path();
 void clear(chat::ReticulumGroupDestinationConfig* groups, std::size_t group_count);
 Status load(chat::ReticulumGroupDestinationConfig* groups, std::size_t group_count);
+Status submit(const chat::ReticulumGroupDestinationConfig* groups,
+              std::size_t group_count);
+Status flushPending();
+bool hasPending();
 Status save(const chat::ReticulumGroupDestinationConfig* groups, std::size_t group_count);
 
 } // namespace platform::ui::reticulum_groups

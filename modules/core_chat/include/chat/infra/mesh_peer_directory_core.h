@@ -30,6 +30,13 @@ class MeshPeerDirectoryCore final : public IMeshPeerDirectory
     void setAutoSaveEnabled(bool enabled);
 
     MeshPeerDirectoryStatus begin() override;
+    MeshPeerDirectoryStatus beginEmpty();
+    MeshPeerDirectoryBlobLoadResult loadPersistenceBlob(
+        std::vector<uint8_t>& out) const;
+    MeshPeerDirectoryBlobLoadResult streamPersistenceBlob(
+        IMeshPeerDirectoryBlobSink& sink) const;
+    MeshPeerDirectoryStatus hydratePersistenceBlob(const uint8_t* data,
+                                                   std::size_t len);
     MeshPeerDirectoryStatus record(const MeshPeerRecord& record) override;
     MeshPeerDirectoryStatus find(const MeshPeerIdentity& identity,
                                  MeshPeerRecord& out_record) override;
@@ -63,6 +70,16 @@ class MeshPeerDirectoryCore final : public IMeshPeerDirectory
     MeshPeerDirectoryCapacity capacityFor(MeshProtocol protocol) const override;
     MeshPeerDirectoryStatus flush() override;
 
+    bool persistencePending() const;
+    uint32_t persistenceRevision() const;
+    std::size_t persistenceSnapshotSize() const;
+    bool encodePersistenceSnapshot(uint8_t* out,
+                                   std::size_t out_len,
+                                   uint32_t* out_revision) const;
+    bool persistEncodedSnapshot(const uint8_t* data,
+                                std::size_t len,
+                                uint32_t revision);
+
     std::size_t count(MeshProtocol protocol) const;
     void clear();
 
@@ -77,6 +94,7 @@ class MeshPeerDirectoryCore final : public IMeshPeerDirectory
     std::size_t findIndex(const MeshPeerIdentity& identity) const;
     std::size_t countForProtocol(MeshProtocol protocol) const;
     void evictOldest(MeshProtocol protocol);
+    void markDirty();
     MeshPeerDirectoryStatus saveRecords();
     void maybeSave();
 
@@ -85,6 +103,7 @@ class MeshPeerDirectoryCore final : public IMeshPeerDirectory
     std::vector<MeshPeerRecord> records_;
     bool begun_ = false;
     bool dirty_ = false;
+    uint32_t persistence_revision_ = 0;
 };
 
 } // namespace chat

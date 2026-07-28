@@ -6102,15 +6102,6 @@ void Runtime::executeDiscoverPageItem(size_t index)
     showTransientPopup("DISCOVER", meshOperationFailureLabel(result.failure));
 }
 
-void Runtime::commitConfig()
-{
-    if (!app())
-    {
-        return;
-    }
-    app()->saveConfig();
-}
-
 void Runtime::ensureBootExit()
 {
     if (page_ == Page::BootLog && (nowMs() - boot_started_ms_) >= kBootMinMs)
@@ -6215,12 +6206,20 @@ void Runtime::confirmSettingPopup()
         }
     }
 
-    auto& cfg = app()->getConfig();
     sanitizeMeshtasticChannelNum(setting_popup_config_);
-    cfg = setting_popup_config_;
 #if !TRAILMATE_NRF52_BLE_DISABLED
-    cfg.ble_enabled = setting_popup_ble_enabled_;
+    const bool ble_changed = app()->isBleEnabled() != setting_popup_ble_enabled_;
 #endif
+    auto edit = app()->beginConfigEdit();
+    if (!edit)
+    {
+        return;
+    }
+    edit.config() = setting_popup_config_;
+#if !TRAILMATE_NRF52_BLE_DISABLED
+    edit.config().ble_enabled = setting_popup_ble_enabled_;
+#endif
+    edit.commit(app::AppConfigChangeSet::allPersisted());
     if (host_.set_timezone_offset_min_fn)
     {
         host_.set_timezone_offset_min_fn(setting_popup_timezone_min_);
@@ -6252,9 +6251,11 @@ void Runtime::confirmSettingPopup()
     }
     platform::ui::screen::set_timeout_ms(setting_popup_screen_timeout_ms_);
 #if !TRAILMATE_NRF52_BLE_DISABLED
-    app()->setBleEnabled(setting_popup_ble_enabled_);
+    if (ble_changed)
+    {
+        app()->setBleEnabled(setting_popup_ble_enabled_);
+    }
 #endif
-    app()->saveConfig();
     if (setting_popup_owner_ == Page::RadioSettings)
     {
         app()->applyMeshConfig();
@@ -7325,7 +7326,13 @@ bool Runtime::saveEditedTextToConfig()
         return false;
     }
 
-    auto& cfg = app()->getConfig();
+    auto edit = app()->beginConfigEdit();
+    if (!edit)
+    {
+        return false;
+    }
+
+    auto& cfg = edit.config();
     bool mesh_config_changed = false;
     switch (edit_target_)
     {
@@ -7360,7 +7367,8 @@ bool Runtime::saveEditedTextToConfig()
     default:
         break;
     }
-    commitConfig();
+    edit.commit(mesh_config_changed ? app::AppConfigChangeSet::mesh()
+                                    : app::AppConfigChangeSet::none());
     if (mesh_config_changed)
     {
         app()->applyMeshConfig();

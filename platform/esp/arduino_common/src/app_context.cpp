@@ -7,7 +7,6 @@
 
 #include <Arduino.h>
 
-#include "app/app_config_save_plan.h"
 #include "ble/ble_manager.h"
 #include "board/BoardBase.h"
 #include "board/GpsBoard.h"
@@ -34,11 +33,7 @@ namespace app
 {
 namespace
 {
-constexpr uint32_t kConfigSaveTaskStackBytes = 4 * 1024;
-constexpr UBaseType_t kConfigSaveTaskPriority = 1;
 constexpr TickType_t kConfigSaveMutexWait = pdMS_TO_TICKS(20);
-constexpr TickType_t kConfigSaveDebounceTicks = pdMS_TO_TICKS(250);
-constexpr TickType_t kConfigSaveRetryDelayTicks = pdMS_TO_TICKS(1000);
 
 void normalize_reticulum_interface_strategy(AppConfig& config)
 {
@@ -296,9 +291,9 @@ void AppContext::requestSaveConfig(AppConfigChangeSet changes)
 
 AppConfigEdit AppContext::beginConfigEdit()
 {
-    ensureConfigSaveWorker();
-    if (config_save_mutex_ == nullptr ||
-        xSemaphoreTake(config_save_mutex_, kConfigSaveMutexWait) != pdTRUE)
+    ensureConfigPersistenceLock();
+    if (config_state_mutex_ == nullptr ||
+        xSemaphoreTake(config_state_mutex_, kConfigSaveMutexWait) != pdTRUE)
     {
         Serial.println("[AppCfg][EDIT] unavailable");
         return AppConfigEdit();
@@ -310,32 +305,11 @@ AppConfigEdit AppContext::beginConfigEdit()
                          &AppContext::cancelConfigEdit);
 }
 
-void AppContext::ensureConfigSaveWorker()
+void AppContext::ensureConfigPersistenceLock()
 {
-    if (config_save_mutex_ == nullptr)
+    if (config_state_mutex_ == nullptr)
     {
-        config_save_mutex_ = xSemaphoreCreateMutex();
-    }
-    if (config_save_queue_ == nullptr)
-    {
-        config_save_queue_ = xQueueCreate(1, sizeof(uint8_t));
-    }
-    if (config_save_task_ == nullptr &&
-        config_save_mutex_ != nullptr &&
-        config_save_queue_ != nullptr)
-    {
-        BaseType_t ok = xTaskCreate(configSaveTaskEntry,
-                                    "app_cfg_io",
-                                    kConfigSaveTaskStackBytes,
-                                    this,
-                                    kConfigSaveTaskPriority,
-                                    &config_save_task_);
-        if (ok != pdPASS)
-        {
-            Serial.printf("[AppCfg][SAVE_ASYNC] task_create_failed rc=%ld\n",
-                          static_cast<long>(ok));
-            config_save_task_ = nullptr;
-        }
+        config_state_mutex_ = xSemaphoreCreateMutex();
     }
 }
 
@@ -343,18 +317,16 @@ void AppContext::enqueueConfigSave(AppConfigChangeSet requested_changes)
 {
     if (platform_bindings_.save_app_config)
     {
-        ensureConfigSaveWorker();
-        if (config_save_mutex_ == nullptr ||
-            config_save_queue_ == nullptr ||
-            config_save_task_ == nullptr)
+        ensureConfigPersistenceLock();
+        if (config_state_mutex_ == nullptr)
         {
-            Serial.println("[AppCfg][SAVE_ASYNC] unavailable");
+            Serial.println("[AppCfg][SAVE_OWNER] unavailable");
             return;
         }
 
-        if (xSemaphoreTake(config_save_mutex_, kConfigSaveMutexWait) != pdTRUE)
+        if (xSemaphoreTake(config_state_mutex_, kConfigSaveMutexWait) != pdTRUE)
         {
-            Serial.println("[AppCfg][SAVE_ASYNC] enqueue_busy");
+            Serial.println("[AppCfg][SAVE_OWNER] submit_busy");
             return;
         }
 
@@ -364,23 +336,15 @@ void AppContext::enqueueConfigSave(AppConfigChangeSet requested_changes)
                                                            requested_changes,
                                                            &generation,
                                                            &queued_changes);
-        xSemaphoreGive(config_save_mutex_);
+        xSemaphoreGive(config_state_mutex_);
 
         if (!should_signal)
         {
-            Serial.println("[AppCfg][SAVE_ASYNC] noop");
+            Serial.println("[AppCfg][SAVE_OWNER] noop");
             return;
         }
 
-        const uint8_t signal = 1;
-        if (xQueueOverwrite(config_save_queue_, &signal) != pdTRUE)
-        {
-            Serial.printf("[AppCfg][SAVE_ASYNC] signal_failed gen=%lu\n",
-                          static_cast<unsigned long>(generation));
-            return;
-        }
-
-        Serial.printf("[AppCfg][SAVE_ASYNC] queued gen=%lu changes=0x%08lx\n",
+        Serial.printf("[AppCfg][SAVE_OWNER] submitted gen=%lu changes=0x%08lx\n",
                       static_cast<unsigned long>(generation),
                       static_cast<unsigned long>(queued_changes.bits()));
     }
@@ -391,33 +355,22 @@ bool AppContext::enqueueConfigSaveLocked(const AppConfig& desired_config,
                                          uint32_t* out_generation,
                                          AppConfigChangeSet* out_changes)
 {
-    const AppConfigSavePlan plan =
-        planAppConfigSave(active_config_save_,
-                          config_save_baseline_valid_,
-                          desired_config,
-                          config_save_busy_,
-                          active_config_save_,
-                          active_config_changes_,
-                          requested_changes);
-
-    pending_config_save_ = desired_config;
-    pending_config_changes_ = plan.changes;
-    config_save_pending_ = plan.queue;
-    config_save_failed_ = false;
-    if (!plan.queue)
+    const ConfigPersistenceSubmission submission =
+        config_persistence_runtime_.submit(desired_config,
+                                           requested_changes,
+                                           millis());
+    if (!submission.queued)
     {
-        pending_config_changes_ = AppConfigChangeSet::none();
         return false;
     }
 
-    ++pending_config_save_generation_;
     if (out_generation)
     {
-        *out_generation = pending_config_save_generation_;
+        *out_generation = submission.generation;
     }
     if (out_changes)
     {
-        *out_changes = pending_config_changes_;
+        *out_changes = submission.changes;
     }
     return true;
 }
@@ -430,7 +383,7 @@ void AppContext::finishConfigEdit(AppConfigChangeSet changes)
                                                        changes,
                                                        &generation,
                                                        &queued_changes);
-    xSemaphoreGive(config_save_mutex_);
+    xSemaphoreGive(config_state_mutex_);
 
     if (!should_signal)
     {
@@ -438,16 +391,7 @@ void AppContext::finishConfigEdit(AppConfigChangeSet changes)
         return;
     }
 
-    const uint8_t signal = 1;
-    if (config_save_queue_ == nullptr ||
-        xQueueOverwrite(config_save_queue_, &signal) != pdTRUE)
-    {
-        Serial.printf("[AppCfg][EDIT] signal_failed gen=%lu\n",
-                      static_cast<unsigned long>(generation));
-        return;
-    }
-
-    Serial.printf("[AppCfg][EDIT] queued gen=%lu changes=0x%08lx\n",
+    Serial.printf("[AppCfg][EDIT] submitted gen=%lu changes=0x%08lx\n",
                   static_cast<unsigned long>(generation),
                   static_cast<unsigned long>(queued_changes.bits()));
 }
@@ -464,116 +408,49 @@ void AppContext::commitConfigEdit(void* context, AppConfigChangeSet changes)
 void AppContext::cancelConfigEdit(void* context)
 {
     auto* self = static_cast<AppContext*>(context);
-    if (self && self->config_save_mutex_)
+    if (self && self->config_state_mutex_)
     {
-        xSemaphoreGive(self->config_save_mutex_);
+        xSemaphoreGive(self->config_state_mutex_);
     }
 }
 
-void AppContext::configSaveLoop()
+void AppContext::flushConfigPersistence(uint32_t now_ms)
 {
-    uint8_t signal = 0;
-    for (;;)
+    if (!platform_bindings_.save_app_config || config_state_mutex_ == nullptr)
     {
-        if (xQueueReceive(config_save_queue_, &signal, portMAX_DELAY) != pdTRUE)
-        {
-            continue;
-        }
-
-        vTaskDelay(kConfigSaveDebounceTicks);
-        for (;;)
-        {
-            uint32_t generation = 0;
-
-            if (xSemaphoreTake(config_save_mutex_, portMAX_DELAY) != pdTRUE)
-            {
-                break;
-            }
-            if (!config_save_pending_)
-            {
-                config_save_busy_ = false;
-                xSemaphoreGive(config_save_mutex_);
-                break;
-            }
-            active_config_save_ = pending_config_save_;
-            active_config_changes_ = pending_config_changes_;
-            pending_config_changes_ = AppConfigChangeSet::none();
-            generation = pending_config_save_generation_;
-            config_save_pending_ = false;
-            config_save_busy_ = true;
-            xSemaphoreGive(config_save_mutex_);
-
-            Serial.printf("[AppCfg][SAVE_ASYNC] flush begin gen=%lu changes=0x%08lx\n",
-                          static_cast<unsigned long>(generation),
-                          static_cast<unsigned long>(active_config_changes_.bits()));
-            const bool ok = platform_bindings_.save_app_config
-                                ? platform_bindings_.save_app_config(active_config_save_,
-                                                                     active_config_changes_)
-                                : false;
-
-            bool has_more = false;
-            if (xSemaphoreTake(config_save_mutex_, portMAX_DELAY) == pdTRUE)
-            {
-                config_save_busy_ = false;
-                config_save_failed_ = !ok;
-                if (ok)
-                {
-                    completed_config_save_generation_ = generation;
-                    config_save_baseline_valid_ = true;
-                    if (config_save_pending_)
-                    {
-                        pending_config_changes_ =
-                            detectAppConfigChanges(active_config_save_, pending_config_save_);
-                        if (pending_config_changes_.empty())
-                        {
-                            config_save_pending_ = false;
-                        }
-                    }
-                }
-                else if (!config_save_pending_)
-                {
-                    pending_config_save_ = active_config_save_;
-                    pending_config_changes_ = AppConfigChangeSet::allPersisted();
-                    config_save_pending_ = true;
-                }
-                else
-                {
-                    pending_config_changes_ =
-                        pending_config_changes_.merged(AppConfigChangeSet::allPersisted());
-                }
-                if (!ok)
-                {
-                    config_save_baseline_valid_ = false;
-                }
-                has_more = config_save_pending_;
-                xSemaphoreGive(config_save_mutex_);
-            }
-
-            Serial.printf("[AppCfg][SAVE_ASYNC] flush done gen=%lu ok=%u more=%u\n",
-                          static_cast<unsigned long>(generation),
-                          ok ? 1U : 0U,
-                          has_more ? 1U : 0U);
-            if (!ok)
-            {
-                vTaskDelay(kConfigSaveRetryDelayTicks);
-            }
-            if (!has_more)
-            {
-                break;
-            }
-            vTaskDelay(kConfigSaveDebounceTicks);
-        }
+        return;
     }
-}
 
-void AppContext::configSaveTaskEntry(void* context)
-{
-    auto* self = static_cast<AppContext*>(context);
-    if (self)
+    ConfigPersistenceWork work{};
+    if (xSemaphoreTake(config_state_mutex_, 0) != pdTRUE)
     {
-        self->configSaveLoop();
+        return;
     }
-    vTaskDelete(nullptr);
+    const bool has_work = config_persistence_runtime_.takeDue(now_ms, work);
+    xSemaphoreGive(config_state_mutex_);
+    if (!has_work || !work.snapshot)
+    {
+        return;
+    }
+
+    Serial.printf("[AppCfg][SAVE_OWNER] flush begin gen=%lu changes=0x%08lx\n",
+                  static_cast<unsigned long>(work.generation),
+                  static_cast<unsigned long>(work.changes.bits()));
+    const bool ok = platform_bindings_.save_app_config(*work.snapshot,
+                                                       work.changes);
+
+    if (xSemaphoreTake(config_state_mutex_, kConfigSaveMutexWait) == pdTRUE)
+    {
+        config_persistence_runtime_.complete(
+            work.generation,
+            ok ? ConfigPersistenceResultKind::Completed
+               : ConfigPersistenceResultKind::IoError,
+            millis());
+        xSemaphoreGive(config_state_mutex_);
+    }
+    Serial.printf("[AppCfg][SAVE_OWNER] flush done gen=%lu ok=%u\n",
+                  static_cast<unsigned long>(work.generation),
+                  ok ? 1U : 0U);
 }
 
 void AppContext::applyMeshConfig()
@@ -669,8 +546,7 @@ bool AppContext::init(BoardBase& board, LoraBoard* lora_board, GpsBoard* gps_boa
         ::ui::boot::set_log_line("Loading app config...");
         platform_bindings_.load_app_config(config_);
     }
-    active_config_save_ = config_;
-    config_save_baseline_valid_ = true;
+    config_persistence_runtime_.initialize(config_);
     const uint32_t after_config_ms = millis();
     Serial.printf("[AppContext] phase=load_config elapsed_ms=%lu total_ms=%lu\n",
                   static_cast<unsigned long>(after_config_ms - init_started_ms),
@@ -839,11 +715,16 @@ void AppContext::getEffectiveUserInfo(char* out_long, size_t long_len,
 
 void AppContext::updateCoreServices()
 {
+    flushConfigPersistence(millis());
+    if (::platform::ui::reticulum_groups::hasPending())
+    {
+        (void)::platform::ui::reticulum_groups::flushPending();
+    }
     if (event_runtime_hooks_.update_core_services)
     {
         event_runtime_hooks_.update_core_services(*this);
     }
-    if (mesh_peer_directory_ &&
+    if (mesh_peer_directory_ && !deferred_storage_started_ &&
         !::platform::ui::reticulum_call::resource_preempt_active())
     {
         (void)mesh_peer_directory_->flush();

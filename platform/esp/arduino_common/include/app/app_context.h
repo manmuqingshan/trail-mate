@@ -9,11 +9,10 @@
 #include "app/app_context_platform_bindings.h"
 #include "app/app_event_runtime.h"
 #include "app/app_facades.h"
+#include "app/config_persistence_runtime.h"
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
 #include "freertos/semphr.h"
-#include "freertos/task.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -246,17 +245,16 @@ class AppContext final : public IAppBleFacade
     void initChatRuntime(bool use_mock_adapter);
     void initTeamServices();
     void initContactServices();
-    void ensureConfigSaveWorker();
+    void ensureConfigPersistenceLock();
     void enqueueConfigSave(AppConfigChangeSet requested_changes);
     bool enqueueConfigSaveLocked(const AppConfig& desired_config,
                                  AppConfigChangeSet requested_changes,
                                  uint32_t* out_generation,
                                  AppConfigChangeSet* out_changes);
     void finishConfigEdit(AppConfigChangeSet changes);
+    void flushConfigPersistence(uint32_t now_ms);
     static void commitConfigEdit(void* context, AppConfigChangeSet changes);
     static void cancelConfigEdit(void* context);
-    void configSaveLoop();
-    static void configSaveTaskEntry(void* context);
 
     std::unique_ptr<chat::ChatModel> chat_model_;
 
@@ -285,19 +283,8 @@ class AppContext final : public IAppBleFacade
 
     AppConfig config_;
     AppContextPlatformBindings platform_bindings_{};
-    SemaphoreHandle_t config_save_mutex_ = nullptr;
-    QueueHandle_t config_save_queue_ = nullptr;
-    TaskHandle_t config_save_task_ = nullptr;
-    AppConfig pending_config_save_{};
-    AppConfig active_config_save_{};
-    AppConfigChangeSet pending_config_changes_{};
-    AppConfigChangeSet active_config_changes_{};
-    uint32_t pending_config_save_generation_ = 0;
-    uint32_t completed_config_save_generation_ = 0;
-    bool config_save_pending_ = false;
-    bool config_save_busy_ = false;
-    bool config_save_failed_ = false;
-    bool config_save_baseline_valid_ = false;
+    SemaphoreHandle_t config_state_mutex_ = nullptr;
+    ConfigPersistenceRuntime config_persistence_runtime_{};
     bool deferred_storage_started_ = false;
     app::ChatServicesBundle::DeferredStorageStarter deferred_storage_starter_ =
         nullptr;

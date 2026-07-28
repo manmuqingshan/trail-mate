@@ -1,5 +1,4 @@
 #include "app/app_config_change_detection.h"
-#include "app/app_config_save_plan.h"
 
 #include <cassert>
 #include <cstring>
@@ -62,51 +61,6 @@ int main()
     assert(merged.containsAll(app::AppConfigChangeSet::map()));
     assert(merged.containsAll(app::AppConfigChangeSet::gps()));
     assert(!merged.containsAll(app::AppConfigChangeSet::mesh()));
-
-    app::AppConfigSavePlan unchanged_plan =
-        app::planAppConfigSave(baseline,
-                               true,
-                               baseline,
-                               false,
-                               baseline,
-                               app::AppConfigChangeSet::none(),
-                               app::AppConfigChangeSet::none());
-    assert(!unchanged_plan.queue);
-    assert(unchanged_plan.changes.empty());
-
-    app::AppConfigSavePlan busy_follow_up_plan =
-        app::planAppConfigSave(protocol_changed,
-                               true,
-                               baseline,
-                               true,
-                               protocol_changed,
-                               app::AppConfigChangeSet::mesh(),
-                               app::AppConfigChangeSet::none());
-    assert(busy_follow_up_plan.queue);
-    assert(busy_follow_up_plan.changes.contains(app::AppConfigChangeDomain::Mesh));
-
-    app::AppConfigSavePlan changed_while_busy_plan =
-        app::planAppConfigSave(protocol_changed,
-                               true,
-                               map_changed,
-                               true,
-                               protocol_changed,
-                               app::AppConfigChangeSet::mesh(),
-                               app::AppConfigChangeSet::none());
-    assert(changed_while_busy_plan.queue);
-    assert(changed_while_busy_plan.changes.contains(app::AppConfigChangeDomain::Map));
-
-    app::AppConfigSavePlan invalid_baseline_plan =
-        app::planAppConfigSave(baseline,
-                               false,
-                               baseline,
-                               false,
-                               baseline,
-                               app::AppConfigChangeSet::none(),
-                               app::AppConfigChangeSet::none());
-    assert(invalid_baseline_plan.queue);
-    assert(invalid_baseline_plan.changes.containsAll(
-        app::AppConfigChangeSet::allPersisted()));
 
     return 0;
 }

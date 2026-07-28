@@ -1,7 +1,6 @@
 #pragma once
 
 #include "sys/feedback_runtime.h"
-#include "sys/persistence_runtime.h"
 #include "sys/runtime_async.h"
 #include "sys/shared_spi_access.h"
 
@@ -59,23 +58,12 @@ class FakeCommandQueue : public ICommandQueue
 };
 
 class FakeEventBus : public IEventSink,
-                     public IPersistenceEventSink,
                      public IFeedbackEventSink
 {
   public:
     bool publish(const RuntimeEvent& event) override
     {
         return runtime_events_.publish(event);
-    }
-
-    bool publish(const PersistenceEvent& event) override
-    {
-        if (persistence_count_ >= kMaxEvents)
-        {
-            return false;
-        }
-        persistence_events_[persistence_count_++] = event;
-        return true;
     }
 
     bool publish(const FeedbackEvent& event) override
@@ -96,26 +84,14 @@ class FakeEventBus : public IEventSink,
         {
             ++count;
         }
-        count += persistence_count_;
         count += feedback_count_;
-        persistence_count_ = 0;
         feedback_count_ = 0;
         return count;
-    }
-
-    std::size_t persistenceCount() const
-    {
-        return persistence_count_;
     }
 
     std::size_t feedbackCount() const
     {
         return feedback_count_;
-    }
-
-    const PersistenceEvent& persistenceEvent(std::size_t index) const
-    {
-        return persistence_events_[index];
     }
 
     const FeedbackEvent& feedbackEvent(std::size_t index) const
@@ -127,125 +103,8 @@ class FakeEventBus : public IEventSink,
     static constexpr std::size_t kMaxEvents = 32;
 
     FixedEventSink<32> runtime_events_{};
-    PersistenceEvent persistence_events_[kMaxEvents]{};
     FeedbackEvent feedback_events_[kMaxEvents]{};
-    std::size_t persistence_count_ = 0;
     std::size_t feedback_count_ = 0;
-};
-
-class FakeStorageBackend : public IPlatformStorageAdapter,
-                           public IStoreSnapshotProvider,
-                           public IStoreStorageAdapter
-{
-  public:
-    void scriptDelay(const char* operation, uint32_t ms)
-    {
-        (void)operation;
-        delay_ms_ = ms;
-    }
-
-    void scriptFailure(const char* operation, int32_t error)
-    {
-        (void)operation;
-        fail_ = true;
-        error_ = error;
-    }
-
-    PlatformStorageResult read(const PlatformStorageReadRequest& request) override
-    {
-        last_command_id_ = request.command_id;
-        return platformResult(request.capacity);
-    }
-
-    PlatformStorageResult write(const PlatformStorageWriteRequest& request) override
-    {
-        last_command_id_ = request.command_id;
-        return platformResult(request.len);
-    }
-
-    PlatformStorageResult list(const PlatformStorageListRequest& request) override
-    {
-        last_command_id_ = request.command_id;
-        return platformResult(0);
-    }
-
-    PlatformStorageResult flush(const PlatformStorageFlushRequest& request) override
-    {
-        last_command_id_ = request.command_id;
-        return platformResult(0);
-    }
-
-    StoreSnapshot snapshot(const char* store_key) override
-    {
-        (void)store_key;
-        StoreSnapshot snapshot{};
-        snapshot.data = snapshot_;
-        snapshot.len = snapshot_len_;
-        snapshot.valid = !fail_;
-        return snapshot;
-    }
-
-    StoreStorageResult write(const char* store_key,
-                             const uint8_t* bytes,
-                             std::size_t len) override
-    {
-        (void)store_key;
-        (void)bytes;
-        StoreStorageResult result{};
-        result.ok = !fail_;
-        result.bytes = result.ok ? len : 0;
-        result.error = result.ok ? 0 : error_;
-        ++write_count_;
-        return result;
-    }
-
-    StoreStorageResult read(const char* store_key,
-                            uint8_t* bytes,
-                            std::size_t capacity,
-                            std::size_t& out_len) override
-    {
-        (void)store_key;
-        (void)bytes;
-        out_len = fail_ ? 0 : capacity;
-        StoreStorageResult result{};
-        result.ok = !fail_;
-        result.bytes = out_len;
-        result.error = result.ok ? 0 : error_;
-        return result;
-    }
-
-    uint32_t delayMs() const
-    {
-        return delay_ms_;
-    }
-
-    uint32_t lastCommandId() const
-    {
-        return last_command_id_;
-    }
-
-    std::size_t writeCount() const
-    {
-        return write_count_;
-    }
-
-  private:
-    PlatformStorageResult platformResult(std::size_t bytes)
-    {
-        PlatformStorageResult result{};
-        result.ok = !fail_;
-        result.bytes = result.ok ? bytes : 0;
-        result.error = result.ok ? 0 : error_;
-        return result;
-    }
-
-    uint8_t snapshot_[4] = {1, 2, 3, 4};
-    std::size_t snapshot_len_ = sizeof(snapshot_);
-    uint32_t delay_ms_ = 0;
-    uint32_t last_command_id_ = 0;
-    std::size_t write_count_ = 0;
-    bool fail_ = false;
-    int32_t error_ = -1;
 };
 
 class FakeBusArbiter : public IBusArbiter
@@ -404,11 +263,6 @@ class RuntimeHarness
         return events_;
     }
 
-    FakeStorageBackend& storage()
-    {
-        return storage_;
-    }
-
     FakeBusArbiter& bus()
     {
         return bus_;
@@ -452,7 +306,6 @@ class RuntimeHarness
     FakeClock clock_{};
     FakeCommandQueue commands_{};
     FakeEventBus events_{};
-    FakeStorageBackend storage_{};
     FakeBusArbiter bus_{};
     FakeUiOwner ui_{};
     FakeFeedbackPresenter feedback_{};

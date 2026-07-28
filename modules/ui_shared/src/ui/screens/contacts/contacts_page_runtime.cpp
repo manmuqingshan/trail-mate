@@ -50,6 +50,54 @@ constexpr std::size_t kReticulumDirectoryProjectionLimit = 100;
 
 const Host* s_host = nullptr;
 
+void destroy_contacts_page_runtime()
+{
+    if (g_contacts_state.compose_screen)
+    {
+        if (g_contacts_state.compose_ime)
+        {
+            g_contacts_state.compose_ime->detach();
+            delete g_contacts_state.compose_ime;
+            g_contacts_state.compose_ime = nullptr;
+        }
+        delete g_contacts_state.compose_screen;
+        g_contacts_state.compose_screen = nullptr;
+    }
+    if (g_contacts_state.conversation_screen)
+    {
+        delete g_contacts_state.conversation_screen;
+        g_contacts_state.conversation_screen = nullptr;
+    }
+    if (g_contacts_state.conversation_timer != nullptr)
+    {
+        lv_timer_del(g_contacts_state.conversation_timer);
+        g_contacts_state.conversation_timer = nullptr;
+    }
+    if (g_contacts_state.discover_scan_timer != nullptr)
+    {
+        lv_timer_del(g_contacts_state.discover_scan_timer);
+        g_contacts_state.discover_scan_timer = nullptr;
+    }
+    if (g_contacts_state.refresh_timer != nullptr)
+    {
+        lv_timer_del(g_contacts_state.refresh_timer);
+        g_contacts_state.refresh_timer = nullptr;
+    }
+
+    cleanup_modals();
+    cleanup_contacts_input();
+
+    if (g_contacts_state.root != nullptr)
+    {
+        lv_obj_del(g_contacts_state.root);
+        g_contacts_state.root = nullptr;
+    }
+
+    // Clear every handle after the object tree is gone. Re-entering the page
+    // must never let refresh_ui() observe children from the previous tree.
+    g_contacts_state = ContactsPageState{};
+}
+
 static uint32_t hash_step(uint32_t hash, uint8_t byte)
 {
     return (hash ^ byte) * 16777619U;
@@ -263,28 +311,6 @@ void copy_text(char* out, size_t out_len, const char* text)
         return;
     }
     std::snprintf(out, out_len, "%s", text ? text : "");
-}
-
-bool same_reticulum_groups(const chat::ReticulumGroupDestinationConfig* lhs,
-                           const chat::ReticulumGroupDestinationConfig* rhs,
-                           std::size_t count)
-{
-    if (!lhs || !rhs)
-    {
-        return lhs == rhs;
-    }
-    for (std::size_t index = 0; index < count; ++index)
-    {
-        if (lhs[index].enabled != rhs[index].enabled ||
-            std::strncmp(lhs[index].name,
-                         rhs[index].name,
-                         sizeof(lhs[index].name)) != 0 ||
-            !chat::sameReticulumPeerIdentity(lhs[index].identity, rhs[index].identity))
-        {
-            return false;
-        }
-    }
-    return true;
 }
 
 void refresh_reticulum_group_storage_state(const platform::ui::reticulum_groups::Status& status)
@@ -520,28 +546,27 @@ void refresh_reticulum_groups_data()
         return;
     }
 
-    app::AppConfig& config = app::configFacade().getConfig();
-    chat::MeshConfig& reticulum_config = config.reticulumConfig();
-    chat::ReticulumGroupDestinationConfig previous[chat::kReticulumGroupDestinationMaxCount] = {};
-    std::memcpy(previous,
-                reticulum_config.reticulum_groups,
-                sizeof(previous));
-    const auto status = platform::ui::reticulum_groups::load(
-        reticulum_config.reticulum_groups,
-        chat::kReticulumGroupDestinationMaxCount);
-    refresh_reticulum_group_storage_state(status);
-    if (!same_reticulum_groups(previous,
-                               reticulum_config.reticulum_groups,
-                               chat::kReticulumGroupDestinationMaxCount))
+    auto groups = std::unique_ptr<chat::ReticulumGroupDestinationConfig[]>(
+        new (std::nothrow)
+            chat::ReticulumGroupDestinationConfig[chat::kReticulumGroupDestinationMaxCount]);
+    if (!groups)
     {
-        app::configFacade().applyMeshConfig();
+        g_contacts_state.reticulum_group_storage_loaded = false;
+        std::snprintf(g_contacts_state.reticulum_group_storage_message,
+                      sizeof(g_contacts_state.reticulum_group_storage_message),
+                      "%s",
+                      "Reticulum groups unavailable");
+        return;
     }
 
-    const chat::MeshConfig& mesh_config = config.activeMeshConfig();
+    const auto status = platform::ui::reticulum_groups::load(
+        groups.get(),
+        chat::kReticulumGroupDestinationMaxCount);
+    refresh_reticulum_group_storage_state(status);
+
     for (std::size_t index = 0; index < chat::kReticulumGroupDestinationMaxCount; ++index)
     {
-        const chat::ReticulumGroupDestinationConfig& group =
-            mesh_config.reticulum_groups[index];
+        const chat::ReticulumGroupDestinationConfig& group = groups[index];
         if (!group.enabled ||
             !chat::hasReticulumDestinationIdentity(group.identity))
         {
@@ -644,8 +669,7 @@ void enter(const shell::Host* host, lv_obj_t* parent)
 
     if (g_contacts_state.root != nullptr)
     {
-        lv_obj_del(g_contacts_state.root);
-        g_contacts_state.root = nullptr;
+        destroy_contacts_page_runtime();
     }
 
     g_contacts_state.exiting = false;
@@ -716,48 +740,7 @@ void exit(lv_obj_t* parent)
 
     CONTACTS_LOG("[Contacts] Exiting Contacts page\n");
 
-    if (g_contacts_state.compose_screen)
-    {
-        if (g_contacts_state.compose_ime)
-        {
-            g_contacts_state.compose_ime->detach();
-            delete g_contacts_state.compose_ime;
-            g_contacts_state.compose_ime = nullptr;
-        }
-        delete g_contacts_state.compose_screen;
-        g_contacts_state.compose_screen = nullptr;
-    }
-    if (g_contacts_state.conversation_screen)
-    {
-        delete g_contacts_state.conversation_screen;
-        g_contacts_state.conversation_screen = nullptr;
-    }
-    if (g_contacts_state.conversation_timer != nullptr)
-    {
-        lv_timer_del(g_contacts_state.conversation_timer);
-        g_contacts_state.conversation_timer = nullptr;
-    }
-    if (g_contacts_state.discover_scan_timer != nullptr)
-    {
-        lv_timer_del(g_contacts_state.discover_scan_timer);
-        g_contacts_state.discover_scan_timer = nullptr;
-    }
-    if (g_contacts_state.refresh_timer != nullptr)
-    {
-        lv_timer_del(g_contacts_state.refresh_timer);
-        g_contacts_state.refresh_timer = nullptr;
-    }
-
-    cleanup_modals();
-    cleanup_contacts_input();
-
-    if (g_contacts_state.root != nullptr)
-    {
-        lv_obj_del(g_contacts_state.root);
-        g_contacts_state.root = nullptr;
-    }
-
-    g_contacts_state = ContactsPageState{};
+    destroy_contacts_page_runtime();
     CONTACTS_LOG("[Contacts] Contacts page cleaned up\n");
     s_host = nullptr;
 }

@@ -5,7 +5,17 @@
 
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_rx_telemetry.h"
 
+#if defined(ARDUINO)
 #include <Arduino.h>
+#else
+#include <cstdio>
+#endif
+
+#if defined(ARDUINO)
+#define LXMF_RAW_RX_LOG(...) Serial.printf(__VA_ARGS__)
+#else
+#define LXMF_RAW_RX_LOG(...) std::printf(__VA_ARGS__)
+#endif
 
 namespace chat::lxmf::runtime
 {
@@ -40,9 +50,9 @@ bool RawRxTelemetry::shouldLogLoraDiscoveryDetail(uint32_t now_ms,
     }
     if (suppressed_lora_discovery_detail_logs_ != 0)
     {
-        Serial.printf("[LXMF][RawRX] detail_suppressed iface=lora public_discovery=1 phase=%s suppressed=%u\n",
-                      phase ? phase : "-",
-                      static_cast<unsigned>(suppressed_lora_discovery_detail_logs_));
+        LXMF_RAW_RX_LOG("[LXMF][RawRX] detail_suppressed iface=lora public_discovery=1 phase=%s suppressed=%u\n",
+                        phase ? phase : "-",
+                        static_cast<unsigned>(suppressed_lora_discovery_detail_logs_));
         suppressed_lora_discovery_detail_logs_ = 0;
     }
     last_lora_discovery_detail_log_ms_ = now_ms;
@@ -60,8 +70,8 @@ bool RawRxTelemetry::shouldLogLoraAnnounceIgnore(uint32_t now_ms,
     }
     if (suppressed_lora_announce_ignore_logs_ != 0)
     {
-        Serial.printf("[LXMF][AnnounceRX] ignored_suppressed iface=lora suppressed=%u\n",
-                      static_cast<unsigned>(suppressed_lora_announce_ignore_logs_));
+        LXMF_RAW_RX_LOG("[LXMF][AnnounceRX] ignored_suppressed iface=lora suppressed=%u\n",
+                        static_cast<unsigned>(suppressed_lora_announce_ignore_logs_));
         suppressed_lora_announce_ignore_logs_ = 0;
     }
     last_lora_announce_ignore_log_ms_ = now_ms;
@@ -125,14 +135,14 @@ void RawRxTelemetry::noteSummary(bool wifi_skipped,
         return;
     }
 
-    Serial.printf("[LXMF][RawRX] stats packets=%u wifi_skipped=%u duplicate=%u parse_failed=%u deferred=%u deferred_drop=%u throttled_discovery=%u\n",
-                  static_cast<unsigned>(packets_),
-                  static_cast<unsigned>(wifi_skipped_),
-                  static_cast<unsigned>(duplicates_),
-                  static_cast<unsigned>(parse_failed_),
-                  static_cast<unsigned>(deferred_),
-                  static_cast<unsigned>(deferred_dropped_),
-                  static_cast<unsigned>(throttled_discovery_));
+    LXMF_RAW_RX_LOG("[LXMF][RawRX] stats packets=%u wifi_skipped=%u duplicate=%u parse_failed=%u deferred=%u deferred_drop=%u throttled_discovery=%u\n",
+                    static_cast<unsigned>(packets_),
+                    static_cast<unsigned>(wifi_skipped_),
+                    static_cast<unsigned>(duplicates_),
+                    static_cast<unsigned>(parse_failed_),
+                    static_cast<unsigned>(deferred_),
+                    static_cast<unsigned>(deferred_dropped_),
+                    static_cast<unsigned>(throttled_discovery_));
     packets_ = 0;
     wifi_skipped_ = 0;
     duplicates_ = 0;

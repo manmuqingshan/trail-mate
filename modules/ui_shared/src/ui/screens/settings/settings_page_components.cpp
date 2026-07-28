@@ -1271,6 +1271,22 @@ static void apply_reticulum_bearer_policy(chat::MeshConfig& config,
     }
 }
 
+template <typename Mutator>
+static bool commit_app_config(app::IAppFacade& app_ctx,
+                              app::AppConfigChangeSet changes,
+                              Mutator mutator)
+{
+    auto edit = app_ctx.beginConfigEdit();
+    if (!edit)
+    {
+        return false;
+    }
+
+    mutator(edit.config());
+    edit.commit(changes);
+    return true;
+}
+
 static bool reticulum_wifi_settings_visible()
 {
     return reticulum_bearer_policy_from_value(g_settings.rt_bearer_policy) !=
@@ -1286,15 +1302,24 @@ static bool reticulum_lora_settings_visible()
 static void reset_mesh_settings()
 {
     app::IAppFacade& app_ctx = app::appFacade();
-    app_ctx.getConfig().meshtastic_config = chat::MeshConfig();
-    app_ctx.getConfig().meshtastic_config.region = app::AppConfig::kDefaultRegionCode;
-    app_ctx.getConfig().applyMeshtasticMqttFactoryDefaults();
-    app_ctx.getConfig().meshcore_config = chat::MeshConfig();
-    app_ctx.getConfig().applyMeshCoreFactoryDefaults();
-    app_ctx.getConfig().reticulumConfig() = chat::MeshConfig();
-    app_ctx.getConfig().applyReticulumFactoryDefaults();
-    app_ctx.getConfig().meshcore_config.resetMeshCoreChannels();
-    app_ctx.saveConfig();
+    if (!commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [](app::AppConfig& config)
+            {
+                config.meshtastic_config = chat::MeshConfig();
+                config.meshtastic_config.region =
+                    app::AppConfig::kDefaultRegionCode;
+                config.applyMeshtasticMqttFactoryDefaults();
+                config.meshcore_config = chat::MeshConfig();
+                config.applyMeshCoreFactoryDefaults();
+                config.reticulumConfig() = chat::MeshConfig();
+                config.applyReticulumFactoryDefaults();
+                config.meshcore_config.resetMeshCoreChannels();
+            }))
+    {
+        return;
+    }
     app_ctx.applyMeshConfig();
 
     g_settings.chat_protocol = static_cast<int>(app_ctx.getConfig().mesh_protocol);
@@ -2201,20 +2226,32 @@ static void on_text_save_clicked(lv_event_t* e)
         if (is_user_name)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            strncpy(app_ctx.getConfig().node_name, g_state.editing_item->text_value,
-                    sizeof(app_ctx.getConfig().node_name) - 1);
-            app_ctx.getConfig().node_name[sizeof(app_ctx.getConfig().node_name) - 1] = '\0';
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::identity(),
+                [&](app::AppConfig& config)
+                {
+                    strncpy(config.node_name,
+                            g_state.editing_item->text_value,
+                            sizeof(config.node_name) - 1);
+                    config.node_name[sizeof(config.node_name) - 1] = '\0';
+                });
             app_ctx.applyUserInfo();
             broadcast_nodeinfo = true;
         }
         if (is_short_name)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            strncpy(app_ctx.getConfig().short_name, g_state.editing_item->text_value,
-                    sizeof(app_ctx.getConfig().short_name) - 1);
-            app_ctx.getConfig().short_name[sizeof(app_ctx.getConfig().short_name) - 1] = '\0';
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::identity(),
+                [&](app::AppConfig& config)
+                {
+                    strncpy(config.short_name,
+                            g_state.editing_item->text_value,
+                            sizeof(config.short_name) - 1);
+                    config.short_name[sizeof(config.short_name) - 1] = '\0';
+                });
             app_ctx.applyUserInfo();
             broadcast_nodeinfo = true;
         }
@@ -2225,53 +2262,65 @@ static void on_text_save_clicked(lv_event_t* e)
         if (id == settings::ui::SettingId::MtPrimaryName)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            copy_bounded(app_ctx.getConfig().meshtastic_config.primary_channel_name,
-                         sizeof(app_ctx.getConfig().meshtastic_config.primary_channel_name),
-                         g_state.editing_item->text_value);
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::channels(),
+                [&](app::AppConfig& config)
+                {
+                    copy_bounded(config.meshtastic_config.primary_channel_name,
+                                 sizeof(config.meshtastic_config.primary_channel_name),
+                                 g_state.editing_item->text_value);
+                });
             app_ctx.applyMeshConfig();
         }
         if (id == settings::ui::SettingId::MtSecondaryName)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            copy_bounded(app_ctx.getConfig().meshtastic_config.secondary_channel_name,
-                         sizeof(app_ctx.getConfig().meshtastic_config.secondary_channel_name),
-                         g_state.editing_item->text_value);
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::channels(),
+                [&](app::AppConfig& config)
+                {
+                    copy_bounded(config.meshtastic_config.secondary_channel_name,
+                                 sizeof(config.meshtastic_config.secondary_channel_name),
+                                 g_state.editing_item->text_value);
+                });
             app_ctx.applyMeshConfig();
         }
         if (id == settings::ui::SettingId::MtPrimaryKey)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            chat::MeshConfig& mesh = app_ctx.getConfig().meshtastic_config;
-            if (!::settings::ui::channel::parse_meshtastic_key_text(
+            auto edit = app_ctx.beginConfigEdit();
+            if (!edit ||
+                !::settings::ui::channel::parse_meshtastic_key_text(
                     g_state.editing_item->text_value,
-                    mesh.primary_key,
-                    sizeof(mesh.primary_key),
-                    &mesh.primary_key_len))
+                    edit.config().meshtastic_config.primary_key,
+                    sizeof(edit.config().meshtastic_config.primary_key),
+                    &edit.config().meshtastic_config.primary_key_len))
             {
                 ::ui::feedback::show_notice(::ui::i18n::tr("PSK must be 32/64 hex or 16/32 chars"), 4000);
                 modal_close();
                 return;
             }
-            app_ctx.saveConfig();
+            edit.commit(app::AppConfigChangeSet::channels());
             app_ctx.applyMeshConfig();
         }
         if (id == settings::ui::SettingId::MtSecondaryKey)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            chat::MeshConfig& mesh = app_ctx.getConfig().meshtastic_config;
-            if (!::settings::ui::channel::parse_meshtastic_key_text(
+            auto edit = app_ctx.beginConfigEdit();
+            if (!edit ||
+                !::settings::ui::channel::parse_meshtastic_key_text(
                     g_state.editing_item->text_value,
-                    mesh.secondary_key,
-                    sizeof(mesh.secondary_key),
-                    &mesh.secondary_key_len))
+                    edit.config().meshtastic_config.secondary_key,
+                    sizeof(edit.config().meshtastic_config.secondary_key),
+                    &edit.config().meshtastic_config.secondary_key_len))
             {
                 ::ui::feedback::show_notice(::ui::i18n::tr("PSK must be 32/64 hex or 16/32 chars"), 4000);
                 modal_close();
                 return;
             }
-            app_ctx.saveConfig();
+            edit.commit(app::AppConfigChangeSet::channels());
             app_ctx.applyMeshConfig();
         }
         if (id == settings::ui::SettingId::ChatPsk)
@@ -2292,9 +2341,15 @@ static void on_text_save_clicked(lv_event_t* e)
                 modal_close();
                 return;
             }
-            if (app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::MeshCore)
+            auto edit = app_ctx.beginConfigEdit();
+            if (!edit)
             {
-                chat::MeshConfig& mesh = app_ctx.getConfig().meshcore_config;
+                modal_close();
+                return;
+            }
+            if (edit.config().mesh_protocol == chat::MeshProtocol::MeshCore)
+            {
+                chat::MeshConfig& mesh = edit.config().meshcore_config;
                 const uint8_t slot =
                     chat::normalizeMeshCoreChannelSlot(mesh.meshcore_channel_slot);
                 chat::MeshCoreChannelConfig& channel = mesh.meshCoreChannel(slot);
@@ -2308,7 +2363,7 @@ static void on_text_save_clicked(lv_event_t* e)
             }
             else
             {
-                auto& mesh = app_ctx.getConfig().meshtastic_config;
+                auto& mesh = edit.config().meshtastic_config;
                 memset(mesh.secondary_key, 0, sizeof(mesh.secondary_key));
                 memcpy(mesh.secondary_key, key, parsed_key_len);
                 mesh.secondary_key_len =
@@ -2316,7 +2371,7 @@ static void on_text_save_clicked(lv_event_t* e)
                                                            sizeof(mesh.secondary_key),
                                                            static_cast<uint8_t>(parsed_key_len));
             }
-            app_ctx.saveConfig();
+            edit.commit(app::AppConfigChangeSet::channels());
             app_ctx.applyMeshConfig();
         }
         if (id == settings::ui::SettingId::NetFreqOffset)
@@ -2329,8 +2384,13 @@ static void on_text_save_clicked(lv_event_t* e)
                 modal_close();
                 return;
             }
-            app_ctx.getConfig().meshtastic_config.frequency_offset_mhz = value;
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [value](app::AppConfig& config)
+                {
+                    config.meshtastic_config.frequency_offset_mhz = value;
+                });
             app_ctx.applyMeshConfig();
         }
         if (id == settings::ui::SettingId::NetOverrideFreq)
@@ -2343,15 +2403,20 @@ static void on_text_save_clicked(lv_event_t* e)
                 modal_close();
                 return;
             }
-            if (chat::infra::isReticulumMeshProtocol(app_ctx.getConfig().mesh_protocol))
-            {
-                app_ctx.getConfig().reticulumConfig().override_frequency_mhz = value;
-            }
-            else
-            {
-                app_ctx.getConfig().meshtastic_config.override_frequency_mhz = value;
-            }
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [value](app::AppConfig& config)
+                {
+                    if (chat::infra::isReticulumMeshProtocol(config.mesh_protocol))
+                    {
+                        config.reticulumConfig().override_frequency_mhz = value;
+                    }
+                    else
+                    {
+                        config.meshtastic_config.override_frequency_mhz = value;
+                    }
+                });
             app_ctx.applyMeshConfig();
         }
         if (id == settings::ui::SettingId::McFreq)
@@ -2364,10 +2429,15 @@ static void on_text_save_clicked(lv_event_t* e)
                 modal_close();
                 return;
             }
-            app_ctx.getConfig().meshcore_config.meshcore_freq_mhz = value;
-            app_ctx.getConfig().meshcore_config.meshcore_region_preset = 0;
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [value](app::AppConfig& config)
+                {
+                    config.meshcore_config.meshcore_freq_mhz = value;
+                    config.meshcore_config.meshcore_region_preset = 0;
+                });
             g_settings.mc_region_preset = 0;
-            app_ctx.saveConfig();
             app_ctx.applyMeshConfig();
         }
         if (id == settings::ui::SettingId::McBw)
@@ -2380,10 +2450,15 @@ static void on_text_save_clicked(lv_event_t* e)
                 modal_close();
                 return;
             }
-            app_ctx.getConfig().meshcore_config.meshcore_bw_khz = value;
-            app_ctx.getConfig().meshcore_config.meshcore_region_preset = 0;
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [value](app::AppConfig& config)
+                {
+                    config.meshcore_config.meshcore_bw_khz = value;
+                    config.meshcore_config.meshcore_region_preset = 0;
+                });
             g_settings.mc_region_preset = 0;
-            app_ctx.saveConfig();
             app_ctx.applyMeshConfig();
         }
         if (id == settings::ui::SettingId::McRxDelay)
@@ -2396,8 +2471,13 @@ static void on_text_save_clicked(lv_event_t* e)
                 modal_close();
                 return;
             }
-            app_ctx.getConfig().meshcore_config.meshcore_rx_delay_base = value;
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [value](app::AppConfig& config)
+                {
+                    config.meshcore_config.meshcore_rx_delay_base = value;
+                });
             app_ctx.applyMeshConfig();
         }
         if (id == settings::ui::SettingId::McAirtime)
@@ -2410,26 +2490,39 @@ static void on_text_save_clicked(lv_event_t* e)
                 modal_close();
                 return;
             }
-            app_ctx.getConfig().meshcore_config.meshcore_airtime_factor = value;
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [value](app::AppConfig& config)
+                {
+                    config.meshcore_config.meshcore_airtime_factor = value;
+                });
             app_ctx.applyMeshConfig();
         }
         if (id == settings::ui::SettingId::McChannelName)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            chat::MeshConfig& mesh = app_ctx.getConfig().meshcore_config;
             const uint8_t slot =
                 chat::normalizeMeshCoreChannelSlot(static_cast<uint8_t>(g_settings.mc_channel_slot));
-            chat::MeshCoreChannelConfig& channel = mesh.meshCoreChannel(slot);
-            copy_bounded(channel.name, sizeof(channel.name), g_state.editing_item->text_value);
-            if (slot != 0 && channel.name[0] != '\0')
-            {
-                channel.enabled = true;
-            }
-            mesh.meshcore_channel_slot = slot;
-            mesh.syncMeshCoreLegacyChannelMirror();
-            ::settings::ui::channel::sync_meshcore_channel_fields(app_ctx.getConfig(), g_settings);
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::channels(),
+                [&](app::AppConfig& config)
+                {
+                    chat::MeshConfig& mesh = config.meshcore_config;
+                    chat::MeshCoreChannelConfig& channel = mesh.meshCoreChannel(slot);
+                    copy_bounded(channel.name,
+                                 sizeof(channel.name),
+                                 g_state.editing_item->text_value);
+                    if (slot != 0 && channel.name[0] != '\0')
+                    {
+                        channel.enabled = true;
+                    }
+                    mesh.meshcore_channel_slot = slot;
+                    mesh.syncMeshCoreLegacyChannelMirror();
+                    ::settings::ui::channel::sync_meshcore_channel_fields(config,
+                                                                          g_settings);
+                });
             app_ctx.applyMeshConfig();
         }
         if (id == settings::ui::SettingId::McChannelKey)
@@ -2444,19 +2537,25 @@ static void on_text_save_clicked(lv_event_t* e)
                 modal_close();
                 return;
             }
-            chat::MeshConfig& mesh = app_ctx.getConfig().meshcore_config;
             const uint8_t slot =
                 chat::normalizeMeshCoreChannelSlot(static_cast<uint8_t>(g_settings.mc_channel_slot));
-            chat::MeshCoreChannelConfig& channel = mesh.meshCoreChannel(slot);
-            memcpy(channel.key, key, sizeof(key));
-            if (slot != 0)
-            {
-                channel.enabled = true;
-            }
-            mesh.meshcore_channel_slot = slot;
-            mesh.syncMeshCoreLegacyChannelMirror();
-            ::settings::ui::channel::sync_meshcore_channel_fields(app_ctx.getConfig(), g_settings);
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::channels(),
+                [&](app::AppConfig& config)
+                {
+                    chat::MeshConfig& mesh = config.meshcore_config;
+                    chat::MeshCoreChannelConfig& channel = mesh.meshCoreChannel(slot);
+                    memcpy(channel.key, key, sizeof(key));
+                    if (slot != 0)
+                    {
+                        channel.enabled = true;
+                    }
+                    mesh.meshcore_channel_slot = slot;
+                    mesh.syncMeshCoreLegacyChannelMirror();
+                    ::settings::ui::channel::sync_meshcore_channel_fields(config,
+                                                                          g_settings);
+                });
             app_ctx.applyMeshConfig();
         }
         if (id == settings::ui::SettingId::GaugeDesignMah)
@@ -2490,10 +2589,16 @@ static void on_text_save_clicked(lv_event_t* e)
         if (id == settings::ui::SettingId::RtWifiHost)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            copy_bounded(app_ctx.getConfig().reticulumConfig().reticulum_wifi_gateway_host,
-                         sizeof(app_ctx.getConfig().reticulumConfig().reticulum_wifi_gateway_host),
-                         g_state.editing_item->text_value);
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [&](app::AppConfig& config)
+                {
+                    copy_bounded(
+                        config.reticulumConfig().reticulum_wifi_gateway_host,
+                        sizeof(config.reticulumConfig().reticulum_wifi_gateway_host),
+                        g_state.editing_item->text_value);
+                });
             app_ctx.applyMeshConfig();
         }
         if (id == settings::ui::SettingId::RtWifiPort)
@@ -2508,9 +2613,14 @@ static void on_text_save_clicked(lv_event_t* e)
                 return;
             }
             app::IAppFacade& app_ctx = app::appFacade();
-            app_ctx.getConfig().reticulumConfig().reticulum_wifi_gateway_port =
-                static_cast<uint16_t>(value);
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [value](app::AppConfig& config)
+                {
+                    config.reticulumConfig().reticulum_wifi_gateway_port =
+                        static_cast<uint16_t>(value);
+                });
             app_ctx.applyMeshConfig();
             std::snprintf(g_settings.rt_wifi_gateway_port,
                           sizeof(g_settings.rt_wifi_gateway_port),
@@ -2520,10 +2630,15 @@ static void on_text_save_clicked(lv_event_t* e)
         if (id == settings::ui::SettingId::MtMqttHost)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            copy_bounded(app_ctx.getConfig().meshtastic_mqtt_host,
-                         sizeof(app_ctx.getConfig().meshtastic_mqtt_host),
-                         g_state.editing_item->text_value);
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [&](app::AppConfig& config)
+                {
+                    copy_bounded(config.meshtastic_mqtt_host,
+                                 sizeof(config.meshtastic_mqtt_host),
+                                 g_state.editing_item->text_value);
+                });
         }
         if (id == settings::ui::SettingId::MtMqttPort)
         {
@@ -2537,9 +2652,13 @@ static void on_text_save_clicked(lv_event_t* e)
                 return;
             }
             app::IAppFacade& app_ctx = app::appFacade();
-            app_ctx.getConfig().meshtastic_mqtt_port =
-                static_cast<uint16_t>(value);
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [value](app::AppConfig& config)
+                {
+                    config.meshtastic_mqtt_port = static_cast<uint16_t>(value);
+                });
             std::snprintf(g_settings.mt_mqtt_port,
                           sizeof(g_settings.mt_mqtt_port),
                           "%u",
@@ -2552,36 +2671,61 @@ static void on_text_save_clicked(lv_event_t* e)
                 g_state.editing_item->text_value[0] != '\0'
                     ? g_state.editing_item->text_value
                     : app::AppConfig::kDefaultMeshtasticMqttRoot;
-            copy_bounded(app_ctx.getConfig().meshtastic_mqtt_root,
-                         sizeof(app_ctx.getConfig().meshtastic_mqtt_root),
-                         root);
+            const bool committed = commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [root](app::AppConfig& config)
+                {
+                    copy_bounded(config.meshtastic_mqtt_root,
+                                 sizeof(config.meshtastic_mqtt_root),
+                                 root);
+                });
+            if (!committed)
+            {
+                modal_close();
+                return;
+            }
             copy_bounded(g_settings.mt_mqtt_root, sizeof(g_settings.mt_mqtt_root), root);
-            app_ctx.saveConfig();
             std::printf("[Settings][MQTT] mt root saved root=%s\n", root);
         }
         if (id == settings::ui::SettingId::MtMqttUser)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            copy_bounded(app_ctx.getConfig().meshtastic_mqtt_username,
-                         sizeof(app_ctx.getConfig().meshtastic_mqtt_username),
-                         g_state.editing_item->text_value);
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [&](app::AppConfig& config)
+                {
+                    copy_bounded(config.meshtastic_mqtt_username,
+                                 sizeof(config.meshtastic_mqtt_username),
+                                 g_state.editing_item->text_value);
+                });
         }
         if (id == settings::ui::SettingId::MtMqttPass)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            copy_bounded(app_ctx.getConfig().meshtastic_mqtt_password,
-                         sizeof(app_ctx.getConfig().meshtastic_mqtt_password),
-                         g_state.editing_item->text_value);
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [&](app::AppConfig& config)
+                {
+                    copy_bounded(config.meshtastic_mqtt_password,
+                                 sizeof(config.meshtastic_mqtt_password),
+                                 g_state.editing_item->text_value);
+                });
         }
         if (id == settings::ui::SettingId::McMqttHost)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            copy_bounded(app_ctx.getConfig().meshcore_config.meshcore_mqtt_host,
-                         sizeof(app_ctx.getConfig().meshcore_config.meshcore_mqtt_host),
-                         g_state.editing_item->text_value);
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [&](app::AppConfig& config)
+                {
+                    copy_bounded(config.meshcore_config.meshcore_mqtt_host,
+                                 sizeof(config.meshcore_config.meshcore_mqtt_host),
+                                 g_state.editing_item->text_value);
+                });
         }
         if (id == settings::ui::SettingId::McMqttPort)
         {
@@ -2595,9 +2739,14 @@ static void on_text_save_clicked(lv_event_t* e)
                 return;
             }
             app::IAppFacade& app_ctx = app::appFacade();
-            app_ctx.getConfig().meshcore_config.meshcore_mqtt_port =
-                static_cast<uint16_t>(value);
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [value](app::AppConfig& config)
+                {
+                    config.meshcore_config.meshcore_mqtt_port =
+                        static_cast<uint16_t>(value);
+                });
             std::snprintf(g_settings.mc_mqtt_port,
                           sizeof(g_settings.mc_mqtt_port),
                           "%u",
@@ -2610,27 +2759,47 @@ static void on_text_save_clicked(lv_event_t* e)
                 g_state.editing_item->text_value[0] != '\0'
                     ? g_state.editing_item->text_value
                     : app::AppConfig::kDefaultMeshCoreMqttRoot;
-            copy_bounded(app_ctx.getConfig().meshcore_config.meshcore_mqtt_root,
-                         sizeof(app_ctx.getConfig().meshcore_config.meshcore_mqtt_root),
-                         root);
+            const bool committed = commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [root](app::AppConfig& config)
+                {
+                    copy_bounded(config.meshcore_config.meshcore_mqtt_root,
+                                 sizeof(config.meshcore_config.meshcore_mqtt_root),
+                                 root);
+                });
+            if (!committed)
+            {
+                modal_close();
+                return;
+            }
             copy_bounded(g_settings.mc_mqtt_root, sizeof(g_settings.mc_mqtt_root), root);
-            app_ctx.saveConfig();
         }
         if (id == settings::ui::SettingId::McMqttUser)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            copy_bounded(app_ctx.getConfig().meshcore_config.meshcore_mqtt_username,
-                         sizeof(app_ctx.getConfig().meshcore_config.meshcore_mqtt_username),
-                         g_state.editing_item->text_value);
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [&](app::AppConfig& config)
+                {
+                    copy_bounded(config.meshcore_config.meshcore_mqtt_username,
+                                 sizeof(config.meshcore_config.meshcore_mqtt_username),
+                                 g_state.editing_item->text_value);
+                });
         }
         if (id == settings::ui::SettingId::McMqttPass)
         {
             app::IAppFacade& app_ctx = app::appFacade();
-            copy_bounded(app_ctx.getConfig().meshcore_config.meshcore_mqtt_password,
-                         sizeof(app_ctx.getConfig().meshcore_config.meshcore_mqtt_password),
-                         g_state.editing_item->text_value);
-            app_ctx.saveConfig();
+            commit_app_config(
+                app_ctx,
+                app::AppConfigChangeSet::mesh(),
+                [&](app::AppConfig& config)
+                {
+                    copy_bounded(config.meshcore_config.meshcore_mqtt_password,
+                                 sizeof(config.meshcore_config.meshcore_mqtt_password),
+                                 g_state.editing_item->text_value);
+                });
         }
         if (g_state.editing_item->pref_key &&
             (id == settings::ui::SettingId::WifiSsid ||
@@ -3244,14 +3413,22 @@ static void on_option_clicked(lv_event_t* e)
     if (id == settings::ui::SettingId::RtBearer)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        chat::MeshConfig& reticulum = app_ctx.getConfig().reticulumConfig();
-        apply_reticulum_bearer_policy(reticulum,
-                                      reticulum_bearer_policy_from_value(payload->value));
-        g_settings.rt_bearer_policy =
-            reticulum_bearer_policy_to_value(reticulum.reticulum_interface_policy);
-        g_settings.rt_lora_enabled = reticulum.reticulum_lora_enabled;
-        g_settings.rt_wifi_gateway_enabled = reticulum.reticulum_wifi_gateway_enabled;
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [&](app::AppConfig& config)
+            {
+                chat::MeshConfig& reticulum = config.reticulumConfig();
+                apply_reticulum_bearer_policy(
+                    reticulum,
+                    reticulum_bearer_policy_from_value(payload->value));
+                g_settings.rt_bearer_policy =
+                    reticulum_bearer_policy_to_value(
+                        reticulum.reticulum_interface_policy);
+                g_settings.rt_lora_enabled = reticulum.reticulum_lora_enabled;
+                g_settings.rt_wifi_gateway_enabled =
+                    reticulum.reticulum_wifi_gateway_enabled;
+            });
         app_ctx.applyMeshConfig();
         rebuild_list = true;
     }
@@ -3275,111 +3452,161 @@ static void on_option_clicked(lv_event_t* e)
     if (id == settings::ui::SettingId::ChatRegion)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        chat::MeshConfig& mt_cfg = app_ctx.getConfig().meshtastic_config;
-        mt_cfg.region = static_cast<uint8_t>(payload->value);
-        const auto* region = chat::meshtastic::findRegion(
-            static_cast<meshtastic_Config_LoRaConfig_RegionCode>(mt_cfg.region));
-        if (region && region->power_limit_dbm > 0)
-        {
-            int8_t limit = static_cast<int8_t>(region->power_limit_dbm);
-            if (limit > kNetTxPowerMax)
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [&](app::AppConfig& config)
             {
-                limit = static_cast<int8_t>(kNetTxPowerMax);
-            }
-            if (mt_cfg.tx_power == 0 || mt_cfg.tx_power > limit)
-            {
-                mt_cfg.tx_power = limit;
-            }
-            if (g_settings.net_tx_power > limit)
-            {
-                g_settings.net_tx_power = limit;
-            }
-        }
-        app_ctx.saveConfig();
+                chat::MeshConfig& mt_cfg = config.meshtastic_config;
+                mt_cfg.region = static_cast<uint8_t>(payload->value);
+                const auto* region = chat::meshtastic::findRegion(
+                    static_cast<meshtastic_Config_LoRaConfig_RegionCode>(
+                        mt_cfg.region));
+                if (region && region->power_limit_dbm > 0)
+                {
+                    int8_t limit = static_cast<int8_t>(region->power_limit_dbm);
+                    if (limit > kNetTxPowerMax)
+                    {
+                        limit = static_cast<int8_t>(kNetTxPowerMax);
+                    }
+                    if (mt_cfg.tx_power == 0 || mt_cfg.tx_power > limit)
+                    {
+                        mt_cfg.tx_power = limit;
+                    }
+                    if (g_settings.net_tx_power > limit)
+                    {
+                        g_settings.net_tx_power = limit;
+                    }
+                }
+            });
         app_ctx.applyMeshConfig();
         app_ctx.applyNetworkLimits();
     }
     if (id == settings::ui::SettingId::NetUsePreset)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().meshtastic_config.use_preset = (payload->value != 0);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [payload](app::AppConfig& config)
+            {
+                config.meshtastic_config.use_preset = (payload->value != 0);
+            });
         app_ctx.applyMeshConfig();
         rebuild_list = true;
     }
     if (id == settings::ui::SettingId::NetPreset)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().meshtastic_config.modem_preset = static_cast<uint8_t>(payload->value);
-        app_ctx.getConfig().meshtastic_config.use_preset = true;
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [payload](app::AppConfig& config)
+            {
+                config.meshtastic_config.modem_preset =
+                    static_cast<uint8_t>(payload->value);
+                config.meshtastic_config.use_preset = true;
+            });
         g_settings.net_use_preset = true;
-        app_ctx.saveConfig();
         app_ctx.applyMeshConfig();
         rebuild_list = true;
     }
     if (id == settings::ui::SettingId::NetBw)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        if (chat::infra::isReticulumMeshProtocol(app_ctx.getConfig().mesh_protocol))
-        {
-            app_ctx.getConfig().reticulumConfig().bandwidth_khz = static_cast<float>(payload->value);
-        }
-        else
-        {
-            app_ctx.getConfig().meshtastic_config.bandwidth_khz = static_cast<float>(payload->value);
-            app_ctx.getConfig().meshtastic_config.use_preset = false;
-            g_settings.net_use_preset = false;
-        }
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [payload](app::AppConfig& config)
+            {
+                if (chat::infra::isReticulumMeshProtocol(config.mesh_protocol))
+                {
+                    config.reticulumConfig().bandwidth_khz =
+                        static_cast<float>(payload->value);
+                }
+                else
+                {
+                    config.meshtastic_config.bandwidth_khz =
+                        static_cast<float>(payload->value);
+                    config.meshtastic_config.use_preset = false;
+                    g_settings.net_use_preset = false;
+                }
+            });
         app_ctx.applyMeshConfig();
         rebuild_list = true;
     }
     if (id == settings::ui::SettingId::NetSf)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        if (chat::infra::isReticulumMeshProtocol(app_ctx.getConfig().mesh_protocol))
-        {
-            app_ctx.getConfig().reticulumConfig().spread_factor = static_cast<uint8_t>(payload->value);
-        }
-        else
-        {
-            app_ctx.getConfig().meshtastic_config.spread_factor = static_cast<uint8_t>(payload->value);
-            app_ctx.getConfig().meshtastic_config.use_preset = false;
-            g_settings.net_use_preset = false;
-        }
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [payload](app::AppConfig& config)
+            {
+                if (chat::infra::isReticulumMeshProtocol(config.mesh_protocol))
+                {
+                    config.reticulumConfig().spread_factor =
+                        static_cast<uint8_t>(payload->value);
+                }
+                else
+                {
+                    config.meshtastic_config.spread_factor =
+                        static_cast<uint8_t>(payload->value);
+                    config.meshtastic_config.use_preset = false;
+                    g_settings.net_use_preset = false;
+                }
+            });
         app_ctx.applyMeshConfig();
         rebuild_list = true;
     }
     if (id == settings::ui::SettingId::NetCr)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        if (chat::infra::isReticulumMeshProtocol(app_ctx.getConfig().mesh_protocol))
-        {
-            app_ctx.getConfig().reticulumConfig().coding_rate = static_cast<uint8_t>(payload->value);
-        }
-        else
-        {
-            app_ctx.getConfig().meshtastic_config.coding_rate = static_cast<uint8_t>(payload->value);
-            app_ctx.getConfig().meshtastic_config.use_preset = false;
-            g_settings.net_use_preset = false;
-        }
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [payload](app::AppConfig& config)
+            {
+                if (chat::infra::isReticulumMeshProtocol(config.mesh_protocol))
+                {
+                    config.reticulumConfig().coding_rate =
+                        static_cast<uint8_t>(payload->value);
+                }
+                else
+                {
+                    config.meshtastic_config.coding_rate =
+                        static_cast<uint8_t>(payload->value);
+                    config.meshtastic_config.use_preset = false;
+                    g_settings.net_use_preset = false;
+                }
+            });
         app_ctx.applyMeshConfig();
         rebuild_list = true;
     }
     if (id == settings::ui::SettingId::NetHopLimit)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().meshtastic_config.hop_limit = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [payload](app::AppConfig& config)
+            {
+                config.meshtastic_config.hop_limit =
+                    static_cast<uint8_t>(payload->value);
+            });
         app_ctx.applyMeshConfig();
     }
     if (id == settings::ui::SettingId::NetChannelNum)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().meshtastic_config.channel_num = static_cast<uint16_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [payload](app::AppConfig& config)
+            {
+                config.meshtastic_config.channel_num =
+                    static_cast<uint16_t>(payload->value);
+            });
         app_ctx.applyMeshConfig();
     }
     if (id == settings::ui::SettingId::ScreenTimeout)
@@ -3405,16 +3632,27 @@ static void on_option_clicked(lv_event_t* e)
     if (id == settings::ui::SettingId::GpsInterval)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        uint32_t interval_ms = static_cast<uint32_t>(payload->value) * 1000u;
-        app_ctx.getConfig().gps_interval_ms = interval_ms;
-        app_ctx.saveConfig();
+        const uint32_t interval_ms =
+            static_cast<uint32_t>(payload->value) * 1000u;
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::gps(),
+            [interval_ms](app::AppConfig& config)
+            {
+                config.gps_interval_ms = interval_ms;
+            });
         gps_runtime::set_collection_interval(interval_ms);
     }
     if (id == settings::ui::SettingId::GpsInitBaud)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().gps_init_baud = static_cast<uint32_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::gps(),
+            [payload](app::AppConfig& config)
+            {
+                config.gps_init_baud = static_cast<uint32_t>(payload->value);
+            });
         gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.getConfig()));
     }
     if (id == settings::ui::SettingId::GpsInitProbeMs)
@@ -3429,76 +3667,131 @@ static void on_option_clicked(lv_event_t* e)
         {
             probe_ms = kGpsInitProbeMaxMs;
         }
-        app_ctx.getConfig().gps_init_probe_ms = static_cast<uint32_t>(probe_ms);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::gps(),
+            [probe_ms](app::AppConfig& config)
+            {
+                config.gps_init_probe_ms = static_cast<uint32_t>(probe_ms);
+            });
         gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.getConfig()));
     }
     if (id == settings::ui::SettingId::GpsInitProfile)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().gps_init_profile = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::gps(),
+            [payload](app::AppConfig& config)
+            {
+                config.gps_init_profile = static_cast<uint8_t>(payload->value);
+            });
         gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.getConfig()));
     }
     if (id == settings::ui::SettingId::GpsInitRxm)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().gps_init_rxm_policy = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::gps(),
+            [payload](app::AppConfig& config)
+            {
+                config.gps_init_rxm_policy = static_cast<uint8_t>(payload->value);
+            });
         gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.getConfig()));
     }
     if (id == settings::ui::SettingId::GpsInitGnss)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().gps_init_gnss_policy = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::gps(),
+            [payload](app::AppConfig& config)
+            {
+                config.gps_init_gnss_policy = static_cast<uint8_t>(payload->value);
+            });
         gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.getConfig()));
     }
     if (id == settings::ui::SettingId::GpsInitNmea)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().gps_init_nmea_policy = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::gps(),
+            [payload](app::AppConfig& config)
+            {
+                config.gps_init_nmea_policy = static_cast<uint8_t>(payload->value);
+            });
         gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.getConfig()));
     }
     if (id == settings::ui::SettingId::GpsMode)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().gps_mode = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::gps(),
+            [payload](app::AppConfig& config)
+            {
+                config.gps_mode = static_cast<uint8_t>(payload->value);
+            });
         gps_runtime::set_gnss_config(app_ctx.getConfig().gps_mode, app_ctx.getConfig().gps_sat_mask);
     }
     if (id == settings::ui::SettingId::GpsSatMask)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().gps_sat_mask = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::gps(),
+            [payload](app::AppConfig& config)
+            {
+                config.gps_sat_mask = static_cast<uint8_t>(payload->value);
+            });
         gps_runtime::set_gnss_config(app_ctx.getConfig().gps_mode, app_ctx.getConfig().gps_sat_mask);
     }
     if (id == settings::ui::SettingId::GpsStrategy)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().gps_strategy = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::gps(),
+            [payload](app::AppConfig& config)
+            {
+                config.gps_strategy = static_cast<uint8_t>(payload->value);
+            });
         gps_runtime::set_power_strategy(static_cast<uint8_t>(payload->value));
     }
     if (id == settings::ui::SettingId::GpsAltRef)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().gps_alt_ref = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::gps(),
+            [payload](app::AppConfig& config)
+            {
+                config.gps_alt_ref = static_cast<uint8_t>(payload->value);
+            });
     }
     if (id == settings::ui::SettingId::GpsCoordFmt)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().gps_coord_format = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::gps(),
+            [payload](app::AppConfig& config)
+            {
+                config.gps_coord_format = static_cast<uint8_t>(payload->value);
+            });
     }
     if (id == settings::ui::SettingId::MapCoord)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().map_coord_system = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::map(),
+            [payload](app::AppConfig& config)
+            {
+                config.map_coord_system = static_cast<uint8_t>(payload->value);
+            });
     }
     if (id == settings::ui::SettingId::MapSource)
     {
@@ -3508,165 +3801,266 @@ static void on_option_clicked(lv_event_t* e)
         {
             source = 0;
         }
-        app_ctx.getConfig().map_source = static_cast<uint8_t>(source);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::map(),
+            [source](app::AppConfig& config)
+            {
+                config.map_source = static_cast<uint8_t>(source);
+            });
     }
     if (id == settings::ui::SettingId::MapTrackInterval)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().map_track_interval = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::map(),
+            [payload](app::AppConfig& config)
+            {
+                config.map_track_interval =
+                    static_cast<uint8_t>(payload->value);
+            });
         apply_track_interval_runtime(static_cast<uint32_t>(payload->value));
     }
     if (id == settings::ui::SettingId::MapTrackFormat)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().map_track_format = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::map(),
+            [payload](app::AppConfig& config)
+            {
+                config.map_track_format = static_cast<uint8_t>(payload->value);
+            });
         apply_track_format_runtime(static_cast<uint8_t>(payload->value));
     }
     if (id == settings::ui::SettingId::ChatChannel)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().chat_channel = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::chatUi(),
+            [payload](app::AppConfig& config)
+            {
+                config.chat_channel = static_cast<uint8_t>(payload->value);
+            });
         app_ctx.applyChatDefaults();
     }
     if (id == settings::ui::SettingId::NetUtil)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().net_channel_util = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::network(),
+            [payload](app::AppConfig& config)
+            {
+                config.net_channel_util = static_cast<uint8_t>(payload->value);
+            });
         app_ctx.applyNetworkLimits();
     }
     if (id == settings::ui::SettingId::NetTxPower)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        if (chat::infra::isReticulumMeshProtocol(app_ctx.getConfig().mesh_protocol))
-        {
-            app_ctx.getConfig().reticulumConfig().tx_power = static_cast<int8_t>(payload->value);
-        }
-        else
-        {
-            app_ctx.getConfig().meshtastic_config.tx_power = static_cast<int8_t>(payload->value);
-        }
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [payload](app::AppConfig& config)
+            {
+                if (chat::infra::isReticulumMeshProtocol(config.mesh_protocol))
+                {
+                    config.reticulumConfig().tx_power =
+                        static_cast<int8_t>(payload->value);
+                }
+                else
+                {
+                    config.meshtastic_config.tx_power =
+                        static_cast<int8_t>(payload->value);
+                }
+            });
         app_ctx.applyMeshConfig();
     }
     if (id == settings::ui::SettingId::McRegionPreset)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        chat::MeshConfig& mc_cfg = app_ctx.getConfig().meshcore_config;
         uint8_t preset_id = static_cast<uint8_t>(payload->value);
         if (!chat::meshcore::isValidRegionPresetId(preset_id))
         {
             preset_id = 0;
         }
-        mc_cfg.meshcore_region_preset = preset_id;
-        g_settings.mc_region_preset = preset_id;
-        if (preset_id > 0)
-        {
-            const chat::meshcore::RegionPreset* preset = chat::meshcore::findRegionPresetById(preset_id);
-            if (preset)
+        const auto* preset = preset_id > 0
+                                 ? chat::meshcore::findRegionPresetById(preset_id)
+                                 : nullptr;
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [preset_id, preset](app::AppConfig& config)
             {
-                mc_cfg.meshcore_freq_mhz = preset->freq_mhz;
-                mc_cfg.meshcore_bw_khz = preset->bw_khz;
-                mc_cfg.meshcore_sf = preset->sf;
-                mc_cfg.meshcore_cr = preset->cr;
-                mc_cfg.tx_power = preset->tx_power_dbm;
-                float_to_text(mc_cfg.meshcore_freq_mhz, g_settings.mc_freq, sizeof(g_settings.mc_freq), 3);
-                float_to_text(mc_cfg.meshcore_bw_khz, g_settings.mc_bw, sizeof(g_settings.mc_bw), 3);
-                g_settings.mc_sf = mc_cfg.meshcore_sf;
-                g_settings.mc_cr = mc_cfg.meshcore_cr;
-                g_settings.mc_tx_power = mc_cfg.tx_power;
-            }
+                chat::MeshConfig& mc_cfg = config.meshcore_config;
+                mc_cfg.meshcore_region_preset = preset_id;
+                if (preset)
+                {
+                    mc_cfg.meshcore_freq_mhz = preset->freq_mhz;
+                    mc_cfg.meshcore_bw_khz = preset->bw_khz;
+                    mc_cfg.meshcore_sf = preset->sf;
+                    mc_cfg.meshcore_cr = preset->cr;
+                    mc_cfg.tx_power = preset->tx_power_dbm;
+                }
+            });
+        g_settings.mc_region_preset = preset_id;
+        if (preset)
+        {
+            float_to_text(preset->freq_mhz, g_settings.mc_freq, sizeof(g_settings.mc_freq), 3);
+            float_to_text(preset->bw_khz, g_settings.mc_bw, sizeof(g_settings.mc_bw), 3);
+            g_settings.mc_sf = preset->sf;
+            g_settings.mc_cr = preset->cr;
+            g_settings.mc_tx_power = preset->tx_power_dbm;
         }
-        app_ctx.saveConfig();
         app_ctx.applyMeshConfig();
         rebuild_list = true;
     }
     if (id == settings::ui::SettingId::McSf)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().meshcore_config.meshcore_sf = static_cast<uint8_t>(payload->value);
-        app_ctx.getConfig().meshcore_config.meshcore_region_preset = 0;
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [payload](app::AppConfig& config)
+            {
+                config.meshcore_config.meshcore_sf =
+                    static_cast<uint8_t>(payload->value);
+                config.meshcore_config.meshcore_region_preset = 0;
+            });
         g_settings.mc_region_preset = 0;
-        app_ctx.saveConfig();
         app_ctx.applyMeshConfig();
     }
     if (id == settings::ui::SettingId::McCr)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().meshcore_config.meshcore_cr = static_cast<uint8_t>(payload->value);
-        app_ctx.getConfig().meshcore_config.meshcore_region_preset = 0;
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [payload](app::AppConfig& config)
+            {
+                config.meshcore_config.meshcore_cr =
+                    static_cast<uint8_t>(payload->value);
+                config.meshcore_config.meshcore_region_preset = 0;
+            });
         g_settings.mc_region_preset = 0;
-        app_ctx.saveConfig();
         app_ctx.applyMeshConfig();
     }
     if (id == settings::ui::SettingId::McTxPower)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().meshcore_config.tx_power = static_cast<int8_t>(payload->value);
-        app_ctx.getConfig().meshcore_config.meshcore_region_preset = 0;
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [payload](app::AppConfig& config)
+            {
+                config.meshcore_config.tx_power =
+                    static_cast<int8_t>(payload->value);
+                config.meshcore_config.meshcore_region_preset = 0;
+            });
         g_settings.mc_region_preset = 0;
-        app_ctx.saveConfig();
         app_ctx.applyMeshConfig();
     }
     if (id == settings::ui::SettingId::McFloodMax)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().meshcore_config.meshcore_flood_max = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [payload](app::AppConfig& config)
+            {
+                config.meshcore_config.meshcore_flood_max =
+                    static_cast<uint8_t>(payload->value);
+            });
         app_ctx.applyMeshConfig();
     }
     if (id == settings::ui::SettingId::McSendProfile)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().meshcore_config.meshcore_send_profile =
-            static_cast<chat::MeshCorePayloadSendProfile>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [payload](app::AppConfig& config)
+            {
+                config.meshcore_config.meshcore_send_profile =
+                    static_cast<chat::MeshCorePayloadSendProfile>(
+                        payload->value);
+            });
         app_ctx.applyMeshConfig();
     }
     if (id == settings::ui::SettingId::McForwardProfile)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().meshcore_config.meshcore_forward_profile =
-            static_cast<chat::MeshCoreForwardProfile>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::mesh(),
+            [payload](app::AppConfig& config)
+            {
+                config.meshcore_config.meshcore_forward_profile =
+                    static_cast<chat::MeshCoreForwardProfile>(
+                        payload->value);
+            });
         app_ctx.applyMeshConfig();
     }
     if (id == settings::ui::SettingId::McChannelSlot)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        chat::MeshConfig& mesh = app_ctx.getConfig().meshcore_config;
-        mesh.meshcore_channel_slot =
-            chat::normalizeMeshCoreChannelSlot(static_cast<uint8_t>(payload->value));
-        mesh.syncMeshCoreLegacyChannelMirror();
-        ::settings::ui::channel::sync_meshcore_channel_fields(app_ctx.getConfig(), g_settings);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::channels(),
+            [payload](app::AppConfig& config)
+            {
+                chat::MeshConfig& mesh = config.meshcore_config;
+                mesh.meshcore_channel_slot =
+                    chat::normalizeMeshCoreChannelSlot(
+                        static_cast<uint8_t>(payload->value));
+                mesh.syncMeshCoreLegacyChannelMirror();
+                ::settings::ui::channel::sync_meshcore_channel_fields(config,
+                                                                      g_settings);
+            });
         app_ctx.applyMeshConfig();
         refresh_visible_item_values();
     }
     if (id == settings::ui::SettingId::PrivacyEncrypt)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().privacy_encrypt_mode = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::privacy(),
+            [payload](app::AppConfig& config)
+            {
+                config.privacy_encrypt_mode =
+                    static_cast<uint8_t>(payload->value);
+            });
         app_ctx.applyPrivacyConfig();
     }
     if (id == settings::ui::SettingId::ExternalNmea)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().external_nmea_output_hz = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::gps(),
+            [payload](app::AppConfig& config)
+            {
+                config.external_nmea_output_hz =
+                    static_cast<uint8_t>(payload->value);
+            });
         gps_runtime::set_external_nmea_config(app_ctx.getConfig().external_nmea_output_hz,
                                               app_ctx.getConfig().external_nmea_sentence_mask);
     }
     if (id == settings::ui::SettingId::ExternalNmeaSent)
     {
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().external_nmea_sentence_mask = static_cast<uint8_t>(payload->value);
-        app_ctx.saveConfig();
+        commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::gps(),
+            [payload](app::AppConfig& config)
+            {
+                config.external_nmea_sentence_mask =
+                    static_cast<uint8_t>(payload->value);
+            });
         gps_runtime::set_external_nmea_config(app_ctx.getConfig().external_nmea_output_hz,
                                               app_ctx.getConfig().external_nmea_sentence_mask);
     }
@@ -4988,15 +5382,15 @@ static void build_item_list()
 static void generate_meshtastic_channel_key(bool primary)
 {
     app::IAppFacade& app_ctx = app::appFacade();
-    if (!::settings::ui::channel::generate_meshtastic_channel_key(
-            app_ctx.getConfig(),
-            g_settings,
-            primary))
+    auto edit = app_ctx.beginConfigEdit();
+    if (!edit ||
+        !::settings::ui::channel::generate_meshtastic_channel_key(
+            edit.config(), g_settings, primary))
     {
         ::ui::feedback::show_notice(::ui::i18n::tr("PSK generation failed"), 3000);
         return;
     }
-    app_ctx.saveConfig();
+    edit.commit(app::AppConfigChangeSet::channels());
     app_ctx.applyMeshConfig();
     refresh_visible_item_values();
     ::ui::feedback::show_notice(::ui::i18n::tr("Channel PSK generated"), 2200);
@@ -5005,13 +5399,15 @@ static void generate_meshtastic_channel_key(bool primary)
 static void generate_meshcore_channel_key()
 {
     app::IAppFacade& app_ctx = app::appFacade();
-    if (!::settings::ui::channel::generate_meshcore_channel_key(app_ctx.getConfig(),
+    auto edit = app_ctx.beginConfigEdit();
+    if (!edit ||
+        !::settings::ui::channel::generate_meshcore_channel_key(edit.config(),
                                                                 g_settings))
     {
         ::ui::feedback::show_notice(::ui::i18n::tr("Key generation failed"), 3000);
         return;
     }
-    app_ctx.saveConfig();
+    edit.commit(app::AppConfigChangeSet::channels());
     app_ctx.applyMeshConfig();
     refresh_visible_item_values();
     ::ui::feedback::show_notice(::ui::i18n::tr("Channel key generated"), 2200);
@@ -5020,20 +5416,29 @@ static void generate_meshcore_channel_key()
 static void clear_meshcore_channel()
 {
     app::IAppFacade& app_ctx = app::appFacade();
-    chat::MeshConfig& mesh = app_ctx.getConfig().meshcore_config;
     const uint8_t slot =
         chat::normalizeMeshCoreChannelSlot(static_cast<uint8_t>(g_settings.mc_channel_slot));
-    chat::MeshCoreChannelConfig& channel = mesh.meshCoreChannel(slot);
-    channel = chat::MeshCoreChannelConfig();
-    if (slot == 0)
+    if (!commit_app_config(
+            app_ctx,
+            app::AppConfigChangeSet::channels(),
+            [slot](app::AppConfig& config)
+            {
+                chat::MeshConfig& mesh = config.meshcore_config;
+                chat::MeshCoreChannelConfig& channel = mesh.meshCoreChannel(slot);
+                channel = chat::MeshCoreChannelConfig();
+                if (slot == 0)
+                {
+                    channel.enabled = true;
+                    copy_bounded(channel.name, sizeof(channel.name), "Public");
+                }
+                mesh.meshcore_channel_slot = slot;
+                mesh.syncMeshCoreLegacyChannelMirror();
+                ::settings::ui::channel::sync_meshcore_channel_fields(config,
+                                                                      g_settings);
+            }))
     {
-        channel.enabled = true;
-        copy_bounded(channel.name, sizeof(channel.name), "Public");
+        return;
     }
-    mesh.meshcore_channel_slot = slot;
-    mesh.syncMeshCoreLegacyChannelMirror();
-    ::settings::ui::channel::sync_meshcore_channel_fields(app_ctx.getConfig(), g_settings);
-    app_ctx.saveConfig();
     app_ctx.applyMeshConfig();
     refresh_visible_item_values();
     ::ui::feedback::show_notice(::ui::i18n::tr("Channel cleared"), 1800);
@@ -5067,24 +5472,39 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
             case settings::ui::SettingId::NetRelay:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().meshtastic_config.enable_relay = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::mesh(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.meshtastic_config.enable_relay = value;
+                    });
                 app_ctx.applyMeshConfig();
                 break;
             }
             case settings::ui::SettingId::MapTrack:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().map_track_enabled = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::map(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.map_track_enabled = value;
+                    });
                 apply_track_recording_runtime(*item.bool_value);
                 break;
             }
             case settings::ui::SettingId::MapContour:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().map_contour_enabled = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::map(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.map_contour_enabled = value;
+                    });
                 break;
             }
             case settings::ui::SettingId::GpsEnabled:
@@ -5098,60 +5518,93 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
             case settings::ui::SettingId::NetDutyCycle:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().net_duty_cycle = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::network(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.net_duty_cycle = value;
+                    });
                 app_ctx.applyNetworkLimits();
                 break;
             }
             case settings::ui::SettingId::NetTxEnabled:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                if (app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::MeshCore)
-                {
-                    app_ctx.getConfig().meshcore_config.tx_enabled = *item.bool_value;
-                }
-                else if (chat::infra::isReticulumMeshProtocol(app_ctx.getConfig().mesh_protocol))
-                {
-                    app_ctx.getConfig().reticulumConfig().tx_enabled = *item.bool_value;
-                }
-                else
-                {
-                    app_ctx.getConfig().meshtastic_config.tx_enabled = *item.bool_value;
-                }
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::mesh(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        if (config.mesh_protocol == chat::MeshProtocol::MeshCore)
+                        {
+                            config.meshcore_config.tx_enabled = value;
+                        }
+                        else if (chat::infra::isReticulumMeshProtocol(
+                                     config.mesh_protocol))
+                        {
+                            config.reticulumConfig().tx_enabled = value;
+                        }
+                        else
+                        {
+                            config.meshtastic_config.tx_enabled = value;
+                        }
+                    });
                 app_ctx.applyMeshConfig();
                 break;
             }
             case settings::ui::SettingId::RtWifiAuto:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().reticulumConfig().reticulum_wifi_auto_connect = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::mesh(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.reticulumConfig().reticulum_wifi_auto_connect =
+                            value;
+                    });
                 app_ctx.applyMeshConfig();
                 break;
             }
             case settings::ui::SettingId::RtAnonymousPeer:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().reticulumConfig().reticulum_anonymous_peer = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::mesh(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.reticulumConfig().reticulum_anonymous_peer =
+                            value;
+                    });
                 app_ctx.applyMeshConfig();
                 break;
             }
             case settings::ui::SettingId::RtLocationRequests:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().reticulumConfig().reticulum_allow_location_requests =
-                    *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::mesh(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.reticulumConfig()
+                            .reticulum_allow_location_requests = value;
+                    });
                 app_ctx.applyMeshConfig();
                 break;
             }
             case settings::ui::SettingId::NetOverrideDuty:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().meshtastic_config.override_duty_cycle = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::mesh(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.meshtastic_config.override_duty_cycle = value;
+                    });
                 app_ctx.applyMeshConfig();
                 app_ctx.applyNetworkLimits();
                 break;
@@ -5159,31 +5612,48 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
             case settings::ui::SettingId::McRepeat:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().meshcore_config.meshcore_client_repeat = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::mesh(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.meshcore_config.meshcore_client_repeat = value;
+                    });
                 app_ctx.applyMeshConfig();
                 break;
             }
             case settings::ui::SettingId::McMultiAcks:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().meshcore_config.meshcore_multi_acks = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::mesh(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.meshcore_config.meshcore_multi_acks = value;
+                    });
                 app_ctx.applyMeshConfig();
                 break;
             }
             case settings::ui::SettingId::McChannelEnabled:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                chat::MeshConfig& mesh = app_ctx.getConfig().meshcore_config;
                 const uint8_t slot =
                     chat::normalizeMeshCoreChannelSlot(static_cast<uint8_t>(g_settings.mc_channel_slot));
-                chat::MeshCoreChannelConfig& channel = mesh.meshCoreChannel(slot);
-                channel.enabled = (slot == 0) ? true : *item.bool_value;
-                mesh.meshcore_channel_slot = slot;
-                mesh.syncMeshCoreLegacyChannelMirror();
-                ::settings::ui::channel::sync_meshcore_channel_fields(app_ctx.getConfig(), g_settings);
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::channels(),
+                    [slot, value = *item.bool_value](app::AppConfig& config)
+                    {
+                        chat::MeshConfig& mesh = config.meshcore_config;
+                        chat::MeshCoreChannelConfig& channel =
+                            mesh.meshCoreChannel(slot);
+                        channel.enabled = (slot == 0) ? true : value;
+                        mesh.meshcore_channel_slot = slot;
+                        mesh.syncMeshCoreLegacyChannelMirror();
+                        ::settings::ui::channel::sync_meshcore_channel_fields(
+                            config, g_settings);
+                    });
                 app_ctx.applyMeshConfig();
                 refresh_visible_item_values();
                 break;
@@ -5191,32 +5661,52 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
             case settings::ui::SettingId::MtPrimaryEnabled:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().primary_enabled = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::channels(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.primary_enabled = value;
+                    });
                 app_ctx.applyMeshConfig();
                 break;
             }
             case settings::ui::SettingId::MtPrimaryUplink:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().primary_uplink_enabled = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::channels(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.primary_uplink_enabled = value;
+                    });
                 app_ctx.applyMeshConfig();
                 break;
             }
             case settings::ui::SettingId::MtPrimaryDownlink:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().primary_downlink_enabled = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::channels(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.primary_downlink_enabled = value;
+                    });
                 app_ctx.applyMeshConfig();
                 break;
             }
             case settings::ui::SettingId::MtSecondaryEnabled:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().secondary_enabled = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::channels(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.secondary_enabled = value;
+                    });
                 app_ctx.applyMeshConfig();
                 build_item_list();
                 break;
@@ -5224,61 +5714,103 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
             case settings::ui::SettingId::MtSecondaryUplink:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().secondary_uplink_enabled = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::channels(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.secondary_uplink_enabled = value;
+                    });
                 app_ctx.applyMeshConfig();
                 break;
             }
             case settings::ui::SettingId::MtSecondaryDownlink:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().secondary_downlink_enabled = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::channels(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.secondary_downlink_enabled = value;
+                    });
                 app_ctx.applyMeshConfig();
                 break;
             }
             case settings::ui::SettingId::MtMqttEnabled:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().meshtastic_mqtt_enabled = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::mesh(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.meshtastic_mqtt_enabled = value;
+                    });
                 build_item_list();
                 break;
             }
             case settings::ui::SettingId::MtMqttUplink:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().meshtastic_mqtt_uplink_enabled = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::mesh(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.meshtastic_mqtt_uplink_enabled = value;
+                    });
                 break;
             }
             case settings::ui::SettingId::MtMqttDownlink:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().meshtastic_mqtt_downlink_enabled = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::mesh(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.meshtastic_mqtt_downlink_enabled = value;
+                    });
                 break;
             }
             case settings::ui::SettingId::McMqttEnabled:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().meshcore_config.meshcore_mqtt_enabled = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::mesh(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.meshcore_config.meshcore_mqtt_enabled = value;
+                    });
                 build_item_list();
                 break;
             }
             case settings::ui::SettingId::McMqttUplink:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().meshcore_config.meshcore_mqtt_uplink_enabled = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::mesh(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.meshcore_config.meshcore_mqtt_uplink_enabled =
+                            value;
+                    });
                 break;
             }
             case settings::ui::SettingId::McMqttDownlink:
             {
                 app::IAppFacade& app_ctx = app::appFacade();
-                app_ctx.getConfig().meshcore_config.meshcore_mqtt_downlink_enabled = *item.bool_value;
-                app_ctx.saveConfig();
+                commit_app_config(
+                    app_ctx,
+                    app::AppConfigChangeSet::mesh(),
+                    [value = *item.bool_value](app::AppConfig& config)
+                    {
+                        config.meshcore_config.meshcore_mqtt_downlink_enabled =
+                            value;
+                    });
                 break;
             }
             case settings::ui::SettingId::WifiEnabled:

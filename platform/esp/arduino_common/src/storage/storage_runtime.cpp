@@ -2,7 +2,10 @@
 
 #include "platform/esp/arduino_common/chat/infra/store/sd_protocol_peer_repository.h"
 #include "platform/esp/arduino_common/chat/infra/store/sd_store.h"
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/common/memory_budget.h"
+#include "platform/esp/common/storage/storage_maintenance_owner.h"
 #include "platform/ui/screen_runtime.h"
 
 #include <Arduino.h>
@@ -10,26 +13,17 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include <algorithm>
+#include <atomic>
 
 namespace platform::esp::arduino_common::storage
 {
 namespace
 {
 
-// ESP-IDF changes the FreeRTOS task API contract: the stack-depth argument
-// and uxTaskGetStackHighWaterMark() are expressed in bytes, not words.
-// Hydration crosses SdFat, the store/repository loaders, and Arduino logging;
-// 2 KiB is not a viable budget for that call chain.
 constexpr uint32_t kStorageTaskStackBytes = 8U * 1024U;
-// Keep hydration below the Arduino loop task. Storage is deliberately
-// throughput-oriented; the UI/input loop owns responsiveness on this core.
 constexpr UBaseType_t kStorageTaskPriority = 0;
 constexpr size_t kStorageInternalReservation = kStorageTaskStackBytes;
 constexpr size_t kStorageInternalFloor = 40U * 1024U;
-constexpr uint32_t kRetryBaseMs = 2000U;
-constexpr uint32_t kRetryMaxMs = 60000U;
-constexpr uint32_t kIdleStableMs = 1500U;
 
 struct WorkerContext
 {
@@ -38,150 +32,311 @@ struct WorkerContext
     chat::MeshProtocol active_protocol = chat::MeshProtocol::Meshtastic;
 };
 
-enum class WorkerMode : uint8_t
-{
-    Hydrate,
-    Compact,
-};
+using Owner = platform::esp::common::storage::StorageMaintenanceOwner;
+using OwnerConfig =
+    platform::esp::common::storage::StorageMaintenanceOwnerConfig;
+using Adapter = platform::esp::common::storage::ISemanticStorageAdapter;
+using Operation = platform::esp::common::storage::StorageOperation;
+using OperationGeneration =
+    platform::esp::common::storage::StorageOperationGeneration;
+using Demand =
+    platform::esp::common::storage::StorageMaintenanceDemand;
+using Result = platform::esp::common::storage::StorageOperationResult;
+using ResultKind =
+    platform::esp::common::storage::StorageOperationResultKind;
 
 WorkerContext s_context{};
-TaskHandle_t s_worker_task = nullptr;
-WorkerMode s_worker_mode = WorkerMode::Hydrate;
-uint32_t s_retry_due_ms = 0U;
-uint8_t s_retry_attempt = 0U;
-uint32_t s_idle_since_ms = 0U;
-bool s_armed = false;
-bool s_first_frame_pending = false;
-volatile bool s_hydrating = false;
-bool s_hydration_ready_event = false;
-bool s_maintenance_pending = false;
+Owner s_owner{};
+std::atomic<bool> s_defer_interactive_storage_reads{false};
 
-void storage_worker(void*);
-
-uint32_t retry_delay_ms()
+Result makeResult(Operation operation,
+                  OperationGeneration generation,
+                  bool ok)
 {
-    const uint8_t shift = std::min<uint8_t>(s_retry_attempt, 5U);
-    return std::min<uint32_t>(kRetryBaseMs << shift, kRetryMaxMs);
-}
-
-bool deadline_reached(uint32_t now_ms, uint32_t deadline_ms)
-{
-    return deadline_ms == 0U ||
-           static_cast<int32_t>(now_ms - deadline_ms) >= 0;
-}
-
-void schedule_retry(const char* reason)
-{
-    ++s_retry_attempt;
-    const uint32_t delay_ms = retry_delay_ms();
-    s_retry_due_ms = millis() + delay_ms;
-    Serial.printf("[Storage] retry scheduled reason=%s attempt=%u retry_in_ms=%lu\n",
-                  reason,
-                  static_cast<unsigned>(s_retry_attempt),
-                  static_cast<unsigned long>(delay_ms));
-}
-
-bool start_worker(WorkerMode mode)
-{
-    if (s_worker_task || !s_armed)
+    if (ok)
     {
-        return false;
+        return Result::completedResult(operation, generation);
     }
-    if (!::platform::esp::common::memory::admit("storage_worker",
-                                                kStorageInternalReservation,
-                                                0,
-                                                0,
-                                                kStorageInternalFloor,
-                                                0))
+    if (!sd_card_ready())
     {
-        schedule_retry("low_internal");
-        return false;
+        return Result::failure(ResultKind::DeviceUnavailable,
+                               operation,
+                               generation);
     }
-
-    s_worker_mode = mode;
-    s_hydrating = mode == WorkerMode::Hydrate;
-    const BaseType_t result =
-        xTaskCreatePinnedToCore(&storage_worker,
-                                mode == WorkerMode::Hydrate ? "storage_hydrate"
-                                                            : "storage_compact",
-                                kStorageTaskStackBytes,
-                                nullptr,
-                                kStorageTaskPriority,
-                                &s_worker_task,
-                                1);
-    if (result != pdPASS)
-    {
-        s_worker_task = nullptr;
-        s_hydrating = false;
-        schedule_retry("task_create_failed");
-        return false;
-    }
-    s_retry_due_ms = 0U;
-    Serial.printf("[Storage] worker started mode=%s stack_bytes=%u\n",
-                  mode == WorkerMode::Hydrate ? "hydrate" : "compact",
-                  static_cast<unsigned>(kStorageTaskStackBytes));
-    return true;
+    return Result::failure(ResultKind::IoError, operation, generation);
 }
 
-void storage_worker(void*)
+class SdMaintenanceAdapter final : public Adapter
 {
-    const uint32_t started_ms = millis();
-    const WorkerMode mode = s_worker_mode;
-    Serial.printf("[Storage] worker begin mode=%s active_protocol=%u\n",
-                  mode == WorkerMode::Hydrate ? "hydrate" : "compact",
+  public:
+    explicit SdMaintenanceAdapter(WorkerContext& context) : context_(context) {}
+
+    Result begin(Operation operation, OperationGeneration generation) override
+    {
+        next_step_ = Step::None;
+        if (operation == Operation::Hydrate)
+        {
+            const Result chat_result = hydrateChat(generation);
+            if (!chat_result.completed())
+            {
+                return chat_result;
+            }
+            if (!context_.peer_directory)
+            {
+                return chat_result;
+            }
+            const auto peer_result =
+                context_.peer_directory->beginMaintenance(operation, generation);
+            if (!peer_result.inProgress())
+            {
+                return peer_result;
+            }
+            next_step_ = Step::HydratePeer;
+            return Result::inProgressResult(operation, generation);
+        }
+
+        if (operation == Operation::Persist)
+        {
+            if (!context_.peer_directory)
+            {
+                return Result::completedResult(operation, generation);
+            }
+            const auto peer_result =
+                context_.peer_directory->beginMaintenance(operation,
+                                                          generation);
+            if (!peer_result.inProgress())
+            {
+                return peer_result;
+            }
+            next_step_ = Step::PersistPeer;
+            return Result::inProgressResult(operation, generation);
+        }
+
+        if (operation == Operation::Compact)
+        {
+            const Result chat_result = compactChat(generation);
+            if (!chat_result.completed())
+            {
+                return chat_result;
+            }
+            if (!context_.peer_directory)
+            {
+                return chat_result;
+            }
+            const auto peer_result =
+                context_.peer_directory->beginMaintenance(operation, generation);
+            if (!peer_result.inProgress())
+            {
+                return peer_result;
+            }
+            next_step_ = Step::CompactPeer;
+            return Result::inProgressResult(operation, generation);
+        }
+
+        return Result::failure(ResultKind::Cancelled, operation, generation);
+    }
+
+    Result step(Operation operation,
+                OperationGeneration generation,
+                const platform::esp::common::storage::StorageOperationBudget&
+                    budget) override
+    {
+        const Step step = next_step_;
+        if (step == Step::Chat)
+        {
+            if (!context_.chat_store)
+            {
+                if (!context_.peer_directory)
+                {
+                    next_step_ = Step::None;
+                    return makeResult(operation, generation, true);
+                }
+                const auto peer_result =
+                    context_.peer_directory->beginMaintenance(operation,
+                                                              generation);
+                if (!peer_result.inProgress())
+                {
+                    next_step_ = Step::None;
+                    return peer_result;
+                }
+                next_step_ =
+                    operation == Operation::Hydrate
+                        ? Step::HydratePeer
+                    : operation == Operation::Persist
+                        ? Step::PersistPeer
+                        : Step::CompactPeer;
+                return peer_result;
+            }
+            const Result result = context_.chat_store->stepMaintenance(
+                operation,
+                generation,
+                budget);
+            if (!result.completed())
+            {
+                return result;
+            }
+            if (context_.peer_directory)
+            {
+                const auto peer_result =
+                    context_.peer_directory->beginMaintenance(operation,
+                                                              generation);
+                if (!peer_result.inProgress())
+                {
+                    return peer_result;
+                }
+                next_step_ = operation == Operation::Hydrate
+                                 ? Step::HydratePeer
+                                 : Step::CompactPeer;
+            }
+            else
+            {
+                next_step_ = Step::None;
+            }
+            return next_step_ == Step::None
+                       ? result
+                       : Result::inProgressResult(operation, generation);
+        }
+
+        if ((operation == Operation::Hydrate && step == Step::HydratePeer) ||
+            (operation == Operation::Persist && step == Step::PersistPeer) ||
+            (operation == Operation::Compact && step == Step::CompactPeer))
+        {
+            if (!context_.peer_directory)
+            {
+                next_step_ = Step::None;
+                return Result::failure(ResultKind::DeviceUnavailable,
+                                       operation,
+                                       generation);
+            }
+            const Result result = context_.peer_directory->stepMaintenance(
+                operation,
+                generation,
+                budget);
+            if (!result.inProgress())
+            {
+                next_step_ = Step::None;
+            }
+            return result;
+        }
+        next_step_ = Step::None;
+        return Result::failure(ResultKind::Cancelled, operation, generation);
+    }
+
+    void cancelAtStepBoundary(Operation operation,
+                              OperationGeneration generation) override
+    {
+        if (context_.chat_store)
+        {
+            context_.chat_store->cancelMaintenance(operation, generation);
+        }
+        if (context_.peer_directory)
+        {
+            context_.peer_directory->cancelMaintenance(operation, generation);
+        }
+        next_step_ = Step::None;
+    }
+
+  private:
+    enum class Step : uint8_t
+    {
+        None,
+        Chat,
+        HydratePeer,
+        PersistPeer,
+        CompactPeer,
+    };
+
+    Result hydrateChat(OperationGeneration generation)
+    {
+        if (context_.chat_store == nullptr)
+        {
+            return Result::completedResult(Operation::Hydrate, generation);
+        }
+        next_step_ = Step::Chat;
+        return context_.chat_store->beginMaintenance(
+            Operation::Hydrate,
+            generation);
+    }
+
+    Result compactChat(OperationGeneration generation)
+    {
+        if (context_.chat_store == nullptr)
+        {
+            return Result::completedResult(Operation::Compact, generation);
+        }
+        next_step_ = Step::Chat;
+        return context_.chat_store->beginMaintenance(
+            Operation::Compact,
+            generation);
+    }
+
+    WorkerContext& context_;
+    Step next_step_ = Step::None;
+};
+
+SdMaintenanceAdapter s_adapter(s_context);
+
+bool admitOwner(void*)
+{
+    return ::platform::esp::common::memory::admit("storage_owner",
+                                                  kStorageInternalReservation,
+                                                  0,
+                                                  0,
+                                                  kStorageInternalFloor,
+                                                  0);
+}
+
+uint32_t ownerNow(void*)
+{
+    return millis();
+}
+
+const char* operationName(Operation operation)
+{
+    if (operation == Operation::Hydrate)
+    {
+        return "hydrate";
+    }
+    if (operation == Operation::Persist)
+    {
+        return "persist";
+    }
+    return "compact";
+}
+
+void ownerStarted(void*,
+                  Operation operation,
+                  OperationGeneration generation)
+{
+    Serial.printf("[Storage] owner begin mode=%s generation=%lu active_protocol=%u\n",
+                  operationName(operation),
+                  static_cast<unsigned long>(generation),
                   static_cast<unsigned>(s_context.active_protocol));
+}
 
-    bool ok = true;
-    if (mode == WorkerMode::Hydrate)
-    {
-        const bool chat_ready =
-            s_context.chat_store == nullptr ||
-            s_context.chat_store->hydrateFromStorage();
-        const bool peer_ready =
-            s_context.peer_directory == nullptr ||
-            s_context.peer_directory->hydrateFromStorage().succeeded();
-        ok = chat_ready && peer_ready;
-        if (ok)
-        {
-            s_retry_attempt = 0U;
-            s_hydration_ready_event = true;
-            s_maintenance_pending = true;
-            s_idle_since_ms = 0U;
-        }
-    }
-    else
-    {
-        if (s_context.chat_store)
-        {
-            ok = s_context.chat_store->compactDeferred() && ok;
-        }
-        if (s_context.peer_directory)
-        {
-            ok = s_context.peer_directory->compactDeferred().succeeded() && ok;
-        }
-        if (ok)
-        {
-            s_maintenance_pending = false;
-            s_retry_attempt = 0U;
-        }
-    }
+void ownerFinished(void*,
+                   Operation operation,
+                   OperationGeneration generation,
+                   ResultKind result,
+                   uint32_t elapsed_ms,
+                   uint32_t stack_free_bytes)
+{
+    Serial.printf("[Storage] owner end mode=%s generation=%lu ok=%u result=%u "
+                  "elapsed_ms=%lu stack_free_bytes=%lu\n",
+                  operationName(operation),
+                  static_cast<unsigned long>(generation),
+                  (result == ResultKind::Completed ||
+                   result == ResultKind::InProgress)
+                      ? 1U
+                      : 0U,
+                  static_cast<unsigned>(result),
+                  static_cast<unsigned long>(elapsed_ms),
+                  static_cast<unsigned long>(stack_free_bytes));
+}
 
-    // ESP-IDF returns the high-water mark in bytes (unlike vanilla FreeRTOS).
-    const unsigned long stack_free_bytes =
-        static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr));
-    Serial.printf("[Storage] worker end mode=%s ok=%u elapsed_ms=%lu stack_free_bytes=%lu\n",
-                  mode == WorkerMode::Hydrate ? "hydrate" : "compact",
-                  ok ? 1U : 0U,
-                  static_cast<unsigned long>(millis() - started_ms),
-                  stack_free_bytes);
-    s_worker_task = nullptr;
-    s_hydrating = false;
-    if (!ok)
-    {
-        schedule_retry(mode == WorkerMode::Hydrate ? "hydrate_failed"
-                                                   : "compact_failed");
-    }
-    vTaskDelete(nullptr);
+bool startupGateSatisfied()
+{
+    return ::platform::esp::boards::storageStartupGateSatisfied();
 }
 
 } // namespace
@@ -190,85 +345,89 @@ void start_deferred_storage(chat::SdStore* chat_store,
                             chat::SdProtocolPeerRepository* peer_store,
                             chat::MeshProtocol active_protocol)
 {
-    if (s_armed)
+    if (s_owner.isArmed())
     {
         return;
     }
 
     if (!chat_store && !peer_store)
     {
-        Serial.printf("[Storage] deferred recovery skipped backend=ram\n");
+        Serial.printf("[Storage] maintenance skipped backend=ram\n");
         return;
     }
 
     s_context.chat_store = chat_store;
     s_context.peer_directory = peer_store;
     s_context.active_protocol = active_protocol;
-    s_armed = true;
-    s_retry_attempt = 0U;
-    s_retry_due_ms = 0U;
-    // Arm the state machine now, but let the first foreground loop present a
-    // complete LVGL frame before any SD worker can contend for the shared SPI
-    // bus.
-    s_first_frame_pending = true;
+    const bool shared_storage_topology =
+        ::platform::esp::boards::storageCapabilities()
+            .requiresDisplayTransactionGate();
+
+    OwnerConfig config{};
+    config.task_name = "storage_owner";
+    config.stack_bytes = kStorageTaskStackBytes;
+    config.priority = kStorageTaskPriority;
+    config.core = 1;
+    config.startup_gate = shared_storage_topology
+                              ? platform::esp::common::storage::StorageStartupGate::
+                                    DisplayTransaction
+                              : platform::esp::common::storage::StorageStartupGate::Immediate;
+    config.context = &s_context;
+    config.adapter = &s_adapter;
+    config.admit = &admitOwner;
+    config.now = &ownerNow;
+    config.on_started = &ownerStarted;
+    config.on_finished = &ownerFinished;
+    s_owner.configure(config);
+    const bool armed = s_owner.arm(millis(), startupGateSatisfied());
+    s_defer_interactive_storage_reads.store(armed && shared_storage_topology,
+                                            std::memory_order_release);
 }
 
 void tick_deferred_storage()
 {
-    if (!s_armed || s_worker_task)
+    if (!s_owner.isArmed())
     {
+        s_defer_interactive_storage_reads.store(false, std::memory_order_release);
         return;
     }
 
-    if (s_first_frame_pending)
-    {
-        s_first_frame_pending = false;
-        return;
-    }
+    Demand demand{};
+    demand.persistence_pending =
+        s_context.peer_directory &&
+        s_context.peer_directory->persistencePending();
+    demand.compaction_pending =
+        (s_context.chat_store &&
+         s_context.chat_store->compactionPending()) ||
+        (s_context.peer_directory &&
+         s_context.peer_directory->compactionPending());
+    (void)s_owner.submitTick(millis(),
+                             ::platform::ui::screen::is_sleeping(),
+                             ::platform::ui::screen::is_saver_active(),
+                             startupGateSatisfied(),
+                             demand);
+}
 
-    const uint32_t now_ms = millis();
-    if (s_retry_due_ms != 0U && !deadline_reached(now_ms, s_retry_due_ms))
-    {
-        return;
-    }
-
-    if (s_maintenance_pending)
-    {
-        if (!::platform::ui::screen::is_sleeping() ||
-            ::platform::ui::screen::is_saver_active())
-        {
-            s_idle_since_ms = 0U;
-            return;
-        }
-        if (s_idle_since_ms == 0U)
-        {
-            s_idle_since_ms = now_ms;
-            return;
-        }
-        if (now_ms - s_idle_since_ms < kIdleStableMs)
-        {
-            return;
-        }
-        (void)start_worker(WorkerMode::Compact);
-        return;
-    }
-
-    (void)start_worker(WorkerMode::Hydrate);
+void stop_deferred_storage()
+{
+    (void)s_owner.requestStop();
+    s_defer_interactive_storage_reads.store(false, std::memory_order_release);
 }
 
 bool hydration_active()
 {
-    return s_hydrating;
+    return s_owner.hydrationActive();
+}
+
+bool interactive_storage_reads_deferred()
+{
+    return s_defer_interactive_storage_reads.load(std::memory_order_acquire) &&
+           s_owner.initialHydrationPending();
 }
 
 bool consume_hydration_ready()
 {
-    if (!s_hydration_ready_event)
-    {
-        return false;
-    }
-    s_hydration_ready_event = false;
-    return true;
+    return s_owner.consumeHydrationReady();
 }
 
 } // namespace platform::esp::arduino_common::storage

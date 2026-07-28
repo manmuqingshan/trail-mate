@@ -121,6 +121,13 @@ class MemoryPeerDirectoryBlobStore final
 class PagingStore final : public ::chat::IChatStore
 {
   public:
+    bool isReady() const override { return ready_; }
+
+    void setReady(const bool ready)
+    {
+        ready_ = ready;
+    }
+
     void append(const ::chat::ChatMessage& msg) override
     {
         messages_.push_back(msg);
@@ -298,6 +305,7 @@ class PagingStore final : public ::chat::IChatStore
   private:
     std::vector<::chat::ChatMessage> messages_;
     int unread_ = 0;
+    bool ready_ = true;
 };
 
 ui::chat::ConversationId directPeer(uint32_t peer)
@@ -616,6 +624,13 @@ int main()
     ui::chat::ChatWorkspaceRequest paging_request;
     paging_request.selected = paging;
     paging_request.message_offset = 0;
+    paging_store.setReady(false);
+    ui::chat::ChatWorkspaceSnapshot not_ready_snapshot;
+    assert(!paging_source.buildChatWorkspaceSnapshot(paging_request,
+                                                     not_ready_snapshot));
+    assert(!not_ready_snapshot.header.valid);
+    paging_store.setReady(true);
+
     assert(paging_source.buildChatWorkspaceSnapshot(paging_request, snapshot));
     assert(snapshot.message_count == ui::chat::ChatWorkspaceSnapshot::kMaxMessages);
     assert(snapshot.message_total_count == 25);

@@ -93,6 +93,51 @@ class FixedSlotJournalEngine final
                         std::size_t slot_size);
 };
 
+// A cursor performs at most one bounded slot read per next() call. It keeps
+// only metadata between calls, so no filesystem handle or logical store lock
+// is held while the owner is waiting for the next maintenance tick.
+class FixedSlotJournalCursor final
+{
+  public:
+    enum class StepStatus : uint8_t
+    {
+        Item = 0,
+        Complete,
+        Missing,
+        Invalid,
+        Unavailable,
+    };
+
+    bool begin(const FixedSlotJournalEngine& engine,
+               const char* path,
+               MeshProtocol protocol,
+               JournalKind kind,
+               std::size_t slot_size);
+
+    StepStatus next(const FixedSlotJournalEngine& engine,
+                    void* out_slot,
+                    std::size_t out_len);
+
+    bool seek(uint32_t slot_index);
+    void reset();
+    const FixedSlotJournalEngine::Inspection& inspection() const
+    {
+        return inspection_;
+    }
+    uint32_t nextIndex() const { return next_index_; }
+    std::size_t slotSize() const { return slot_size_; }
+    bool active() const { return active_; }
+
+  private:
+    char path_[160] = {};
+    MeshProtocol protocol_ = MeshProtocol::Meshtastic;
+    JournalKind kind_ = JournalKind::MessageSegment;
+    std::size_t slot_size_ = 0U;
+    FixedSlotJournalEngine::Inspection inspection_{};
+    uint32_t next_index_ = 0U;
+    bool active_ = false;
+};
+
 bool replaceFileAtomically(const char* temp_path,
                            const char* final_path,
                            const char* backup_path);

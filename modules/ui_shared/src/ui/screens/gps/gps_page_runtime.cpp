@@ -4458,6 +4458,10 @@ void exit(lv_obj_t* parent)
         lv_obj_del(s_root);
         s_root = nullptr;
     }
+    // The LVGL object tree owns every label in the top bar. Clear this
+    // non-owning view immediately after deleting the tree so a stale callback
+    // cannot bind or render through a freed label.
+    s_top_bar = {};
     const bool was_gps_status = s_projection == Projection::GpsStatus;
     s_host = nullptr;
     s_projection = Projection::Map;

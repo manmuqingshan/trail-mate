@@ -14,6 +14,19 @@ The physical shared-device mechanism is a technical concern owned by
 `docs/spi_bus_architecture.md`. This document defines only UI/runtime ownership
 and semantic storage behavior.
 
+There is no generic `sys::runtime::PersistenceRuntime` in production. Storage
+responsibilities are deliberately split:
+
+- `StorageMaintenanceRuntime` owns SD-backed hydration, compaction, startup
+  gating, and maintenance retry state.
+- `ConfigPersistenceRuntime` owns application-config dirty tracking, debounce,
+  immutable payloads, generations, critical flush, and config retry state.
+- Domain stores own their domain state and domain-specific snapshot policy.
+
+These owners use semantic storage adapters. They do not expose SPI tokens,
+chip-select lines, filesystem sessions, mutexes, or RTOS task handles to
+callers, and neither runtime is a universal storage service.
+
 ## Problem Statement
 
 Trail Mate currently has several paths where renderer-owned code, runtime
@@ -113,7 +126,8 @@ Examples:
 
 - `MapTileWorker`
 - `TrackStorageWorker`
-- `PersistenceWorker`
+- `StorageMaintenanceRuntime` for SD-backed maintenance
+- `ConfigPersistenceRuntime` for application-config persistence
 - `ProtocolRuntimeWorker`
 - `FeedbackDispatchWorker` when a target needs one
 
@@ -332,7 +346,8 @@ flowchart TB
   subgraph Workers["Active Objects"]
     TileWorker["MapTileWorker"]
     TrackWorker["TrackStorageWorker"]
-    PersistWorker["PersistenceWorker"]
+    ConfigPersist["ConfigPersistenceRuntime"]
+    Maintenance["StorageMaintenanceRuntime"]
   end
 
   subgraph Platform["Platform Adapters"]
@@ -347,15 +362,18 @@ flowchart TB
   Facade --> Policies
   Commands --> TileWorker
   Commands --> TrackWorker
-  Commands --> PersistWorker
+  Commands --> ConfigPersist
+  Commands --> Maintenance
   TileWorker --> DeviceIo
   TrackWorker --> DeviceIo
-  PersistWorker --> DeviceIo
+  ConfigPersist --> DeviceIo
+  Maintenance --> DeviceIo
   DeviceIo --> Storage
   TileWorker --> Decode
   TileWorker --> Events
   TrackWorker --> Events
-  PersistWorker --> Events
+  ConfigPersist --> Events
+  Maintenance --> Events
   Events --> State
   Events --> UiDrain
   UiDrain --> Renderer
@@ -454,7 +472,8 @@ flowchart TB
   subgraph WorkerContext["Worker Context"]
     TileWorker["Tile worker"]
     TrackWorker["Track worker"]
-    PersistWorker["Persistence worker"]
+    ConfigPersist["Config persistence runtime"]
+    Maintenance["Storage maintenance runtime"]
     ProtocolWorker["Protocol worker"]
   end
 
@@ -481,11 +500,13 @@ flowchart TB
   Facades --> Policies
   Commands --> TileWorker
   Commands --> TrackWorker
-  Commands --> PersistWorker
+  Commands --> ConfigPersist
+  Commands --> Maintenance
   Commands --> ProtocolWorker
   TileWorker --> StorageAdapter
   TrackWorker --> StorageAdapter
-  PersistWorker --> StorageAdapter
+  ConfigPersist --> StorageAdapter
+  Maintenance --> StorageAdapter
   TileWorker --> DecodeAdapter
   ProtocolWorker --> RadioAdapter
   WorkerContext --> Events
@@ -528,7 +549,8 @@ flowchart LR
     CommandPump["Command pump"]
     TileWorker["Tile worker"]
     TrackWorker["Track worker"]
-    PersistWorker["Persistence worker"]
+    ConfigPersist["Config persistence runtime"]
+    Maintenance["Storage maintenance runtime"]
   end
 
   subgraph ResourceOwner["Resource owner"]
@@ -547,10 +569,12 @@ flowchart LR
   ProtocolIntent --> CommandPump
   CommandPump --> TileWorker
   CommandPump --> TrackWorker
-  CommandPump --> PersistWorker
+  CommandPump --> ConfigPersist
+  CommandPump --> Maintenance
   TileWorker --> DeviceIo
   TrackWorker --> DeviceIo
-  PersistWorker --> DeviceIo
+  ConfigPersist --> DeviceIo
+  Maintenance --> DeviceIo
   DeviceIo --> Storage
   TileWorker --> Decode
   TileWorker --> UiDrain
@@ -563,9 +587,9 @@ one physical thread, the same ownership model still applies cooperatively:
 slow work must be incremental, budgeted, and represented as commands/events
 rather than blocking UI execution.
 
-The storage worker is not the device owner. It owns command state and calls a
-device storage service. The service owns the physical transaction mechanism
-described in `docs/spi_bus_architecture.md`.
+The storage runtimes are not the device owner. They own operation state and
+call semantic device services. Those services own the physical transaction
+mechanism described in `docs/spi_bus_architecture.md`.
 
 ## Device I/O Boundary
 
@@ -766,69 +790,70 @@ classDiagram
   TrackRuntime --> TrackEvent
 ```
 
-## UML Persistence Class Model
+## UML Configuration Persistence Class Model
 
 ```mermaid
 classDiagram
-  class PersistenceRuntime {
-    +markDirty(store_key)
-    +requestSave(store_key, policy)
-    +handle(event)
+  class ConfigPersistenceRuntime {
+    +initialize(baseline)
+    +submit(desired, changes, now_ms, urgency)
+    +takeDue(now_ms, work)
+    +complete(generation, result, now_ms)
   }
 
-  class PersistenceCommand {
-    +command_id
-    +store_key
-    +policy
-    +deadline_ms
+  class AppConfigEdit {
+    +config()
+    +commit(change_set)
+    +cancel()
   }
 
-  class PersistencePolicy {
-    <<strategy>>
-    DebouncedSave
-    BatchSave
-    ImmediateCriticalSave
-    DropDuplicateSave
+  class AppConfigChangeSet {
+    +domains
+    +generation
   }
 
-  class DirtyStoreRegistry {
-    +markDirty(store_key)
-    +takeDue(now_ms)
-    +hasPending(store_key)
+  class ConfigPersistenceWork {
+    +snapshot
+    +changes
+    +generation
   }
 
-  class PersistenceWorker {
-    +submit(command)
-    +tick(now_ms)
+  class PersistenceGeneration {
+    <<value>>
+    +value
   }
 
-  class IStoreSnapshotProvider {
+  class PersistenceResultKind {
+    <<enumeration>>
+    Completed
+    InProgress
+    StateBusy
+    DeviceUnavailable
+    RetryLater
+    IoError
+    Cancelled
+    StaleGeneration
+  }
+
+  class ISemanticStorageAdapter {
     <<interface>>
-    +snapshot(store_key)
+    +begin(operation, generation)
+    +step(operation, generation, budget)
+    +cancelAtStepBoundary(operation, generation)
   }
 
-  class IStoreStorageAdapter {
-    <<interface>>
-    +write(store_key, bytes)
-    +read(store_key)
-  }
-
-  class PersistenceEvent {
-    +kind
-    +store_key
-    +command_id
-    +error
-  }
-
-  PersistenceRuntime o-- DirtyStoreRegistry
-  PersistenceRuntime --> PersistenceCommand
-  PersistenceCommand --> PersistencePolicy
-  PersistenceWorker --> PersistenceCommand
-  PersistenceWorker o-- IStoreSnapshotProvider
-  PersistenceWorker o-- IStoreStorageAdapter
-  PersistenceWorker --> PersistenceEvent
-  PersistenceRuntime --> PersistenceEvent
+  ConfigPersistenceRuntime o-- ConfigPersistenceWork
+  ConfigPersistenceRuntime --> AppConfigChangeSet
+  ConfigPersistenceWork --> PersistenceGeneration
+  ConfigPersistenceRuntime --> PersistenceResultKind
+  AppConfigEdit --> AppConfigChangeSet
 ```
+
+`ConfigPersistenceRuntime` is the only owner of configuration persistence
+state. `AppConfigEdit` creates an immutable intent from a caller-owned edit;
+the runtime snapshots the authoritative configuration and owns the pending and
+in-flight payloads. Domain stores such as contacts, peers, maps, and tracks do
+not enter this model merely because they also use SD or flash.
 
 ## UML Feedback Class Model
 
@@ -1021,29 +1046,30 @@ sequenceDiagram
   Events->>UI: drain UI-safe events
 ```
 
-### NodeInfo Storm With Debounced Persistence
+### NodeInfo Storm With Domain-Owned Maintenance
 
 ```mermaid
 sequenceDiagram
   participant Radio as Radio Task
   participant Runtime as Protocol Runtime
   participant Contacts as Contact/Node Runtime
-  participant Persist as PersistenceRuntime
-  participant Worker as PersistenceWorker
-  participant Store as Storage Adapter
+  participant StoreOwner as Contact/Node Store Owner
+  participant Maintenance as StorageMaintenanceRuntime
+  participant Adapter as Semantic Storage Adapter
   participant UI as UI Owner
 
   loop many packets
     Radio->>Runtime: incoming NodeInfo/Position
     Runtime->>Contacts: update in-memory projection
-    Contacts->>Persist: markDirty(nodes)
+    Contacts->>StoreOwner: apply domain update
     Contacts->>UI: publish projection update
   end
-  Persist->>Persist: coalesce dirty notifications
-  Persist->>Worker: enqueue SaveStoreCommand after debounce
-  Worker->>Store: write snapshot
-  Worker->>Persist: PersistenceSaved/PersistenceFailed
-  Persist->>UI: optional storage feedback event
+  StoreOwner->>StoreOwner: coalesce domain changes
+  StoreOwner->>Maintenance: request maintenance when policy is due
+  Maintenance->>Adapter: hydrate or compact store
+  Adapter-->>Maintenance: result(generation)
+  Maintenance-->>StoreOwner: completion or retry state
+  StoreOwner->>UI: optional storage feedback event
 ```
 
 ### Chat Send Result While Page Changes
@@ -1114,11 +1140,11 @@ classDiagram
     +drain()
   }
 
-  class FakeStorageBackend {
+  class FakeSemanticStorageAdapter {
     +scriptDelay(operation, ms)
     +scriptFailure(operation, error)
-    +read(request)
-    +write(request)
+    +execute(operation)
+    +result()
   }
 
   class FakeDeviceIo {
@@ -1141,7 +1167,7 @@ classDiagram
   RuntimeHarness o-- FakeClock
   RuntimeHarness o-- FakeCommandQueue
   RuntimeHarness o-- FakeEventBus
-  RuntimeHarness o-- FakeStorageBackend
+  RuntimeHarness o-- FakeSemanticStorageAdapter
   RuntimeHarness o-- FakeDeviceIo
   RuntimeHarness o-- FakeUiOwner
   RuntimeHarness o-- FakeFeedbackPresenter
@@ -1284,28 +1310,39 @@ Mandatory behavior:
 - The runtime state machine owns `Idle`, `Starting`, `Recording`, `Flushing`,
   `Stopping`, `Stopped`, `Error`, and `Recovering`.
 
-## Persistence Runtime Design
+## Configuration Persistence Design
 
-Node/contact/config persistence must be decoupled from event dispatch.
+Configuration persistence must be decoupled from event dispatch. Node/contact,
+map, and track persistence remain domain-owned and do not share this runtime's
+business state.
 
 ```text
-Runtime event updates in-memory state.
-Persistence intent is recorded.
-PersistenceWorker batches/debounces writes.
-Persistence result is published as an event.
+Caller creates an AppConfigEdit.
+The edit commits an AppConfigChangeSet.
+ConfigPersistenceRuntime snapshots the authoritative configuration.
+The runtime debounces, writes an immutable payload, and publishes the result.
 ```
 
-Required strategies:
+Required configuration semantics:
 
-- `DebouncedSave` for node/contact store updates.
-- `ImmediateCriticalSave` only for explicit user settings or shutdown-critical
-  state.
-- `BatchSave` for high-frequency updates.
-- `DropDuplicateSave` for repeated dirty notifications while one save is
-  already pending.
+- Debounce ordinary changes and coalesce them by configuration generation.
+- Use an immediate critical flush only for explicit user settings or
+  shutdown-critical state.
+- Keep pending and in-flight payloads immutable and independently owned.
+- Retry the failed generation without overwriting a newer generation.
+- Treat stale completions as observations, never as permission to mutate the
+  current runtime state.
 
-Event dispatch may mark a store dirty. It must not synchronously write storage
-from the UI owner context.
+Event dispatch may submit a configuration intent. It must not synchronously
+write storage from the UI owner context.
+
+## Domain Store Maintenance Design
+
+Domain stores own their state and decide when their snapshot is durable. The
+maintenance runtime provides the shared lifecycle for SD-backed hydration,
+compaction, startup gating, and retry, but it does not become a universal
+`save(store_key, bytes)` service. A domain owner submits a semantic operation
+and consumes a completion tagged with the corresponding generation.
 
 ## Feedback Runtime Design
 
@@ -1382,7 +1419,7 @@ The simulator must provide:
 | `FakeUiThread` | records UI ticks and asserts no blocking operation runs on UI |
 | `FakeEventBus` | publishes and drains runtime events deterministically |
 | `FakeCommandQueue` | bounded queue, priorities, cancellation, dedupe |
-| `FakeStorageBackend` | scripted read/write/list/flush delay and failure |
+| `FakeSemanticStorageAdapter` | scripted semantic storage results, delay, and failure |
 | `FakeDeviceIo` | scripted device result, delay, and diagnostic outcome |
 | `FakeMapTileWorker` | completes tile commands in controlled order |
 | `FakeTrackStorageWorker` | batches points and emits track events |
@@ -1545,7 +1582,8 @@ The burn-down should proceed in slices that each leave the system shippable.
 3. Move map tile file access out of LVGL timer/input paths.
 4. Move track start/stop/list/append/flush into an asynchronous track storage
    worker.
-5. Move node/contact persistence to a debounced persistence worker.
+5. Consolidate node/contact maintenance under domain store owners and
+   `StorageMaintenanceRuntime`; keep it separate from configuration persistence.
 6. Replace direct hardware access in UI-facing code with device service calls.
 7. Burn down adapter-owned business decisions and route them through shared
    runtimes/facades.
