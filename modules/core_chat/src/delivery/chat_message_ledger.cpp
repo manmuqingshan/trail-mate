@@ -26,6 +26,7 @@ LedgerPersistence ChatMessageLedger::recordOutbound(
     bool model_enabled,
     SendFailureKind failure)
 {
+    trackOutbound(message);
     if (model_enabled)
     {
         model_.onSendQueued(message);
@@ -64,6 +65,23 @@ bool ChatMessageLedger::applyOutboundStatus(MessageId msg_id,
                                             uint32_t timestamp_ms,
                                             SendFailureKind failure)
 {
+    if (TrackedOutbound* tracked = findTrackedOutbound(msg_id))
+    {
+        ChatMessage current{};
+        current.msg_id = msg_id;
+        current.protocol = tracked->protocol;
+        current.status = tracked->status;
+        if (!ChatOutboxService::shouldApplyStatus(&current, status) ||
+            !writeStatusForProtocol(
+                msg_id, tracked->protocol, status, model_enabled))
+        {
+            return false;
+        }
+        publishDeliveryEventForProtocol(
+            msg_id, tracked->protocol, status, timestamp_ms, failure);
+        return true;
+    }
+
     ChatMessage current{};
     if (!lookupMessage(msg_id, current))
     {
@@ -91,6 +109,23 @@ bool ChatMessageLedger::applyOutboundStatusForProtocol(MessageId msg_id,
                                                        uint32_t timestamp_ms,
                                                        SendFailureKind failure)
 {
+    if (TrackedOutbound* tracked =
+            findTrackedOutboundForProtocol(msg_id, protocol))
+    {
+        ChatMessage current{};
+        current.msg_id = msg_id;
+        current.protocol = protocol;
+        current.status = tracked->status;
+        if (!ChatOutboxService::shouldApplyStatus(&current, status) ||
+            !writeStatusForProtocol(msg_id, protocol, status, model_enabled))
+        {
+            return false;
+        }
+        publishDeliveryEventForProtocol(
+            msg_id, protocol, status, timestamp_ms, failure);
+        return true;
+    }
+
     ChatMessage current{};
     if (!lookupMessageForProtocol(msg_id, protocol, current))
     {
@@ -233,10 +268,24 @@ bool ChatMessageLedger::writeStatusForProtocol(MessageId msg_id,
     }
     if (store_.updateMessageStatusForProtocol(msg_id, protocol, status))
     {
+        if (TrackedOutbound* tracked =
+                findTrackedOutboundForProtocol(msg_id, protocol))
+        {
+            tracked->status = status;
+        }
         removePendingStatus(msg_id, protocol);
         return true;
     }
-    return enqueuePendingStatus(msg_id, protocol, status) || updated;
+    const bool deferred = enqueuePendingStatus(msg_id, protocol, status);
+    if (deferred)
+    {
+        if (TrackedOutbound* tracked =
+                findTrackedOutboundForProtocol(msg_id, protocol))
+        {
+            tracked->status = status;
+        }
+    }
+    return deferred || updated;
 }
 
 std::size_t ChatMessageLedger::flushPendingWrites(std::size_t budget)
@@ -511,6 +560,7 @@ void ChatMessageLedger::clearConversation(
             pending = PendingStatusWrite{};
         }
     }
+    clearTrackedOutbound(conversation);
 }
 
 void ChatMessageLedger::clear()
@@ -522,6 +572,10 @@ void ChatMessageLedger::clear()
     for (PendingStatusWrite& pending : pending_status_writes_)
     {
         pending = PendingStatusWrite{};
+    }
+    for (TrackedOutbound& tracked : tracked_outbound_)
+    {
+        tracked = TrackedOutbound{};
     }
     next_pending_sequence_ = 1;
 }
@@ -651,6 +705,99 @@ bool ChatMessageLedger::enqueuePendingStatus(MessageId msg_id,
     return false;
 }
 
+void ChatMessageLedger::trackOutbound(const ChatMessage& message)
+{
+    if (message.msg_id == 0 || message.from != 0)
+    {
+        return;
+    }
+    if (TrackedOutbound* existing =
+            findTrackedOutboundForProtocol(message.msg_id, message.protocol))
+    {
+        existing->conversation = conversationIdForMessage(message);
+        existing->status = message.status;
+        return;
+    }
+
+    TrackedOutbound* target = nullptr;
+    for (TrackedOutbound& tracked : tracked_outbound_)
+    {
+        if (!tracked.used)
+        {
+            target = &tracked;
+            break;
+        }
+        if (target == nullptr || tracked.sequence < target->sequence)
+        {
+            target = &tracked;
+        }
+    }
+    if (target == nullptr)
+    {
+        return;
+    }
+    target->used = true;
+    target->sequence = nextPendingSequence();
+    target->conversation = conversationIdForMessage(message);
+    target->msg_id = message.msg_id;
+    target->protocol = message.protocol;
+    target->status = message.status;
+}
+
+ChatMessageLedger::TrackedOutbound*
+ChatMessageLedger::findTrackedOutbound(MessageId msg_id)
+{
+    if (msg_id == 0)
+    {
+        return nullptr;
+    }
+    TrackedOutbound* match = nullptr;
+    for (TrackedOutbound& tracked : tracked_outbound_)
+    {
+        if (!tracked.used || tracked.msg_id != msg_id)
+        {
+            continue;
+        }
+        if (match != nullptr)
+        {
+            return nullptr;
+        }
+        match = &tracked;
+    }
+    return match;
+}
+
+ChatMessageLedger::TrackedOutbound*
+ChatMessageLedger::findTrackedOutboundForProtocol(MessageId msg_id,
+                                                  MeshProtocol protocol)
+{
+    if (msg_id == 0)
+    {
+        return nullptr;
+    }
+    for (TrackedOutbound& tracked : tracked_outbound_)
+    {
+        if (tracked.used && tracked.msg_id == msg_id &&
+            tracked.protocol == protocol)
+        {
+            return &tracked;
+        }
+    }
+    return nullptr;
+}
+
+void ChatMessageLedger::clearTrackedOutbound(
+    const ConversationId& conversation)
+{
+    for (TrackedOutbound& tracked : tracked_outbound_)
+    {
+        if (tracked.used && tracked.conversation == conversation)
+        {
+            tracked = TrackedOutbound{};
+        }
+    }
+}
+
 void ChatMessageLedger::removePendingStatus(MessageId msg_id,
                                             MeshProtocol protocol)
 {
@@ -738,6 +885,31 @@ void ChatMessageLedger::publishDeliveryEvent(const ChatMessage& message,
     delivery_event_port_->publishDeliveryEvent(
         makeChatSendResultDeliveryEvent(
             toDeliveryRef(message),
+            ChatOutboxService::toDeliveryState(status),
+            status == MessageStatus::Failed
+                ? failure
+                : ChatOutboxService::failureForStatus(status),
+            timestamp_ms));
+}
+
+void ChatMessageLedger::publishDeliveryEventForProtocol(
+    MessageId msg_id,
+    MeshProtocol protocol,
+    MessageStatus status,
+    uint32_t timestamp_ms,
+    SendFailureKind failure)
+{
+    if (delivery_event_port_ == nullptr || msg_id == 0 ||
+        !ChatOutboxService::isOutboundStatusUpdate(status))
+    {
+        return;
+    }
+    ChatDeliveryRef ref{};
+    ref.protocol_id = msg_id;
+    ref.protocol = static_cast<uint8_t>(protocol);
+    delivery_event_port_->publishDeliveryEvent(
+        makeChatSendResultDeliveryEvent(
+            ref,
             ChatOutboxService::toDeliveryState(status),
             status == MessageStatus::Failed
                 ? failure

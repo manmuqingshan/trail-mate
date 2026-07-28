@@ -94,9 +94,14 @@ class SdMaintenanceAdapter final : public Adapter
 
         if (operation == Operation::Persist)
         {
+            const Result chat_result = persistChat(generation);
+            if (!chat_result.completed())
+            {
+                return chat_result;
+            }
             if (!context_.peer_directory)
             {
-                return Result::completedResult(operation, generation);
+                return chat_result;
             }
             const auto peer_result =
                 context_.peer_directory->beginMaintenance(operation,
@@ -183,6 +188,8 @@ class SdMaintenanceAdapter final : public Adapter
                 }
                 next_step_ = operation == Operation::Hydrate
                                  ? Step::HydratePeer
+                             : operation == Operation::Persist
+                                 ? Step::PersistPeer
                                  : Step::CompactPeer;
             }
             else
@@ -264,6 +271,18 @@ class SdMaintenanceAdapter final : public Adapter
         next_step_ = Step::Chat;
         return context_.chat_store->beginMaintenance(
             Operation::Compact,
+            generation);
+    }
+
+    Result persistChat(OperationGeneration generation)
+    {
+        if (context_.chat_store == nullptr)
+        {
+            return Result::completedResult(Operation::Persist, generation);
+        }
+        next_step_ = Step::Chat;
+        return context_.chat_store->beginMaintenance(
+            Operation::Persist,
             generation);
     }
 
@@ -388,8 +407,10 @@ void tick_deferred_storage()
 
     Demand demand{};
     demand.persistence_pending =
-        s_context.peer_directory &&
-        s_context.peer_directory->persistencePending();
+        (s_context.chat_store &&
+         s_context.chat_store->persistencePending()) ||
+        (s_context.peer_directory &&
+         s_context.peer_directory->persistencePending());
     demand.compaction_pending =
         (s_context.chat_store &&
          s_context.chat_store->compactionPending()) ||

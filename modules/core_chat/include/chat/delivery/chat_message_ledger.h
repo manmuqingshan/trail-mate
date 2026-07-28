@@ -70,6 +70,7 @@ class ChatMessageLedger final
   private:
     static constexpr std::size_t kPendingOutboundWriteDepth = 8;
     static constexpr std::size_t kPendingStatusWriteDepth = 16;
+    static constexpr std::size_t kTrackedOutboundDepth = 16;
 
     struct PendingOutboundWrite
     {
@@ -82,6 +83,16 @@ class ChatMessageLedger final
     {
         bool used = false;
         uint32_t sequence = 0;
+        MessageId msg_id = 0;
+        MeshProtocol protocol = MeshProtocol::Meshtastic;
+        MessageStatus status = MessageStatus::Queued;
+    };
+
+    struct TrackedOutbound
+    {
+        bool used = false;
+        uint32_t sequence = 0;
+        ConversationId conversation{};
         MessageId msg_id = 0;
         MeshProtocol protocol = MeshProtocol::Meshtastic;
         MessageStatus status = MessageStatus::Queued;
@@ -107,6 +118,12 @@ class ChatMessageLedger final
     bool enqueuePendingStatus(MessageId msg_id,
                               MeshProtocol protocol,
                               MessageStatus status);
+    void trackOutbound(const ChatMessage& message);
+    TrackedOutbound* findTrackedOutbound(MessageId msg_id);
+    TrackedOutbound* findTrackedOutboundForProtocol(
+        MessageId msg_id,
+        MeshProtocol protocol);
+    void clearTrackedOutbound(const ConversationId& conversation);
     void removePendingStatus(MessageId msg_id, MeshProtocol protocol);
     void applyPendingStatus(ChatMessage& message) const;
     int oldestPendingOutboundIndex() const;
@@ -117,6 +134,12 @@ class ChatMessageLedger final
                               uint32_t timestamp_ms = 0,
                               SendFailureKind failure =
                                   SendFailureKind::Unknown);
+    void publishDeliveryEventForProtocol(
+        MessageId msg_id,
+        MeshProtocol protocol,
+        MessageStatus status,
+        uint32_t timestamp_ms = 0,
+        SendFailureKind failure = SendFailureKind::Unknown);
 
     ChatModel& model_;
     IChatStore& store_;
@@ -125,6 +148,8 @@ class ChatMessageLedger final
         pending_outbound_writes_{};
     std::array<PendingStatusWrite, kPendingStatusWriteDepth>
         pending_status_writes_{};
+    std::array<TrackedOutbound, kTrackedOutboundDepth>
+        tracked_outbound_{};
     uint32_t next_pending_sequence_ = 1;
 };
 

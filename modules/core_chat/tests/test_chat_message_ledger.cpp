@@ -49,8 +49,17 @@ class TransientStore final : public chat::RamStore
                                                         status);
     }
 
+    bool getMessageForProtocol(chat::MessageId msg_id,
+                               chat::MeshProtocol protocol,
+                               chat::ChatMessage* out) const override
+    {
+        ++protocol_lookup_count;
+        return RamStore::getMessageForProtocol(msg_id, protocol, out);
+    }
+
     int append_failures = 0;
     int status_failures = 0;
+    mutable int protocol_lookup_count = 0;
 };
 
 chat::ChatMessage outgoing(chat::MessageId id, chat::MessageStatus status)
@@ -309,6 +318,38 @@ int main()
         chat::MeshProtocol::Meshtastic,
         &stored));
     assert(stored.status == chat::MessageStatus::Delivered);
+
+    chat::ChatModel background_model;
+    TransientStore background_store;
+    chat::delivery::ChatMessageLedger background_ledger(background_model,
+                                                        background_store);
+    assert(background_ledger.recordOutbound(
+               outgoing(700, chat::MessageStatus::Queued),
+               true) == chat::delivery::LedgerPersistence::Durable);
+    background_model.clearAll();
+    background_store.protocol_lookup_count = 0;
+    assert(background_ledger.applyOutboundStatusForProtocol(
+        700,
+        chat::MeshProtocol::Meshtastic,
+        chat::MessageStatus::Failed,
+        true));
+    assert(background_store.protocol_lookup_count == 0);
+    assert(background_store.getMessageForProtocol(
+        700,
+        chat::MeshProtocol::Meshtastic,
+        &stored));
+    assert(stored.status == chat::MessageStatus::Failed);
+
+    assert(background_ledger.recordOutbound(
+               outgoing(701, chat::MessageStatus::Queued),
+               true) == chat::delivery::LedgerPersistence::Durable);
+    background_model.clearAll();
+    background_store.protocol_lookup_count = 0;
+    assert(background_ledger.applyOutboundStatus(
+        701,
+        chat::MessageStatus::Failed,
+        true));
+    assert(background_store.protocol_lookup_count == 0);
 
     return 0;
 }

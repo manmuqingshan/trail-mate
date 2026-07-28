@@ -193,13 +193,16 @@ int main(int argc, char** argv)
         source,
         "bool SdStore::updateMessageStatusForProtocol",
         "bool SdStore::getMessage");
-    const std::size_t status_projection_write =
-        positionOf(status_update_body,
-                   "appendStatusProjection(protocol, projection)");
-    assert(status_projection_write <
-           positionOfAfter(status_update_body,
-                           "ScopedRecursiveStateLock state_lock",
-                           status_projection_write));
+    assert(contains(status_update_body, "queueStatusProjectionLocked"));
+    assert(!contains(status_update_body, "getMessageForProtocol"));
+    assert(!contains(status_update_body, "appendStatusProjection"));
+
+    const std::string status_persistence_body = bodyBetween(
+        source,
+        "SdStore::stepPersistence",
+        "SdStore::stepCompaction");
+    assert(contains(status_persistence_body,
+                    "flushPendingStatusProjections"));
 
     const std::string ordinal_read_body = bodyBetween(
         source,

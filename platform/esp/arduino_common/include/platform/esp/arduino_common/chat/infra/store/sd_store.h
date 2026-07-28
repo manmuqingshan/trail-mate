@@ -51,6 +51,10 @@ class SdStore final : public IChatStore
         return maintenance_compaction_requested_.load(
             std::memory_order_acquire);
     }
+    bool persistencePending() const
+    {
+        return persistence_pending_.load(std::memory_order_acquire);
+    }
 
     // Construction is intentionally empty. Disk recovery is an explicit
     // background lifecycle step so AppContext can become interactive first.
@@ -136,6 +140,7 @@ class SdStore final : public IChatStore
     static constexpr std::size_t kCatalogCompactThreshold = 512;
     static constexpr std::size_t kReadCompactThreshold = 256;
     static constexpr std::size_t kStatusCompactThreshold = 2048;
+    static constexpr std::size_t kPendingStatusProjectionCapacity = 32;
 
     bool appendInternal(const ChatMessage& msg, bool incoming_commit);
     bool ensureLayout() const;
@@ -188,6 +193,11 @@ class SdStore final : public IChatStore
         const storage::v2::ChatReadProjection& projection);
     bool appendStatusProjection(MeshProtocol protocol,
                                 const storage::v2::ChatStatusProjection& projection);
+    bool queueStatusProjectionLocked(
+        const ProtocolStatusProjection& projection);
+    void prunePendingStatusProjectionsLocked();
+    void refreshPersistenceDemandLocked();
+    bool flushPendingStatusProjections(std::size_t budget);
     bool appendSeenProjection(
         const storage::v2::ReticulumSeenProjection& projection) const;
     bool rememberReticulumHash(const uint8_t* hash);
@@ -246,6 +256,7 @@ class SdStore final : public IChatStore
         HydrationReconcile,
         HydrationSeen,
         HydrationRebuildSeen,
+        PersistenceFlush,
         CompactionPrepare,
         CompactionInspect,
         CompactionCreate,
@@ -286,6 +297,8 @@ class SdStore final : public IChatStore
     bool resetHydrationState();
     platform::esp::common::storage::StorageOperationResult stepHydration(
         const platform::esp::common::storage::StorageOperationBudget& budget);
+    platform::esp::common::storage::StorageOperationResult stepPersistence(
+        const platform::esp::common::storage::StorageOperationBudget& budget);
     platform::esp::common::storage::StorageOperationResult stepCompaction(
         const platform::esp::common::storage::StorageOperationBudget& budget);
     platform::esp::common::storage::StorageOperationResult maintenanceFailure(
@@ -303,6 +316,10 @@ class SdStore final : public IChatStore
     CatalogList catalog_{};
     ReadStateList read_state_{};
     StatusList statuses_{};
+    StatusList pending_status_projections_{};
+    std::size_t pending_status_head_ = 0U;
+    uint32_t pending_status_revision_ = 0U;
+    StatusList flush_status_batch_{};
     mutable SeenList seen_hot_{};
     mutable ScratchBuffer scratch_{};
     mutable ScratchBuffer maintenance_scratch_{};
@@ -344,6 +361,7 @@ class SdStore final : public IChatStore
     bool projection_dirty_[3] = {};
     std::atomic<bool> ready_{false};
     std::atomic<bool> hydrating_{false};
+    std::atomic<bool> persistence_pending_{false};
     mutable std::atomic<bool> maintenance_compaction_requested_{false};
 };
 

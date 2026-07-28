@@ -187,6 +187,8 @@ SdStore::SdStore()
     catalog_.reserve(64);
     read_state_.reserve(64);
     statuses_.reserve(256);
+    pending_status_projections_.reserve(kPendingStatusProjectionCapacity);
+    flush_status_batch_.reserve(4);
     seen_hot_.reserve(256);
     persistence_mutex_ = xSemaphoreCreateRecursiveMutex();
     CHAT_STORE_LOG("[ChatStoreV2] constructed ready=0 hydration=pending root=%s\n", kRoot);
@@ -276,6 +278,11 @@ bool SdStore::resetHydrationState()
     catalog_.clear();
     read_state_.clear();
     statuses_.clear();
+    pending_status_projections_.clear();
+    pending_status_head_ = 0U;
+    pending_status_revision_ = 0U;
+    flush_status_batch_.clear();
+    refreshPersistenceDemandLocked();
     seen_hot_.clear();
     projection_dirty_[0] = false;
     projection_dirty_[1] = false;
@@ -550,6 +557,7 @@ SdStore::beginMaintenance(
     platform::esp::common::storage::StorageOperationGeneration generation)
 {
     if (operation != storage_contracts::StorageOperation::Hydrate &&
+        operation != storage_contracts::StorageOperation::Persist &&
         operation != storage_contracts::StorageOperation::Compact)
     {
         return storage_contracts::StorageOperationResult::failure(
@@ -559,6 +567,13 @@ SdStore::beginMaintenance(
     }
     if (operation == storage_contracts::StorageOperation::Hydrate &&
         ready_.load(std::memory_order_acquire))
+    {
+        return storage_contracts::StorageOperationResult::completedResult(
+            operation,
+            generation);
+    }
+    if (operation == storage_contracts::StorageOperation::Persist &&
+        !persistencePending())
     {
         return storage_contracts::StorageOperationResult::completedResult(
             operation,
@@ -626,9 +641,12 @@ SdStore::beginMaintenance(
     maintenance_ = {};
     maintenance_.operation = operation;
     maintenance_.generation = generation;
-    maintenance_.phase = operation == storage_contracts::StorageOperation::Hydrate
-                             ? MaintenancePhase::HydrationPrepare
-                             : MaintenancePhase::CompactionPrepare;
+    maintenance_.phase =
+        operation == storage_contracts::StorageOperation::Hydrate
+            ? MaintenancePhase::HydrationPrepare
+        : operation == storage_contracts::StorageOperation::Persist
+            ? MaintenancePhase::PersistenceFlush
+            : MaintenancePhase::CompactionPrepare;
     if (operation == storage_contracts::StorageOperation::Hydrate)
     {
         hydrating_.store(true, std::memory_order_release);
@@ -667,13 +685,15 @@ SdStore::stepMaintenance(
             generation);
     }
 
-    const auto result = operation == storage_contracts::StorageOperation::Hydrate
-                            ? stepHydration(budget)
-                        : operation == storage_contracts::StorageOperation::Compact
-                            ? stepCompaction(budget)
-                            : maintenanceFailure(
-                                  storage_contracts::StorageOperationResultKind::
-                                      Cancelled);
+    const auto result =
+        operation == storage_contracts::StorageOperation::Hydrate
+            ? stepHydration(budget)
+        : operation == storage_contracts::StorageOperation::Persist
+            ? stepPersistence(budget)
+        : operation == storage_contracts::StorageOperation::Compact
+            ? stepCompaction(budget)
+            : maintenanceFailure(
+                  storage_contracts::StorageOperationResultKind::Cancelled);
     if (result.completed() ||
         result.kind == storage_contracts::StorageOperationResultKind::Cancelled ||
         maintenance_.phase == MaintenancePhase::Failed)
@@ -1231,6 +1251,38 @@ SdStore::stepHydration(
             return maintenanceFailure(
                 storage_contracts::StorageOperationResultKind::StateBusy);
         }
+    }
+    return storage_contracts::StorageOperationResult::inProgressResult(
+        maintenance_.operation,
+        maintenance_.generation);
+}
+
+platform::esp::common::storage::StorageOperationResult
+SdStore::stepPersistence(
+    const platform::esp::common::storage::StorageOperationBudget& budget)
+{
+    if (!ready_.load(std::memory_order_acquire) ||
+        hydrating_.load(std::memory_order_acquire))
+    {
+        return maintenanceFailure(
+            storage_contracts::StorageOperationResultKind::StateBusy);
+    }
+
+    if (!flushPendingStatusProjections(
+            std::max<std::size_t>(1U, budget.max_work_items)))
+    {
+        return maintenanceFailure(
+            storage_runtime::sd_card_ready()
+                ? storage_contracts::StorageOperationResultKind::RetryLater
+                : storage_contracts::StorageOperationResultKind::
+                      DeviceUnavailable);
+    }
+    if (!persistencePending())
+    {
+        maintenance_.phase = MaintenancePhase::Complete;
+        return storage_contracts::StorageOperationResult::completedResult(
+            maintenance_.operation,
+            maintenance_.generation);
     }
     return storage_contracts::StorageOperationResult::inProgressResult(
         maintenance_.operation,
@@ -2161,6 +2213,11 @@ void SdStore::clearAll()
     catalog_.clear();
     read_state_.clear();
     statuses_.clear();
+    pending_status_projections_.clear();
+    pending_status_head_ = 0U;
+    pending_status_revision_ = 0U;
+    flush_status_batch_.clear();
+    refreshPersistenceDemandLocked();
     seen_hot_.clear();
     std::memset(projection_dirty_, 0, sizeof(projection_dirty_));
     ready_.store(layout_ready, std::memory_order_release);
@@ -2197,24 +2254,8 @@ bool SdStore::updateMessageStatusForProtocol(MessageId msg_id,
     {
         return false;
     }
-    ScopedPersistenceLease persistence_lease(persistence_mutex_,
-                                             kPersistenceLeaseWaitTicks);
-    if (!persistence_lease.locked())
-    {
-        return false;
-    }
-    if (!ready_.load(std::memory_order_acquire))
-    {
-        return false;
-    }
     protocol = normalizeProtocol(protocol);
     if (msg_id == 0U || !storage_v2::supportedProtocol(protocol))
-    {
-        return false;
-    }
-    ChatMessage message{};
-    if (!getMessageForProtocol(msg_id, protocol, &message) ||
-        message.from != 0U)
     {
         return false;
     }
@@ -2222,8 +2263,6 @@ bool SdStore::updateMessageStatusForProtocol(MessageId msg_id,
     storage_v2::ChatStatusProjection projection{};
     projection.message_id = msg_id;
     projection.status = status;
-    storage_v2::ChatCatalogProjection catalog_snapshot{};
-    bool update_catalog = false;
     {
         storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
         if (!state_lock.locked() || !ready_)
@@ -2239,52 +2278,34 @@ bool SdStore::updateMessageStatusForProtocol(MessageId msg_id,
         {
             projection.sequence = 1U;
         }
-        const ConversationId conversation =
-            conversationIdForMessage(message);
-        if (const storage_v2::ChatCatalogProjection* catalog =
-                findCatalog(conversation);
-            catalog && catalog->last_message_id == msg_id)
+        ProtocolStatusProjection queued{};
+        queued.protocol = protocol;
+        queued.value = projection;
+        if (!queueStatusProjectionLocked(queued))
         {
-            catalog_snapshot = *catalog;
-            catalog_snapshot.last_status = status;
-            update_catalog = true;
+            return false;
         }
-    }
-
-    if (!appendStatusProjection(protocol, projection))
-    {
-        return false;
-    }
-    const bool catalog_persisted =
-        !update_catalog || appendCatalogProjection(catalog_snapshot);
-
-    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
-    if (!state_lock.locked() || !ready_)
-    {
-        return false;
-    }
-    if (storage_v2::ChatStatusProjection* current =
-            findStatus(msg_id, protocol))
-    {
-        *current = projection;
-    }
-    else
-    {
-        ProtocolStatusProjection state{};
-        state.protocol = protocol;
-        state.value = projection;
-        statuses_.push_back(state);
-    }
-    if (update_catalog)
-    {
-        if (storage_v2::ChatCatalogProjection* catalog =
-                findCatalog(catalog_snapshot.conversation))
+        if (storage_v2::ChatStatusProjection* current =
+                findStatus(msg_id, protocol))
         {
-            *catalog = catalog_snapshot;
+            *current = projection;
         }
-        if (!catalog_persisted)
+        else
         {
-            projection_dirty_[protocolIndex(protocol)] = true;
+            ProtocolStatusProjection state{};
+            state.protocol = protocol;
+            state.value = projection;
+            statuses_.push_back(state);
+        }
+        for (storage_v2::ChatCatalogProjection& catalog : catalog_)
+        {
+            if (!catalog.deleted &&
+                sameProtocol(catalog.conversation.protocol, protocol) &&
+                catalog.last_message_id == msg_id)
+            {
+                catalog.last_status = status;
+                break;
+            }
         }
     }
     return true;
@@ -3157,6 +3178,111 @@ bool SdStore::appendStatusProjection(
             std::memory_order_release);
     }
     return ok;
+}
+
+bool SdStore::queueStatusProjectionLocked(
+    const ProtocolStatusProjection& projection)
+{
+    prunePendingStatusProjectionsLocked();
+    for (ProtocolStatusProjection& pending : pending_status_projections_)
+    {
+        if (pending.value.message_id == projection.value.message_id &&
+            sameProtocol(pending.protocol, projection.protocol))
+        {
+            pending = projection;
+            ++pending_status_revision_;
+            refreshPersistenceDemandLocked();
+            return true;
+        }
+    }
+    if (pending_status_projections_.size() >=
+        kPendingStatusProjectionCapacity)
+    {
+        return false;
+    }
+    pending_status_projections_.push_back(projection);
+    ++pending_status_revision_;
+    refreshPersistenceDemandLocked();
+    return true;
+}
+
+void SdStore::prunePendingStatusProjectionsLocked()
+{
+    if (pending_status_head_ == 0U)
+    {
+        return;
+    }
+    if (pending_status_head_ >= pending_status_projections_.size())
+    {
+        pending_status_projections_.clear();
+        pending_status_head_ = 0U;
+        return;
+    }
+    pending_status_projections_.erase(
+        pending_status_projections_.begin(),
+        pending_status_projections_.begin() +
+            static_cast<std::ptrdiff_t>(pending_status_head_));
+    pending_status_head_ = 0U;
+}
+
+void SdStore::refreshPersistenceDemandLocked()
+{
+    persistence_pending_.store(
+        pending_status_head_ < pending_status_projections_.size(),
+        std::memory_order_release);
+}
+
+bool SdStore::flushPendingStatusProjections(std::size_t budget)
+{
+    flush_status_batch_.clear();
+    std::size_t start = 0U;
+    uint32_t revision = 0U;
+    {
+        storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+        if (!state_lock.locked() || !ready_)
+        {
+            return false;
+        }
+        prunePendingStatusProjectionsLocked();
+        start = pending_status_head_;
+        revision = pending_status_revision_;
+        const std::size_t end = std::min(
+            pending_status_projections_.size(),
+            start + std::max<std::size_t>(1U, budget));
+        flush_status_batch_.assign(
+            pending_status_projections_.begin() +
+                static_cast<std::ptrdiff_t>(start),
+            pending_status_projections_.begin() +
+                static_cast<std::ptrdiff_t>(end));
+        if (flush_status_batch_.empty())
+        {
+            refreshPersistenceDemandLocked();
+            return true;
+        }
+    }
+
+    std::size_t written = 0U;
+    for (const ProtocolStatusProjection& projection : flush_status_batch_)
+    {
+        if (!appendStatusProjection(projection.protocol, projection.value))
+        {
+            break;
+        }
+        ++written;
+    }
+
+    storage_runtime::ScopedRecursiveStateLock state_lock(mutex_);
+    if (!state_lock.locked() || !ready_)
+    {
+        return false;
+    }
+    if (pending_status_revision_ == revision)
+    {
+        pending_status_head_ = start + written;
+        prunePendingStatusProjectionsLocked();
+    }
+    refreshPersistenceDemandLocked();
+    return written == flush_status_batch_.size();
 }
 
 bool SdStore::appendSeenProjection(
