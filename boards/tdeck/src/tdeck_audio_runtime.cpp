@@ -26,7 +26,9 @@ constexpr size_t kAudioInternalReservation = 4096;
 constexpr size_t kAudioDmaReservation = 8 * 1024;
 constexpr size_t kAudioInternalFloor = 48 * 1024;
 constexpr size_t kAudioDmaFloor = 16 * 1024;
-constexpr uint32_t kAudioTaskStackBytes = 2048;
+// The notification tone's measured high-water mark left only 132-164 bytes
+// on the original 2 KiB task stack while handling MQTT chat alerts.
+constexpr uint32_t kAudioTaskStackBytes = 4096;
 constexpr UBaseType_t kAudioTaskPriority = 2;
 
 } // namespace
