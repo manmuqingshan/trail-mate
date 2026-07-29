@@ -645,6 +645,16 @@ void refresh_reticulum_groups_data()
     }
 }
 
+void sort_by_last_seen_desc(
+    std::vector<chat::contacts::PeerDirectoryItem>& nodes)
+{
+    std::stable_sort(nodes.begin(),
+                     nodes.end(),
+                     [](const chat::contacts::PeerDirectoryItem& lhs,
+                        const chat::contacts::PeerDirectoryItem& rhs)
+                     { return lhs.last_seen > rhs.last_seen; });
+}
+
 void refresh_contacts_data_impl_internal()
 {
     chat::contacts::ContactService& contact_service = app::messagingFacade().getContactService();
@@ -656,20 +666,8 @@ void refresh_contacts_data_impl_internal()
     filter_to_active_protocol(g_contacts_state.nearby_list);
     filter_to_active_protocol(g_contacts_state.ignored_list);
     merge_reticulum_directory_projection();
-    const chat::MeshProtocol active_protocol =
-        chat::infra::normalizeMeshProtocol(
-            app::configFacade().getConfig().mesh_protocol);
-    if (chat::infra::isReticulumMeshProtocol(active_protocol))
-    {
-        std::stable_sort(
-            g_contacts_state.nearby_list.begin(),
-            g_contacts_state.nearby_list.end(),
-            [](const chat::contacts::PeerDirectoryItem& lhs,
-               const chat::contacts::PeerDirectoryItem& rhs)
-            {
-                return lhs.last_seen > rhs.last_seen;
-            });
-    }
+    sort_by_last_seen_desc(g_contacts_state.contacts_list);
+    sort_by_last_seen_desc(g_contacts_state.nearby_list);
     mark_contacts_data_refreshed();
 
     CONTACTS_LOG("[Contacts] Data refreshed: %zu contacts, %zu nearby, %zu groups, %zu ignored\n",
