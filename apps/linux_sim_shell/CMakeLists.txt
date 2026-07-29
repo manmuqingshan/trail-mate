@@ -653,14 +653,15 @@ if(BUILD_TESTING)
             "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
             "${TRAIL_MATE_REPO_ROOT}/modules/core_team/include"
             "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/include")
+    # This is a Linux host contract test. Keep ESP task/event-bus integration
+    # out of the target even when OpenSSL is available for crypto vectors.
+    target_compile_definitions(trailmate_reticulum_runtime_state_contract_smoke
+        PRIVATE TRAIL_MATE_RETICULUM_PARSE_ONLY=1)
     if(OpenSSL_FOUND)
         target_compile_definitions(trailmate_reticulum_runtime_state_contract_smoke
             PRIVATE TRAIL_MATE_HAS_OPENSSL=1)
         target_link_libraries(trailmate_reticulum_runtime_state_contract_smoke
             PRIVATE OpenSSL::Crypto)
-    else()
-        target_compile_definitions(trailmate_reticulum_runtime_state_contract_smoke
-            PRIVATE TRAIL_MATE_RETICULUM_PARSE_ONLY=1)
     endif()
     target_compile_features(trailmate_reticulum_runtime_state_contract_smoke
         PRIVATE cxx_std_17)
