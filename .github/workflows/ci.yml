@@ -58,7 +58,7 @@ jobs:
             ':(exclude)modules/ui_shared/src/ui/widgets/text_candidate_builtin_emoji_data.h' \
             ':(exclude)platform/nrf52/arduino_common/include/ui/fonts/**' \
             ':(exclude)platform/nrf52/arduino_common/src/ui/fonts/**' \
-            ':(exclude)third_party/codec2/**' \
+            ':(exclude)third_party/**' \
             | xargs -0 clang-format-14 --dry-run --Werror
 
   build:
@@ -262,6 +262,7 @@ jobs:
       - name: Build C6 companion
         shell: bash
         run: |
+          source "${IDF_PATH}/export.sh"
           idf.py -C firmware/c6_companion \
             -B "${GITHUB_WORKSPACE}/firmware/c6_companion/build.c6_companion" build
 
@@ -346,6 +347,7 @@ jobs:
       - name: Build (${{ matrix.env }})
         shell: bash
         run: |
+          source "${IDF_PATH}/export.sh"
           idf.py -C apps/esp32_lvgl \
             -B "${GITHUB_WORKSPACE}/apps/esp32_lvgl/build.${{ matrix.env }}" \
             -D "TRAIL_MATE_IDF_TARGET=${{ matrix.env }}" build
