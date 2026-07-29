@@ -1,6 +1,7 @@
 name: uConsole Linux
 
 on:
+  workflow_dispatch:
   push:
     paths:
       - "apps/linux_uconsole_gtk/**"

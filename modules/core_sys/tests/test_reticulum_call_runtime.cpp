@@ -379,7 +379,7 @@ void enable_sleep()
     ++g.sleep_enable_count;
 }
 
-void update_user_activity()
+void record_activity()
 {
     ++g.activity_count;
 }

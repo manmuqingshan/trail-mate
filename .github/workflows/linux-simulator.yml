@@ -1,6 +1,7 @@
 name: Linux Simulator
 
 on:
+  workflow_dispatch:
   push:
     paths:
       - "apps/linux_sim_shell/**"
