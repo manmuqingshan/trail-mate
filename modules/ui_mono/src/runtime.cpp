@@ -3119,12 +3119,12 @@ void Runtime::handleInput(InputAction action)
             if (item == RadioSettingItem::McChannelName)
             {
                 openCompose(EditTarget::MeshCoreChannelName,
-                            app()->getConfig().meshcore_config.activeMeshCoreChannel().name);
+                            app()->readConfig().meshcore_config.activeMeshCoreChannel().name);
             }
             else if (item == RadioSettingItem::MtPrimaryKey)
             {
                 char key_text[kKeyTextMax] = {};
-                formatMeshtasticPrimaryKeyForEdit(app()->getConfig().meshtastic_config,
+                formatMeshtasticPrimaryKeyForEdit(app()->readConfig().meshtastic_config,
                                                   key_text,
                                                   sizeof(key_text));
                 openCompose(EditTarget::MeshtasticPrimaryKey, key_text);
@@ -3132,7 +3132,7 @@ void Runtime::handleInput(InputAction action)
             else if (item == RadioSettingItem::McChannelKey)
             {
                 char key_text[kKeyTextMax] = {};
-                formatMeshCoreChannelKeyForEdit(app()->getConfig().meshcore_config,
+                formatMeshCoreChannelKeyForEdit(app()->readConfig().meshcore_config,
                                                 key_text,
                                                 sizeof(key_text));
                 openCompose(EditTarget::MeshCoreChannelKey, key_text);
@@ -3492,7 +3492,7 @@ void Runtime::renderSleep()
 
 bool Runtime::mainMenuShowsDiscover() const
 {
-    return app() && app()->getConfig().mesh_protocol == chat::MeshProtocol::MeshCore;
+    return app() && app()->readConfig().mesh_protocol == chat::MeshProtocol::MeshCore;
 }
 
 bool Runtime::mainMenuShowsCompass() const
@@ -3636,7 +3636,7 @@ void Runtime::renderChatList()
         const size_t item_index = start + i;
         const bool selected_row = (item_index == selected);
         char line[32] = {};
-        const char* marker = app() ? protocolMarker(app()->getConfig().mesh_protocol) : "";
+        const char* marker = app() ? protocolMarker(app()->readConfig().mesh_protocol) : "";
         if (item_index == 0)
         {
             std::snprintf(line, sizeof(line), "+ NEW CHANNEL");
@@ -4592,7 +4592,7 @@ void Runtime::renderSettingsMenu()
 
 void Runtime::renderRadioSettings()
 {
-    const auto protocol = app()->getConfig().mesh_protocol;
+    const auto protocol = app()->readConfig().mesh_protocol;
     const size_t item_count = radioItemCount();
     if (item_count == 0)
     {
@@ -4605,7 +4605,7 @@ void Runtime::renderRadioSettings()
 
     drawTitleBar("PROTO", protocolShortLabel(protocol));
     char value[40] = {};
-    auto& cfg = app()->getConfig();
+    const auto& cfg = app()->readConfig();
     const int row_y = 12;
     const int row_h = std::max(1, text_renderer_.lineHeight());
     const size_t visible = std::min(item_count, visibleRowsFrom(row_y, 4));
@@ -4703,14 +4703,14 @@ void Runtime::renderDeviceSettings()
         }
 #endif
         case DeviceSettingItem::Gps:
-            std::snprintf(line, sizeof(line), "GPS: %s", app()->getConfig().gps_enabled ? "ON" : "OFF");
+            std::snprintf(line, sizeof(line), "GPS: %s", app()->readConfig().gps_enabled ? "ON" : "OFF");
             break;
         case DeviceSettingItem::Sats:
-            std::snprintf(line, sizeof(line), "SATS: %s", gpsSatMaskLabel(app()->getConfig().gps_sat_mask));
+            std::snprintf(line, sizeof(line), "SATS: %s", gpsSatMaskLabel(app()->readConfig().gps_sat_mask));
             break;
         case DeviceSettingItem::GpsInterval:
             std::snprintf(line, sizeof(line), "GPS INT: %lus",
-                          static_cast<unsigned long>(app()->getConfig().gps_interval_ms / 1000UL));
+                          static_cast<unsigned long>(app()->readConfig().gps_interval_ms / 1000UL));
             break;
         case DeviceSettingItem::ScreenOff:
         {
@@ -4841,7 +4841,7 @@ void Runtime::renderInfoPage()
     char long_name[24] = {};
     char short_name[12] = {};
     app()->getEffectiveUserInfo(long_name, sizeof(long_name), short_name, sizeof(short_name));
-    const auto& cfg = app()->getConfig();
+    const auto& cfg = app()->readConfig();
     const auto battery = host_.battery_info_fn ? host_.battery_info_fn() : platform::ui::device::BatteryInfo{};
     const auto gps = host_.gps_data_fn ? host_.gps_data_fn() : platform::ui::gps::GpsState{};
     const auto ram = host_.ram_usage_fn ? host_.ram_usage_fn() : HostCallbacks::ResourceUsage{};
@@ -6038,7 +6038,7 @@ void Runtime::executeNewChatPageItem(size_t index)
     active_conversation_ = chat::ConversationId(
         index == 1U ? chat::ChannelId::SECONDARY : chat::ChannelId::PRIMARY,
         0,
-        app()->getConfig().mesh_protocol);
+        app()->readConfig().mesh_protocol);
     if (!app()->getChatService().canSendToConversation(active_conversation_))
     {
         showTransientPopup("NEW CHAT", "VIEW ONLY");
@@ -6059,7 +6059,7 @@ void Runtime::executeDiscoverPageItem(size_t index)
         showTransientPopup("DISCOVER", "APP NOT READY");
         return;
     }
-    if (app()->getConfig().mesh_protocol != chat::MeshProtocol::MeshCore)
+    if (app()->readConfig().mesh_protocol != chat::MeshProtocol::MeshCore)
     {
         showTransientPopup("DISCOVER", "MESHCORE ONLY");
         return;
@@ -6152,7 +6152,7 @@ void Runtime::beginSettingPopup(Page owner, size_t index)
     setting_popup_active_ = true;
     setting_popup_owner_ = owner;
     setting_popup_index_ = index;
-    setting_popup_config_ = app()->getConfig();
+    setting_popup_config_ = app()->readConfig();
 #if !TRAILMATE_NRF52_BLE_DISABLED
     setting_popup_ble_enabled_ = app()->isBleEnabled();
 #endif
@@ -6188,7 +6188,7 @@ void Runtime::confirmSettingPopup()
     {
         sanitizeMeshtasticChannelNum(setting_popup_config_);
         const chat::MeshProtocol target_protocol = setting_popup_config_.mesh_protocol;
-        if (target_protocol != app()->getConfig().mesh_protocol)
+        if (target_protocol != app()->readConfig().mesh_protocol)
         {
             if (!app()->switchMeshProtocol(target_protocol, true))
             {
@@ -6196,7 +6196,7 @@ void Runtime::confirmSettingPopup()
                 return;
             }
 
-            setting_popup_config_ = app()->getConfig();
+            setting_popup_config_ = app()->readConfig();
             radio_index_ = 0;
             char value[32] = {};
             formatSettingPopupValue(value, sizeof(value));
@@ -7550,7 +7550,7 @@ void Runtime::formatProtocol(char* out, size_t out_len) const
     {
         return;
     }
-    std::snprintf(out, out_len, "%s", protocolShortLabel(app()->getConfig().mesh_protocol));
+    std::snprintf(out, out_len, "%s", protocolShortLabel(app()->readConfig().mesh_protocol));
 }
 
 void Runtime::formatNodeLabel(char* out, size_t out_len) const
@@ -8087,7 +8087,7 @@ const chat::contacts::PeerDirectoryItem* Runtime::selectedNode() const
 
 size_t Runtime::nodeActionCount() const
 {
-    const bool meshtastic_mode = app() && app()->getConfig().mesh_protocol != chat::MeshProtocol::MeshCore;
+    const bool meshtastic_mode = app() && app()->readConfig().mesh_protocol != chat::MeshProtocol::MeshCore;
     return meshtastic_mode ? kNodeActionItemCount : (kNodeActionItemCount - 2U);
 }
 
@@ -8212,12 +8212,12 @@ void Runtime::handleMeshtasticActionResult(
 const char* Runtime::nodeActionLabel(size_t index) const
 {
     const chat::contacts::PeerDirectoryItem* node = selectedNode();
-    const bool meshtastic_mode = app() && app()->getConfig().mesh_protocol != chat::MeshProtocol::MeshCore;
+    const bool meshtastic_mode = app() && app()->readConfig().mesh_protocol != chat::MeshProtocol::MeshCore;
     const bool can_reply = node && app() &&
                            chat::infra::meshProtocolFromRaw(
                                static_cast<uint8_t>(node->protocol),
-                               app()->getConfig().mesh_protocol) ==
-                               app()->getConfig().mesh_protocol;
+                               app()->readConfig().mesh_protocol) ==
+                               app()->readConfig().mesh_protocol;
     switch (index)
     {
     case 0:
@@ -8244,7 +8244,7 @@ void Runtime::executeNodeAction()
     auto* mesh = app() ? app()->getMeshAdapter() : nullptr;
     auto* contacts = app() ? &app()->getContactService() : nullptr;
     const chat::contacts::PeerDirectoryItem* node = selectedNode();
-    const bool meshtastic_mode = app() && app()->getConfig().mesh_protocol != chat::MeshProtocol::MeshCore;
+    const bool meshtastic_mode = app() && app()->readConfig().mesh_protocol != chat::MeshProtocol::MeshCore;
     if (!node)
     {
         appendBootLog("node action na");
@@ -8267,8 +8267,8 @@ void Runtime::executeNodeAction()
         }
         const chat::MeshProtocol node_protocol =
             chat::infra::meshProtocolFromRaw(static_cast<uint8_t>(node->protocol),
-                                             app()->getConfig().mesh_protocol);
-        if (node_protocol != app()->getConfig().mesh_protocol)
+                                             app()->readConfig().mesh_protocol);
+        if (node_protocol != app()->readConfig().mesh_protocol)
         {
             showTransientPopup("NODE", "VIEW ONLY");
             return;

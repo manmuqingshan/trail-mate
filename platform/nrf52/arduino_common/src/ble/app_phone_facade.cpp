@@ -140,22 +140,22 @@ void AppPhoneFacade::syncMeshtasticMqttProxySettings(const meshtastic_LocalModul
 
 phone::MeshtasticPhoneConfigSnapshot AppPhoneFacade::getMeshtasticPhoneConfig() const
 {
-    return platform::shared::ble_bridge::makeMeshtasticPhoneConfigSnapshot(app_.getConfig());
+    return platform::shared::ble_bridge::makeMeshtasticPhoneConfigSnapshot(app_.readConfig());
 }
 
 void AppPhoneFacade::setMeshtasticPhoneConfig(const phone::MeshtasticPhoneConfigSnapshot& config)
 {
-    platform::shared::ble_bridge::applyMeshtasticPhoneConfigSnapshot(app_.getConfig(), config);
+    platform::shared::ble_bridge::applyMeshtasticPhoneConfigSnapshot(app_.readConfig(), config);
 }
 
 phone::MeshCorePhoneConfigSnapshot AppPhoneFacade::getMeshCorePhoneConfig() const
 {
-    return platform::shared::ble_bridge::makeMeshCorePhoneConfigSnapshot(app_.getConfig());
+    return platform::shared::ble_bridge::makeMeshCorePhoneConfigSnapshot(app_.readConfig());
 }
 
 void AppPhoneFacade::setMeshCorePhoneConfig(const phone::MeshCorePhoneConfigSnapshot& config)
 {
-    platform::shared::ble_bridge::applyMeshCorePhoneConfigSnapshot(app_.getConfig(), config);
+    platform::shared::ble_bridge::applyMeshCorePhoneConfigSnapshot(app_.readConfig(), config);
 }
 
 void AppPhoneFacade::saveConfig()
@@ -576,7 +576,7 @@ bool AppPhoneFacade::setCustomVar(const char* key, const char* value)
 chat::meshcore::IMeshCoreBleBackend* AppPhoneFacade::meshCoreBackend()
 {
     auto* adapter = app_.getMeshAdapter();
-    if (!adapter || app_.getConfig().mesh_protocol != chat::MeshProtocol::MeshCore)
+    if (!adapter || app_.readConfig().mesh_protocol != chat::MeshProtocol::MeshCore)
     {
         return nullptr;
     }
@@ -590,7 +590,7 @@ chat::meshcore::IMeshCoreBleBackend* AppPhoneFacade::meshCoreBackend()
 const chat::meshcore::IMeshCoreBleBackend* AppPhoneFacade::meshCoreBackend() const
 {
     auto* adapter = app_.getMeshAdapter();
-    if (!adapter || app_.getConfig().mesh_protocol != chat::MeshProtocol::MeshCore)
+    if (!adapter || app_.readConfig().mesh_protocol != chat::MeshProtocol::MeshCore)
     {
         return nullptr;
     }

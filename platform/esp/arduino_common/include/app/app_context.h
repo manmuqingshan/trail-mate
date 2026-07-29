@@ -118,16 +118,13 @@ class AppContext final : public IAppBleFacade
         }
     }
 
-    [[deprecated("Use beginConfigEdit() for configuration writes")]] AppConfig& getConfig() override
-    {
-        return config_;
-    }
-
+  protected:
     const AppConfig& getConfig() const override
     {
         return config_;
     }
 
+  public:
     chat::MeshProtocol getMeshProtocol() const override
     {
         return config_.mesh_protocol;

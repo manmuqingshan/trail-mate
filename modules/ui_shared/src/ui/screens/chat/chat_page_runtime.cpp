@@ -262,7 +262,7 @@ void enter(const shell::Host* host, lv_obj_t* parent)
         set_default_group(prev_group);
     }
 
-    chat::ChannelId default_channel = (app::configFacade().getConfig().chat_channel == 1)
+    chat::ChannelId default_channel = (app::configFacade().readConfig().chat_channel == 1)
                                           ? chat::ChannelId::SECONDARY
                                           : chat::ChannelId::PRIMARY;
     auto& chat_service = app::messagingFacade().getChatService();

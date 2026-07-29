@@ -56,7 +56,7 @@ bool RuntimeSettingsSource::buildSettingsSnapshot(
     ui::copyText(out.sections[0].options[0].key, "gps_enabled");
     ui::copyText(out.sections[0].options[0].label, "GPS Enabled");
     ui::copyText(out.sections[0].options[0].value_label,
-                 app::configFacade().getConfig().gps_enabled ? "ON" : "OFF");
+                 app::configFacade().readConfig().gps_enabled ? "ON" : "OFF");
     out.sections[0].options[0].control =
         ui::settings::SettingControlKind::Toggle;
     return true;

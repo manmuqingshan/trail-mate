@@ -1143,9 +1143,10 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         return ready;
     }
 
-    [[deprecated("Use beginConfigEdit() for configuration writes")]] app::AppConfig& getConfig() override { return config_; }
+  protected:
     const app::AppConfig& getConfig() const override { return config_; }
 
+  public:
     app::AppConfigEdit beginConfigEdit() override
     {
         return app::AppConfigEdit(&config_,

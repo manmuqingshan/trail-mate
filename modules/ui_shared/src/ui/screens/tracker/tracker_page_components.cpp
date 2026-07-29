@@ -560,7 +560,7 @@ bool repair_degraded_active_route_from_list()
 {
     auto& state = g_tracker_state;
     app::IAppFacade& app_ctx = app::appFacade();
-    const auto& cfg = app_ctx.getConfig();
+    const auto& cfg = app_ctx.readConfig();
     if (!cfg.route_enabled || cfg.route_path[0] == '\0')
     {
         return false;
@@ -1310,7 +1310,7 @@ bool preview_model_fits_bounds(lv_obj_t* viewport_root,
     const auto layers = ::ui::widgets::map::current_layer_state();
     model.map_source = layers.map_source;
     model.contour_enabled = layers.contour_enabled;
-    model.coord_system = app::configFacade().getConfig().map_coord_system;
+    model.coord_system = app::configFacade().readConfig().map_coord_system;
     model.zoom = ::ui::widgets::map::kDefaultZoom;
     model.focus_point.valid = bounds.valid;
     model.focus_point.lat = bounds.valid ? (bounds.min_lat + bounds.max_lat) / 2.0 : 0.0;
@@ -3500,7 +3500,7 @@ void sync_active_route_from_config()
 {
     auto& state = g_tracker_state;
     app::IAppFacade& app_ctx = app::appFacade();
-    const auto& cfg = app_ctx.getConfig();
+    const auto& cfg = app_ctx.readConfig();
     if (cfg.route_enabled && cfg.route_path[0] != '\0')
     {
         const char* base = strrchr(cfg.route_path, '/');

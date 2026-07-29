@@ -199,11 +199,11 @@ class PlainMqttRuntime
     {
         if (app_context.getMeshProtocol() == chat::MeshProtocol::Meshtastic)
         {
-            return meshtasticMqttConfigured(app_context.getConfig());
+            return meshtasticMqttConfigured(app_context.readConfig());
         }
         if (app_context.getMeshProtocol() == chat::MeshProtocol::MeshCore)
         {
-            return meshCoreMqttConfigured(app_context.getConfig().meshcore_config);
+            return meshCoreMqttConfigured(app_context.readConfig().meshcore_config);
         }
         return false;
     }
@@ -502,7 +502,7 @@ class PlainMqttRuntime
 
     void buildMeshtasticEffectiveConfig(app::IAppFacade& app_context, EffectiveConfig& out)
     {
-        const app::AppConfig& config = app_context.getConfig();
+        const app::AppConfig& config = app_context.readConfig();
         if (!meshtasticMqttConfigured(config))
         {
             return;
@@ -533,7 +533,7 @@ class PlainMqttRuntime
 
     void buildMeshCoreEffectiveConfig(app::IAppFacade& app_context, EffectiveConfig& out)
     {
-        const chat::MeshConfig& config = app_context.getConfig().meshcore_config;
+        const chat::MeshConfig& config = app_context.readConfig().meshcore_config;
         if (!meshCoreMqttConfigured(config))
         {
             return;
@@ -646,7 +646,7 @@ class PlainMqttRuntime
                              chat::meshtastic::MtAdapter& mt)
     {
         chat::meshtastic::MtAdapter::MqttProxySettings settings;
-        const app::AppConfig& config = app_context.getConfig();
+        const app::AppConfig& config = app_context.readConfig();
         settings.enabled = config_.configured;
         settings.proxy_to_client_enabled = config_.configured;
         settings.encryption_enabled = false;

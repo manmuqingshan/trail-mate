@@ -44,7 +44,7 @@ constexpr uint8_t kCmdTxAppFlagTeamMgmtPlain = 1 << 1;
 
 uint8_t active_protocol_channel_limit()
 {
-    const chat::MeshProtocol protocol = app::appFacade().getConfig().mesh_protocol;
+    const chat::MeshProtocol protocol = app::appFacade().readConfig().mesh_protocol;
     if (protocol == chat::MeshProtocol::MeshCore)
     {
         return static_cast<uint8_t>(chat::kMeshCoreChannelMaxCount);

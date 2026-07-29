@@ -102,7 +102,7 @@ bool RuntimeDeviceStatusSource::buildDeviceStatusSnapshot(
     out.lora = ui::device::CapabilityDisplayState::Ready;
     out.storage = ui::device::CapabilityDisplayState::Ready;
 
-    const app::AppConfig& config = app::configFacade().getConfig();
+    const app::AppConfig& config = app::configFacade().readConfig();
     const chat::MeshProtocol protocol = config.mesh_protocol;
     const char* protocol_name = chat::infra::meshProtocolName(protocol);
 

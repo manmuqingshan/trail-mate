@@ -12,7 +12,7 @@ namespace
 
 bool use_rnode_bridge()
 {
-    return app::appFacade().getConfig().mesh_protocol == chat::MeshProtocol::RNode;
+    return app::appFacade().readConfig().mesh_protocol == chat::MeshProtocol::RNode;
 }
 
 } // namespace

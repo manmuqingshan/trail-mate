@@ -67,7 +67,7 @@ bool RuntimeMeshStatusSource::buildMeshStatusSnapshot(
 
     ui::copyText(out.protocol_label,
                  chat::infra::meshProtocolName(
-                     app::configFacade().getConfig().mesh_protocol));
+                     app::configFacade().readConfig().mesh_protocol));
 #if TRAIL_MATE_ENABLE_BLE
     ui::copyText(out.radio_label,
                  ble_linked ? "BLE linked"

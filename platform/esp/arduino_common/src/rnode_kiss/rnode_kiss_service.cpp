@@ -117,7 +117,7 @@ bool apply_live_config()
         return false;
     }
 
-    backend->applyConfig(app::appFacade().getConfig().reticulumConfig());
+    backend->applyConfig(app::appFacade().readConfig().reticulumConfig());
     return true;
 }
 
@@ -248,7 +248,7 @@ void send_ready()
 
 void reply_current_config(uint8_t command)
 {
-    const chat::MeshConfig& cfg = app::appFacade().getConfig().reticulumConfig();
+    const chat::MeshConfig& cfg = app::appFacade().readConfig().reticulumConfig();
     switch (command)
     {
     case kCmdFrequency:

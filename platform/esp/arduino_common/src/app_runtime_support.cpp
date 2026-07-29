@@ -574,12 +574,12 @@ std::unique_ptr<ble::BleManager> createBleManager(app::IAppBleFacade& app_facade
 {
 #if TRAIL_MATE_ENABLE_BLE
     std::unique_ptr<ble::BleManager> ble_manager(new ble::BleManager(app_facade));
-    if (app_facade.getConfig().ble_enabled &&
+    if (app_facade.readConfig().ble_enabled &&
         !mesh_mqtt::wantsStandaloneMode(app_facade))
     {
         ble_manager->setEnabled(true);
     }
-    else if (app_facade.getConfig().ble_enabled)
+    else if (app_facade.readConfig().ble_enabled)
     {
         std::printf("[MQTT] BLE startup skipped for standalone mesh MQTT mode\n");
     }

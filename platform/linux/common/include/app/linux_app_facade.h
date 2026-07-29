@@ -31,8 +31,10 @@ class MinimalLinuxAppFacade final : public ::app::IAppFacade
     void shutdown();
     bool is_initialized() const noexcept;
 
-    [[deprecated("Use beginConfigEdit() for configuration writes")]] ::app::AppConfig& getConfig() override;
+  protected:
     const ::app::AppConfig& getConfig() const override;
+
+  public:
     ::app::AppConfigEdit beginConfigEdit() override;
     void saveConfig() override;
     void saveConfig(::app::AppConfigChangeSet changes) override;

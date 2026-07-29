@@ -789,7 +789,7 @@ bool start()
 
     std::printf("[WALKIE] acquire walkie runtime\n");
 
-    auto& config = app::configFacade().getConfig();
+    const auto& config = app::configFacade().readConfig();
     float freq_mhz = chat::meshtastic::estimateFrequencyMhz(config.meshtastic_config.region,
                                                             config.meshtastic_config.modem_preset);
     if (freq_mhz <= 0.0f)

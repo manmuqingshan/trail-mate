@@ -74,12 +74,12 @@ const char* channel_display_name(chat::MeshProtocol protocol, chat::ChannelId ch
 {
     if (protocol == chat::MeshProtocol::Meshtastic)
     {
-        return chat::meshtastic::channelName(app::configFacade().getConfig().meshtastic_config,
+        return chat::meshtastic::channelName(app::configFacade().readConfig().meshtastic_config,
                                              channel);
     }
     if (protocol == chat::MeshProtocol::MeshCore)
     {
-        const chat::MeshConfig& config = app::configFacade().getConfig().meshcore_config;
+        const chat::MeshConfig& config = app::configFacade().readConfig().meshcore_config;
         const chat::MeshCoreChannelConfig& channel_config =
             config.meshCoreChannel(chat::meshCoreChannelSlotFromId(channel));
         if (channel_config.name[0] != '\0')

@@ -358,7 +358,7 @@ void sync_workspace_viewport_from_renderer()
 
 bool sync_workspace_center_from_screen()
 {
-    if (app::configFacade().getConfig().map_coord_system != 0)
+    if (app::configFacade().readConfig().map_coord_system != 0)
     {
         return false;
     }
@@ -399,7 +399,7 @@ bool commit_pending_map_pan_from_screen()
 ::ui::widgets::map::Model build_map_model(
     const ::ui::map::MapWorkspaceSnapshot& snapshot)
 {
-    const auto& config = app::configFacade().getConfig();
+    const auto& config = app::configFacade().readConfig();
 
     ::ui::widgets::map::Model model{};
     const bool has_viewport_center = has_valid_viewport_center(snapshot.viewport);
@@ -460,7 +460,7 @@ bool format_current_gps_map_title(char* out, size_t out_len)
     char coord_buf[64]{};
     ui_format_coords(gps.lat,
                      gps.lng,
-                     app::configFacade().getConfig().gps_coord_format,
+                     app::configFacade().readConfig().gps_coord_format,
                      coord_buf,
                      sizeof(coord_buf));
     if (coord_buf[0] == '\0')
@@ -771,7 +771,7 @@ void rebuild_map_control_group()
 
 bool route_context_available()
 {
-    const auto& config = app::configFacade().getConfig();
+    const auto& config = app::configFacade().readConfig();
     return config.route_enabled && config.route_path[0] != '\0';
 }
 
@@ -817,7 +817,7 @@ bool route_path_looks_degraded(const std::string& path)
 bool resolve_configured_route_path(std::string& out_path, bool show_fail_toast)
 {
     auto& config_facade = app::configFacade();
-    const auto& config = config_facade.getConfig();
+    const auto& config = config_facade.readConfig();
     if (!config.route_enabled || config.route_path[0] == '\0')
     {
         out_path.clear();
@@ -3291,7 +3291,7 @@ void center_map_on_self()
 {
     const auto result = map_workspace_model().centerOnSelf();
     const auto snapshot = map_workspace_model().snapshot();
-    const auto& config = app::configFacade().getConfig();
+    const auto& config = app::configFacade().readConfig();
     if (result.ok)
     {
         s_map_pan_x = 0;

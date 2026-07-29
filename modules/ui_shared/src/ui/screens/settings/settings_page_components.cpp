@@ -1178,7 +1178,7 @@ static void refresh_reticulum_identity_fields_from_runtime()
         return;
     }
     app::IAppFacade& app_ctx = app::appFacade();
-    refresh_reticulum_identity_fields(app_ctx, app_ctx.getConfig());
+    refresh_reticulum_identity_fields(app_ctx, app_ctx.readConfig());
 }
 
 static void float_to_text(float value, char* out, size_t out_len, uint8_t decimals = 2)
@@ -1323,51 +1323,51 @@ static void reset_mesh_settings()
     }
     app_ctx.applyMeshConfig();
 
-    g_settings.chat_protocol = static_cast<int>(app_ctx.getConfig().mesh_protocol);
-    g_settings.chat_region = app_ctx.getConfig().meshtastic_config.region;
+    g_settings.chat_protocol = static_cast<int>(app_ctx.readConfig().mesh_protocol);
+    g_settings.chat_region = app_ctx.readConfig().meshtastic_config.region;
     g_settings.chat_channel = 0;
     g_settings.chat_psk[0] = '\0';
-    ::settings::ui::channel::sync_meshtastic_channel_fields(app_ctx.getConfig(), g_settings);
-    g_settings.net_use_preset = app_ctx.getConfig().meshtastic_config.use_preset;
-    g_settings.net_modem_preset = app_ctx.getConfig().meshtastic_config.modem_preset;
-    g_settings.net_tx_power = app_ctx.getConfig().activeMeshConfig().tx_power;
-    g_settings.net_hop_limit = app_ctx.getConfig().meshtastic_config.hop_limit;
-    const chat::MeshConfig& active_cfg = app_ctx.getConfig().activeMeshConfig();
+    ::settings::ui::channel::sync_meshtastic_channel_fields(app_ctx.readConfig(), g_settings);
+    g_settings.net_use_preset = app_ctx.readConfig().meshtastic_config.use_preset;
+    g_settings.net_modem_preset = app_ctx.readConfig().meshtastic_config.modem_preset;
+    g_settings.net_tx_power = app_ctx.readConfig().activeMeshConfig().tx_power;
+    g_settings.net_hop_limit = app_ctx.readConfig().meshtastic_config.hop_limit;
+    const chat::MeshConfig& active_cfg = app_ctx.readConfig().activeMeshConfig();
     g_settings.net_tx_enabled = active_cfg.tx_enabled;
-    g_settings.net_relay = app_ctx.getConfig().meshtastic_config.enable_relay;
+    g_settings.net_relay = app_ctx.readConfig().meshtastic_config.enable_relay;
     g_settings.net_duty_cycle = true;
     g_settings.net_channel_util = 0;
     g_settings.rt_bearer_policy =
-        reticulum_bearer_policy_to_value(app_ctx.getConfig().reticulumConfig().reticulum_interface_policy);
-    g_settings.rt_lora_enabled = app_ctx.getConfig().reticulumConfig().reticulum_lora_enabled;
+        reticulum_bearer_policy_to_value(app_ctx.readConfig().reticulumConfig().reticulum_interface_policy);
+    g_settings.rt_lora_enabled = app_ctx.readConfig().reticulumConfig().reticulum_lora_enabled;
     g_settings.rt_wifi_gateway_enabled =
-        app_ctx.getConfig().reticulumConfig().reticulum_wifi_gateway_enabled;
+        app_ctx.readConfig().reticulumConfig().reticulum_wifi_gateway_enabled;
     g_settings.rt_wifi_auto_connect =
-        app_ctx.getConfig().reticulumConfig().reticulum_wifi_auto_connect;
+        app_ctx.readConfig().reticulumConfig().reticulum_wifi_auto_connect;
     g_settings.rt_anonymous_peer =
-        app_ctx.getConfig().reticulumConfig().reticulum_anonymous_peer;
+        app_ctx.readConfig().reticulumConfig().reticulum_anonymous_peer;
     g_settings.rt_location_requests =
-        app_ctx.getConfig().reticulumConfig().reticulum_allow_location_requests;
-    g_settings.mt_mqtt_enabled = app_ctx.getConfig().meshtastic_mqtt_enabled;
-    g_settings.mt_mqtt_uplink = app_ctx.getConfig().meshtastic_mqtt_uplink_enabled;
-    g_settings.mt_mqtt_downlink = app_ctx.getConfig().meshtastic_mqtt_downlink_enabled;
+        app_ctx.readConfig().reticulumConfig().reticulum_allow_location_requests;
+    g_settings.mt_mqtt_enabled = app_ctx.readConfig().meshtastic_mqtt_enabled;
+    g_settings.mt_mqtt_uplink = app_ctx.readConfig().meshtastic_mqtt_uplink_enabled;
+    g_settings.mt_mqtt_downlink = app_ctx.readConfig().meshtastic_mqtt_downlink_enabled;
     copy_bounded(g_settings.mt_mqtt_host,
                  sizeof(g_settings.mt_mqtt_host),
-                 app_ctx.getConfig().meshtastic_mqtt_host);
+                 app_ctx.readConfig().meshtastic_mqtt_host);
     std::snprintf(g_settings.mt_mqtt_port,
                   sizeof(g_settings.mt_mqtt_port),
                   "%u",
-                  static_cast<unsigned>(app_ctx.getConfig().meshtastic_mqtt_port));
+                  static_cast<unsigned>(app_ctx.readConfig().meshtastic_mqtt_port));
     copy_bounded(g_settings.mt_mqtt_root,
                  sizeof(g_settings.mt_mqtt_root),
-                 app_ctx.getConfig().meshtastic_mqtt_root);
+                 app_ctx.readConfig().meshtastic_mqtt_root);
     copy_bounded(g_settings.mt_mqtt_user,
                  sizeof(g_settings.mt_mqtt_user),
-                 app_ctx.getConfig().meshtastic_mqtt_username);
+                 app_ctx.readConfig().meshtastic_mqtt_username);
     copy_bounded(g_settings.mt_mqtt_pass,
                  sizeof(g_settings.mt_mqtt_pass),
-                 app_ctx.getConfig().meshtastic_mqtt_password);
-    g_settings.mc_region_preset = app_ctx.getConfig().meshcore_config.meshcore_region_preset;
+                 app_ctx.readConfig().meshtastic_mqtt_password);
+    g_settings.mc_region_preset = app_ctx.readConfig().meshcore_config.meshcore_region_preset;
 
     static const char* kResetKeys[] = {
         "mesh_protocol",
@@ -1499,7 +1499,7 @@ static void settings_load()
     bind_dynamic_option_storage_to_items();
     auto& options = dynamic_options();
     app::IAppFacade& app_ctx = app::appFacade();
-    g_settings.chat_protocol = static_cast<int>(app_ctx.getConfig().mesh_protocol);
+    g_settings.chat_protocol = static_cast<int>(app_ctx.readConfig().mesh_protocol);
 
     if (kChatRegionOptionCount == 0)
     {
@@ -1560,7 +1560,7 @@ static void settings_load()
                                  sizeof(g_settings.user_name),
                                  g_settings.short_name,
                                  sizeof(g_settings.short_name));
-    const app::AppConfig& cfg = app_ctx.getConfig();
+    const app::AppConfig& cfg = app_ctx.readConfig();
     const chat::MeshConfig& mt_cfg = cfg.meshtastic_config;
     const chat::MeshConfig& mc_cfg = cfg.meshcore_config;
     const chat::MeshConfig& reticulum_cfg = cfg.reticulumConfig();
@@ -2356,7 +2356,7 @@ static void on_text_save_clicked(lv_event_t* e)
             uint8_t key[chat::kMeshtasticChannelKeyMaxLen] = {};
             size_t parsed_key_len = 0;
             const size_t key_capacity =
-                (app_ctx.getConfig().mesh_protocol == chat::MeshProtocol::MeshCore)
+                (app_ctx.readConfig().mesh_protocol == chat::MeshProtocol::MeshCore)
                     ? chat::kMeshCoreChannelKeyLen
                     : chat::kMeshtasticChannelKeyMaxLen;
             if (!::settings::ui::channel::parse_psk(g_state.editing_item->text_value,
@@ -3680,7 +3680,7 @@ static void on_option_clicked(lv_event_t* e)
             {
                 config.gps_init_baud = static_cast<uint32_t>(payload->value);
             });
-        gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.getConfig()));
+        gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.readConfig()));
     }
     if (id == settings::ui::SettingId::GpsInitProbeMs)
     {
@@ -3701,7 +3701,7 @@ static void on_option_clicked(lv_event_t* e)
             {
                 config.gps_init_probe_ms = static_cast<uint32_t>(probe_ms);
             });
-        gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.getConfig()));
+        gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.readConfig()));
     }
     if (id == settings::ui::SettingId::GpsInitProfile)
     {
@@ -3713,7 +3713,7 @@ static void on_option_clicked(lv_event_t* e)
             {
                 config.gps_init_profile = static_cast<uint8_t>(payload->value);
             });
-        gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.getConfig()));
+        gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.readConfig()));
     }
     if (id == settings::ui::SettingId::GpsInitRxm)
     {
@@ -3725,7 +3725,7 @@ static void on_option_clicked(lv_event_t* e)
             {
                 config.gps_init_rxm_policy = static_cast<uint8_t>(payload->value);
             });
-        gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.getConfig()));
+        gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.readConfig()));
     }
     if (id == settings::ui::SettingId::GpsInitGnss)
     {
@@ -3737,7 +3737,7 @@ static void on_option_clicked(lv_event_t* e)
             {
                 config.gps_init_gnss_policy = static_cast<uint8_t>(payload->value);
             });
-        gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.getConfig()));
+        gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.readConfig()));
     }
     if (id == settings::ui::SettingId::GpsInitNmea)
     {
@@ -3749,7 +3749,7 @@ static void on_option_clicked(lv_event_t* e)
             {
                 config.gps_init_nmea_policy = static_cast<uint8_t>(payload->value);
             });
-        gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.getConfig()));
+        gps_runtime::set_receiver_init_config(make_gps_receiver_init_config(app_ctx.readConfig()));
     }
     if (id == settings::ui::SettingId::GpsMode)
     {
@@ -3761,7 +3761,7 @@ static void on_option_clicked(lv_event_t* e)
             {
                 config.gps_mode = static_cast<uint8_t>(payload->value);
             });
-        gps_runtime::set_gnss_config(app_ctx.getConfig().gps_mode, app_ctx.getConfig().gps_sat_mask);
+        gps_runtime::set_gnss_config(app_ctx.readConfig().gps_mode, app_ctx.readConfig().gps_sat_mask);
     }
     if (id == settings::ui::SettingId::GpsSatMask)
     {
@@ -3773,7 +3773,7 @@ static void on_option_clicked(lv_event_t* e)
             {
                 config.gps_sat_mask = static_cast<uint8_t>(payload->value);
             });
-        gps_runtime::set_gnss_config(app_ctx.getConfig().gps_mode, app_ctx.getConfig().gps_sat_mask);
+        gps_runtime::set_gnss_config(app_ctx.readConfig().gps_mode, app_ctx.readConfig().gps_sat_mask);
     }
     if (id == settings::ui::SettingId::GpsStrategy)
     {
@@ -4074,8 +4074,8 @@ static void on_option_clicked(lv_event_t* e)
                 config.external_nmea_output_hz =
                     static_cast<uint8_t>(payload->value);
             });
-        gps_runtime::set_external_nmea_config(app_ctx.getConfig().external_nmea_output_hz,
-                                              app_ctx.getConfig().external_nmea_sentence_mask);
+        gps_runtime::set_external_nmea_config(app_ctx.readConfig().external_nmea_output_hz,
+                                              app_ctx.readConfig().external_nmea_sentence_mask);
     }
     if (id == settings::ui::SettingId::ExternalNmeaSent)
     {
@@ -4088,8 +4088,8 @@ static void on_option_clicked(lv_event_t* e)
                 config.external_nmea_sentence_mask =
                     static_cast<uint8_t>(payload->value);
             });
-        gps_runtime::set_external_nmea_config(app_ctx.getConfig().external_nmea_output_hz,
-                                              app_ctx.getConfig().external_nmea_sentence_mask);
+        gps_runtime::set_external_nmea_config(app_ctx.readConfig().external_nmea_output_hz,
+                                              app_ctx.readConfig().external_nmea_sentence_mask);
     }
     if (id == settings::ui::SettingId::TimezoneProfile)
     {

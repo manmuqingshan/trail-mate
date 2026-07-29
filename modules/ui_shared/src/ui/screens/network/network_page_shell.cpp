@@ -1108,7 +1108,7 @@ bool reticulum_active()
     {
         return false;
     }
-    const app::AppConfig& config = app::configFacade().getConfig();
+    const app::AppConfig& config = app::configFacade().readConfig();
     return chat::infra::isReticulumMeshProtocol(config.mesh_protocol);
 }
 

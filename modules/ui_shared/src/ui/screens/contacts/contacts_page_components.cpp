@@ -616,7 +616,7 @@ static bool get_broadcast_target_spec(int index, BroadcastTargetSpec* out)
             return false;
         }
 
-        const auto& cfg = app::appFacade().getConfig();
+        const auto& cfg = app::appFacade().readConfig();
         out->protocol = chat::MeshProtocol::Meshtastic;
         out->channel_index = static_cast<uint8_t>(index);
         out->channel = (index == 1) ? chat::ChannelId::SECONDARY : chat::ChannelId::PRIMARY;
@@ -643,7 +643,7 @@ static bool get_broadcast_target_spec(int index, BroadcastTargetSpec* out)
     {
         return false;
     }
-    const auto& cfg = app::appFacade().getConfig().meshcore_config;
+    const auto& cfg = app::appFacade().readConfig().meshcore_config;
     const uint8_t slot = static_cast<uint8_t>(index);
     const chat::MeshCoreChannelConfig& channel = cfg.meshCoreChannel(slot);
     const bool has_key =
@@ -660,14 +660,14 @@ static std::string format_broadcast_target_label(const BroadcastTargetSpec& spec
 {
     if (spec.protocol == chat::MeshProtocol::Meshtastic)
     {
-        return chat::meshtastic::channelName(app::appFacade().getConfig().meshtastic_config,
+        return chat::meshtastic::channelName(app::appFacade().readConfig().meshtastic_config,
                                              spec.channel);
     }
     if (chat::infra::isReticulumMeshProtocol(spec.protocol))
     {
         return ::ui::i18n::tr("Primary Group");
     }
-    const chat::MeshConfig& cfg = app::appFacade().getConfig().meshcore_config;
+    const chat::MeshConfig& cfg = app::appFacade().readConfig().meshcore_config;
     const chat::MeshCoreChannelConfig& channel =
         cfg.meshCoreChannel(spec.channel_index);
     const char* name = channel.name[0] != '\0' ? channel.name : nullptr;
@@ -695,7 +695,7 @@ static std::string format_broadcast_target_status(const BroadcastTargetSpec& spe
         }
         if (spec.channel_index == 1)
         {
-            return chat::meshtastic::channelName(app::appFacade().getConfig().meshtastic_config,
+            return chat::meshtastic::channelName(app::appFacade().readConfig().meshtastic_config,
                                                  spec.channel);
         }
         return spec.chat_supported ? ::ui::i18n::tr("Ready") : ::ui::i18n::tr("Slot");
@@ -704,7 +704,7 @@ static std::string format_broadcast_target_status(const BroadcastTargetSpec& spe
     {
         return ::ui::i18n::tr("Group destination");
     }
-    const chat::MeshConfig& cfg = app::appFacade().getConfig().meshcore_config;
+    const chat::MeshConfig& cfg = app::appFacade().readConfig().meshcore_config;
     const chat::MeshCoreChannelConfig& channel =
         cfg.meshCoreChannel(spec.channel_index);
     if (!spec.enabled)
@@ -3214,7 +3214,7 @@ static void on_team_conversation_back(void* /*user_data*/)
     lv_group_remove_all_objs(s_conv_group);
     set_default_group(s_conv_group);
 
-    const chat::MeshProtocol protocol = app::appFacade().getConfig().mesh_protocol;
+    const chat::MeshProtocol protocol = app::appFacade().readConfig().mesh_protocol;
     chat::ConversationId conv(chat::ChannelId::PRIMARY, 0, protocol);
     g_contacts_state.conversation_screen = new chat::ui::ChatConversationScreen(parent, conv);
     g_contacts_state.conversation_screen->setActionCallback(on_team_conversation_action, nullptr);

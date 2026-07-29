@@ -155,7 +155,7 @@ void AppPhoneFacade::syncMeshtasticMqttProxySettings(const meshtastic_LocalModul
 
 phone::MeshtasticPhoneConfigSnapshot AppPhoneFacade::getMeshtasticPhoneConfig() const
 {
-    return platform::shared::ble_bridge::makeMeshtasticPhoneConfigSnapshot(app_.getConfig());
+    return platform::shared::ble_bridge::makeMeshtasticPhoneConfigSnapshot(app_.readConfig());
 }
 
 void AppPhoneFacade::setMeshtasticPhoneConfig(const phone::MeshtasticPhoneConfigSnapshot& config)
@@ -171,7 +171,7 @@ void AppPhoneFacade::setMeshtasticPhoneConfig(const phone::MeshtasticPhoneConfig
 
 phone::MeshCorePhoneConfigSnapshot AppPhoneFacade::getMeshCorePhoneConfig() const
 {
-    return platform::shared::ble_bridge::makeMeshCorePhoneConfigSnapshot(app_.getConfig());
+    return platform::shared::ble_bridge::makeMeshCorePhoneConfigSnapshot(app_.readConfig());
 }
 
 void AppPhoneFacade::setMeshCorePhoneConfig(const phone::MeshCorePhoneConfigSnapshot& config)
@@ -609,7 +609,7 @@ bool AppPhoneFacade::getTuningParams(phone::meshcore::MeshCorePhoneTuningParams*
 chat::meshcore::IMeshCoreBleBackend* AppPhoneFacade::meshCoreBackend()
 {
     auto* adapter = app_.getMeshAdapter();
-    if (!adapter || app_.getConfig().mesh_protocol != chat::MeshProtocol::MeshCore)
+    if (!adapter || app_.readConfig().mesh_protocol != chat::MeshProtocol::MeshCore)
     {
         return nullptr;
     }
@@ -623,7 +623,7 @@ chat::meshcore::IMeshCoreBleBackend* AppPhoneFacade::meshCoreBackend()
 const chat::meshcore::IMeshCoreBleBackend* AppPhoneFacade::meshCoreBackend() const
 {
     auto* adapter = app_.getMeshAdapter();
-    if (!adapter || app_.getConfig().mesh_protocol != chat::MeshProtocol::MeshCore)
+    if (!adapter || app_.readConfig().mesh_protocol != chat::MeshProtocol::MeshCore)
     {
         return nullptr;
     }

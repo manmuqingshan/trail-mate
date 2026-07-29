@@ -150,7 +150,7 @@ StatusSnapshot collect_status()
 
     if (app::hasAppFacade())
     {
-        const auto& cfg = app::configFacade().getConfig();
+        const auto& cfg = app::configFacade().readConfig();
         snap.route_active = cfg.route_enabled && (cfg.route_path[0] != '\0');
 #if TRAIL_MATE_ENABLE_BLE && !defined(TRAIL_MATE_FINAL_IDF_NO_APP_FACADE)
         snap.ble_enabled = app::runtimeFacade().isBleEnabled();

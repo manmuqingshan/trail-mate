@@ -294,11 +294,6 @@ const chat::runtime::SelfIdentityProvider* AppFacadeRuntime::identityProvider() 
     return identity_bridge_.get();
 }
 
-app::AppConfig& AppFacadeRuntime::getConfig()
-{
-    return config_;
-}
-
 const app::AppConfig& AppFacadeRuntime::getConfig() const
 {
     return config_;

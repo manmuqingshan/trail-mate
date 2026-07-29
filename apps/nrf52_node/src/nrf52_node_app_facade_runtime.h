@@ -55,8 +55,10 @@ class AppFacadeRuntime final : public app::IAppBleFacade
     bool installMeshBackend(chat::MeshProtocol protocol,
                             std::unique_ptr<chat::IMeshAdapter> backend);
 
-    [[deprecated("Use beginConfigEdit() for configuration writes")]] app::AppConfig& getConfig() override;
+  protected:
     const app::AppConfig& getConfig() const override;
+
+  public:
     chat::MeshProtocol getMeshProtocol() const override;
     void saveConfig() override;
     void saveConfig(app::AppConfigChangeSet changes) override;

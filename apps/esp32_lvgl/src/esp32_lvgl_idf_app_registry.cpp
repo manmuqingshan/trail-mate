@@ -204,7 +204,7 @@ ui::app_catalog_builder::FeatureFlags buildFeatureFlags()
     flags.include_extensions = ui::runtime::packs::is_supported();
     flags.include_network = app::hasAppFacade() &&
                             chat::infra::isReticulumMeshProtocol(
-                                app::configFacade().getConfig().mesh_protocol);
+                                app::configFacade().readConfig().mesh_protocol);
     flags.include_walkie_talkie = platform::ui::walkie::is_supported();
 #if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     flags.include_power_off = true;

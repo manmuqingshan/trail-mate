@@ -8,7 +8,7 @@ namespace chat::ui::support
 
 chat::MeshProtocol active_mesh_protocol()
 {
-    return app::configFacade().getConfig().mesh_protocol;
+    return app::configFacade().readConfig().mesh_protocol;
 }
 
 chat::MeshCapabilities active_mesh_capabilities()

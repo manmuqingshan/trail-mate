@@ -118,11 +118,6 @@ bool MinimalLinuxAppFacade::is_initialized() const noexcept
     return services_.isInitialized();
 }
 
-::app::AppConfig& MinimalLinuxAppFacade::getConfig()
-{
-    return services_.getConfig();
-}
-
 const ::app::AppConfig& MinimalLinuxAppFacade::getConfig() const
 {
     return services_.getConfig();

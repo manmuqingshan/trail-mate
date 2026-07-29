@@ -108,7 +108,7 @@ void init_track_recorder(const app::AppConfig& config)
 
 void deferred_storage_ready(app::IAppFacade& app_facade)
 {
-    const app::AppConfig& config = app_facade.getConfig();
+    const app::AppConfig& config = app_facade.readConfig();
     if (chat::infra::isReticulumMeshProtocol(
             chat::infra::normalizeMeshProtocol(config.mesh_protocol)))
     {

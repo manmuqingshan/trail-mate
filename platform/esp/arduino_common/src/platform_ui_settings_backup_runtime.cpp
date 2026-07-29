@@ -1165,7 +1165,7 @@ cJSON* create_backup_document()
     add_string(root, "firmware", ::platform::ui::device::firmware_version());
     add_uint(root, "created_ms", uptime_ms());
 
-    cJSON* app_config = create_app_config_json(facade.getConfig());
+    cJSON* app_config = create_app_config_json(facade.readConfig());
     if (!app_config)
     {
         cJSON_Delete(root);

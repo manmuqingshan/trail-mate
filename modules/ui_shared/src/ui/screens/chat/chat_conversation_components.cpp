@@ -1217,7 +1217,7 @@ void ChatConversationScreen::refreshLocationMap()
     model.focus_point.lon = (min_lon + max_lon) / 2.0;
     model.map_source = layers.map_source;
     model.contour_enabled = layers.contour_enabled;
-    model.coord_system = app::configFacade().getConfig().map_coord_system;
+    model.coord_system = app::configFacade().readConfig().map_coord_system;
 
     if (point_count <= 1)
     {
@@ -1355,7 +1355,7 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
     std::string sender;
     if (is_self)
     {
-        sender = app::configFacade().getConfig().short_name;
+        sender = app::configFacade().readConfig().short_name;
         if (sender.empty() && !row.sender_label.empty())
         {
             sender = row.sender_label.c_str();

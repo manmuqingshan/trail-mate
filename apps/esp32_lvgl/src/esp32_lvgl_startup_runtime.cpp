@@ -49,7 +49,7 @@ void applyPlatformRuntimeConfig(const Esp32LvglRuntimeConfig& config)
         return;
     }
 
-    const app::AppConfig& app_config = app::appFacade().getConfig();
+    const app::AppConfig& app_config = app::appFacade().readConfig();
     platform::ui::gps::set_enabled(app_config.gps_enabled);
     platform::ui::gps::set_collection_interval(app_config.gps_interval_ms);
     platform::ui::gps::set_power_strategy(app_config.gps_strategy);

@@ -1080,7 +1080,7 @@ map_viewport::Model build_map_model(const map_viewport::GeoPoint& node_point,
     model.pan_x = pan_x + static_cast<int>(metrics.focus_x) - (metrics.width / 2);
     model.pan_y = pan_y + static_cast<int>(metrics.focus_y) - (metrics.height / 2);
 
-    const auto& cfg = app::configFacade().getConfig();
+    const auto& cfg = app::configFacade().readConfig();
     model.map_source = cfg.map_source;
     model.contour_enabled = cfg.map_contour_enabled;
     model.coord_system = cfg.map_coord_system;

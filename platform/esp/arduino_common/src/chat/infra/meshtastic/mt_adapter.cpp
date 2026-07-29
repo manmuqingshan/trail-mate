@@ -3268,7 +3268,7 @@ bool MtAdapter::sendNodeInfoTo(uint32_t dest, bool want_response, ChannelId chan
     (void)chat::runtime::resolveEffectiveSelfIdentity(identity_input, &identity);
 
     char user_id_override[16] = {};
-    const app::AppConfig& cfg = app::configFacade().getConfig();
+    const app::AppConfig& cfg = app::configFacade().readConfig();
     if (cfg.aprs.self_enable && cfg.aprs.self_callsign[0] != '\0')
     {
         strncpy(user_id_override, cfg.aprs.self_callsign, sizeof(user_id_override) - 1);

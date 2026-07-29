@@ -54,9 +54,9 @@ class IAppConfigFacade
 {
   public:
     virtual ~IAppConfigFacade() = default;
-    // Transitional compatibility only. New writes must use beginConfigEdit().
-    [[deprecated("Use beginConfigEdit() for configuration writes")]] virtual AppConfig& getConfig() = 0;
-    virtual const AppConfig& getConfig() const = 0;
+    // Read-only configuration view. This is not a snapshot and does not
+    // acquire an edit lease.
+    [[nodiscard]] const AppConfig& readConfig() const { return getConfig(); }
     virtual AppConfigEdit beginConfigEdit() = 0;
     virtual void saveConfig() = 0;
     virtual void requestSaveConfig() { saveConfig(); }
@@ -74,6 +74,11 @@ class IAppConfigFacade
     virtual chat::MeshProtocol getMeshProtocol() const = 0;
     virtual void getEffectiveUserInfo(char* out_long, std::size_t long_len, char* out_short, std::size_t short_len) const = 0;
     virtual bool switchMeshProtocol(chat::MeshProtocol protocol, bool persist = true) = 0;
+
+  protected:
+    // Virtual storage hook for readConfig(). Consumers must use the explicit
+    // read-only API rather than accessing implementation storage directly.
+    virtual const AppConfig& getConfig() const = 0;
 };
 
 class IAppMessagingFacade

@@ -32,7 +32,7 @@ ui::app_catalog_builder::FeatureFlags buildFeatureFlags()
     flags.include_extensions = true;
     flags.include_network = app::hasAppFacade() &&
                             chat::infra::isReticulumMeshProtocol(
-                                app::configFacade().getConfig().mesh_protocol);
+                                app::configFacade().readConfig().mesh_protocol);
     flags.include_walkie_talkie = platform::ui::walkie::is_supported();
     flags.include_power_off =
 #if defined(ARDUINO_T_LORA_PAGER)

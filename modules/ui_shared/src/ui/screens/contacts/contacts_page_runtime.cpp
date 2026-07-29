@@ -368,7 +368,7 @@ bool node_matches_active_protocol(const chat::contacts::PeerDirectoryItem& node)
 {
     const chat::MeshProtocol active_protocol =
         chat::infra::normalizeMeshProtocol(
-            app::configFacade().getConfig().mesh_protocol);
+            app::configFacade().readConfig().mesh_protocol);
 
     if (chat::infra::isReticulumMeshProtocol(active_protocol))
     {
@@ -502,7 +502,7 @@ void merge_reticulum_directory_projection()
 {
     const chat::MeshProtocol active_protocol =
         chat::infra::normalizeMeshProtocol(
-            app::configFacade().getConfig().mesh_protocol);
+            app::configFacade().readConfig().mesh_protocol);
     if (!chat::infra::isReticulumMeshProtocol(active_protocol))
     {
         return;
@@ -573,7 +573,7 @@ void refresh_reticulum_groups_data()
     g_contacts_state.reticulum_group_list.clear();
     const chat::MeshProtocol active_protocol =
         chat::infra::normalizeMeshProtocol(
-            app::configFacade().getConfig().mesh_protocol);
+            app::configFacade().readConfig().mesh_protocol);
     if (!chat::infra::isReticulumMeshProtocol(active_protocol))
     {
         g_contacts_state.reticulum_group_storage_supported = false;
@@ -749,7 +749,7 @@ void enter(const shell::Host* host, lv_obj_t* parent)
                 "hydration_pending=%u\n",
                 chat::infra::meshProtocolName(
                     chat::infra::normalizeMeshProtocol(
-                        app::configFacade().getConfig().mesh_protocol)),
+                        app::configFacade().readConfig().mesh_protocol)),
                 static_cast<unsigned>(g_contacts_state.contacts_list.size()),
                 static_cast<unsigned>(g_contacts_state.nearby_list.size()),
                 static_cast<unsigned>(g_contacts_state.reticulum_group_list.size()),

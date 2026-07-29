@@ -35,7 +35,7 @@ bool build_status_payload(std::vector<uint8_t>& out, uint8_t link_state, uint32_
 {
     const platform::ui::device::BatteryInfo battery_info = platform::ui::device::battery_info();
     app::IAppConfigFacade& config_api = app::configFacade();
-    app::AppConfig& cfg = config_api.getConfig();
+    const app::AppConfig& cfg = config_api.readConfig();
     hostlink::bridge::AppRxStats stats = hostlink::bridge::get_app_rx_stats();
 
     StatusPayloadSnapshot snapshot;
@@ -95,7 +95,7 @@ bool apply_config(const uint8_t* data, size_t len, uint32_t* out_err)
 
     app::IAppConfigFacade& config_api = app::configFacade();
     app::IAppMessagingFacade& messaging_api = app::messagingFacade();
-    const app::AppConfig& current_config = config_api.getConfig();
+    const app::AppConfig& current_config = config_api.readConfig();
     const chat::MeshProtocol original_protocol = current_config.mesh_protocol;
     bool mesh_changed = false;
     bool net_changed = false;
@@ -250,7 +250,7 @@ bool apply_config(const uint8_t* data, size_t len, uint32_t* out_err)
     if (chat_changed)
     {
         messaging_api.getChatService().switchChannel(
-            static_cast<chat::ChannelId>(config_api.getConfig().chat_channel));
+            static_cast<chat::ChannelId>(config_api.readConfig().chat_channel));
     }
     if (protocol_changed)
     {

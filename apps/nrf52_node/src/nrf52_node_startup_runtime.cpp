@@ -66,7 +66,7 @@ void run()
 
     if (app_runtime_access::initialize())
     {
-        auto& cfg = AppFacadeRuntime::instance().getConfig();
+        const auto& cfg = AppFacadeRuntime::instance().readConfig();
         ui_runtime::bindChatObservers();
         (void)board.startGpsRuntime(cfg);
         platform::nrf52::debug_console::printf("%s startup app facade ok\n", target_board::kLogTag);

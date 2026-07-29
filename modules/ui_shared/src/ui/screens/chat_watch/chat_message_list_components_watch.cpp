@@ -22,7 +22,7 @@ const char* protocol_short_label(chat::MeshProtocol protocol)
 
 chat::MeshProtocol active_mesh_protocol()
 {
-    return app::configFacade().getConfig().mesh_protocol;
+    return app::configFacade().readConfig().mesh_protocol;
 }
 } // namespace
 

@@ -18,12 +18,12 @@ namespace ui
 
 inline bool uses_reticulum_filter_profile()
 {
-    return chat::infra::isReticulumMeshProtocol(app::configFacade().getConfig().mesh_protocol);
+    return chat::infra::isReticulumMeshProtocol(app::configFacade().readConfig().mesh_protocol);
 }
 
 inline bool uses_meshcore_filter_profile()
 {
-    return app::configFacade().getConfig().mesh_protocol == chat::MeshProtocol::MeshCore;
+    return app::configFacade().readConfig().mesh_protocol == chat::MeshProtocol::MeshCore;
 }
 
 } // namespace ui

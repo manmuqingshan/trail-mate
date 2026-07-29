@@ -1159,7 +1159,7 @@ bool transform_geo_point(const GeoPoint& point, uint8_t coord_system, GeoPoint& 
 
 LayerState current_layer_state()
 {
-    const auto& cfg = app::configFacade().getConfig();
+    const auto& cfg = app::configFacade().readConfig();
     LayerState state{};
     state.map_source = sanitize_map_source(cfg.map_source);
     state.contour_enabled = cfg.map_contour_enabled;
@@ -1187,14 +1187,14 @@ bool set_layer_map_source(uint8_t map_source, LayerNotice* out_notice)
     clear_layer_notice(out_notice);
 
     app::IAppConfigFacade& config_api = app::configFacade();
-    const uint8_t previous = sanitize_map_source(config_api.getConfig().map_source);
+    const uint8_t previous = sanitize_map_source(config_api.readConfig().map_source);
     const uint8_t normalized = sanitize_map_source(map_source);
     const bool changed = previous != normalized;
 
     MAP_VIEWPORT_LOG("set_layer_map_source from=%u to=%u contour=%d changed=%d\n",
                      static_cast<unsigned>(previous),
                      static_cast<unsigned>(normalized),
-                     config_api.getConfig().map_contour_enabled ? 1 : 0,
+                     config_api.readConfig().map_contour_enabled ? 1 : 0,
                      changed ? 1 : 0);
 
     if (changed)
@@ -1228,13 +1228,13 @@ bool toggle_layer_contour(LayerNotice* out_notice)
     clear_layer_notice(out_notice);
 
     app::IAppConfigFacade& config_api = app::configFacade();
-    const bool previous = config_api.getConfig().map_contour_enabled;
+    const bool previous = config_api.readConfig().map_contour_enabled;
     const bool enabled = !previous;
 
     MAP_VIEWPORT_LOG("toggle_layer_contour from=%d to=%d src=%u\n",
                      previous ? 1 : 0,
                      enabled ? 1 : 0,
-                     static_cast<unsigned>(sanitize_map_source(config_api.getConfig().map_source)));
+                     static_cast<unsigned>(sanitize_map_source(config_api.readConfig().map_source)));
 
     auto edit = config_api.beginConfigEdit();
     if (!edit)
