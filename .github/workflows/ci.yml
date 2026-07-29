@@ -370,7 +370,7 @@ jobs:
           BUILD_DIR="build.${{ matrix.env }}"
           cp "${BUILD_DIR}/trail-mate.bin" \
             "dist/trail-mate-${{ matrix.env }}-v${{ steps.version.outputs.version }}.bin"
-          python scripts/prepare_webflash_release.py \
+          "${IDF_PYTHON_ENV_PATH}/bin/python" scripts/prepare_webflash_release.py \
             --env "${{ matrix.env }}" \
             --build-root . \
             --dist dist
