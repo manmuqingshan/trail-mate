@@ -57,6 +57,11 @@ constexpr const char* kLvglFlashFsMountPoint = "/fs";
 #endif
 constexpr size_t kTDeckDmaDrawBufferLines = TRAIL_MATE_TDECK_DMA_DRAW_BUFFER_LINES;
 static_assert(kTDeckDmaDrawBufferLines >= 10, "TDeck draw buffers below 10 lines make refresh visibly unstable");
+
+#ifndef TRAIL_MATE_TDECK_USE_DMA_DRAW_BUFFERS
+#define TRAIL_MATE_TDECK_USE_DMA_DRAW_BUFFERS 0
+#endif
+constexpr bool kTDeckUseDmaDrawBuffers = TRAIL_MATE_TDECK_USE_DMA_DRAW_BUFFERS != 0;
 #endif
 // LVGL's SD drive callback can still be reached by resource-pack and image
 // paths. Keep every callback acquisition extremely short: a busy shared
@@ -1145,9 +1150,13 @@ void beginLvglHelper(LilyGo_Display& board, bool debug)
     }
 #endif
 
-    // Allocate display buffers
-    // Use DMA-capable memory if board supports DMA, otherwise use PSRAM
+    // Allocate display buffers. T-Deck retains DMA capability for the display
+    // transport, while its large LVGL draw buffers default to PSRAM to protect
+    // internal SRAM for task stacks, radio, and peripheral DMA allocations.
     bool use_dma_draw_buffers = board.useDMA();
+#if defined(ARDUINO_T_DECK)
+    use_dma_draw_buffers = kTDeckUseDmaDrawBuffers;
+#endif
 #if LV_TEST_FORCE_DMA_BUF
     use_dma_draw_buffers = true;
 #endif
