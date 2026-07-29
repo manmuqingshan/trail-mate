@@ -21,6 +21,7 @@
 #include "chat/infra/meshtastic/mt_region.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "meshtastic/config.pb.h"
+#include "platform/ui/auto_reply_settings.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/firmware_update_runtime.h"
 #include "platform/ui/gps_runtime.h"
@@ -1600,6 +1601,21 @@ static void settings_load()
     g_settings.chat_channel = cfg.chat_channel;
     g_settings.chat_message_alerts = prefs_get_int("chat_message_alerts", 1) ? 1 : 0;
     g_settings.chat_contact_alerts = prefs_get_int("chat_contact_alerts", kChatContactAlertsContacts);
+    g_settings.chat_auto_reply_enabled = prefs_get_bool(
+        ::platform::ui::auto_reply::kEnabledKey, false);
+    std::string auto_reply_text;
+    if (settings_store::get_string(::platform::ui::auto_reply::kSettingsNamespace,
+                                   ::platform::ui::auto_reply::kTextKey,
+                                   auto_reply_text))
+    {
+        copy_bounded(g_settings.chat_auto_reply_text,
+                     sizeof(g_settings.chat_auto_reply_text),
+                     auto_reply_text.c_str());
+    }
+    else
+    {
+        g_settings.chat_auto_reply_text[0] = '\0';
+    }
     if (g_settings.chat_contact_alerts < kChatContactAlertsNone ||
         g_settings.chat_contact_alerts > kChatContactAlertsAll)
     {
@@ -1930,7 +1946,11 @@ static void update_item_value(settings::ui::ItemWidget& widget)
     char value[48];
     format_value(*widget.def, value, sizeof(value));
     const settings::ui::SettingId id = item_id(*widget.def);
+    const bool text_value_uses_content_font =
+        widget.def->type == settings::ui::SettingType::Text &&
+        ::ui::fonts::utf8_has_non_ascii(value);
     const bool use_content_font =
+        text_value_uses_content_font ||
         option_labels_use_content_font(*widget.def) ||
         (id == settings::ui::SettingId::EnabledImes &&
          ::ui::fonts::utf8_has_non_ascii(value));
@@ -2254,6 +2274,13 @@ static void on_text_save_clicked(lv_event_t* e)
                 });
             app_ctx.applyUserInfo();
             broadcast_nodeinfo = true;
+        }
+        if (id == settings::ui::SettingId::ChatAutoReplyText)
+        {
+            (void)settings_store::put_string(
+                ::platform::ui::auto_reply::kSettingsNamespace,
+                ::platform::ui::auto_reply::kTextKey,
+                g_state.editing_item->text_value);
         }
         if (broadcast_nodeinfo)
         {
@@ -4939,6 +4966,8 @@ static settings::ui::SettingItem kProfileItems[] = {
     {"Protocol", settings::ui::SettingType::Enum, kChatProtocolOptions, 3, &g_settings.chat_protocol, nullptr, nullptr, 0, false, "mesh_protocol"},
     {"Message Alerts", settings::ui::SettingType::Enum, kBoolOptions, sizeof(kBoolOptions) / sizeof(kBoolOptions[0]), &g_settings.chat_message_alerts, nullptr, nullptr, 0, false, "chat_message_alerts"},
     {"Contact Alerts", settings::ui::SettingType::Enum, kChatContactAlertOptions, sizeof(kChatContactAlertOptions) / sizeof(kChatContactAlertOptions[0]), &g_settings.chat_contact_alerts, nullptr, nullptr, 0, false, "chat_contact_alerts"},
+    {"Auto Reply", settings::ui::SettingType::Toggle, nullptr, 0, nullptr, &g_settings.chat_auto_reply_enabled, nullptr, 0, false, "chat_auto_reply_enabled"},
+    {"Auto Reply Text", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr, g_settings.chat_auto_reply_text, sizeof(g_settings.chat_auto_reply_text), false, "chat_auto_reply_text"},
 };
 
 static settings::ui::SettingItem kMeshItems[] = {

@@ -49,7 +49,10 @@ RuntimeBudget makeRuntimeBudget(const RuntimeBudgetInput& input)
         budget.allow_persistence = false;
         budget.allow_peer_projection = false;
         budget.allow_announce_tx = false;
-        budget.allow_propagation_client = false;
+        // Propagation retrieval is already rate-limited by the configured
+        // sync interval. Keep it available while the display sleeps so a
+        // queued private LXMF can be received and auto-replied to.
+        budget.allow_propagation_client = true;
         budget.phase = "sleep";
         return budget;
     }

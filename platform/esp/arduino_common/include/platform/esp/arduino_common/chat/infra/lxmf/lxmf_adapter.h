@@ -439,7 +439,8 @@ class LxmfAdapter : public IMeshAdapter, private runtime::IPeerProjectionSink
     bool acceptVerifiedEnvelope(const uint8_t* plaintext, size_t plaintext_len,
                                 const uint8_t* raw_packet, size_t raw_len,
                                 uint8_t* out_message_hash = nullptr,
-                                bool* out_awaiting_commit = nullptr);
+                                bool* out_awaiting_commit = nullptr,
+                                LinkSession* incoming_delivery_session = nullptr);
     bool acceptVerifiedEnvelopeForDestination(
         const uint8_t expected_destination_hash[reticulum::kTruncatedHashSize],
         const ReticulumPeerIdentity& conversation_identity,
@@ -448,7 +449,8 @@ class LxmfAdapter : public IMeshAdapter, private runtime::IPeerProjectionSink
         const uint8_t* plaintext, size_t plaintext_len,
         const uint8_t* raw_packet, size_t raw_len,
         uint8_t* out_message_hash = nullptr,
-        bool* out_awaiting_commit = nullptr);
+        bool* out_awaiting_commit = nullptr,
+        LinkSession* incoming_delivery_session = nullptr);
     bool handleLinkResourceAdvertisement(LinkSession& session,
                                          const uint8_t* plaintext, size_t plaintext_len);
     bool handleLinkResourceRequest(LinkSession& session,

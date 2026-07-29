@@ -265,6 +265,7 @@ class AppContext final : public IAppBleFacade
     std::unique_ptr<chat::ChatService> chat_service_;
     std::unique_ptr<chat::contacts::ContactService> contact_service_;
     std::unique_ptr<chat::ChatService::IncomingMessageObserver> chat_event_bus_bridge_;
+    std::unique_ptr<chat::ChatService::IncomingMessageObserver> auto_reply_observer_;
     std::unique_ptr<team::ITeamCrypto> team_crypto_;
     std::unique_ptr<team::ITeamEventSink> team_event_sink_;
     std::unique_ptr<team::TeamService::UnhandledAppDataObserver> team_app_data_bridge_;

@@ -49,6 +49,7 @@ struct ChatServicesBundle
     std::unique_ptr<chat::IMeshAdapter> mesh_runtime;
     std::unique_ptr<chat::ChatService> service;
     std::unique_ptr<chat::ChatService::IncomingMessageObserver> incoming_message_observer;
+    std::unique_ptr<chat::ChatService::IncomingMessageObserver> auto_reply_observer;
     DeferredStorageStarter start_deferred_storage = nullptr;
     void* deferred_storage_store_context = nullptr;
     void* deferred_storage_peer_context = nullptr;
@@ -56,7 +57,7 @@ struct ChatServicesBundle
     bool isValid() const
     {
         return model && store && mesh_peer_directory && mesh_runtime && service &&
-               incoming_message_observer;
+               incoming_message_observer && auto_reply_observer;
     }
 };
 

@@ -6,6 +6,7 @@
 #pragma once
 
 #include "lvgl.h"
+#include "platform/ui/auto_reply_settings.h"
 #include "ui/widgets/top_bar.h"
 #include <cstddef>
 #include <cstdint>
@@ -30,6 +31,8 @@ enum class SettingId : std::uint16_t
     MeshProtocol,
     ChatMessageAlerts,
     ChatContactAlerts,
+    ChatAutoReplyEnabled,
+    ChatAutoReplyText,
     ChatRegion,
     ChatChannel,
     ChatPsk,
@@ -219,6 +222,8 @@ struct SettingsData
     char chat_psk[65] = {};
     int chat_message_alerts = 1;
     int chat_contact_alerts = 1;
+    bool chat_auto_reply_enabled = false;
+    char chat_auto_reply_text[::platform::ui::auto_reply::kTextMaxBytes + 1] = {};
 
     // Meshtastic channels
     bool mt_primary_enabled = true;

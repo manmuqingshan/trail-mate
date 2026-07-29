@@ -450,6 +450,48 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_meshtastic_protocol_policy_smoke
              COMMAND trailmate_meshtastic_protocol_policy_smoke)
 
+    add_executable(trailmate_auto_reply_policy_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_auto_reply_policy.cpp")
+    target_include_directories(trailmate_auto_reply_policy_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_features(trailmate_auto_reply_policy_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_auto_reply_policy_smoke
+             COMMAND trailmate_auto_reply_policy_smoke)
+
+    add_executable(trailmate_settings_text_font_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_settings_text_font_contract.cpp")
+    target_compile_features(trailmate_settings_text_font_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_settings_text_font_contract_smoke
+             COMMAND trailmate_settings_text_font_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/screens/settings/settings_page_components.cpp")
+
+    add_executable(trailmate_auto_reply_settings_persistence_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_auto_reply_settings_persistence_contract.cpp")
+    target_compile_features(trailmate_auto_reply_settings_persistence_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_auto_reply_settings_persistence_contract_smoke
+             COMMAND trailmate_auto_reply_settings_persistence_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
+    add_executable(trailmate_reticulum_network_defaults_refresh_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_reticulum_network_defaults_refresh_contract.cpp")
+    target_compile_features(trailmate_reticulum_network_defaults_refresh_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_reticulum_network_defaults_refresh_contract_smoke
+             COMMAND trailmate_reticulum_network_defaults_refresh_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
+    add_executable(trailmate_reticulum_wifi_gateway_pending_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_reticulum_wifi_gateway_pending_contract.cpp")
+    target_compile_features(trailmate_reticulum_wifi_gateway_pending_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_reticulum_wifi_gateway_pending_contract_smoke
+             COMMAND trailmate_reticulum_wifi_gateway_pending_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
     add_executable(trailmate_mt_dedup_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_mt_dedup.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshtastic/mt_dedup.cpp"

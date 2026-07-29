@@ -8,6 +8,7 @@
 #include "board/MotionBoard.h"
 #include "chat/infra/store/ram_store.h"
 #include "chat/usecase/contact_service.h"
+#include "platform/esp/arduino_common/chat/infra/auto_reply_observer.h"
 #include "platform/esp/arduino_common/chat/infra/chat_event_bus_bridge.h"
 #include "platform/esp/arduino_common/chat/infra/mesh_adapter_router.h"
 #include "platform/esp/arduino_common/chat/infra/protocol_factory.h"
@@ -301,6 +302,11 @@ app::ChatServicesBundle create_chat_services(const app::AppConfig& config,
     }
 
     bundle.incoming_message_observer = create_chat_message_observer(*bundle.service);
+    bundle.auto_reply_observer = chat::infra::create_auto_reply_observer(*bundle.service);
+    if (!bundle.incoming_message_observer || !bundle.auto_reply_observer)
+    {
+        return app::ChatServicesBundle{};
+    }
     if (bundle.deferred_storage_store_context ||
         bundle.deferred_storage_peer_context)
     {

@@ -1087,6 +1087,64 @@ void activate(const chat::reticulum::ReticulumNetworkConfig& config,
     ++g_status.generation;
 }
 
+bool same_interface_config(const chat::reticulum::NetworkInterfaceConfig& lhs,
+                           const chat::reticulum::NetworkInterfaceConfig& rhs)
+{
+    return std::strcmp(lhs.id, rhs.id) == 0 && lhs.type == rhs.type &&
+           lhs.enabled == rhs.enabled &&
+           std::strcmp(lhs.target_host, rhs.target_host) == 0 &&
+           lhs.target_port == rhs.target_port &&
+           std::strcmp(lhs.group_id, rhs.group_id) == 0 &&
+           lhs.discovery_port == rhs.discovery_port &&
+           lhs.data_port == rhs.data_port;
+}
+
+bool same_propagation_config(
+    const chat::reticulum::LxmfPropagationClientConfig& lhs,
+    const chat::reticulum::LxmfPropagationClientConfig& rhs)
+{
+    return lhs.enabled == rhs.enabled &&
+           lhs.service_enabled == rhs.service_enabled &&
+           lhs.delivery == rhs.delivery &&
+           lhs.automatic_node == rhs.automatic_node &&
+           std::memcmp(lhs.node_hash, rhs.node_hash, sizeof(lhs.node_hash)) == 0 &&
+           lhs.sync_on_start == rhs.sync_on_start &&
+           lhs.sync_interval_s == rhs.sync_interval_s &&
+           lhs.max_messages_per_sync == rhs.max_messages_per_sync;
+}
+
+bool same_network_config(const chat::reticulum::ReticulumNetworkConfig& lhs,
+                         const chat::reticulum::ReticulumNetworkConfig& rhs)
+{
+    if (lhs.version != rhs.version || lhs.interface_count != rhs.interface_count ||
+        !same_propagation_config(lhs.propagation, rhs.propagation))
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < lhs.interface_count; ++index)
+    {
+        if (!same_interface_config(lhs.interfaces[index], rhs.interfaces[index]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+void refresh_default_projection(const chat::MeshConfig& legacy_config,
+                                bool force)
+{
+    build_defaults(legacy_config);
+    if (!force && g_status.source == Source::Defaults &&
+        same_network_config(g_active, g_parse_scratch))
+    {
+        return;
+    }
+
+    activate(g_parse_scratch, Source::Defaults);
+    set_status("Using Reticulum defaults", kConfigPath);
+}
+
 bool load_sd_config()
 {
     g_status.sd_present = sd_available();
@@ -1167,6 +1225,7 @@ void poll(const chat::MeshConfig& legacy_config)
     }
     if (g_sd_checked)
     {
+        refresh_default_projection(legacy_config, false);
         return;
     }
     const uint32_t now_ms = uptime_ms();
@@ -1185,7 +1244,10 @@ void poll(const chat::MeshConfig& legacy_config)
             return;
         }
         g_sd_checked = true;
-        (void)load_sd_config();
+        if (!load_sd_config() && !g_status.file_present)
+        {
+            refresh_default_projection(legacy_config, true);
+        }
     }
 }
 

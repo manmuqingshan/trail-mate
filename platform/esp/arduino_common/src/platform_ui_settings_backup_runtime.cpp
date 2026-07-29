@@ -127,6 +127,8 @@ constexpr ExtraKey kExtraKeys[] = {
     {"settings", "timezone_tzdef", "timezone_tzdef", ValueType::Blob},
     {"settings", "chat_message_alerts", "chat_msg_alert", ValueType::Int},
     {"settings", "chat_contact_alerts", "chat_ct_alert", ValueType::Int},
+    {"settings", "chat_auto_reply_enabled", "chat_auto_reply", ValueType::Bool},
+    {"settings", "chat_auto_reply_text", "chat_auto_reply_text", ValueType::String},
     {"settings", "adv_debug", "adv_debug", ValueType::Bool},
     {"power", "gauge_design_mah", "gauge_dsgn", ValueType::UInt},
     {"power", "gauge_full_mah", "gauge_full_mah", ValueType::UInt},

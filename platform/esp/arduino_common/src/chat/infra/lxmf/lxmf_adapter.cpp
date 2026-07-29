@@ -3423,7 +3423,10 @@ void LxmfAdapter::processRuntime()
     {
         pumpPendingPeerUpdates();
     }
-    if (budget.allow_announce_tx)
+    // A sleeping Pager normally suppresses periodic announces, but it must
+    // still complete the initial (or retry) announce after a reboot/config
+    // change so direct peers can discover its LXMF destination again.
+    if (budget.allow_announce_tx || announce_scheduler_.isPending())
     {
         maybeAnnounce();
     }
@@ -4785,16 +4788,24 @@ bool LxmfAdapter::handlePathRequestPacket(const reticulum::ParsedPacket& packet)
     if (isLocalDestinationHash(requested_hash, &local_kind))
     {
         (void)tag;
+        char requested_prefix[12] = {};
+        formatHashPrefix(requested_hash,
+                         requested_prefix,
+                         sizeof(requested_prefix));
         if (local_kind == LocalDestinationKind::CallAudio &&
             isLoRaInterfaceId(active_ingress_interface_id_))
         {
-            char call_hash[12] = {};
-            formatHashPrefix(requested_hash, call_hash, sizeof(call_hash));
             Serial.printf("[LXMF][PathRX] skip_response dest=%s kind=call_audio reason=lora_not_supported\n",
-                          call_hash);
+                          requested_prefix);
             return true;
         }
-        return sendAnnounce(local_kind, reticulum::PacketContext::PathResponse);
+        const bool sent = sendAnnounce(local_kind,
+                                       reticulum::PacketContext::PathResponse);
+        Serial.printf("[LXMF][PathRX] response dest=%s kind=%u sent=%u\n",
+                      requested_prefix,
+                      static_cast<unsigned>(local_kind),
+                      sent ? 1U : 0U);
+        return sent;
     }
 
     return true;
@@ -4923,7 +4934,13 @@ bool LxmfAdapter::handleLinkDataPacket(LinkSession& session,
             }
             else if (session.destination == LocalDestinationKind::Delivery)
             {
-                handled = acceptVerifiedEnvelope(payload_ptr, payload_len, raw_packet, raw_len);
+                handled = acceptVerifiedEnvelope(payload_ptr,
+                                                 payload_len,
+                                                 raw_packet,
+                                                 raw_len,
+                                                 nullptr,
+                                                 nullptr,
+                                                 &session);
             }
         }
         should_prove = handled;
@@ -7518,10 +7535,30 @@ bool LxmfAdapter::shouldProcessWifiIngressPacket(const reticulum::ParsedPacket& 
         packet.payload &&
         packet.payload_len > reticulum::kTruncatedHashSize)
     {
-        const uint8_t* requested_hash = packet.payload;
-        if (isLocalDestinationHash(requested_hash, nullptr) ||
-            findConfiguredGroupDestination(requested_hash))
+        uint8_t control_hash[reticulum::kTruncatedHashSize] = {};
+        pathRequestDestinationHash(control_hash);
+        if (!hashesEqual(packet.destination_hash,
+                         control_hash,
+                         sizeof(control_hash)))
         {
+            return false;
+        }
+
+        const uint8_t* requested_hash = packet.payload;
+        LocalDestinationKind local_kind = LocalDestinationKind::Delivery;
+        const bool requested_local =
+            isLocalDestinationHash(requested_hash, &local_kind);
+        if (requested_local || findConfiguredGroupDestination(requested_hash))
+        {
+            char requested_prefix[12] = {};
+            formatHashPrefix(requested_hash,
+                             requested_prefix,
+                             sizeof(requested_prefix));
+            Serial.printf("[LXMF][PathRX] admit requested=%s local=%u kind=%u phase=%s\n",
+                          requested_prefix,
+                          requested_local ? 1U : 0U,
+                          static_cast<unsigned>(local_kind),
+                          budget.phase ? budget.phase : "-");
             return true;
         }
         return false;
@@ -9293,7 +9330,8 @@ LxmfAdapter::PeerInfo* LxmfAdapter::rememberPeerIdentity(
 bool LxmfAdapter::acceptVerifiedEnvelope(const uint8_t* plaintext, size_t plaintext_len,
                                          const uint8_t* raw_packet, size_t raw_len,
                                          uint8_t* out_message_hash,
-                                         bool* out_awaiting_commit)
+                                         bool* out_awaiting_commit,
+                                         LinkSession* incoming_delivery_session)
 {
     if (out_message_hash)
     {
@@ -9313,7 +9351,8 @@ bool LxmfAdapter::acceptVerifiedEnvelope(const uint8_t* plaintext, size_t plaint
                                                 raw_packet,
                                                 raw_len,
                                                 out_message_hash,
-                                                out_awaiting_commit);
+                                                out_awaiting_commit,
+                                                incoming_delivery_session);
 }
 
 bool LxmfAdapter::acceptVerifiedEnvelopeForDestination(
@@ -9324,7 +9363,8 @@ bool LxmfAdapter::acceptVerifiedEnvelopeForDestination(
     const uint8_t* plaintext, size_t plaintext_len,
     const uint8_t* raw_packet, size_t raw_len,
     uint8_t* out_message_hash,
-    bool* out_awaiting_commit)
+    bool* out_awaiting_commit,
+    LinkSession* incoming_delivery_session)
 {
     if (out_awaiting_commit)
     {
@@ -9515,6 +9555,20 @@ bool LxmfAdapter::acceptVerifiedEnvelopeForDestination(
             hasReticulumDestinationIdentity(conversation_identity)
                 ? conversation_identity
                 : delivery_context.peer_identity;
+        if (incoming_delivery_session &&
+            incoming_delivery_session->destination == LocalDestinationKind::Delivery)
+        {
+            copyHash(incoming_delivery_session->remote_destination_hash,
+                     peer->destination_hash,
+                     sizeof(incoming_delivery_session->remote_destination_hash));
+            copyHash(incoming_delivery_session->remote_identity_hash,
+                     peer->identity_hash,
+                     sizeof(incoming_delivery_session->remote_identity_hash));
+            std::memcpy(incoming_delivery_session->peer_identity_sig_pub,
+                        peer->sig_pub,
+                        sizeof(incoming_delivery_session->peer_identity_sig_pub));
+            incoming_delivery_session->remote_identity_known = true;
+        }
         if (!runtime::materialiseVerifiedLxmfDelivery(envelope.packed_payload.data(),
                                                       envelope.packed_payload.size(),
                                                       delivery_context,

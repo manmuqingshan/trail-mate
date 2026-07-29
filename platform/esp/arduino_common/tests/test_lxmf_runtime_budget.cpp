@@ -49,6 +49,7 @@ int main()
     assert(budget.deferred_discovery_limit == 1);
     assert(budget.allow_public_discovery);
     assert(!budget.allow_persistence);
+    assert(budget.allow_propagation_client);
 
     input = RuntimeBudgetInput{};
     input.screen_saver_active = true;

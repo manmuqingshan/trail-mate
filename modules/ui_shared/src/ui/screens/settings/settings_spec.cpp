@@ -22,6 +22,8 @@ constexpr SettingSpec kSpecs[] = {
     {SettingId::MeshProtocol, "mesh_protocol", DynamicOptionKind::None},
     {SettingId::ChatMessageAlerts, "chat_message_alerts", DynamicOptionKind::None},
     {SettingId::ChatContactAlerts, "chat_contact_alerts", DynamicOptionKind::None},
+    {SettingId::ChatAutoReplyEnabled, "chat_auto_reply_enabled", DynamicOptionKind::None},
+    {SettingId::ChatAutoReplyText, "chat_auto_reply_text", DynamicOptionKind::None},
     {SettingId::ChatRegion, "chat_region", DynamicOptionKind::ChatRegion},
     {SettingId::ChatChannel, "chat_channel", DynamicOptionKind::None},
     {SettingId::ChatPsk, "chat_psk", DynamicOptionKind::None},
@@ -527,7 +529,8 @@ bool is_settings_store_owned_enum(SettingId id)
 
 bool is_settings_store_owned_toggle(SettingId id)
 {
-    return id == SettingId::VibrationEnabled || id == SettingId::AdvDebug;
+    return id == SettingId::ChatAutoReplyEnabled ||
+           id == SettingId::VibrationEnabled || id == SettingId::AdvDebug;
 }
 
 bool should_show(SettingId id, const VisibilityContext& context)

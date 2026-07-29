@@ -295,10 +295,12 @@ void WifiGatewayReticulumInterface::maintain()
         return;
     }
 
+#if !TRAIL_MATE_RETICULUM_WIFI_CLIENT_AVAILABLE
     if (socket_open_pending_)
     {
         return;
     }
+#endif
 
     (void)ensureSocket();
 }

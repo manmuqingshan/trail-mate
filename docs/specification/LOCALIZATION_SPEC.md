@@ -253,20 +253,24 @@ classDiagram
    - 面向 Wi-Fi 密码、频道名、PSK、聊天文本等通用文本输入。
    - 需要一个小型内置 content baseline font：`builtin-symbol-core`，只覆盖当前 100 个 Symbol 候选。
 2. `Emoji`
-   - 最多 100 个精选 emoji。
+   - 当前为 324 个经过审核的 emoji，分为 `Common`、`Radio`、`Nav`、`Weather`、`Survive`、`Rescue`、`Camp`、`People`、`Animals` 九类。
    - 不是全量 emoji 表，也不是可下载扩展包。
-   - 需要一个小型内置 content baseline font：`builtin-emoji-core`，只覆盖当前 100 个 Emoji 候选。
+   - 目录唯一来源是 `tools/emoji_candidates_trailmate.json`；它的 `expected_total` 与每类的 `expected_count` 都必须通过生成器校验。
+   - 需要一个小型内置 content baseline font：`builtin-emoji-core`，只覆盖当前 324 个 Emoji 候选。
 
 这两组候选的合法入口是文本输入 toolbar 中与 IME 切换按钮并列的 `Sym` / `Emoji` 按钮。Chat compose 与 Settings 文本弹窗必须接入同一个 `TextCandidatePicker`，不得各自实现私有候选窗口。
 
 候选页交互规则固定为：
 
 1. 点击 `Sym` 或 `Emoji` 打开全屏候选页。
-2. 候选页最多加载 100 项；打开时一次性创建全量候选，不分页，候选数组顺序就是展示顺序。
-3. 候选页头部提示硬件键盘可用的选择动作：`WASD` 移动当前候选，`Q` 关闭，`E` 提交当前候选。
-4. 触摸点击候选项时直接提交并关闭候选页。
-5. 提交动作只向目标 textarea 插入 UTF-8 文本并触发 value changed，不改变当前 IME 模式。
-6. 页面不得绕过 `TextCandidatePicker` 直接维护另一份 Symbol / Emoji 列表。
+2. 候选页始终分页，禁止为全部候选创建一个可滚动的大网格。UI 最多创建 40 个候选按钮并在换页时复用；T-Deck Pager 的 480px 宽屏显示 8 列 × 4 行，即每页 32 项。
+3. `Symbols` 只有分页；`Emoji` 打开后显示当前分类的第一页，`C` 打开/关闭分类页。分类页为 3 列 × 3 行，展示全部九类；分类卡只显示分类文字，不能再显示 emoji 图标或第二行说明。
+4. T-Deck Pager 的物理键映射固定为：`WASD` / 方向键移动当前项，`E` / Enter 提交或选中分类，`Q` / Esc / Backspace 关闭，`C` 切换分类，`B` 上一页，`N` 下一页。标题栏和翻页栏中的快捷键必须以“键帽 + 动作文字”呈现，不能把完整快捷键说明重复拼进标题、页脚和按钮。
+5. 分类页标题只显示当前上下文；页脚只显示 `WASD Move` 与 `E Select`。普通候选页页脚显示加宽的 `B Prev`、页码、`N Next`，避免文字截断或与标题栏重叠。
+6. 候选面板是全屏不透明 modal，必须挂在 active screen 的最前子层，而非 `lv_layer_top()`；这样双击 Alt 的 screen snapshot 能捕获正在显示的候选面板。
+7. 触摸点击 emoji 候选项时直接提交并关闭候选页；触摸点击分类项只进入该分类的第一页。
+8. 提交动作只向目标 textarea 插入 UTF-8 文本并触发 value changed，不改变当前 IME 模式。
+9. 页面不得绕过 `TextCandidatePicker` 直接维护另一份 Symbol / Emoji 列表。
 
 ```mermaid
 classDiagram
@@ -562,12 +566,13 @@ Symbol / Emoji 支持不是 locale，也不是 Extensions 中的可下载包。
    - 小型内置 content baseline font。
    - 只覆盖当前 100 个 Symbol 候选集；不得携带用户不能输入的额外 symbol 字形。
 3. `Emoji` 候选集
-   - 最多 100 个 UTF-8 emoji 字符串。
+   - 当前固定为 324 个 UTF-8 emoji 字符串，目录由 `tools/emoji_candidates_trailmate.json` 审核并生成。
+   - 分为 Common、Radio、Nav、Weather、Survive、Rescue、Camp、People、Animals 九类；户外、无线电与生存语义优先，People 包含 `🤖`。
    - 由 `TextCandidatePicker` 展示和提交。
    - 不通过 IME registry，也不通过 pack manifest。
 4. `builtin-emoji-core`
    - 小型内置 content baseline font。
-   - 只覆盖当前 100 个精选 emoji 候选集；不得携带用户不能输入的额外 emoji 字形。
+   - 只覆盖当前 324 个精选 emoji 候选集；不得携带用户不能输入的额外 emoji 字形。
    - 在 registry 阶段进入 content font chain，不从 SD / Flash 读取 `font.bin`。
 - 与 `builtin-symbol-core` 一样不计入 external content supplement 数量预算；中文、日文、韩文等外部内容字体仍必须能够占用自己的 supplement 名额。
 
@@ -580,7 +585,7 @@ flowchart LR
   FontResolver --> EmojiFont["builtin-emoji-core"]
   ChatCompose["Chat compose toolbar"] --> TextPicker["TextCandidatePicker"]
   SettingsText["Settings text modal toolbar"] --> TextPicker
-  TextPicker --> EmojiData["Builtin emoji candidates <= 100"]
+  TextPicker --> EmojiData["Builtin emoji catalogue: 324 / 9 categories"]
   TextPicker --> SymbolData["Builtin symbol candidates <= 100"]
   TextPicker --> TextInsert["UTF-8 text insertion"]
 ```
@@ -598,16 +603,17 @@ flowchart LR
 
 数量边界：
 
-1. 固件最多内置 100 个 Symbol 候选与 100 个 Emoji 候选。
+1. 固件最多内置 100 个 Symbol 候选；Emoji 目录当前精确为 324 项、9 类。改变 Emoji 总数必须同步更新 manifest 的 `expected_total`、C++ 容量常量、生成字库与本规格。
 2. 对应内置字体只能覆盖这两组候选；候选集缩小后字体也必须同步缩小。
-3. 选择原则是高频、通用、跨语言语义稳定。
-4. 如果未来要扩展到全量 emoji 或大型符号表，必须另立新规格；不得悄悄扩大当前内置表。
+3. 候选面板最多创建 40 个可复用按钮，不能随着目录大小线性增加 LVGL 控件或 UI heap 占用。
+4. Emoji 选择原则是高频、通用、跨语言语义稳定，并优先覆盖户外、无线电、生存、救援、人员与动物交流。
+5. 如果未来要扩展到全量 emoji 或大型符号表，必须另立新规格；不得悄悄扩大当前内置表。
 
 Glyph 判定边界：
 
 1. Font registry 的 coverage 和 missing-glyph 判定必须忽略 Unicode variation selector（例如 U+FE0F）与 ZWJ（U+200D）。
 2. 这些 codepoint 只改变组合字符的显示形式，本身不要求字体提供独立 glyph。
-3. `TextCandidatePicker` 与 content font resolver 必须使用一致规则；否则 emoji / symbol 候选会显示通过，但聊天、地图或联系人内容仍被误判为缺字。
+3. Emoji manifest 生成器与 content font resolver 必须使用一致规则；否则已生成的候选字库、聊天、地图或联系人内容会对相同 emoji 作出不一致的缺字判断。
 
 ### 4.6 Persistence Contract
 

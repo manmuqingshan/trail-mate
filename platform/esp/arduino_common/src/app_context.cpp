@@ -173,6 +173,7 @@ void AppContext::initChatRuntime(bool use_mock_adapter)
     mesh_router_ = std::move(chat_services.mesh_runtime);
     chat_service_ = std::move(chat_services.service);
     chat_event_bus_bridge_ = std::move(chat_services.incoming_message_observer);
+    auto_reply_observer_ = std::move(chat_services.auto_reply_observer);
 
     applyUserInfo();
     applyNetworkLimits();

@@ -1,0 +1,577 @@
+<!doctype html>
+<!--
+  PROTOTYPE ONLY — not firmware UI, not a source of production data.
+
+  Run from repository root:
+    py -3 -m http.server 8765 --directory docs/prototypes
+
+  Then open:
+    http://localhost:8765/emoji_candidate_pagination_prototype.html
+
+  The `?variant=palette`, `?variant=rail`, and `?variant=dashboard`
+  query parameters select an architecture directly.
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Trail Mate 表情候选器 — 分类 + 分页原型</title>
+    <style>
+      :root {
+        /* Mirrors ui::theme plus the current text-candidate picker palette. */
+        color-scheme: light;
+        --canvas: #fff3df;
+        --panel: #fff7e9;
+        --panel-raised: #faf0d8;
+        --panel-muted: #fff0d3;
+        --line: #e7c98f;
+        --text: #3a2a1a;
+        --muted: #6a5646;
+        --accent: #eba341;
+        --accent-dark: #c98118;
+        --accent-soft: #f8d99e;
+        --danger: #cc0000;
+        --bezel: #3a2a1a;
+        --bezel-dark: #27190e;
+        --shadow: 0 18px 50px rgba(107, 74, 30, 0.22);
+        font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        min-width: 320px;
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at 20% 5%, #fffdf7 0, transparent 30rem),
+          var(--canvas);
+        color: var(--text);
+      }
+
+      button {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 0;
+        background: var(--panel-raised);
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { border-color: var(--accent-dark); }
+      button:focus-visible { outline: 3px solid var(--accent-dark); outline-offset: 2px; }
+      button:disabled { cursor: not-allowed; opacity: 0.38; }
+
+      .page {
+        width: min(1100px, 100%);
+        margin: 0 auto;
+        padding: 24px 18px 42px;
+      }
+      .intro { max-width: 850px; margin-bottom: 22px; }
+      h1 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 34px); }
+      .intro p { margin: 0; color: var(--muted); line-height: 1.6; }
+      .principle {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 14px;
+        padding: 7px 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--panel-muted);
+        color: var(--text);
+        font-size: 13px;
+      }
+
+      .prototype-shell {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: linear-gradient(135deg, var(--panel), #f6e6c6);
+        box-shadow: var(--shadow);
+      }
+      .prototype-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 11px 14px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel-muted);
+      }
+      .device-label { color: var(--muted); font-size: 13px; }
+      .variant-switcher { display: flex; flex-wrap: wrap; gap: 6px; }
+      .variant-switcher button {
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 13px;
+      }
+      .variant-switcher button[aria-pressed="true"] {
+        border-color: var(--accent-dark);
+        background: var(--accent);
+        color: var(--text);
+      }
+
+      .device {
+        width: min(100%, 720px);
+        margin: 22px auto;
+        padding: 12px;
+        border: 7px solid var(--bezel-dark);
+        border-radius: 18px;
+        background: var(--bezel);
+        box-shadow: 0 10px 30px rgba(107, 74, 30, 0.28);
+      }
+      .screen {
+        position: relative;
+        overflow: hidden;
+        min-height: 390px;
+        border: 1px solid #d9b06a;
+        border-radius: 7px;
+        background: var(--canvas);
+      }
+      .screen-header {
+        display: flex;
+        align-items: center;
+        min-height: 56px;
+        gap: 9px;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--line);
+        background: #f6e6c6;
+      }
+      .icon-button {
+        display: inline-grid;
+        width: 38px;
+        height: 38px;
+        place-items: center;
+        flex: 0 0 auto;
+        font-size: 18px;
+      }
+      .title-area { min-width: 0; flex: 1; }
+      .title-area strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .title-area span { color: var(--muted); font-size: 12px; }
+      .mode-tag {
+        flex: 0 0 auto;
+        padding: 4px 7px;
+        border: 1px solid #d9b06a;
+        border-radius: 5px;
+        background: var(--panel-muted);
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .candidate-grid {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 7px;
+        padding: 12px;
+      }
+      .candidate {
+        display: grid;
+        min-height: 64px;
+        place-items: center;
+        gap: 2px;
+        padding: 5px 2px;
+        border-radius: 7px;
+      }
+      .candidate .emoji { font-size: 28px; line-height: 1; }
+      .candidate .name {
+        max-width: 100%;
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.15;
+        text-align: center;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .candidate[aria-pressed="true"] {
+        border-color: var(--accent-dark);
+        background: var(--accent);
+      }
+      .pagination {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 8px;
+        margin: 0 12px 12px;
+      }
+      .page-action {
+        min-height: 42px;
+        padding: 0 10px;
+        font-size: 14px;
+      }
+      .page-indicator { color: var(--muted); font-size: 12px; text-align: center; }
+      .hint-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 12px;
+        padding: 0 12px 12px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .key { color: var(--text); }
+
+      /* Variant A: recommended — category palette is a second, finite overlay. */
+      .palette-trigger {
+        display: flex;
+        min-width: 106px;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        padding: 0 9px;
+        font-size: 12px;
+      }
+      .category-palette {
+        position: absolute;
+        z-index: 3;
+        inset: 0;
+        display: none;
+        padding: 14px;
+        background: rgba(255, 247, 233, 0.98);
+      }
+      .category-palette.open { display: flex; flex-direction: column; }
+      .palette-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      .palette-heading strong { font-size: 16px; }
+      .category-cards {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 9px;
+      }
+      .category-card {
+        display: grid;
+        min-height: 66px;
+        grid-template-columns: 32px 1fr;
+        align-items: center;
+        gap: 6px;
+        padding: 9px;
+        text-align: left;
+      }
+      .category-card .category-icon { font-size: 25px; text-align: center; }
+      .category-card .category-name { font-size: 13px; font-weight: 700; }
+      .category-card .category-meta { color: var(--muted); font-size: 10px; }
+      .category-card.selected {
+        border-color: var(--accent-dark);
+        background: var(--accent);
+        color: var(--text);
+      }
+      .category-card.selected .category-meta { color: var(--text); }
+      .palette-copy { margin: auto 2px 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+      /* Variant B: the taxonomy is permanently visible. */
+      .rail-layout { display: grid; grid-template-columns: 104px minmax(0, 1fr); }
+      .category-rail {
+        display: grid;
+        align-content: start;
+        gap: 5px;
+        padding: 8px 6px;
+        border-right: 1px solid var(--line);
+        background: var(--panel-muted);
+      }
+      .rail-category {
+        display: grid;
+        min-height: 42px;
+        grid-template-columns: 23px 1fr;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 5px;
+        border-radius: 6px;
+        text-align: left;
+      }
+      .rail-category span:first-child { font-size: 18px; text-align: center; }
+      .rail-category span:last-child { font-size: 10px; line-height: 1.1; }
+      .rail-category.selected { border-color: var(--accent-dark); background: var(--accent); color: var(--text); }
+      .rail-content { min-width: 0; }
+      .rail-content .candidate-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; padding: 10px; }
+      .rail-content .candidate { min-height: 65px; }
+      .rail-content .pagination { margin: 0 10px 10px; }
+
+      /* Variant C: explicit two-stage navigation (category home then candidate page). */
+      .dashboard-body { padding: 12px; }
+      .dashboard-caption { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+      .mission-cards {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 9px;
+      }
+      .mission-card {
+        min-height: 72px;
+        padding: 8px;
+        text-align: left;
+      }
+      .mission-card .category-icon { display: inline-block; width: 29px; font-size: 24px; text-align: center; vertical-align: middle; }
+      .mission-card strong { font-size: 13px; vertical-align: middle; }
+      .mission-card small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
+      .dashboard-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .recent-strip { display: flex; align-items: center; gap: 4px; }
+      .recent-emoji { width: 27px; height: 27px; border-radius: 5px; font-size: 16px; }
+      .dashboard-picker { display: none; }
+      .dashboard-picker.open { display: block; }
+      .dashboard-home.hidden { display: none; }
+
+      .comparison {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin: 22px 0 0;
+      }
+      .comparison article {
+        padding: 14px;
+        border: 1px solid #d9b06a;
+        border-radius: 14px;
+        background: var(--panel);
+      }
+      .comparison article.recommended { border-color: var(--accent-dark); background: var(--accent-soft); }
+      .comparison h2 { margin: 0 0 7px; font-size: 16px; }
+      .comparison p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+      .comparison .tradeoff { display: block; margin-top: 10px; color: var(--text); font-size: 12px; }
+
+      @media (max-width: 620px) {
+        .page { padding: 14px 8px 32px; }
+        .prototype-bar { align-items: flex-start; flex-direction: column; }
+        .device { margin: 12px auto; padding: 7px; border-width: 5px; }
+        .screen { min-height: 408px; }
+        .candidate-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; padding: 8px; }
+        .candidate { min-height: 61px; }
+        .candidate .emoji { font-size: 25px; }
+        .category-card { min-height: 62px; }
+        .rail-layout { grid-template-columns: 82px minmax(0, 1fr); }
+        .category-rail { padding: 6px 4px; }
+        .rail-category { grid-template-columns: 1fr; min-height: 38px; padding: 3px; text-align: center; }
+        .rail-category span:first-child { font-size: 17px; }
+        .rail-category span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+        .rail-content .candidate-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 7px; }
+        .rail-content .candidate .emoji { font-size: 23px; }
+        .comparison { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section class="intro">
+        <h1>表情候选器：分类 + 分页</h1>
+        <p>
+          这是为约 300 项户外、无线电、导航与求生语义表情准备的交互原型。
+          分类决定“去哪里找”，分页保证任一时刻只渲染一屏候选项；二者分别解决查找和资源约束。
+        </p>
+        <div class="principle">300 项目录 → 8 个语义分类 → 每屏固定 20–24 格 → 分类内翻页</div>
+      </section>
+
+      <section class="prototype-shell" aria-label="可交互候选界面原型">
+        <div class="prototype-bar">
+          <span class="device-label">概念验证 · 320–720 px 横向设备屏幕</span>
+          <nav class="variant-switcher" aria-label="候选信息架构">
+            <button type="button" data-variant="palette" aria-pressed="true">A 推荐：分类面板</button>
+            <button type="button" data-variant="rail" aria-pressed="false">B 常驻分类栏</button>
+            <button type="button" data-variant="dashboard" aria-pressed="false">C 分类首页</button>
+          </nav>
+        </div>
+        <div id="prototype"></div>
+      </section>
+
+      <section class="comparison" aria-label="候选方案比较">
+        <article class="recommended">
+          <h2>A. 分类面板（推荐）</h2>
+          <p>主界面将空间完全留给固定数量的候选格；点“分类”时才弹出 2×4 分类面板。</p>
+          <span class="tradeoff">最适合小屏与硬件按键：日常选取只需分类 + 翻页 + 确认。</span>
+        </article>
+        <article>
+          <h2>B. 常驻分类栏</h2>
+          <p>分类随时可见，切换最快；但持续占用窄屏宽度，候选格会缩小且每页可容纳数量下降。</p>
+          <span class="tradeoff">适合较大横屏，不建议作为 320 px 设备的默认方案。</span>
+        </article>
+        <article>
+          <h2>C. 分类首页</h2>
+          <p>打开表情先进入“任务语义首页”，再进入分类的分页网格，层级最清楚。</p>
+          <span class="tradeoff">适合新用户理解目录；高频连续选表情时多一次返回/进入。</span>
+        </article>
+      </section>
+    </main>
+
+    <script>
+      // Display-only sample data. Production needs a separate Unicode/font coverage review.
+      const CATEGORIES = [
+        { id: "common", icon: "✅", name: "常用状态", items: [["✅", "收到"], ["❌", "否"], ["⚠️", "警告"], ["🆘", "求救"], ["📍", "位置"], ["🚩", "标记"], ["⏳", "等待"], ["🔄", "重复"], ["👍", "确认"], ["👎", "拒绝"], ["❓", "询问"], ["💬", "消息"], ["👀", "观察"], ["🕒", "延迟"], ["📢", "通告"], ["🚫", "禁止"], ["🟢", "安全"], ["🟡", "注意"], ["🔴", "危险"], ["🛑", "停止"], ["↩️", "返回"], ["➡️", "前进"], ["🆗", "好的"], ["🤝", "协作"], ["✳️", "要点"], ["📌", "置点"], ["☑️", "已办"], ["🔒", "保密"], ["🔓", "解锁"], ["📝", "记录"], ["🔔", "提醒"], ["📨", "已发"], ["📥", "收到"], ["🧭", "方向"], ["🏁", "结束"], ["🔋", "电量"]] },
+        { id: "radio", icon: "📡", name: "无线电", items: [["📡", "信号"], ["📻", "电台"], ["🎙️", "发射"], ["🔊", "扬声"], ["🔇", "静音"], ["📶", "强度"], ["📳", "呼叫"], ["📴", "离线"], ["🔋", "电池"], ["🪫", "低电"], ["🔌", "充电"], ["⚡", "电源"], ["🛰️", "卫星"], ["📱", "终端"], ["⌚", "定时"], ["🔁", "中继"], ["↔️", "双向"], ["🔀", "路由"], ["👂", "守听"], ["🗣️", "通话"], ["📞", "联络"], ["🔔", "呼入"], ["🔕", "免扰"], ["📣", "广播"], ["🔍", "搜台"], ["📈", "增强"], ["📉", "衰弱"], ["🧲", "天线"], ["🪢", "架设"], ["🔧", "检修"], ["🧰", "工具"], ["💾", "存档"], ["🔐", "加密"], ["🔑", "密钥"], ["🌐", "网络"], ["🧪", "测试"], ["♻️", "重连"], ["🆘", "紧急呼叫"], ["⛔", "无信号"], ["🟰", "频道"]] },
+        { id: "nav", icon: "🧭", name: "导航地形", items: [["🧭", "罗盘"], ["🗺️", "地图"], ["📍", "坐标"], ["📌", "航点"], ["🏔️", "山地"], ["⛰️", "山峰"], ["🥾", "步行"], ["🚶", "徒步"], ["🛤️", "路线"], ["🪨", "岩石"], ["🌲", "林地"], ["🌳", "树林"], ["🏕️", "营地"], ["🏠", "避难屋"], ["🌉", "桥"], ["🪜", "攀爬"], ["🕳️", "洞穴"], ["🏞️", "山谷"], ["🌊", "水面"], ["🏝️", "岸边"], ["🧱", "障碍"], ["↗️", "东北"], ["↘️", "东南"], ["↙️", "西南"], ["↖️", "西北"], ["⬆️", "北"], ["➡️", "东"], ["⬇️", "南"], ["⬅️", "西"], ["🔙", "回撤"], ["🚧", "绕行"], ["🎯", "目标"], ["🚩", "终点"], ["🌐", "网格"], ["📏", "距离"], ["⏱️", "耗时"], ["🛣️", "道路"], ["🚲", "骑行"], ["⛵", "水路"], ["🧗", "攀岩"], ["🪂", "空降"], ["🔭", "观察"]] },
+        { id: "weather", icon: "🌦️", name: "天气风险", items: [["☀️", "晴"], ["🌤️", "多云"], ["☁️", "阴"], ["🌧️", "雨"], ["⛈️", "雷暴"], ["❄️", "雪"], ["🌨️", "降雪"], ["🌬️", "强风"], ["🌫️", "雾"], ["🌪️", "风暴"], ["🌡️", "温度"], ["🥶", "严寒"], ["🥵", "高温"], ["💧", "潮湿"], ["🔥", "干燥火险"], ["🌈", "转晴"], ["🌙", "夜间"], ["🌅", "日出"], ["🌇", "日落"], ["⚠️", "警报"], ["🚨", "紧急"], ["☢️", "污染"], ["🌀", "旋涡"], ["🌊", "洪水"], ["🧊", "结冰"], ["🪨", "落石"], ["🏔️", "雪崩"], ["🌲", "倒木"], ["🔦", "能见度"], ["☂️", "雨具"], ["🧥", "保暖"], ["👓", "护目"], ["🟠", "橙色预警"], ["🔴", "红色预警"], ["🟡", "黄色预警"], ["🟢", "解除"]] },
+        { id: "survival", icon: "🏕️", name: "求生补给", items: [["🏕️", "搭营"], ["⛺", "帐篷"], ["🔥", "生火"], ["🪵", "柴火"], ["🪓", "斧头"], ["🔪", "刀具"], ["🧯", "灭火"], ["💧", "水源"], ["🚰", "饮水"], ["🫗", "装水"], ["🥫", "罐头"], ["🍞", "食物"], ["🍲", "热食"], ["🧂", "盐"], ["🎒", "背包"], ["🛏️", "睡袋"], ["🧥", "外套"], ["🧤", "手套"], ["🥾", "靴子"], ["🧢", "帽子"], ["🔦", "手电"], ["🕯️", "照明"], ["🔋", "备用电"], ["🔌", "充电"], ["🪢", "绳索"], ["🪝", "挂钩"], ["🪚", "锯"], ["🔧", "修理"], ["🧰", "工具箱"], ["🧭", "定位"], ["🆘", "求援"], ["🏚️", "避难"], ["🚪", "入口"], ["🔒", "封闭"], ["🐾", "踪迹"], ["🦟", "虫害"], ["🐻", "野兽"], ["🐍", "蛇"], ["🦌", "动物"], ["🗑️", "垃圾带走"], ["♻️", "复用"], ["🧼", "清洁"], ["📦", "物资"], ["⚖️", "配给"]] },
+        { id: "medical", icon: "🩹", name: "医疗救援", items: [["🆘", "求救"], ["🚑", "救护"], ["🚁", "直升机"], ["🩹", "创可贴"], ["🩺", "检查"], ["💊", "药品"], ["💉", "注射"], ["🩸", "出血"], ["🫀", "心脏"], ["🧠", "意识"], ["🫁", "呼吸"], ["🤕", "受伤"], ["🤒", "发热"], ["😵", "眩晕"], ["😷", "防护"], ["🦽", "转运"], ["🛟", "救生"], ["🧯", "灭火"], ["🚨", "报警"], ["📍", "伤员位置"], ["👥", "人数"], ["🫂", "安抚"], ["🧊", "冷敷"], ["🔥", "烫伤"], ["☠️", "剧毒"], ["🐍", "咬伤"], ["🦟", "叮咬"], ["🌡️", "体温"], ["🛌", "休息"], ["🥤", "补液"], ["⏱️", "时间"], ["📞", "呼援"], ["✅", "稳定"], ["⚠️", "危重"], ["🧾", "记录"], ["🏥", "医院"]] },
+        { id: "camp", icon: "🎒", name: "营地装备", items: [["🎒", "背包"], ["⛺", "帐篷"], ["🛏️", "睡眠"], ["🪑", "座椅"], ["🔦", "灯光"], ["🕯️", "蜡烛"], ["🔥", "炉火"], ["🍳", "炊具"], ["🥣", "餐具"], ["🥤", "饮品"], ["🧴", "清洁"], ["🧻", "纸品"], ["🪥", "卫生"], ["🧼", "洗涤"], ["🧯", "灭火器"], ["🔋", "电源"], ["🔌", "充电"], ["🧰", "工具"], ["🔧", "维修"], ["🪛", "螺丝刀"], ["🪜", "梯子"], ["🪢", "绳"], ["🧲", "磁吸"], ["🧪", "净水"], ["🗺️", "地图"], ["📒", "日志"], ["🗑️", "垃圾"], ["🚿", "洗漱"], ["👕", "衣物"], ["🧦", "袜子"], ["🪪", "证件"], ["🔐", "安全"], ["📦", "储物"], ["🛒", "补给"], ["⛽", "燃料"], ["🧭", "出发"]] },
+        { id: "people", icon: "🙂", name: "人员情绪", items: [["🙂", "正常"], ["😄", "开心"], ["😟", "担心"], ["😨", "害怕"], ["😫", "疲惫"], ["😴", "睡眠"], ["🤔", "思考"], ["🤫", "静默"], ["😡", "生气"], ["🥳", "庆祝"], ["👍", "赞同"], ["👎", "反对"], ["✋", "停"], ["👋", "招呼"], ["🤝", "协同"], ["🙏", "感谢"], ["💪", "有力"], ["👀", "观察"], ["👂", "聆听"], ["🗣️", "讲话"], ["👤", "单人"], ["👥", "队伍"], ["🧑‍🤝‍🧑", "同伴"], ["🏃", "移动"], ["🚶", "慢行"], ["🧗", "攀爬"], ["🙋", "报到"], ["🙅", "拒绝"], ["🙆", "就绪"], ["🤞", "希望"]] }
+      ];
+
+      const state = { variant: "palette", category: "common", page: 0, paletteOpen: false, dashboardPickerOpen: false, selected: null };
+      const root = document.querySelector("#prototype");
+
+      const currentCategory = () => CATEGORIES.find((category) => category.id === state.category);
+      // Four visible rows: narrow screens use 5×4, wider screens use 6×4.
+      const pageSize = () => window.innerWidth <= 620 ? 20 : 24;
+      const pageCount = (category = currentCategory()) => Math.ceil(category.items.length / pageSize());
+      const currentItems = () => currentCategory().items.slice(state.page * pageSize(), (state.page + 1) * pageSize());
+      const esc = (value) => String(value).replace(/[&<>'"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[ch]);
+
+      function categoryCards(className = "category-card") {
+        return CATEGORIES.map((category) => `
+          <button type="button" class="${className} ${category.id === state.category ? "selected" : ""}" data-category="${category.id}">
+            <span class="category-icon">${category.icon}</span>
+            <span>
+              <span class="category-name">${category.name}</span>
+              <span class="category-meta">${category.items.length} 项 · ${pageCount(category)} 页</span>
+            </span>
+          </button>`).join("");
+      }
+
+      function candidateGrid() {
+        return `<div class="candidate-grid" aria-label="${esc(currentCategory().name)}候选项">
+          ${currentItems().map(([emoji, name], index) => {
+            const key = `${state.category}:${state.page}:${index}`;
+            return `<button type="button" class="candidate" data-candidate="${key}" aria-pressed="${state.selected === key}">
+              <span class="emoji">${emoji}</span><span class="name">${esc(name)}</span>
+            </button>`;
+          }).join("")}
+        </div>`;
+      }
+
+      function pagination() {
+        const count = pageCount();
+        return `<div class="pagination">
+          <button type="button" class="page-action" data-page="previous" ${state.page === 0 ? "disabled" : ""}>‹ B 上一页</button>
+          <span class="page-indicator">第 ${state.page + 1} / ${count} 页<br>${currentCategory().items.length} 项</span>
+          <button type="button" class="page-action" data-page="next" ${state.page >= count - 1 ? "disabled" : ""}>N 下一页 ›</button>
+        </div>`;
+      }
+
+      function hints(extra = "") {
+        return `<div class="hint-row"><span><span class="key">WASD</span> 移动</span><span><span class="key">E / Enter</span> 选取</span><span><span class="key">Q / 退格</span> 关闭</span>${extra}</div>`;
+      }
+
+      function header({ mode, right = "" }) {
+        const category = currentCategory();
+        return `<header class="screen-header">
+          <button type="button" class="icon-button" data-close title="关闭">×</button>
+          <div class="title-area"><strong>${category.icon} ${category.name}</strong><span>分类内分页 · ${category.items.length} 项</span></div>
+          <span class="mode-tag">${mode}</span>${right}
+        </header>`;
+      }
+
+      function paletteVariant() {
+        const category = currentCategory();
+        return `<div class="device"><section class="screen">
+          ${header({ mode: "A", right: `<button type="button" class="palette-trigger" data-palette>分类 ${category.icon} ▾</button>` })}
+          ${candidateGrid()}${pagination()}${hints(`<span><span class="key">C</span> 分类</span><span><span class="key">B / N</span> 上 / 下页</span>`)}
+          <section class="category-palette ${state.paletteOpen ? "open" : ""}" aria-label="选择表情分类">
+            <div class="palette-heading"><strong>选择表情分类</strong><button type="button" class="icon-button" data-palette title="关闭分类">×</button></div>
+            <div class="category-cards">${categoryCards()}</div>
+            <p class="palette-copy">选中分类后回到该分类的第 1 页。可选地保存每个分类上次停留的页码；第一版建议统一回到第 1 页，行为最可预期。</p>
+          </section>
+        </section></div>`;
+      }
+
+      function railVariant() {
+        return `<div class="device"><section class="screen">
+          ${header({ mode: "B" })}
+          <div class="rail-layout">
+            <nav class="category-rail" aria-label="表情分类">
+              ${CATEGORIES.map((category) => `<button type="button" class="rail-category ${category.id === state.category ? "selected" : ""}" data-category="${category.id}" title="${category.name}"><span>${category.icon}</span><span>${category.name}</span></button>`).join("")}
+            </nav>
+            <div class="rail-content">${candidateGrid()}${pagination()}${hints(`<span>触摸左栏切换分类</span><span><span class="key">B / N</span> 上 / 下页</span>`)}</div>
+          </div>
+        </section></div>`;
+      }
+
+      function dashboardVariant() {
+        const category = currentCategory();
+        return `<div class="device"><section class="screen">
+          <div class="dashboard-home ${state.dashboardPickerOpen ? "hidden" : ""}">
+            <header class="screen-header"><button type="button" class="icon-button" data-close title="关闭">×</button><div class="title-area"><strong>🧭 表情目录</strong><span>按任务语义寻找候选</span></div><span class="mode-tag">C</span></header>
+            <div class="dashboard-body">
+              <p class="dashboard-caption">先选择任务场景；进入后，在该分类内固定网格分页。</p>
+              <div class="mission-cards">${CATEGORIES.map((item) => `<button type="button" class="mission-card" data-category="${item.id}"><span class="category-icon">${item.icon}</span><strong>${item.name}</strong><small>${item.items.length} 项 · ${pageCount(item)} 页</small></button>`).join("")}</div>
+              <div class="dashboard-footer"><span>最近使用</span><span class="recent-strip">${["📍", "✅", "📡", "⚠️", "🆘"].map((emoji) => `<button type="button" class="recent-emoji">${emoji}</button>`).join("")}</span></div>
+            </div>
+          </div>
+          <div class="dashboard-picker ${state.dashboardPickerOpen ? "open" : ""}">
+            ${header({ mode: "C", right: `<button type="button" class="palette-trigger" data-dashboard-home>⌂ 分类</button>` })}
+            ${candidateGrid()}${pagination()}${hints(`<span><span class="key">C</span> 分类首页</span><span><span class="key">B / N</span> 上 / 下页</span>`)}
+          </div>
+        </section></div>`;
+      }
+
+      function render() {
+        root.innerHTML = state.variant === "palette" ? paletteVariant() : state.variant === "rail" ? railVariant() : dashboardVariant();
+        document.querySelectorAll("[data-variant]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.variant === state.variant)));
+      }
+
+      function selectCategory(id) {
+        state.category = id;
+        state.page = 0;
+        state.selected = null;
+        state.paletteOpen = false;
+        state.dashboardPickerOpen = true;
+        render();
+      }
+
+      document.addEventListener("click", (event) => {
+        const button = event.target.closest("button");
+        if (!button) return;
+        if (button.dataset.variant) {
+          state.variant = button.dataset.variant;
+          state.paletteOpen = false;
+          state.dashboardPickerOpen = false;
+          history.replaceState(null, "", `?variant=${state.variant}`);
+          render();
+          return;
+        }
+        if (button.dataset.category) { selectCategory(button.dataset.category); return; }
+        if (button.dataset.palette !== undefined) { state.paletteOpen = !state.paletteOpen; render(); return; }
+        if (button.dataset.dashboardHome !== undefined) { state.dashboardPickerOpen = false; render(); return; }
+        if (button.dataset.page === "previous") { state.page = Math.max(0, state.page - 1); state.selected = null; render(); return; }
+        if (button.dataset.page === "next") { state.page = Math.min(pageCount() - 1, state.page + 1); state.selected = null; render(); return; }
+        if (button.dataset.candidate) { state.selected = button.dataset.candidate; render(); return; }
+        if (button.dataset.close !== undefined) { alert("原型：这里会关闭表情候选器，并回到文本输入界面。"); }
+      });
+
+      document.addEventListener("keydown", (event) => {
+        const pageIsVisible = !state.paletteOpen && (state.variant !== "dashboard" || state.dashboardPickerOpen);
+        if (pageIsVisible && (event.key === "b" || event.key === "B" || event.key === "PageUp")) {
+          state.page = Math.max(0, state.page - 1);
+          state.selected = null;
+          event.preventDefault();
+          render();
+        }
+        if (pageIsVisible && (event.key === "n" || event.key === "N" || event.key === "PageDown")) {
+          state.page = Math.min(pageCount() - 1, state.page + 1);
+          state.selected = null;
+          event.preventDefault();
+          render();
+        }
+        if ((event.key === "c" || event.key === "C") && state.variant === "palette") { state.paletteOpen = !state.paletteOpen; render(); }
+        if ((event.key === "c" || event.key === "C") && state.variant === "dashboard") { state.dashboardPickerOpen = !state.dashboardPickerOpen; render(); }
+      });
+
+      window.addEventListener("resize", () => {
+        state.page = Math.min(state.page, pageCount() - 1);
+        render();
+      });
+
+      const variant = new URLSearchParams(location.search).get("variant");
+      if (["palette", "rail", "dashboard"].includes(variant)) state.variant = variant;
+      render();
+    </script>
+  </body>
+</html>

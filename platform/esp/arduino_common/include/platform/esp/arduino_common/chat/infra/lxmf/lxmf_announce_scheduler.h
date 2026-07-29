@@ -32,6 +32,8 @@ class AnnounceScheduler
 
     bool rebroadcastDue(uint32_t now_ms, uint32_t interval_ms);
 
+    [[nodiscard]] bool isPending() const { return pending_; }
+
   private:
     uint32_t last_announce_ms_ = 0;
     uint32_t last_attempt_ms_ = 0;
