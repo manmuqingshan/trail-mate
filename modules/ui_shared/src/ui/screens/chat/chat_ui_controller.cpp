@@ -520,6 +520,7 @@ void applySnapshotMessagesToConversation(
                                   snapshot.message_total_count);
     CHAT_UI_LOG("[ChatUiTrace] stage=apply_snapshot paging_done elapsed_ms=%lu\n",
                 static_cast<unsigned long>(lv_tick_elaps(started_ms)));
+#if !defined(ARDUINO_T_WATCH_S3)
     conversation.setLocationOverlay(buildConversationLocationOverlay(snapshot));
     CHAT_UI_LOG("[ChatUiTrace] stage=apply_snapshot location_done participants=%u elapsed_ms=%lu\n",
                 static_cast<unsigned>(snapshot.location_participant_count),
@@ -532,6 +533,12 @@ void applySnapshotMessagesToConversation(
     {
         conversation.scrollToBottom();
     }
+#else
+    // The watch chat pack intentionally has no map overlay or top-anchor API.
+    // Its compact list always returns to the latest visible message after a refresh.
+    (void)scroll_anchor;
+    conversation.scrollToBottom();
+#endif
     CHAT_UI_LOG("[ChatUiTrace] stage=apply_snapshot end elapsed_ms=%lu\n",
                 static_cast<unsigned long>(lv_tick_elaps(started_ms)));
 }
@@ -830,6 +837,7 @@ void UiController::handleMessageListAction(
     case ChatMessageListScreen::ActionIntent::SelectConversation:
         onChannelClicked(conv);
         break;
+#if !defined(ARDUINO_T_WATCH_S3)
     case ChatMessageListScreen::ActionIntent::ShowInfo:
         openConversationInfoModal(conv);
         break;
@@ -839,6 +847,7 @@ void UiController::handleMessageListAction(
     case ChatMessageListScreen::ActionIntent::DeleteConversation:
         handleDeleteConversation(conv);
         break;
+#endif
     case ChatMessageListScreen::ActionIntent::Back:
     default:
         exitToMenu();
@@ -863,10 +872,12 @@ void UiController::onInput(const sys::InputEvent& event)
         }
         else if (event.input_type == sys::InputEvent::RotaryPress)
         {
+#if !defined(ARDUINO_T_WATCH_S3)
             if (channel_list_)
             {
                 (void)channel_list_->openSelectedActionMenu();
             }
+#endif
         }
         else if (event.input_type == sys::InputEvent::KeyPress && event.value == 27)
         {
@@ -1727,7 +1738,9 @@ void UiController::applyConversationListToUi()
         return;
     }
 
+#if !defined(ARDUINO_T_WATCH_S3)
     channel_list_->setDataLoading(!conversation_list_loaded_);
+#endif
     channel_list_->setConversations(cached_conversations_);
     channel_list_->updateBatteryFromBoard();
 }
@@ -2163,6 +2176,18 @@ void UiController::handleConversationAction(ChatConversationScreen::ActionIntent
         return;
     }
 
+#if defined(ARDUINO_T_WATCH_S3)
+    if (intent == ChatConversationScreen::ActionIntent::LoadLatest)
+    {
+        if (team_conv_active_ || !conversation_)
+        {
+            return;
+        }
+        chat_model_.setMessageOffset(0);
+        reloadConversationView();
+        return;
+    }
+#else
     if (intent == ChatConversationScreen::ActionIntent::LoadNewer)
     {
         if (team_conv_active_ || !conversation_)
@@ -2217,6 +2242,7 @@ void UiController::handleConversationAction(ChatConversationScreen::ActionIntent
                                             ConversationScrollAnchor::Top);
         return;
     }
+#endif
 
     if (intent == ChatConversationScreen::ActionIntent::Reply)
     {

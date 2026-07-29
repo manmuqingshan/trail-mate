@@ -213,7 +213,7 @@ The Cardputer Zero Linux CMake preset validates:
   `TRAIL_MATE_CARDPUTER_ZERO_LINUX`
 - Wayland product executable, explicit fbdev/evdev debug fallback, and Debian
   package metadata ownership
-- package version `0.1.29-alpha`, APPLaunch path, Wayland display metadata,
+- package version `0.1.38-alpha`, APPLaunch path, Wayland display metadata,
   and required Wayland runtime dependencies
 - Cap LoRa-1262 LoRa/GNSS board facts, including the `G15`/`G14` GPS UART
   wiring and product-profile GPS capability
@@ -273,7 +273,7 @@ projection must not become package input. The package output remains
 `build/cardputer-zero-deb/`.
 
 The container entrypoint builds an actual `arm64` `.deb`, validates package
-version `0.1.29-alpha`, required dependencies, AArch64 ELF metadata and `ldd`
+version `0.1.38-alpha`, required dependencies, AArch64 ELF metadata and `ldd`
 resolution, rejects unsafe permissions, verifies the APPLaunch layout, and then
 copies the package out. The package route is not the screenshot-capture tool
 and is not the Linux simulator.

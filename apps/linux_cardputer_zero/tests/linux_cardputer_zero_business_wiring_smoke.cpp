@@ -160,12 +160,13 @@ int main(int argc, char** argv)
 
     const std::string menu_runtime = read_file(
         repo_root / "modules/ui_shared/src/ui/menu/menu_runtime.cpp");
-    assert(contains(menu_runtime, "lv_label_set_text(title, \"Main Menu Help\")"));
+    assert(contains(menu_runtime, "config.title = \"Main Menu Help\""));
+    assert(contains(menu_runtime, "::ui::components::shortcut_help_modal::open("));
     assert(contains(menu_runtime, "screenshotShortcutHelpEnabled"));
     assert(contains(menu_runtime, "defined(ARDUINO_T_LORA_PAGER)"));
     assert(contains(menu_runtime, "defined(ARDUINO_T_DECK)"));
     assert(contains(menu_runtime, "defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)"));
-    assert(contains(menu_runtime, "add_help_row(\"ALT\", \"ALT\", \"Save screenshot\")"));
+    assert(contains(menu_runtime, "{\"ALT\", \"ALT\", \"Save screenshot\"}"));
     assert(contains(menu_runtime,
                     "if (isMenuHelpKey(key))\n    {\n        openMenuHelpModal();\n        return true;\n    }"));
 
@@ -246,9 +247,12 @@ int main(int argc, char** argv)
     assert(contains(gps_runtime, "lv_label_set_text(title, \"Map Help\")"));
     assert(contains(gps_runtime, "add_help_row(\"WASD\", nullptr, \"Move map\")"));
     assert(contains(gps_runtime, "add_help_row(\"Q\", \"E\", \"Zoom map\")"));
-    assert(contains(gps_runtime, "add_help_row(\"P\", \"Pos\", \"Center current position\")"));
+    assert(contains(gps_runtime, "add_help_row(\"C\", \"Pos\", \"Center current position\")"));
+    assert(contains(gps_runtime, "add_help_row(\"P\", nullptr, \"Show/hide route photos\")"));
     assert(contains(gps_runtime, "add_help_row(\"L\", nullptr, \"Change base layer\")"));
     assert(contains(gps_runtime, "add_help_row(\"T\", \"Track\", \"Select track file\")"));
+    assert(contains(gps_runtime, "add_help_row(\"V\", nullptr, \"Show/hide elevation profile\")"));
+    assert(contains(gps_runtime, "add_help_row(\"I\", nullptr, \"Hide info, keep route\")"));
     assert(contains(gps_runtime, "add_help_row(\"O\", \"Contour\", \"Toggle contour overlay\")"));
     assert(contains(gps_runtime, "add_help_row(\"Route\", nullptr, \"Shown when route active\")"));
     assert(contains(gps_runtime, "add_help_row(\"Members\", nullptr, \"Shown when team active\")"));

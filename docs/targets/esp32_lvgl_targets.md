@@ -47,7 +47,7 @@ Trail Mate product meaning.
 The P4 firmware owns:
 
 - Trail Mate business state, UI, storage, GPS, LoRa, maps, Chat, Contacts,
-  Team, Tracker, PC Link, Energy Sweep, Walkie, SSTV, Extensions, and Settings.
+  Team, Tracker, Energy Sweep, Walkie, SSTV, Extensions, and Settings.
 - Target profile, UX pack, page manifest, menu profile, page layout profile,
   and downgrade decisions when the C6 companion is absent or not ready.
 
@@ -62,7 +62,6 @@ sky_plot
 gps
 team
 tracker
-pc_link
 energy_sweep
 walkie_talkie
 sstv

@@ -96,7 +96,7 @@ trail_mate_linux_cardputer_zero_start(target_profile)
 Device app shell baseline. This establishes the product target, board facts, UX
 selection, CMake wiring, Linux session contracts, page manifest alignment, the
 Pager-derived main-menu profile guard, and shared-LVGL 320 x 170 screenshot
-evidence for the compact page set. The installed `0.1.29-alpha` APPLaunch
+evidence for the compact page set. The installed `0.1.38-alpha` APPLaunch
 package defaults to Wayland and retains `trailmate-cardputer-zero-fbdev` only as
 an explicit framebuffer debug fallback. Real Wayland session startup,
 Fcitx5/notifyd session validation, hardware framebuffer debug fallback, and

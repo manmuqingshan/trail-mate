@@ -11,7 +11,7 @@ set(TRAIL_MATE_REPO_ROOT
 include("${TRAIL_MATE_REPO_ROOT}/cmake/TrailMateUxPacks.cmake")
 trailmate_add_ui_lvgl_ux_packs(trailmate_ui_lvgl_ux_packs)
 
-set(TRAIL_MATE_UCONSOLE_PACKAGE_VERSION "0.1.0"
+set(TRAIL_MATE_UCONSOLE_PACKAGE_VERSION "0.1.38-alpha"
     CACHE STRING "Debian package version for trailmate-uconsole")
 option(TRAIL_MATE_UCONSOLE_BUILD_REAL_GTK_UI
     "Build the restored uConsole GTK executable when Linux GTK4 is available."

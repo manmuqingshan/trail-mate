@@ -337,7 +337,13 @@ int main()
     {
         adapter.pushIncoming(0x1234ABCDU, 0x1000U + i, "window fill");
     }
-    service.processIncoming();
+    // Incoming processing is intentionally budgeted to four packets per UI
+    // tick. Drain all queued fixtures so this test exercises the 256-entry
+    // dedup window rather than assuming an unbounded single-tick drain.
+    for (std::size_t tick = 0; tick < 64U; ++tick)
+    {
+        service.processIncoming();
+    }
 
     messages = store.loadRecent(broadcast, 300);
     if (int rc = expect(messages.size() == 259U,

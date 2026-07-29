@@ -90,7 +90,7 @@ CMake state, and existing package outputs before copying that snapshot into the
 builder container. This keeps Windows/WSL executable-bit behavior and accidental
 root build artifacts out of the `.deb`.
 
-The container package entrypoint validates package version `0.1.29-alpha`,
+The container package entrypoint validates package version `0.1.38-alpha`,
 architecture, required runtime dependencies, APPLaunch paths, executable
 permissions, AArch64 ELF metadata, and `ldd` resolution before copying the
 `.deb` into `build/cardputer-zero-deb/`.
@@ -185,7 +185,7 @@ them.
 Install the package on Cardputer Zero:
 
 ```bash
-sudo apt install ./trailmate-cardputer-zero_0.1.29-alpha_arm64.deb
+sudo apt install ./trailmate-cardputer-zero_0.1.38-alpha_arm64.deb
 ```
 
 Check the installed package metadata and APPLaunch entry:

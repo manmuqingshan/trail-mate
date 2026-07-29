@@ -73,7 +73,7 @@ int main()
             found_node_thread = true;
             node_index = index;
             assert(item.group == "Nearby");
-            assert(item.title == "AAEC");
+            assert(item.title == "lilygo-AAEC");
             assert(item.preview.empty());
             assert(item.facts.find("hops 2") != std::string::npos);
         }
@@ -89,7 +89,7 @@ int main()
     assert(selected.active_conversation.peer == 0x0C16AAECU);
     assert(!selected.nodes.empty());
     assert(selected.nodes.front().node_id == 0x0C16AAECU);
-    assert(selected.nodes.front().title == "AAEC");
+    assert(selected.nodes.front().title == "lilygo-AAEC");
 
     const auto details = model.nodeDetails(0x0C16AAECU);
     assert(details.found);

@@ -21,14 +21,6 @@
 #include "ui/widgets/ime/ime_widget.h"
 #include "ui/widgets/top_bar.h"
 
-#if defined(ARDUINO_ARCH_ESP32) && \
-    __has_include("platform/esp/arduino_common/storage/storage_runtime.h")
-#define TRAIL_MATE_CONTACTS_HAS_STORAGE_HYDRATION_STATUS 1
-#include "platform/esp/arduino_common/storage/storage_runtime.h"
-#else
-#define TRAIL_MATE_CONTACTS_HAS_STORAGE_HYDRATION_STATUS 0
-#endif
-
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -60,11 +52,8 @@ const Host* s_host = nullptr;
 
 bool contacts_initial_hydration_pending()
 {
-#if TRAIL_MATE_CONTACTS_HAS_STORAGE_HYDRATION_STATUS
-    return ::platform::esp::arduino_common::storage::initial_hydration_pending();
-#else
-    return false;
-#endif
+    return app::hasAppFacade() &&
+           app::runtimeFacade().isInitialStorageHydrationPending();
 }
 
 void destroy_contacts_page_runtime()

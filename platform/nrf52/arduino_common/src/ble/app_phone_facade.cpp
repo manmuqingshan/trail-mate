@@ -145,7 +145,13 @@ phone::MeshtasticPhoneConfigSnapshot AppPhoneFacade::getMeshtasticPhoneConfig() 
 
 void AppPhoneFacade::setMeshtasticPhoneConfig(const phone::MeshtasticPhoneConfigSnapshot& config)
 {
-    platform::shared::ble_bridge::applyMeshtasticPhoneConfigSnapshot(app_.readConfig(), config);
+    auto edit = app_.beginConfigEdit();
+    if (!edit)
+    {
+        return;
+    }
+    platform::shared::ble_bridge::applyMeshtasticPhoneConfigSnapshot(edit.config(), config);
+    edit.commit(app::AppConfigChangeSet::none());
 }
 
 phone::MeshCorePhoneConfigSnapshot AppPhoneFacade::getMeshCorePhoneConfig() const
@@ -155,7 +161,13 @@ phone::MeshCorePhoneConfigSnapshot AppPhoneFacade::getMeshCorePhoneConfig() cons
 
 void AppPhoneFacade::setMeshCorePhoneConfig(const phone::MeshCorePhoneConfigSnapshot& config)
 {
-    platform::shared::ble_bridge::applyMeshCorePhoneConfigSnapshot(app_.readConfig(), config);
+    auto edit = app_.beginConfigEdit();
+    if (!edit)
+    {
+        return;
+    }
+    platform::shared::ble_bridge::applyMeshCorePhoneConfigSnapshot(edit.config(), config);
+    edit.commit(app::AppConfigChangeSet::none());
 }
 
 void AppPhoneFacade::saveConfig()
