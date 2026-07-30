@@ -43,7 +43,7 @@ int main(int argc, char** argv)
     const std::string cmake = read_file(
         repo_root / "apps/linux_cardputer_zero/CMakeLists.txt");
     assert(contains(cmake, "TRAIL_MATE_CARDPUTER_ZERO_BUILD_DEVICE"));
-    assert(contains(cmake, "TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_VERSION \"0.1.29-alpha\""));
+    assert(contains(cmake, "TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_VERSION \"0.1.38-alpha\""));
     assert(contains(cmake, "src/cardputer_zero_wayland_main.cpp"));
     assert(contains(cmake, "src/platform/wayland/wayland_presenter.cpp"));
     assert(contains(cmake, "pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)"));
@@ -205,7 +205,7 @@ int main(int argc, char** argv)
         repo_root /
         "apps/linux_cardputer_zero/tools/build_cardputer_zero_deb.sh");
     assert(contains(package_script, "/tmp/trailmate-cardputer-zero-package"));
-    assert(contains(package_script, "package_version=\"${TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_VERSION:-0.1.29-alpha}\""));
+    assert(contains(package_script, "package_version=\"${TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_VERSION:-0.1.38-alpha}\""));
     assert(contains(package_script, "package_build_type=\"${TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_BUILD_TYPE:-Release}\""));
     assert(contains(package_script, "docker_platform=\"${TRAIL_MATE_CARDPUTER_ZERO_DOCKER_PLATFORM:-linux/arm64}\""));
     assert(contains(package_script, "builder_image=\"${TRAIL_MATE_CARDPUTER_ZERO_BUILDER_IMAGE:-trailmate-cardputer-zero-builder:bookworm-arm64}\""));
@@ -250,7 +250,7 @@ int main(int argc, char** argv)
     assert(contains(builder_compose, "platform: ${TRAIL_MATE_CARDPUTER_ZERO_DOCKER_PLATFORM:-linux/arm64}"));
     assert(contains(builder_compose, "dockerfile: Dockerfile.cardputer-zero-builder"));
     assert(contains(builder_compose, "TRAIL_MATE_CARDPUTER_ZERO_APT_MIRROR"));
-    assert(contains(builder_compose, "TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_VERSION:-0.1.29-alpha"));
+    assert(contains(builder_compose, "TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_VERSION:-0.1.38-alpha"));
     assert(contains(builder_compose, "TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_BUILD_TYPE:-Release"));
     assert(contains(builder_compose, "cardputer-zero-cmake-build:/work/build"));
     assert(contains(builder_compose, "command: [\"/bin/sleep\", \"infinity\"]"));

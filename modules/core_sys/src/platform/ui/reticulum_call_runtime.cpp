@@ -10,7 +10,9 @@
 #include "sys/ringbuf.h"
 
 #include <cstring>
+#if !defined(ARDUINO_ARCH_NRF52) && !defined(NRF52840_XXAA)
 #include <mutex>
+#endif
 
 namespace platform::ui::reticulum_call
 {
@@ -19,9 +21,32 @@ namespace
 
 constexpr std::size_t kQueueDepth = 8;
 
+#if defined(ARDUINO_ARCH_NRF52) || defined(NRF52840_XXAA)
+// nRF52 targets compile this shared translation unit but do not wire the
+// Reticulum call runtime into an ISR or task. Keep that unsupported path
+// buildable without pulling in unavailable C++ thread primitives. A future
+// nRF52 call implementation must replace this with its platform critical
+// section before it adds a caller.
+class RuntimeMutex
+{
+  public:
+    void lock() {}
+    void unlock() {}
+};
+
+class RuntimeLock
+{
+  public:
+    explicit RuntimeLock(RuntimeMutex&) {}
+};
+#else
+using RuntimeMutex = std::mutex;
+using RuntimeLock = std::lock_guard<RuntimeMutex>;
+#endif
+
 struct RuntimeState
 {
-    std::mutex mutex;
+    RuntimeMutex mutex;
     Snapshot snapshot;
     MediaHooks hooks;
     RealtimeHooks realtime_hooks;
@@ -190,7 +215,7 @@ bool start_media_if_needed()
     MediaHooks hooks{};
     bool should_start = false;
     {
-        std::lock_guard<std::mutex> lock(s_state.mutex);
+        RuntimeLock lock(s_state.mutex);
         hooks = s_state.hooks;
         s_state.snapshot.media_supported =
             hooks.is_supported ? hooks.is_supported() : false;
@@ -231,7 +256,7 @@ void close_call(State final_state, bool request_remote_close)
     bool begin_closing = false;
     bool keep_exclusive = false;
     {
-        std::lock_guard<std::mutex> lock(s_state.mutex);
+        RuntimeLock lock(s_state.mutex);
         hooks = s_state.hooks;
         realtime_hooks = s_state.realtime_hooks;
         copy_hash(link_id, s_state.snapshot.link_id);
@@ -289,7 +314,7 @@ bool enqueue_packet(sys::RingBuffer<AudioPacket, kQueueDepth>& queue,
     {
         return false;
     }
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     if (!hashes_equal(link_id, s_state.snapshot.link_id) ||
         !s_state.snapshot.accepted ||
         !s_state.snapshot.link_active ||
@@ -345,7 +370,7 @@ bool enqueue_packet(sys::RingBuffer<AudioPacket, kQueueDepth>& queue,
 
 void set_media_hooks(const MediaHooks& hooks)
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     s_state.hooks = hooks;
     s_state.snapshot.media_supported =
         hooks.is_supported ? hooks.is_supported() : false;
@@ -355,7 +380,7 @@ uint8_t speaker_volume()
 {
     MediaHooks hooks{};
     {
-        std::lock_guard<std::mutex> lock(s_state.mutex);
+        RuntimeLock lock(s_state.mutex);
         hooks = s_state.hooks;
     }
     return hooks.speaker_volume ? hooks.speaker_volume() : 0U;
@@ -365,7 +390,7 @@ void set_speaker_volume(uint8_t volume_percent)
 {
     MediaHooks hooks{};
     {
-        std::lock_guard<std::mutex> lock(s_state.mutex);
+        RuntimeLock lock(s_state.mutex);
         hooks = s_state.hooks;
     }
     if (hooks.set_speaker_volume)
@@ -376,28 +401,28 @@ void set_speaker_volume(uint8_t volume_percent)
 
 void set_microphone_muted(bool muted)
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     s_state.snapshot.microphone_muted = muted;
     s_state.snapshot.updated_ms = now_ms();
 }
 
 void set_speaker_muted(bool muted)
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     s_state.snapshot.speaker_muted = muted;
     s_state.snapshot.updated_ms = now_ms();
 }
 
 void set_ptt_pressed(bool pressed)
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     s_state.snapshot.ptt_pressed = pressed;
     s_state.snapshot.updated_ms = now_ms();
 }
 
 bool set_duplex_mode(DuplexMode mode)
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     if (s_state.snapshot.state != State::Active)
     {
         return false;
@@ -415,7 +440,7 @@ bool set_duplex_mode(DuplexMode mode)
 
 void apply_remote_duplex_mode(DuplexMode mode)
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     s_state.snapshot.duplex_mode = mode;
     s_state.snapshot.ptt_pressed = false;
     s_state.snapshot.updated_ms = now_ms();
@@ -427,7 +452,7 @@ bool consume_duplex_mode_request(DuplexMode* out_mode)
     {
         return false;
     }
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     if (!s_state.duplex_mode_request_pending)
     {
         return false;
@@ -439,13 +464,13 @@ bool consume_duplex_mode_request(DuplexMode* out_mode)
 
 void set_realtime_hooks(const RealtimeHooks& hooks)
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     s_state.realtime_hooks = hooks;
 }
 
 void set_wifi_ready(bool ready)
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     s_state.snapshot.wifi_ready = ready;
     s_state.snapshot.updated_ms = now_ms();
 }
@@ -470,7 +495,7 @@ bool begin_incoming_identifying(const Peer& peer)
     uint8_t link_id[kHashSize] = {};
     bool start_soft_preempt = false;
     {
-        std::lock_guard<std::mutex> lock(s_state.mutex);
+        RuntimeLock lock(s_state.mutex);
         if (s_state.snapshot.state == State::Active ||
             s_state.snapshot.state == State::Incoming ||
             s_state.snapshot.state == State::Outgoing)
@@ -512,7 +537,7 @@ bool mark_incoming_ringing(const uint8_t link_id[kHashSize])
 
     RealtimeHooks realtime_hooks{};
     {
-        std::lock_guard<std::mutex> lock(s_state.mutex);
+        RuntimeLock lock(s_state.mutex);
         if (!hashes_equal(s_state.snapshot.link_id, link_id) ||
             s_state.snapshot.state != State::Incoming ||
             (s_state.snapshot.realtime_phase !=
@@ -547,7 +572,7 @@ bool begin_outgoing(const Peer& peer)
     }
     RealtimeHooks realtime_hooks{};
     {
-        std::lock_guard<std::mutex> lock(s_state.mutex);
+        RuntimeLock lock(s_state.mutex);
         if (s_state.snapshot.state == State::Active ||
             s_state.snapshot.state == State::Incoming ||
             s_state.snapshot.state == State::Outgoing)
@@ -563,7 +588,7 @@ bool begin_outgoing(const Peer& peer)
     set_speaker_volume(100);
     bool started = false;
     {
-        std::lock_guard<std::mutex> lock(s_state.mutex);
+        RuntimeLock lock(s_state.mutex);
         if (s_state.snapshot.state == State::Active ||
             s_state.snapshot.state == State::Incoming ||
             s_state.snapshot.state == State::Outgoing)
@@ -607,7 +632,7 @@ void update_peer(const Peer& peer)
     {
         return;
     }
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     if (!hashes_equal(s_state.snapshot.link_id, peer.link_id))
     {
         return;
@@ -621,7 +646,7 @@ void mark_link_active(const uint8_t link_id[kHashSize])
     {
         return;
     }
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     if (!hashes_equal(s_state.snapshot.link_id, link_id))
     {
         return;
@@ -643,7 +668,7 @@ bool prepare_media(const uint8_t link_id[kHashSize])
         return false;
     }
     {
-        std::lock_guard<std::mutex> lock(s_state.mutex);
+        RuntimeLock lock(s_state.mutex);
         if (!hashes_equal(s_state.snapshot.link_id, link_id) ||
             !s_state.snapshot.accepted ||
             !s_state.snapshot.link_active ||
@@ -662,7 +687,7 @@ bool prepare_media(const uint8_t link_id[kHashSize])
     {
         return false;
     }
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     return hashes_equal(s_state.snapshot.link_id, link_id) &&
            s_state.snapshot.accepted && s_state.snapshot.link_active &&
            s_state.snapshot.media_active;
@@ -674,7 +699,7 @@ bool mark_call_active(const uint8_t link_id[kHashSize])
     {
         return false;
     }
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     if (!hashes_equal(s_state.snapshot.link_id, link_id) ||
         !s_state.snapshot.accepted ||
         !s_state.snapshot.link_active ||
@@ -702,7 +727,7 @@ void notify_link_closed(const uint8_t link_id[kHashSize])
         return;
     }
     {
-        std::lock_guard<std::mutex> lock(s_state.mutex);
+        RuntimeLock lock(s_state.mutex);
         if (!hashes_equal(s_state.snapshot.link_id, link_id))
         {
             return;
@@ -715,7 +740,7 @@ void notify_media_failed()
 {
     bool should_close = false;
     {
-        std::lock_guard<std::mutex> lock(s_state.mutex);
+        RuntimeLock lock(s_state.mutex);
         should_close = s_state.snapshot.accepted &&
                        s_state.snapshot.media_active;
     }
@@ -730,7 +755,7 @@ void service_ui_runtime()
     bool apply_lease = false;
     bool release_lease = false;
     {
-        std::lock_guard<std::mutex> lock(s_state.mutex);
+        RuntimeLock lock(s_state.mutex);
         if (s_state.sleep_wake_lease_applied != s_state.sleep_wake_lease)
         {
             s_state.sleep_wake_lease_applied = s_state.sleep_wake_lease;
@@ -756,7 +781,7 @@ bool accept()
     RealtimeHooks realtime_hooks{};
     uint8_t link_id[kHashSize] = {};
     {
-        std::lock_guard<std::mutex> lock(s_state.mutex);
+        RuntimeLock lock(s_state.mutex);
         if (s_state.snapshot.state != State::Incoming ||
             s_state.snapshot.realtime_phase !=
                 RealtimePhase::IncomingRinging)
@@ -774,7 +799,7 @@ bool accept()
     set_speaker_volume(100);
     bool accepted = false;
     {
-        std::lock_guard<std::mutex> lock(s_state.mutex);
+        RuntimeLock lock(s_state.mutex);
         if (!hashes_equal(s_state.snapshot.link_id, link_id) ||
             s_state.snapshot.state != State::Incoming ||
             s_state.snapshot.realtime_phase !=
@@ -816,7 +841,7 @@ bool consume_hangup_request(uint8_t out_link_id[kHashSize])
     {
         return false;
     }
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     if (!s_state.hangup_requested ||
         hash_is_empty(s_state.snapshot.link_id))
     {
@@ -829,7 +854,7 @@ bool consume_hangup_request(uint8_t out_link_id[kHashSize])
 
 Snapshot snapshot()
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     Snapshot copy = s_state.snapshot;
     copy.media_supported =
         s_state.hooks.is_supported ? s_state.hooks.is_supported() : false;
@@ -838,19 +863,19 @@ Snapshot snapshot()
 
 State state()
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     return s_state.snapshot.state;
 }
 
 RealtimePhase realtime_phase()
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     return s_state.snapshot.realtime_phase;
 }
 
 bool media_should_run()
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     return s_state.snapshot.accepted &&
            s_state.snapshot.link_active &&
            s_state.snapshot.media_active &&
@@ -866,20 +891,20 @@ bool realtime_mode_active()
 
 bool modal_active()
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     return s_state.snapshot.realtime_phase != RealtimePhase::Idle;
 }
 
 bool resource_preempt_active()
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     return s_state.hangup_requested ||
            s_state.snapshot.realtime_phase != RealtimePhase::Idle;
 }
 
 bool wifi_exclusive_active()
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     return s_state.snapshot.realtime_phase == RealtimePhase::AcceptedStarting ||
            s_state.snapshot.realtime_phase == RealtimePhase::ActiveCall ||
            (s_state.snapshot.realtime_phase == RealtimePhase::ClosingCall &&
@@ -892,7 +917,7 @@ bool current_link_id(uint8_t out_link_id[kHashSize])
     {
         return false;
     }
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     if (hash_is_empty(s_state.snapshot.link_id))
     {
         return false;
@@ -914,7 +939,7 @@ bool dequeue_inbound_audio(AudioPacket* out)
     {
         return false;
     }
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     return s_state.inbound.popOldest(out);
 }
 
@@ -931,13 +956,13 @@ bool dequeue_outbound_audio(AudioPacket* out)
     {
         return false;
     }
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     return s_state.outbound.popOldest(out);
 }
 
 void note_tx_sent(std::size_t bytes)
 {
-    std::lock_guard<std::mutex> lock(s_state.mutex);
+    RuntimeLock lock(s_state.mutex);
     ++s_state.snapshot.tx_packets;
     s_state.snapshot.tx_bytes += static_cast<uint32_t>(bytes);
     s_state.snapshot.updated_ms = now_ms();

@@ -11,7 +11,7 @@ set(TRAIL_MATE_REPO_ROOT
 include("${TRAIL_MATE_REPO_ROOT}/cmake/TrailMateUxPacks.cmake")
 trailmate_add_ui_lvgl_ux_packs(trailmate_ui_lvgl_ux_packs)
 
-set(TRAIL_MATE_UCONSOLE_PACKAGE_VERSION "0.1.0"
+set(TRAIL_MATE_UCONSOLE_PACKAGE_VERSION "0.1.38-alpha"
     CACHE STRING "Debian package version for trailmate-uconsole")
 option(TRAIL_MATE_UCONSOLE_BUILD_REAL_GTK_UI
     "Build the restored uConsole GTK executable when Linux GTK4 is available."
@@ -24,6 +24,41 @@ option(TRAIL_MATE_UCONSOLE_BUILD_SDL_UI
     OFF)
 set(TRAIL_MATE_SDL3_SOURCE_DIR ""
     CACHE PATH "Optional SDL3 source tree used when SDL3 is not installed.")
+
+function(trailmate_add_uconsole_lvgl)
+    if(TARGET lvgl)
+        return()
+    endif()
+
+    set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
+    set(LV_BUILD_CONF_DIR
+        "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/include"
+        CACHE PATH "LVGL configuration directory for uConsole Linux shells"
+        FORCE)
+    set(TRAIL_MATE_LOCAL_LVGL_DIR
+        "${TRAIL_MATE_REPO_ROOT}/managed_components/lvgl__lvgl")
+    if(EXISTS "${TRAIL_MATE_LOCAL_LVGL_DIR}/CMakeLists.txt")
+        add_subdirectory(
+            "${TRAIL_MATE_LOCAL_LVGL_DIR}"
+            "${CMAKE_BINARY_DIR}/managed_components/lvgl__lvgl"
+            EXCLUDE_FROM_ALL)
+    else()
+        include(FetchContent)
+        FetchContent_Declare(lvgl
+            GIT_REPOSITORY https://github.com/lvgl/lvgl.git
+            GIT_TAG v9.4.0
+            GIT_SHALLOW TRUE)
+        FetchContent_GetProperties(lvgl)
+        if(NOT lvgl_POPULATED)
+            FetchContent_Populate(lvgl)
+        endif()
+        add_subdirectory(
+            "${lvgl_SOURCE_DIR}"
+            "${lvgl_BINARY_DIR}"
+            EXCLUDE_FROM_ALL)
+    endif()
+endfunction()
 
 set(TRAIL_MATE_UCONSOLE_REAL_GTK_SOURCES
     src/platform/gtk/gtk_canvas_presenter.cpp)
@@ -88,25 +123,7 @@ if(TRAIL_MATE_UCONSOLE_BUILD_REAL_GTK_UI AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
             PUBLIC trailmate_uconsole_linux_common)
         trailmate_apply_linux_common_warnings(trailmate_uconsole_runtime_models)
 
-        if(NOT TARGET lvgl)
-            set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-            set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
-            set(LV_BUILD_CONF_DIR
-                "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/include"
-                CACHE PATH "LVGL configuration directory for the GTK canvas shell"
-                FORCE)
-            set(TRAIL_MATE_LOCAL_LVGL_DIR
-                "${TRAIL_MATE_REPO_ROOT}/managed_components/lvgl__lvgl")
-            if(EXISTS "${TRAIL_MATE_LOCAL_LVGL_DIR}/CMakeLists.txt")
-                add_subdirectory(
-                    "${TRAIL_MATE_LOCAL_LVGL_DIR}"
-                    "${CMAKE_BINARY_DIR}/managed_components/lvgl__lvgl"
-                    EXCLUDE_FROM_ALL)
-            else()
-                message(FATAL_ERROR
-                    "The uConsole GTK canvas shell requires managed_components/lvgl__lvgl")
-            endif()
-        endif()
+        trailmate_add_uconsole_lvgl()
 
         target_sources(trailmate_uconsole_linux_common
             PRIVATE
@@ -251,25 +268,7 @@ if(TRAIL_MATE_UCONSOLE_BUILD_SDL_UI OR
         find_package(SDL3 CONFIG REQUIRED)
     endif()
 
-    if(NOT TARGET lvgl)
-        set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-        set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
-        set(LV_BUILD_CONF_DIR
-            "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/include"
-            CACHE PATH "LVGL configuration directory for uConsole SDL capture"
-            FORCE)
-        set(TRAIL_MATE_LOCAL_LVGL_DIR
-            "${TRAIL_MATE_REPO_ROOT}/managed_components/lvgl__lvgl")
-        if(EXISTS "${TRAIL_MATE_LOCAL_LVGL_DIR}/CMakeLists.txt")
-            add_subdirectory(
-                "${TRAIL_MATE_LOCAL_LVGL_DIR}"
-                "${CMAKE_BINARY_DIR}/managed_components/lvgl__lvgl"
-                EXCLUDE_FROM_ALL)
-        else()
-            message(FATAL_ERROR
-                "The uConsole SDL capture requires managed_components/lvgl__lvgl")
-        endif()
-    endif()
+    trailmate_add_uconsole_lvgl()
 
     include("${TRAIL_MATE_REPO_ROOT}/cmake/TrailMateLinuxSources.cmake")
     trailmate_add_linux_common(trailmate_uconsole_sdl_linux_common)

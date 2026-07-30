@@ -47,6 +47,13 @@ int main()
     assert(contains(*t_display_p4, ui::presentation::PageId::Extensions));
     assert(contains(*t_display_p4, ui::presentation::PageId::Settings));
 
+    const auto* pager = ui::presentation::findPageManifest("pager_compact_manifest");
+    assert(pager != nullptr);
+    for (std::size_t index = 0; index < pager->item_count; ++index)
+    {
+        assert(contains(*t_display_p4, pager->items[index].page_id));
+    }
+
     const auto* watch = ui::presentation::findPageManifest("watch_compact_manifest");
     assert(watch != nullptr);
     assert(contains(*watch, ui::presentation::PageId::Gps));

@@ -55,9 +55,10 @@ jobs:
           git ls-files -z '*.c' '*.cpp' '*.h' '*.hpp' ':(exclude)modules/core_chat/generated/**' \
             ':(exclude)modules/ui_shared/include/ui/assets/**' \
             ':(exclude)modules/ui_shared/src/ui/assets/**' \
+            ':(exclude)modules/ui_shared/src/ui/widgets/text_candidate_builtin_emoji_data.h' \
             ':(exclude)platform/nrf52/arduino_common/include/ui/fonts/**' \
             ':(exclude)platform/nrf52/arduino_common/src/ui/fonts/**' \
-            ':(exclude)third_party/codec2/**' \
+            ':(exclude)third_party/**' \
             | xargs -0 clang-format-14 --dry-run --Werror
 
   build:
@@ -219,6 +220,102 @@ jobs:
           name: trail-mate-${{ matrix.env }}-v${{ steps.version.outputs.version }}
           path: dist/*
 
+  p4_contract:
+    name: T-Display P4 Product Contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure P4 product contract tests
+        run: |
+          cmake -S apps/esp32_lvgl -B build.p4-contract -G Ninja -DBUILD_TESTING=ON
+
+      - name: Build P4 product contract tests
+        run: cmake --build build.p4-contract --parallel 2
+
+      - name: Run P4 product contract tests
+        run: ctest --test-dir build.p4-contract --output-on-failure
+
+  build_c6:
+    name: ESP-IDF C6 Companion Build
+    runs-on: ubuntu-latest
+    container: espressif/idf:v5.5.4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION=$(iconv -f UTF-16LE -t UTF-8 CHANGELOG.md | awk -F'[][]' '/^## \[[0-9]/ {print $2; exit}')
+          fi
+          if [ -z "$VERSION" ]; then
+            VERSION="unknown"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build C6 companion
+        shell: bash
+        run: |
+          source "${IDF_PATH}/export.sh"
+          idf.py -C firmware/c6_companion \
+            -B "${GITHUB_WORKSPACE}/firmware/c6_companion/build.c6_companion" build
+
+      - name: Validate C6 companion partition size
+        shell: bash
+        run: |
+          BUILD_DIR="firmware/c6_companion/build.c6_companion"
+          SIZE=$(stat -c%s "${BUILD_DIR}/trail-mate-c6-companion.bin")
+          MAX_SIZE=$((0x300000))
+          echo "trail-mate-c6-companion.bin size=${SIZE} max=${MAX_SIZE}"
+          if [ "${SIZE}" -gt "${MAX_SIZE}" ]; then
+            echo "trail-mate-c6-companion.bin exceeds the factory partition size" >&2
+            exit 1
+          fi
+
+      - name: Collect C6 companion firmware
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp firmware/c6_companion/build.c6_companion/trail-mate-c6-companion.bin \
+            "dist/trail-mate-c6-companion-v${{ steps.version.outputs.version }}.bin"
+
+      - name: Upload C6 companion artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trail-mate-c6-companion-v${{ steps.version.outputs.version }}
+          path: dist/*
+
+  pages_contract:
+    name: Pages And Locale Pack Contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify locale packs
+        run: python tools/validate_locale_packs.py --pack-root packs
+
+      - name: Generate Pages release metadata and package repository
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/prepare_pages_site.py --site-root site --repo ${{ github.repository }}
+
   build_idf:
     name: ESP-IDF Build (${{ matrix.env }})
     runs-on: ubuntu-latest
@@ -250,7 +347,8 @@ jobs:
       - name: Build (${{ matrix.env }})
         shell: bash
         run: |
-          idf.py -B "build.${{ matrix.env }}" \
+          source "${IDF_PATH}/export.sh"
+          idf.py -B "${GITHUB_WORKSPACE}/build.${{ matrix.env }}" \
             -D "TRAIL_MATE_IDF_TARGET=${{ matrix.env }}" build
 
       - name: Validate OTA slot size
@@ -272,7 +370,7 @@ jobs:
           BUILD_DIR="build.${{ matrix.env }}"
           cp "${BUILD_DIR}/trail-mate.bin" \
             "dist/trail-mate-${{ matrix.env }}-v${{ steps.version.outputs.version }}.bin"
-          python scripts/prepare_webflash_release.py \
+          /opt/esp/python_env/idf5.5_py3.12_env/bin/python scripts/prepare_webflash_release.py \
             --env "${{ matrix.env }}" \
             --build-root . \
             --dist dist
@@ -315,6 +413,9 @@ jobs:
       - boundary
       - format
       - build
+      - p4_contract
+      - build_c6
+      - pages_contract
       - build_idf
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:

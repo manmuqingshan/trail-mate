@@ -1,6 +1,7 @@
 name: Linux Simulator
 
 on:
+  workflow_dispatch:
   push:
     paths:
       - "apps/linux_sim_shell/**"
@@ -46,7 +47,7 @@ jobs:
       - name: Install simulator build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build
+          sudo apt-get install -y ninja-build libmbedtls-dev
 
       - name: Configure simulator
         working-directory: builds/linux_cmake

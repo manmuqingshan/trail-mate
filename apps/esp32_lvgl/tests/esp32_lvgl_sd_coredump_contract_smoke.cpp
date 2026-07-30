@@ -1,4 +1,6 @@
 #include <cassert>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -24,7 +26,11 @@ bool contains(const std::string& haystack, const char* needle)
 std::size_t position_of(const std::string& haystack, const char* needle)
 {
     const auto pos = haystack.find(needle);
-    assert(pos != std::string::npos);
+    if (pos == std::string::npos)
+    {
+        std::fprintf(stderr, "Missing contract token: %s\n", needle);
+        std::abort();
+    }
     return pos;
 }
 
@@ -39,7 +45,7 @@ int main(int argc, char** argv)
         repo_root / "apps/esp32_lvgl/src/esp32_lvgl_arduino_startup_runtime.cpp");
     const std::size_t board_init = position_of(
         arduino_startup,
-        "startup_support::initializeBoard");
+        "boards::initializeBoardDisplayHardware");
     const std::size_t begin_log = position_of(
         arduino_startup,
         "debug::begin_sd_debug_log");
@@ -141,7 +147,8 @@ int main(int argc, char** argv)
 
     const std::string idf_implementation = read_file(
         repo_root / "platform/esp/idf_common/src/debug/sd_coredump_export.cpp");
-    assert(contains(idf_implementation, "bsp_runtime::sdcard_mount_point"));
+    assert(contains(idf_implementation, "storage::SdRuntimeFile"));
+    assert(!contains(idf_implementation, "bsp_runtime::sdcard_mount_point"));
     assert(contains(idf_implementation, "trailmate"));
     assert(contains(idf_implementation, "coredumps"));
     assert(contains(idf_implementation, "esp_core_dump_image_get"));
@@ -366,7 +373,9 @@ int main(int argc, char** argv)
     const std::string t_display_p4_board = read_file(
         repo_root / "boards/t_display_p4/src/t_display_p4_board.cpp");
     assert(contains(t_display_p4_board,
-                    "SYS I2C lock timeout requester=%s owner=%s held_ms=%lu waiter=%s"));
+                    "SYS I2C lock timeout requester=%s request_owner=%s at=%s:%d"));
+    assert(contains(t_display_p4_board,
+                    "owner=%s owner_task=%s held_ms=%lu waiter=%s waiter_task=%s"));
     const std::size_t managed_i2c_device = position_of(
         t_display_p4_board,
         "i2c_master_dev_handle_t TDisplayP4Board::getManagedSystemI2cDevice");
@@ -378,13 +387,11 @@ int main(int argc, char** argv)
         expander_ready - managed_i2c_device);
     const std::size_t resource_lock = position_of(
         managed_i2c_device_body,
-        "std::unique_lock<std::mutex> resource_lock(resource_mutex_);");
+        "std::lock_guard<std::mutex> resource_lock(resource_mutex_);");
     const std::size_t system_i2c_lock = position_of(
         managed_i2c_device_body,
-        "if (!lockSystemI2c(timeout_ms))");
+        "if (!lockSystemI2c(timeout_ms, config.owner, __FILE__, __LINE__))");
     assert(resource_lock < system_i2c_lock);
-    assert(!contains(managed_i2c_device_body,
-                     "std::lock_guard<std::mutex> lock(resource_mutex_);"));
     const std::size_t transmit_radio = position_of(
         t_display_p4_board,
         "int TDisplayP4Board::transmitRadio");

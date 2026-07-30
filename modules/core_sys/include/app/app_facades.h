@@ -139,6 +139,11 @@ class IAppRuntimeFacade
     virtual void setChatUiRuntime(chat::ui::IChatUiRuntime* runtime) = 0;
     virtual BoardBase* getBoard() = 0;
     virtual const BoardBase* getBoard() const = 0;
+
+    // Some persistent stores hydrate their contact data exclusively during
+    // startup. Shared UI can use this lifecycle fact without depending on a
+    // platform storage implementation. Platforms without that phase are ready.
+    virtual bool isInitialStorageHydrationPending() const { return false; }
 };
 
 class IAppLifecycleFacade

@@ -227,6 +227,7 @@ class AppContext final : public IAppBleFacade
     void attachBleManager(std::unique_ptr<ble::BleManager> ble_manager);
     void setBleEnabled(bool enabled) override;
     bool isBleEnabled() const override;
+    bool isInitialStorageHydrationPending() const override;
 
   private:
     AppContext();

@@ -11,7 +11,7 @@ set(TRAIL_MATE_REPO_ROOT
 include("${TRAIL_MATE_REPO_ROOT}/cmake/TrailMateUxPacks.cmake")
 trailmate_add_ui_lvgl_ux_packs(trailmate_ui_lvgl_ux_packs)
 
-set(TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_VERSION "0.1.29-alpha"
+set(TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_VERSION "0.1.38-alpha"
     CACHE STRING "Debian package version for trailmate-cardputer-zero")
 option(TRAIL_MATE_CARDPUTER_ZERO_BUILD_SCREENSHOT_CAPTURE
        "Build the Cardputer Zero shared-LVGL screenshot capture tool."

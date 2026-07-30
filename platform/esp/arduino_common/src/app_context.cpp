@@ -523,6 +523,11 @@ bool AppContext::isBleEnabled() const
 #endif
 }
 
+bool AppContext::isInitialStorageHydrationPending() const
+{
+    return ::platform::esp::arduino_common::storage::initial_hydration_pending();
+}
+
 bool AppContext::init(BoardBase& board, LoraBoard* lora_board, GpsBoard* gps_board, MotionBoard* motion_board,
                       bool use_mock_adapter, uint32_t disable_hw_init)
 {
