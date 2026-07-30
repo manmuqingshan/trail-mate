@@ -112,6 +112,27 @@ static const char* portName(uint32_t portnum)
     }
 }
 
+bool isLowPriorityMqttUplink(const meshtastic_MeshPacket& packet)
+{
+    if (packet.which_payload_variant != meshtastic_MeshPacket_decoded_tag)
+    {
+        // An encrypted packet has no inspectable port number here. Preserve it
+        // rather than risking the loss of an encrypted user message.
+        return false;
+    }
+
+    switch (packet.decoded.portnum)
+    {
+    case meshtastic_PortNum_NODEINFO_APP:
+    case meshtastic_PortNum_POSITION_APP:
+    case meshtastic_PortNum_TELEMETRY_APP:
+    case meshtastic_PortNum_TRACEROUTE_APP:
+        return true;
+    default:
+        return false;
+    }
+}
+
 chat::delivery::SendFailureKind failureKindFromRoutingError(
     meshtastic_Routing_Error reason)
 {
@@ -1614,6 +1635,18 @@ bool MtAdapter::queueMqttProxyPublish(const meshtastic_MeshPacket& packet,
     proxy.topic[sizeof(proxy.topic) - 1] = '\0';
     proxy.payload_variant.data.size = static_cast<pb_size_t>(estream.bytes_written);
     proxy.retained = false;
+
+    // A broker outage must not let periodic position/telemetry traffic evict
+    // user messages already waiting for uplink. Text, control and encrypted
+    // traffic remain admissible; lower-priority reports are simply skipped
+    // once the bounded queue is full.
+    if (mqtt_proxy_queue_.isFull() && isLowPriorityMqttUplink(packet))
+    {
+        LORA_LOG("[MQTT] uplink queue drop newest priority=low port=%s depth=%u\n",
+                 portName(packet.decoded.portnum),
+                 static_cast<unsigned>(mqtt_proxy_queue_.size()));
+        return false;
+    }
 
     bool dropped = false;
     mqtt_proxy_queue_.pushDropOldest(proxy, &dropped);

@@ -20,6 +20,7 @@ enum class TcpConnectFailure : std::uint8_t
     InvalidEndpoint,
     ResolverBusy,
     ResolveFailed,
+    ResolveEmptyResponse,
     SocketOpenFailed,
     ConnectFailed,
     TimedOut,
@@ -59,6 +60,7 @@ class AsyncTcpConnector final
     TcpConnectStatus status() const { return status_; }
     bool pending() const;
     int takeSocket();
+    int takeNonBlockingSocket();
 
   private:
     bool beginSocket(std::uint32_t ipv4_address, std::uint32_t now_ms);
@@ -69,6 +71,7 @@ class AsyncTcpConnector final
     int dns_slot_ = -1;
     std::uint32_t dns_generation_ = 0;
     std::uint32_t deadline_ms_ = 0;
+    std::uint32_t timeout_ms_ = 0;
     std::uint16_t port_ = 0;
 };
 

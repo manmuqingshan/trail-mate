@@ -37,6 +37,33 @@ void release_slot_locked(DnsSlot& slot)
     slot = {};
 }
 
+void complete_dns_slot(DnsSlot& slot, const ip_addr_t* address, int error)
+{
+    portENTER_CRITICAL(&s_dns_lock);
+    if (slot.in_use)
+    {
+        if (slot.abandoned)
+        {
+            release_slot_locked(slot);
+        }
+        else
+        {
+            slot.complete = true;
+            if (error == 0 && address && IP_IS_V4(address))
+            {
+                slot.address = ip4_addr_get_u32(ip_2_ip4(address));
+                slot.error = 0;
+            }
+            else
+            {
+                slot.address = 0;
+                slot.error = error != 0 ? error : ERR_VAL;
+            }
+        }
+    }
+    portEXIT_CRITICAL(&s_dns_lock);
+}
+
 void dns_found(const char*, const ip_addr_t* address, void* arg)
 {
     auto* slot = static_cast<DnsSlot*>(arg);
@@ -44,30 +71,10 @@ void dns_found(const char*, const ip_addr_t* address, void* arg)
     {
         return;
     }
-
-    portENTER_CRITICAL(&s_dns_lock);
-    if (slot->in_use)
-    {
-        if (slot->abandoned)
-        {
-            release_slot_locked(*slot);
-        }
-        else
-        {
-            slot->complete = true;
-            if (address && IP_IS_V4(address))
-            {
-                slot->address = ip4_addr_get_u32(ip_2_ip4(address));
-                slot->error = 0;
-            }
-            else
-            {
-                slot->address = 0;
-                slot->error = ERR_VAL;
-            }
-        }
-    }
-    portEXIT_CRITICAL(&s_dns_lock);
+    // lwIP reports NXDOMAIN and malformed/empty replies through a null
+    // address in the completion callback.  Preserve that distinction so a
+    // caller can diagnose resolver failure without treating it as TCP I/O.
+    complete_dns_slot(*slot, address, address ? 0 : EHOSTUNREACH);
 }
 
 int claim_dns_slot(std::uint32_t& generation)
@@ -187,8 +194,14 @@ bool AsyncTcpConnector::start(const char* host,
         fail(TcpConnectFailure::InvalidEndpoint, EINVAL);
         return false;
     }
+    if (std::strlen(host) >= DNS_MAX_NAME_LENGTH)
+    {
+        fail(TcpConnectFailure::InvalidEndpoint, ENAMETOOLONG);
+        return false;
+    }
 
     port_ = port;
+    timeout_ms_ = timeout_ms;
     deadline_ms_ = now_ms + timeout_ms;
 
     ip4_addr_t parsed{};
@@ -213,7 +226,6 @@ bool AsyncTcpConnector::start(const char* host,
     if (err == ERR_OK)
     {
         // A cached answer completes synchronously and never calls dns_found().
-        // Release the broker slot directly instead of marking it abandoned.
         release_dns_slot(dns_slot_, dns_generation_);
         dns_slot_ = -1;
         if (!IP_IS_V4(&resolved))
@@ -225,13 +237,11 @@ bool AsyncTcpConnector::start(const char* host,
     }
     if (err != ERR_INPROGRESS)
     {
-        // No callback is pending for an immediate resolver failure.
         release_dns_slot(dns_slot_, dns_generation_);
         dns_slot_ = -1;
         fail(TcpConnectFailure::ResolveFailed, err);
         return false;
     }
-
     status_.phase = TcpConnectPhase::Resolving;
     status_.failure = TcpConnectFailure::None;
     status_.detail = 0;
@@ -270,9 +280,13 @@ TcpConnectStatus AsyncTcpConnector::poll(std::uint32_t now_ms)
         dns_slot_ = -1;
         if (error != 0 || address == 0)
         {
-            fail(TcpConnectFailure::ResolveFailed, error);
+            fail(error == EHOSTUNREACH
+                     ? TcpConnectFailure::ResolveEmptyResponse
+                     : TcpConnectFailure::ResolveFailed,
+                 error);
             return status_;
         }
+        deadline_ms_ = now_ms + timeout_ms_;
         (void)beginSocket(address, now_ms);
     }
 
@@ -341,6 +355,7 @@ void AsyncTcpConnector::cancel()
     socket_ = -1;
     port_ = 0;
     deadline_ms_ = 0;
+    timeout_ms_ = 0;
     status_ = {};
 }
 
@@ -356,10 +371,31 @@ int AsyncTcpConnector::takeSocket()
     {
         return -1;
     }
+    const int flags = fcntl(socket_, F_GETFL, 0);
+    if (flags < 0 || fcntl(socket_, F_SETFL, flags & ~O_NONBLOCK) < 0)
+    {
+        fail(TcpConnectFailure::SocketOpenFailed, errno);
+        return -1;
+    }
     const int socket = socket_;
     socket_ = -1;
     status_ = {};
     deadline_ms_ = 0;
+    timeout_ms_ = 0;
+    return socket;
+}
+
+int AsyncTcpConnector::takeNonBlockingSocket()
+{
+    if (status_.phase != TcpConnectPhase::Connected || socket_ < 0)
+    {
+        return -1;
+    }
+    const int socket = socket_;
+    socket_ = -1;
+    status_ = {};
+    deadline_ms_ = 0;
+    timeout_ms_ = 0;
     return socket;
 }
 
@@ -431,6 +467,8 @@ const char* tcpConnectFailureName(TcpConnectFailure failure)
         return "resolver_busy";
     case TcpConnectFailure::ResolveFailed:
         return "resolve_failed";
+    case TcpConnectFailure::ResolveEmptyResponse:
+        return "resolve_empty_response";
     case TcpConnectFailure::SocketOpenFailed:
         return "socket_open_failed";
     case TcpConnectFailure::ConnectFailed:

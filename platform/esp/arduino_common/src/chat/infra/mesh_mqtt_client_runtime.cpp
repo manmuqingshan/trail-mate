@@ -32,11 +32,13 @@
 #include "ble/ble_manager.h"
 #endif
 
-#if __has_include(<WiFi.h>)
-#include <WiFi.h>
-#define TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT 1
+#if __has_include(<lwip/sockets.h>)
+#include <cerrno>
+#include <lwip/sockets.h>
+#include <lwip/tcp.h>
+#define TRAIL_MATE_MESH_MQTT_HAS_SOCKET 1
 #else
-#define TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT 0
+#define TRAIL_MATE_MESH_MQTT_HAS_SOCKET 0
 #endif
 
 namespace platform::esp::arduino_common::mesh_mqtt
@@ -47,9 +49,13 @@ namespace
 constexpr uint16_t kDefaultMqttPort = 1883;
 constexpr uint16_t kMqttKeepaliveSeconds = 60;
 constexpr uint32_t kConfigRefreshMs = 5000;
-constexpr uint32_t kMqttReconnectIntervalMs = 15000;
+constexpr uint32_t kMqttReconnectInitialMs = 2000;
+constexpr uint32_t kMqttReconnectMaxMs = 60000;
 constexpr uint32_t kMqttPingIntervalMs = 30000;
-constexpr int32_t kMqttSocketConnectTimeoutMs = 5000;
+constexpr uint32_t kMqttConnackTimeoutMs = 10000;
+constexpr uint32_t kMqttSubackTimeoutMs = 10000;
+constexpr uint32_t kMqttPingResponseTimeoutMs = 10000;
+constexpr int32_t kMqttSocketConnectTimeoutMs = 15000;
 constexpr std::size_t kTxBufferSize = 512;
 constexpr std::size_t kRxBufferSize = 512;
 constexpr std::size_t kMeshCoreFrameBufferSize = 255;
@@ -88,7 +94,12 @@ void copyBounded(char* dst, std::size_t dst_len, const char* src)
 
 bool elapsed(uint32_t now_ms, uint32_t last_ms, uint32_t interval_ms)
 {
-    return last_ms == 0 || (now_ms - last_ms) >= interval_ms;
+    // A timestamp captured before a callback must not look like a completed
+    // interval when that callback records a slightly later timestamp. This is
+    // still wrap-safe for every interval used here (all are below INT32_MAX).
+    return last_ms == 0 ||
+           static_cast<int32_t>(now_ms - last_ms) >=
+               static_cast<int32_t>(interval_ms);
 }
 
 bool deadlinePending(uint32_t now_ms, uint32_t deadline_ms)
@@ -289,8 +300,17 @@ class PlainMqttRuntime
         }
 
         pumpNetwork(mt, mc);
+        // pumpNetwork can process CONNACK and stamp a control-plane deadline
+        // with a later millis() value.  Reusing the turn's earlier now_ms here
+        // underflows the unsigned elapsed calculation and falsely times out a
+        // just-sent SUBSCRIBE or PINGREQ.
+        const uint32_t after_network_ms = millis();
+        if (!checkSessionLiveness(after_network_ms))
+        {
+            return;
+        }
         flushPublishQueue(mt, mc);
-        maybePing(now_ms);
+        maybePing(after_network_ms);
     }
 
   private:
@@ -317,12 +337,22 @@ class PlainMqttRuntime
     bool adapter_synced_disabled_ = false;
     bool mqtt_ready_ = false;
     bool subscribed_ = false;
+    bool subscribe_pending_ = false;
+    bool control_plane_uplink_sent_ = false;
+    bool ping_outstanding_ = false;
+    bool mt_publish_pending_ = false;
+    bool mc_publish_pending_ = false;
     bool logged_tls_unsupported_ = false;
     bool logged_plaintext_forced_ = false;
     uint16_t packet_id_ = 1;
+    uint16_t subscribe_packet_id_ = 0;
     uint32_t last_config_refresh_ms_ = 0;
-    uint32_t last_mqtt_reconnect_ms_ = 0;
+    uint32_t mqtt_reconnect_not_before_ms_ = 0;
+    uint32_t mqtt_reconnect_delay_ms_ = kMqttReconnectInitialMs;
     uint32_t last_io_ms_ = 0;
+    uint32_t connect_sent_ms_ = 0;
+    uint32_t subscribe_sent_ms_ = 0;
+    uint32_t ping_sent_ms_ = 0;
     uint32_t wifi_retry_not_before_ms_ = 0;
     char address_scratch_[80] = {};
     char subscribe_topic_[96] = {};
@@ -331,6 +361,10 @@ class PlainMqttRuntime
     std::array<uint8_t, kRxBufferSize> rx_{};
     std::array<uint8_t, 32> discard_{};
     meshtastic_MqttClientProxyMessage mt_proxy_ = meshtastic_MqttClientProxyMessage_init_zero;
+    meshtastic_MqttClientProxyMessage mt_publish_proxy_ =
+        meshtastic_MqttClientProxyMessage_init_zero;
+    std::array<uint8_t, kMeshCoreFrameBufferSize> mc_publish_frame_{};
+    std::size_t mc_publish_frame_len_ = 0;
     meshtastic_MeshPacket mt_publish_ack_packet_ = meshtastic_MeshPacket_init_zero;
     RxState rx_state_ = RxState::FixedHeader;
     uint8_t rx_header_ = 0;
@@ -341,9 +375,58 @@ class PlainMqttRuntime
     uint8_t rx_remaining_bytes_ = 0;
     WifiGateState last_wifi_gate_state_ = WifiGateState::Unknown;
 
-#if TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
-    WiFiClient client_;
+#if TRAIL_MATE_MESH_MQTT_HAS_SOCKET
+    int socket_ = -1;
     platform::esp::arduino_common::net::AsyncTcpConnector connector_{};
+#endif
+
+#if TRAIL_MATE_MESH_MQTT_HAS_SOCKET
+    static bool socketWouldBlock(int error)
+    {
+        return error == EAGAIN || error == EWOULDBLOCK;
+    }
+
+    bool socketAlive() const
+    {
+        if (socket_ < 0)
+        {
+            return false;
+        }
+        uint8_t byte = 0;
+        const int result = recv(socket_, &byte, sizeof(byte), MSG_PEEK | MSG_DONTWAIT);
+        if (result > 0)
+        {
+            return true;
+        }
+        if (result == 0)
+        {
+            return false;
+        }
+        return socketWouldBlock(errno);
+    }
+
+    int readSocket(uint8_t* data, std::size_t len)
+    {
+        if (socket_ < 0 || !data || len == 0)
+        {
+            return -1;
+        }
+        const int result = recv(socket_, data, len, MSG_DONTWAIT);
+        if (result < 0 && socketWouldBlock(errno))
+        {
+            return 0;
+        }
+        return result;
+    }
+
+    void closeSocket()
+    {
+        if (socket_ >= 0)
+        {
+            close(socket_);
+            socket_ = -1;
+        }
+    }
 #endif
 
     const char* protocolTag() const
@@ -459,14 +542,23 @@ class PlainMqttRuntime
         if (!have_config_ || !sameConfig(config_, next))
         {
             const bool was_configured = config_.configured;
+            if (mt_publish_pending_ || mc_publish_pending_)
+            {
+                std::printf("[%s][MQTT] config changed drop in-flight publish\n",
+                            protocolTag());
+            }
+            mt_publish_pending_ = false;
+            mc_publish_pending_ = false;
+            mc_publish_frame_len_ = 0;
             config_ = next;
             have_config_ = true;
-#if TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+#if TRAIL_MATE_MESH_MQTT_HAS_SOCKET
             connector_.cancel();
 #endif
             logged_tls_unsupported_ = false;
             logged_plaintext_forced_ = false;
             stop("config");
+            resetMqttReconnectBackoff();
             if (config_.configured || was_configured)
             {
                 std::printf("[%s][MQTT] config enabled=%u host=%s port=%u root=%s tls=%u enc_requested=%u up=%u down=%u\n",
@@ -586,7 +678,6 @@ class PlainMqttRuntime
         {
             start += 6;
         }
-
         char* colon = std::strrchr(start, ':');
         if (colon && isDigits(colon + 1))
         {
@@ -780,15 +871,30 @@ class PlainMqttRuntime
                     status.ssid[0] ? status.ssid : "<unset>");
     }
 
+    void armMqttReconnectBackoff(uint32_t now_ms)
+    {
+        const uint32_t delay_ms = std::max(mqtt_reconnect_delay_ms_,
+                                           kMqttReconnectInitialMs);
+        mqtt_reconnect_not_before_ms_ = now_ms + delay_ms;
+        mqtt_reconnect_delay_ms_ = std::min(delay_ms * 2U,
+                                            kMqttReconnectMaxMs);
+    }
+
+    void resetMqttReconnectBackoff()
+    {
+        mqtt_reconnect_not_before_ms_ = 0;
+        mqtt_reconnect_delay_ms_ = kMqttReconnectInitialMs;
+    }
+
     bool ensureMqtt(uint32_t now_ms)
     {
-#if !TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+#if !TRAIL_MATE_MESH_MQTT_HAS_SOCKET
         return false;
 #else
         const auto budget = platform::ui::wifi_access::traffic_budget(
             platform::ui::wifi_access::Client::MeshMqtt,
             platform::ui::wifi_access::Priority::Messaging);
-        if (client_.connected() &&
+        if (socketAlive() &&
             !budget.allow_connect &&
             !budget.allow_read &&
             !budget.allow_write)
@@ -796,18 +902,32 @@ class PlainMqttRuntime
             stop("wifi_revoke");
             return false;
         }
-        if (client_.connected() && mqtt_ready_)
+        if (socketAlive())
         {
+            if (!mqtt_ready_ && connect_sent_ms_ != 0 &&
+                elapsed(now_ms, connect_sent_ms_, kMqttConnackTimeoutMs))
+            {
+                std::printf("[%s][MQTT] broker handshake timeout stage=connack\n",
+                            protocolTag());
+                stop("connack_timeout");
+                return false;
+            }
             return true;
         }
-        if (client_.connected() && !mqtt_ready_)
+        // A peer close used to fall through to closeSocket() without going
+        // through stop().  That skipped reconnect backoff, so a broker that
+        // immediately rejects a CONNECT caused a tight reconnect loop.  Treat
+        // every already-established socket loss as a session stop so the
+        // bounded exponential backoff applies consistently.
+        if (socket_ >= 0)
         {
-            return true;
+            stop("socket_closed");
         }
+        closeSocket();
         if (!connector_.pending() &&
             connector_.status().phase !=
                 platform::esp::arduino_common::net::TcpConnectPhase::Connected &&
-            !elapsed(now_ms, last_mqtt_reconnect_ms_, kMqttReconnectIntervalMs))
+            deadlinePending(now_ms, mqtt_reconnect_not_before_ms_))
         {
             return false;
         }
@@ -850,9 +970,9 @@ class PlainMqttRuntime
         if (!connector_.pending() &&
             connector_.status().phase != TcpConnectPhase::Connected)
         {
-            last_mqtt_reconnect_ms_ = now_ms;
+            armMqttReconnectBackoff(now_ms);
             resetConnectionState();
-            client_.stop();
+            closeSocket();
             std::printf("[%s][MQTT] broker connect start host=%s port=%u client=%s\n",
                         protocolTag(),
                         config_.host,
@@ -895,19 +1015,25 @@ class PlainMqttRuntime
             return false;
         }
 
-        const int socket = connector_.takeSocket();
-        if (socket < 0)
+        socket_ = connector_.takeNonBlockingSocket();
+        if (socket_ < 0)
         {
             return false;
         }
-        client_ = WiFiClient(socket);
-        client_.setNoDelay(true);
+        const int no_delay = 1;
+        if (setsockopt(socket_, IPPROTO_TCP, TCP_NODELAY, &no_delay, sizeof(no_delay)) != 0)
+        {
+            std::printf("[%s][MQTT] socket option failed option=nodelay err=%d\n",
+                        protocolTag(),
+                        errno);
+        }
         if (!sendConnect())
         {
-            client_.stop();
+            closeSocket();
             resetConnectionState();
             return false;
         }
+        connect_sent_ms_ = now_ms;
         last_io_ms_ = now_ms;
         return true;
 #endif
@@ -915,14 +1041,19 @@ class PlainMqttRuntime
 
     void stop(const char* reason)
     {
-#if TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+#if TRAIL_MATE_MESH_MQTT_HAS_SOCKET
+        const bool retry_after_live_transport = socket_ >= 0;
         connector_.cancel();
-        if (client_.connected())
+        if (socket_ >= 0)
         {
             std::printf("[%s][MQTT] broker stop reason=%s\n",
                         protocolTag(),
                         reason ? reason : "unknown");
-            client_.stop();
+            closeSocket();
+        }
+        if (retry_after_live_transport)
+        {
+            armMqttReconnectBackoff(millis());
         }
 #else
         (void)reason;
@@ -935,6 +1066,13 @@ class PlainMqttRuntime
     {
         mqtt_ready_ = false;
         subscribed_ = false;
+        subscribe_pending_ = false;
+        control_plane_uplink_sent_ = false;
+        ping_outstanding_ = false;
+        subscribe_packet_id_ = 0;
+        connect_sent_ms_ = 0;
+        subscribe_sent_ms_ = 0;
+        ping_sent_ms_ = 0;
         rx_state_ = RxState::FixedHeader;
         rx_header_ = 0;
         rx_remaining_len_ = 0;
@@ -1001,6 +1139,10 @@ class PlainMqttRuntime
             subscribed_ = true;
             return true;
         }
+        if (subscribe_pending_)
+        {
+            return true;
+        }
         if (config_.protocol == RuntimeProtocol::MeshCore)
         {
             std::snprintf(subscribe_topic_,
@@ -1029,10 +1171,13 @@ class PlainMqttRuntime
         {
             return false;
         }
-        subscribed_ = true;
-        std::printf("[%s][MQTT] subscribed topic=%s\n",
+        subscribe_pending_ = true;
+        subscribe_packet_id_ = packet_id;
+        subscribe_sent_ms_ = millis();
+        std::printf("[%s][MQTT] subscribe sent topic=%s packet_id=%u\n",
                     protocolTag(),
-                    subscribe_topic_);
+                    subscribe_topic_,
+                    static_cast<unsigned>(packet_id));
         return true;
     }
 
@@ -1075,9 +1220,20 @@ class PlainMqttRuntime
         return writePacket(pos, "publish_raw");
     }
 
+    bool sendPuback(uint16_t packet_id)
+    {
+        std::size_t pos = 0;
+        return beginPacket(0x40U, 2U, pos) &&
+               appendU16(packet_id, pos) &&
+               writePacket(pos, "puback");
+    }
+
     void flushPublishQueue(chat::meshtastic::MtAdapter* mt,
                            chat::meshcore::MeshCoreAdapter* mc)
     {
+        // A successful CONNACK authorizes the client to publish.  SUBACK only
+        // governs inbound routing; making uplink depend on it turns a delayed
+        // or lost subscription acknowledgement into a complete bridge outage.
         if (!mqtt_ready_)
         {
             return;
@@ -1085,14 +1241,28 @@ class PlainMqttRuntime
         const auto budget = platform::ui::wifi_access::traffic_budget(
             platform::ui::wifi_access::Client::MeshMqtt,
             platform::ui::wifi_access::Priority::Messaging);
-        if (!budget.allow_write || budget.tx_packet_budget == 0)
+        // During a pending SUBACK the connection is still MQTT-ready, but a
+        // normal traffic budget may not be granted before the subscription
+        // timeout.  Permit one queued uplink to establish useful forwarding;
+        // subsequent calls remain subject to normal arbitration.
+        const bool control_plane_uplink =
+            subscribe_pending_ && !control_plane_uplink_sent_;
+        if ((!budget.allow_write || budget.tx_packet_budget == 0) &&
+            !control_plane_uplink)
         {
             return;
         }
+        const std::size_t tx_packet_budget =
+            control_plane_uplink ? std::max<std::size_t>(budget.tx_packet_budget, 1U)
+                                 : budget.tx_packet_budget;
 
         if (config_.protocol == RuntimeProtocol::MeshCore)
         {
-            flushMeshCorePublishQueue(mc, budget.tx_packet_budget);
+            if (flushMeshCorePublishQueue(mc, tx_packet_budget) &&
+                control_plane_uplink)
+            {
+                control_plane_uplink_sent_ = true;
+            }
             return;
         }
         if (!mt)
@@ -1100,36 +1270,47 @@ class PlainMqttRuntime
             return;
         }
 
-        for (std::size_t sent = 0; sent < budget.tx_packet_budget; ++sent)
+        for (std::size_t sent = 0; sent < tx_packet_budget; ++sent)
         {
-            std::memset(&mt_proxy_, 0, sizeof(mt_proxy_));
-            if (!mt->pollMqttProxyMessage(&mt_proxy_))
+            if (!mt_publish_pending_)
             {
-                return;
+                std::memset(&mt_publish_proxy_, 0, sizeof(mt_publish_proxy_));
+                if (!mt->pollMqttProxyMessage(&mt_publish_proxy_))
+                {
+                    return;
+                }
+                mt_publish_pending_ = true;
             }
-            if (!sendPublish(mt_proxy_))
+            if (!sendPublish(mt_publish_proxy_))
             {
-                std::printf("[MT][MQTT] publish failed topic=%s\n", mt_proxy_.topic);
+                std::printf("[MT][MQTT] publish failed topic=%s retained_for_retry=1\n",
+                            mt_publish_proxy_.topic);
                 stop("publish");
                 return;
             }
             std::printf("[MT][MQTT] publish topic=%s bytes=%u\n",
-                        mt_proxy_.topic,
-                        static_cast<unsigned>(mt_proxy_.payload_variant.data.size));
-            notifyMeshtasticPublishSuccess(*mt, mt_proxy_);
+                        mt_publish_proxy_.topic,
+                        static_cast<unsigned>(mt_publish_proxy_.payload_variant.data.size));
+            notifyMeshtasticPublishSuccess(*mt, mt_publish_proxy_);
+            mt_publish_pending_ = false;
+            if (control_plane_uplink)
+            {
+                control_plane_uplink_sent_ = true;
+                return;
+            }
         }
     }
 
-    void flushMeshCorePublishQueue(chat::meshcore::MeshCoreAdapter* mc,
+    bool flushMeshCorePublishQueue(chat::meshcore::MeshCoreAdapter* mc,
                                    std::size_t packet_budget)
     {
         if (!mc || !config_.uplink_enabled)
         {
-            return;
+            return false;
         }
         if (rx_state_ != RxState::FixedHeader)
         {
-            return;
+            return false;
         }
 
         std::snprintf(publish_topic_,
@@ -1137,32 +1318,44 @@ class PlainMqttRuntime
                       "%s/raw/%s",
                       config_.root[0] ? config_.root : kDefaultMeshCoreMqttRoot,
                       config_.client_id[0] ? config_.client_id : "trail-mate");
+        bool sent_any = false;
         for (std::size_t sent = 0; sent < packet_budget; ++sent)
         {
-            size_t frame_len = 0;
-            if (!mc->pollMqttBridgePacket(rx_.data(),
-                                          frame_len,
-                                          kMeshCoreFrameBufferSize))
+            if (!mc_publish_pending_)
             {
-                return;
+                mc_publish_frame_len_ = 0;
+                if (!mc->pollMqttBridgePacket(mc_publish_frame_.data(),
+                                              mc_publish_frame_len_,
+                                              mc_publish_frame_.size()))
+                {
+                    return sent_any;
+                }
+                mc_publish_pending_ = true;
             }
-            if (!sendPublishRaw(publish_topic_, rx_.data(), frame_len))
+            if (!sendPublishRaw(publish_topic_,
+                                mc_publish_frame_.data(),
+                                mc_publish_frame_len_))
             {
                 std::printf("[MC][MQTT] publish failed topic=%s bytes=%u\n",
                             publish_topic_,
-                            static_cast<unsigned>(frame_len));
+                            static_cast<unsigned>(mc_publish_frame_len_));
                 stop("publish");
-                return;
+                return false;
             }
             std::printf("[MC][MQTT] publish topic=%s bytes=%u\n",
                         publish_topic_,
-                        static_cast<unsigned>(frame_len));
+                        static_cast<unsigned>(mc_publish_frame_len_));
+            mc_publish_pending_ = false;
+            mc_publish_frame_len_ = 0;
+            sent_any = true;
         }
+        return sent_any;
     }
 
     void maybePing(uint32_t now_ms)
     {
-        if (!mqtt_ready_ || !elapsed(now_ms, last_io_ms_, kMqttPingIntervalMs))
+        if (!mqtt_ready_ || ping_outstanding_ ||
+            !elapsed(now_ms, last_io_ms_, kMqttPingIntervalMs))
         {
             return;
         }
@@ -1176,19 +1369,51 @@ class PlainMqttRuntime
         std::size_t pos = 0;
         if (beginPacket(0xC0, 0, pos) && writePacket(pos, "ping"))
         {
+            ping_outstanding_ = true;
+            ping_sent_ms_ = now_ms;
             return;
         }
         stop("ping");
     }
 
+    bool checkSessionLiveness(uint32_t now_ms)
+    {
+#if !TRAIL_MATE_MESH_MQTT_HAS_SOCKET
+        (void)now_ms;
+        return false;
+#else
+        if (!socketAlive())
+        {
+            return false;
+        }
+        if (subscribe_pending_ &&
+            elapsed(now_ms, subscribe_sent_ms_, kMqttSubackTimeoutMs))
+        {
+            std::printf("[%s][MQTT] broker handshake timeout stage=suback\n",
+                        protocolTag());
+            stop("suback_timeout");
+            return false;
+        }
+        if (ping_outstanding_ &&
+            elapsed(now_ms, ping_sent_ms_, kMqttPingResponseTimeoutMs))
+        {
+            std::printf("[%s][MQTT] broker liveness timeout stage=pingresp\n",
+                        protocolTag());
+            stop("pingresp_timeout");
+            return false;
+        }
+        return true;
+#endif
+    }
+
     void pumpNetwork(chat::meshtastic::MtAdapter* mt,
                      chat::meshcore::MeshCoreAdapter* mc)
     {
-#if !TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+#if !TRAIL_MATE_MESH_MQTT_HAS_SOCKET
         (void)mt;
         (void)mc;
 #else
-        if (!client_.connected())
+        if (!socketAlive())
         {
             stop("socket");
             return;
@@ -1196,30 +1421,51 @@ class PlainMqttRuntime
         const auto budget = platform::ui::wifi_access::traffic_budget(
             platform::ui::wifi_access::Client::MeshMqtt,
             platform::ui::wifi_access::Priority::Messaging);
-        if (!budget.allow_read ||
-            budget.rx_packet_budget == 0 ||
-            budget.rx_byte_budget == 0)
+        const bool control_plane_pending =
+            connect_sent_ms_ != 0 ||
+            subscribe_pending_ ||
+            ping_outstanding_;
+        std::size_t packet_budget = budget.rx_packet_budget;
+        std::size_t byte_budget = budget.rx_byte_budget;
+        if (control_plane_pending)
+        {
+            // MQTT control responses are required to complete or validate the
+            // session. Do not let ordinary application traffic arbitration
+            // starve CONNACK, SUBACK, or PINGRESP until their timeout fires.
+            packet_budget = std::max<std::size_t>(packet_budget, 1U);
+            byte_budget = std::max<std::size_t>(byte_budget, 32U);
+        }
+        else if (!budget.allow_read)
+        {
+            return;
+        }
+        if (packet_budget == 0 || byte_budget == 0)
         {
             return;
         }
 
         std::size_t packets = 0;
         std::size_t bytes = 0;
-        while (client_.connected() &&
-               client_.available() > 0 &&
-               packets < budget.rx_packet_budget &&
-               bytes < budget.rx_byte_budget)
+        while (socketAlive() &&
+               packets < packet_budget &&
+               bytes < byte_budget)
         {
             switch (rx_state_)
             {
             case RxState::FixedHeader:
             {
-                const int value = client_.read();
-                if (value < 0)
+                uint8_t value = 0;
+                const int read = readSocket(&value, sizeof(value));
+                if (read == 0)
                 {
                     return;
                 }
-                rx_header_ = static_cast<uint8_t>(value);
+                if (read < 0)
+                {
+                    stop("socket_read");
+                    return;
+                }
+                rx_header_ = value;
                 rx_remaining_len_ = 0;
                 rx_multiplier_ = 1;
                 rx_remaining_bytes_ = 0;
@@ -1228,7 +1474,7 @@ class PlainMqttRuntime
                 break;
             }
             case RxState::RemainingLength:
-                if (!readRemainingLength(bytes))
+                if (!readRemainingLength(bytes, packets, mt, mc))
                 {
                     return;
                 }
@@ -1244,59 +1490,70 @@ class PlainMqttRuntime
                 break;
             }
         }
-        if (!client_.connected())
+        if (!socketAlive())
         {
             stop("socket");
         }
 #endif
     }
 
-    bool readRemainingLength(std::size_t& bytes)
+    bool readRemainingLength(std::size_t& bytes,
+                             std::size_t& packets,
+                             chat::meshtastic::MtAdapter* mt,
+                             chat::meshcore::MeshCoreAdapter* mc)
     {
-#if !TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+#if !TRAIL_MATE_MESH_MQTT_HAS_SOCKET
         (void)bytes;
+        (void)packets;
+        (void)mt;
+        (void)mc;
         return false;
 #else
-        while (client_.available() > 0)
+        uint8_t encoded = 0;
+        const int read = readSocket(&encoded, sizeof(encoded));
+        if (read == 0)
         {
-            const int value = client_.read();
-            if (value < 0)
+            return false;
+        }
+        if (read < 0)
+        {
+            stop("socket_read");
+            return false;
+        }
+        rx_remaining_len_ += (encoded & 0x7FU) * rx_multiplier_;
+        rx_multiplier_ *= 128U;
+        ++rx_remaining_bytes_;
+        ++bytes;
+        if (rx_remaining_bytes_ > 4)
+        {
+            stop("bad_remaining_length");
+            return false;
+        }
+        if ((encoded & 0x80U) == 0)
+        {
+            if (rx_remaining_len_ > rx_.size())
             {
-                return false;
+                std::printf("[%s][MQTT] drop packet reason=too_large type=0x%02X len=%u\n",
+                            protocolTag(),
+                            rx_header_,
+                            static_cast<unsigned>(rx_remaining_len_));
+                rx_discard_remaining_ = rx_remaining_len_;
+                rx_state_ = RxState::Discard;
             }
-            const uint8_t encoded = static_cast<uint8_t>(value);
-            rx_remaining_len_ += (encoded & 0x7FU) * rx_multiplier_;
-            rx_multiplier_ *= 128U;
-            ++rx_remaining_bytes_;
-            ++bytes;
-            if (rx_remaining_bytes_ > 4)
+            else if (rx_remaining_len_ == 0)
             {
-                stop("bad_remaining_length");
-                return false;
+                rx_payload_pos_ = 0;
+                handlePacket(mt, mc);
+                rx_state_ = RxState::FixedHeader;
+                ++packets;
+                last_io_ms_ = millis();
             }
-            if ((encoded & 0x80U) == 0)
+            else
             {
-                if (rx_remaining_len_ > rx_.size())
-                {
-                    std::printf("[%s][MQTT] drop packet reason=too_large type=0x%02X len=%u\n",
-                                protocolTag(),
-                                rx_header_,
-                                static_cast<unsigned>(rx_remaining_len_));
-                    rx_discard_remaining_ = rx_remaining_len_;
-                    rx_state_ = RxState::Discard;
-                }
-                else if (rx_remaining_len_ == 0)
-                {
-                    rx_payload_pos_ = 0;
-                    rx_state_ = RxState::FixedHeader;
-                }
-                else
-                {
-                    rx_payload_pos_ = 0;
-                    rx_state_ = RxState::Payload;
-                }
-                return true;
+                rx_payload_pos_ = 0;
+                rx_state_ = RxState::Payload;
             }
+            return true;
         }
         return false;
 #endif
@@ -1308,24 +1565,21 @@ class PlainMqttRuntime
                      chat::meshcore::MeshCoreAdapter* mc)
     {
         (void)packets;
-#if !TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+#if !TRAIL_MATE_MESH_MQTT_HAS_SOCKET
         (void)bytes;
         (void)mt;
         (void)mc;
         return false;
 #else
         const std::size_t remaining = rx_remaining_len_ - rx_payload_pos_;
-        const std::size_t want = std::min<std::size_t>(
-            remaining,
-            static_cast<std::size_t>(client_.available()));
-        if (want == 0)
+        const int read = readSocket(rx_.data() + rx_payload_pos_, remaining);
+        if (read == 0)
         {
             return false;
         }
-
-        const int read = client_.read(rx_.data() + rx_payload_pos_, want);
-        if (read <= 0)
+        if (read < 0)
         {
+            stop("socket_read");
             return false;
         }
         rx_payload_pos_ += static_cast<std::size_t>(read);
@@ -1346,18 +1600,18 @@ class PlainMqttRuntime
 
     void readDiscard(std::size_t& bytes)
     {
-#if TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+#if TRAIL_MATE_MESH_MQTT_HAS_SOCKET
         const std::size_t want = std::min<std::size_t>(
             rx_discard_remaining_,
-            std::min<std::size_t>(discard_.size(),
-                                  static_cast<std::size_t>(client_.available())));
-        if (want == 0)
+            discard_.size());
+        const int read = readSocket(discard_.data(), want);
+        if (read == 0)
         {
             return;
         }
-        const int read = client_.read(discard_.data(), want);
-        if (read <= 0)
+        if (read < 0)
         {
+            stop("socket_read");
             return;
         }
         rx_discard_remaining_ -= static_cast<std::size_t>(read);
@@ -1384,8 +1638,11 @@ class PlainMqttRuntime
             handlePublish(mt, mc);
             break;
         case 0x90:
+            handleSuback();
             break;
         case 0xD0:
+            ping_outstanding_ = false;
+            ping_sent_ms_ = 0;
             break;
         default:
             break;
@@ -1409,19 +1666,62 @@ class PlainMqttRuntime
             return;
         }
         mqtt_ready_ = true;
+        connect_sent_ms_ = 0;
+        resetMqttReconnectBackoff();
         std::printf("[%s][MQTT] broker connected\n", protocolTag());
-        (void)sendSubscribe();
+        if (!sendSubscribe())
+        {
+            stop("subscribe");
+        }
+    }
+
+    void handleSuback()
+    {
+        if (rx_remaining_len_ < 3)
+        {
+            stop("suback_short");
+            return;
+        }
+        const uint16_t packet_id =
+            (static_cast<uint16_t>(rx_[0]) << 8U) | rx_[1];
+        const uint8_t result = rx_[2];
+        if (!subscribe_pending_ ||
+            packet_id != subscribe_packet_id_ ||
+            result != 0)
+        {
+            std::printf("[%s][MQTT] suback rejected packet_id=%u expected=%u result=0x%02X\n",
+                        protocolTag(),
+                        static_cast<unsigned>(packet_id),
+                        static_cast<unsigned>(subscribe_packet_id_),
+                        static_cast<unsigned>(result));
+            stop("suback");
+            return;
+        }
+        subscribe_pending_ = false;
+        subscribed_ = true;
+        subscribe_packet_id_ = 0;
+        subscribe_sent_ms_ = 0;
+        std::printf("[%s][MQTT] subscribed topic=%s\n",
+                    protocolTag(),
+                    subscribe_topic_);
     }
 
     void handlePublish(chat::meshtastic::MtAdapter* mt,
                        chat::meshcore::MeshCoreAdapter* mc)
     {
         const uint8_t qos = (rx_header_ >> 1U) & 0x03U;
-        if (qos != 0)
+        if (qos == 2U)
         {
-            std::printf("[%s][MQTT] inbound drop reason=qos%u\n",
-                        protocolTag(),
-                        static_cast<unsigned>(qos));
+            std::printf("[%s][MQTT] inbound reject reason=qos2\n",
+                        protocolTag());
+            stop("publish_qos2");
+            return;
+        }
+        if (qos == 3U)
+        {
+            std::printf("[%s][MQTT] inbound reject reason=invalid_qos\n",
+                        protocolTag());
+            stop("publish_qos_invalid");
             return;
         }
         if (rx_remaining_len_ < 2)
@@ -1439,7 +1739,29 @@ class PlainMqttRuntime
             return;
         }
 
-        const std::size_t payload_offset = 2U + topic_len;
+        std::size_t payload_offset = 2U + topic_len;
+        if (qos == 1U)
+        {
+            if (payload_offset + 2U > rx_remaining_len_)
+            {
+                std::printf("[%s][MQTT] inbound reject reason=packet_id\n",
+                            protocolTag());
+                stop("publish_packet_id");
+                return;
+            }
+            const uint16_t packet_id =
+                (static_cast<uint16_t>(rx_[payload_offset]) << 8U) |
+                rx_[payload_offset + 1U];
+            payload_offset += 2U;
+            if (!sendPuback(packet_id))
+            {
+                std::printf("[%s][MQTT] inbound ack failed packet_id=%u\n",
+                            protocolTag(),
+                            static_cast<unsigned>(packet_id));
+                stop("puback");
+                return;
+            }
+        }
         const std::size_t payload_len = rx_remaining_len_ - payload_offset;
         if (config_.protocol == RuntimeProtocol::MeshCore)
         {
@@ -1598,23 +1920,37 @@ class PlainMqttRuntime
 
     bool writePacket(std::size_t len, const char* op)
     {
-#if !TRAIL_MATE_MESH_MQTT_HAS_WIFI_CLIENT
+#if !TRAIL_MATE_MESH_MQTT_HAS_SOCKET
         (void)len;
         (void)op;
         return false;
 #else
-        if (!client_.connected())
+        if (!socketAlive())
         {
             return false;
         }
-        const std::size_t written = client_.write(tx_.data(), len);
-        if (written != len)
+        std::size_t written = 0;
+        while (written < len)
         {
-            std::printf("[%s][MQTT] write failed op=%s len=%u written=%u\n",
+            const int result = send(socket_,
+                                    tx_.data() + written,
+                                    len - written,
+                                    MSG_DONTWAIT);
+            if (result > 0)
+            {
+                written += static_cast<std::size_t>(result);
+                continue;
+            }
+            if (result < 0 && errno == EINTR)
+            {
+                continue;
+            }
+            std::printf("[%s][MQTT] write failed op=%s len=%u written=%u err=%d\n",
                         protocolTag(),
                         op ? op : "packet",
                         static_cast<unsigned>(len),
-                        static_cast<unsigned>(written));
+                        static_cast<unsigned>(written),
+                        result < 0 ? errno : 0);
             return false;
         }
         last_io_ms_ = millis();
