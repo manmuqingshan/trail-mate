@@ -34,6 +34,8 @@
 
 #if __has_include(<lwip/sockets.h>)
 #include <cerrno>
+#include <lwip/dns.h>
+#include <lwip/ip_addr.h>
 #include <lwip/sockets.h>
 #include <lwip/tcp.h>
 #define TRAIL_MATE_MESH_MQTT_HAS_SOCKET 1
@@ -56,6 +58,9 @@ constexpr uint32_t kMqttConnackTimeoutMs = 10000;
 constexpr uint32_t kMqttSubackTimeoutMs = 10000;
 constexpr uint32_t kMqttPingResponseTimeoutMs = 10000;
 constexpr int32_t kMqttSocketConnectTimeoutMs = 15000;
+constexpr uint8_t kMqttDnsFailureReconnectThreshold = 3;
+constexpr uint32_t kMqttDnsRecoveryCooldownMs = 30000;
+constexpr uint32_t kMqttDnsRecoveryReconnectDelayMs = 1000;
 constexpr std::size_t kTxBufferSize = 512;
 constexpr std::size_t kRxBufferSize = 512;
 constexpr std::size_t kMeshCoreFrameBufferSize = 255;
@@ -354,9 +359,13 @@ class PlainMqttRuntime
     uint32_t subscribe_sent_ms_ = 0;
     uint32_t ping_sent_ms_ = 0;
     uint32_t wifi_retry_not_before_ms_ = 0;
+    uint32_t dns_recovery_not_before_ms_ = 0;
+    uint8_t consecutive_dns_failures_ = 0;
     char address_scratch_[80] = {};
     char subscribe_topic_[96] = {};
     char publish_topic_[96] = {};
+    std::array<char, 16> dns_primary_scratch_{};
+    std::array<char, 16> dns_secondary_scratch_{};
     std::array<uint8_t, kTxBufferSize> tx_{};
     std::array<uint8_t, kRxBufferSize> rx_{};
     std::array<uint8_t, 32> discard_{};
@@ -559,6 +568,7 @@ class PlainMqttRuntime
             logged_plaintext_forced_ = false;
             stop("config");
             resetMqttReconnectBackoff();
+            resetDnsFailureState();
             if (config_.configured || was_configured)
             {
                 std::printf("[%s][MQTT] config enabled=%u host=%s port=%u root=%s tls=%u enc_requested=%u up=%u down=%u\n",
@@ -886,6 +896,84 @@ class PlainMqttRuntime
         mqtt_reconnect_delay_ms_ = kMqttReconnectInitialMs;
     }
 
+    const char* dnsServerText(u8_t server_index,
+                              std::array<char, 16>& scratch)
+    {
+        scratch[0] = '\0';
+        if (server_index >= DNS_MAX_SERVERS)
+        {
+            return "<none>";
+        }
+        const ip_addr_t* server = dns_getserver(server_index);
+        if (!server || ip_addr_isany(server) ||
+            !ipaddr_ntoa_r(server,
+                           scratch.data(),
+                           static_cast<int>(scratch.size())))
+        {
+            return "<none>";
+        }
+        return scratch.data();
+    }
+
+    void logDnsConfiguration()
+    {
+        const auto wifi_status = platform::ui::wifi::status();
+        std::printf("[%s][MQTT] resolver state wifi_ip=%s dns0=%s dns1=%s\n",
+                    protocolTag(),
+                    wifi_status.ip[0] ? wifi_status.ip : "<none>",
+                    dnsServerText(0, dns_primary_scratch_),
+                    dnsServerText(1, dns_secondary_scratch_));
+    }
+
+    void resetDnsFailureState()
+    {
+        consecutive_dns_failures_ = 0;
+        dns_recovery_not_before_ms_ = 0;
+    }
+
+    bool isDnsFailure(
+        platform::esp::arduino_common::net::TcpConnectFailure failure) const
+    {
+        using platform::esp::arduino_common::net::TcpConnectFailure;
+        return failure == TcpConnectFailure::ResolveFailed ||
+               failure == TcpConnectFailure::ResolveEmptyResponse;
+    }
+
+    void noteDnsConnectFailure(
+        platform::esp::arduino_common::net::TcpConnectFailure failure,
+        uint32_t now_ms)
+    {
+        if (!isDnsFailure(failure))
+        {
+            return;
+        }
+        if (consecutive_dns_failures_ < UINT8_MAX)
+        {
+            ++consecutive_dns_failures_;
+        }
+        std::printf("[%s][MQTT] resolver failure consecutive=%u threshold=%u\n",
+                    protocolTag(),
+                    static_cast<unsigned>(consecutive_dns_failures_),
+                    static_cast<unsigned>(kMqttDnsFailureReconnectThreshold));
+        if (consecutive_dns_failures_ < kMqttDnsFailureReconnectThreshold ||
+            deadlinePending(now_ms, dns_recovery_not_before_ms_))
+        {
+            return;
+        }
+
+        // A station may retain an old DHCP lease after an AP/DNS change.  The
+        // MQTT client owns the recovery policy, while the connector remains a
+        // task-free one-shot DNS + TCP state machine.  Re-associate only after
+        // repeated resolver failures, never for an ordinary TCP failure.
+        std::printf("[%s][MQTT] resolver recovery action=wifi_reconnect cooldown_ms=%lu\n",
+                    protocolTag(),
+                    static_cast<unsigned long>(kMqttDnsRecoveryCooldownMs));
+        platform::ui::wifi::disconnect();
+        wifi_retry_not_before_ms_ = now_ms + kMqttDnsRecoveryReconnectDelayMs;
+        dns_recovery_not_before_ms_ = now_ms + kMqttDnsRecoveryCooldownMs;
+        consecutive_dns_failures_ = 0;
+    }
+
     bool ensureMqtt(uint32_t now_ms)
     {
 #if !TRAIL_MATE_MESH_MQTT_HAS_SOCKET
@@ -978,6 +1066,7 @@ class PlainMqttRuntime
                         config_.host,
                         static_cast<unsigned>(config_.port),
                         config_.client_id);
+            logDnsConfiguration();
             if (!connector_.start(config_.host,
                                   config_.port,
                                   now_ms,
@@ -992,6 +1081,7 @@ class PlainMqttRuntime
                             platform::esp::arduino_common::net::
                                 tcpConnectFailureName(status.failure),
                             status.detail);
+                noteDnsConnectFailure(status.failure, now_ms);
                 return false;
             }
         }
@@ -1011,6 +1101,7 @@ class PlainMqttRuntime
                         platform::esp::arduino_common::net::
                             tcpConnectFailureName(connect_status.failure),
                         connect_status.detail);
+            noteDnsConnectFailure(connect_status.failure, now_ms);
             connector_.cancel();
             return false;
         }
@@ -1020,6 +1111,7 @@ class PlainMqttRuntime
         {
             return false;
         }
+        resetDnsFailureState();
         const int no_delay = 1;
         if (setsockopt(socket_, IPPROTO_TCP, TCP_NODELAY, &no_delay, sizeof(no_delay)) != 0)
         {
