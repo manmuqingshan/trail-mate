@@ -7,6 +7,7 @@
 #include <mutex>
 #include <vector>
 
+#include "chat/delivery/chat_delivery_types.h"
 #include "chat/domain/chat_types.h"
 #include "chat/domain/contact_types.h"
 #include "sys/clock.h"
@@ -83,9 +84,25 @@ struct ChatSendResultEvent : public Event
 {
     uint32_t msg_id;
     bool success;
+    chat::MessageStatus status;
+    chat::delivery::SendFailureKind failure =
+        chat::delivery::SendFailureKind::None;
+    bool has_protocol = false;
+    chat::MeshProtocol protocol = chat::MeshProtocol::Meshtastic;
 
-    ChatSendResultEvent(uint32_t id, bool ok)
-        : Event(EventType::ChatSendResult), msg_id(id), success(ok) {}
+    ChatSendResultEvent(uint32_t id,
+                        chat::MessageStatus result_status,
+                        chat::MeshProtocol source_protocol,
+                        chat::delivery::SendFailureKind failure_kind =
+                            chat::delivery::SendFailureKind::Unknown)
+        : Event(EventType::ChatSendResult), msg_id(id),
+          success(result_status != chat::MessageStatus::Failed),
+          status(result_status),
+          failure(result_status == chat::MessageStatus::Failed
+                      ? failure_kind
+                      : chat::delivery::SendFailureKind::None),
+          has_protocol(true),
+          protocol(source_protocol) {}
 };
 
 struct ChatUnreadChangedEvent : public Event
@@ -118,6 +135,7 @@ struct NodeInfoUpdateEvent : public Event
     bool has_public_key;
     bool has_key_manually_verified_state;
     bool key_manually_verified;
+    chat::contacts::ReticulumPeerIdentity reticulum_identity;
     bool has_device_metrics;
     chat::contacts::NodeDeviceMetrics device_metrics;
 
@@ -150,6 +168,7 @@ struct NodeInfoUpdateEvent : public Event
           has_public_key(has_pubkey),
           has_key_manually_verified_state(has_key_verified_state),
           key_manually_verified(key_verified),
+          reticulum_identity{},
           has_device_metrics(has_metrics),
           device_metrics{}
     {

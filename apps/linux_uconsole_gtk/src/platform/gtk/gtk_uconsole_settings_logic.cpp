@@ -17,11 +17,10 @@
 namespace trailmate::uconsole::gtk
 {
 
-constexpr std::array<::chat::MeshProtocol, 4> kSettingsProtocols{{
+constexpr std::array<::chat::MeshProtocol, 3> kSettingsProtocols{{
     ::chat::MeshProtocol::Meshtastic,
     ::chat::MeshProtocol::MeshCore,
-    ::chat::MeshProtocol::RNode,
-    ::chat::MeshProtocol::LXMF,
+    ::chat::MeshProtocol::Reticulum,
 }};
 
 constexpr std::array<meshtastic_Config_LoRaConfig_ModemPreset, 10>
@@ -40,9 +39,10 @@ constexpr std::array<meshtastic_Config_LoRaConfig_ModemPreset, 10>
 
 int protocolIndex(::chat::MeshProtocol protocol)
 {
+    const auto normalized = ::chat::infra::normalizeMeshProtocol(protocol);
     for (std::size_t index = 0; index < kSettingsProtocols.size(); ++index)
     {
-        if (kSettingsProtocols[index] == protocol)
+        if (kSettingsProtocols[index] == normalized)
         {
             return static_cast<int>(index);
         }
@@ -160,13 +160,12 @@ void copyBounded(char* out, std::size_t out_len, const char* text)
 ::chat::MeshConfig& meshConfigForProtocol(::app::AppConfig& config,
                                           ::chat::MeshProtocol protocol)
 {
-    switch (protocol)
+    switch (::chat::infra::normalizeMeshProtocol(protocol))
     {
     case ::chat::MeshProtocol::MeshCore:
         return config.meshcore_config;
-    case ::chat::MeshProtocol::RNode:
-    case ::chat::MeshProtocol::LXMF:
-        return config.rnode_config;
+    case ::chat::MeshProtocol::Reticulum:
+        return config.reticulumConfig();
     case ::chat::MeshProtocol::Meshtastic:
     default:
         return config.meshtastic_config;
@@ -177,13 +176,12 @@ const ::chat::MeshConfig& meshConfigForProtocol(
     const ::app::AppConfig& config,
     ::chat::MeshProtocol protocol)
 {
-    switch (protocol)
+    switch (::chat::infra::normalizeMeshProtocol(protocol))
     {
     case ::chat::MeshProtocol::MeshCore:
         return config.meshcore_config;
-    case ::chat::MeshProtocol::RNode:
-    case ::chat::MeshProtocol::LXMF:
-        return config.rnode_config;
+    case ::chat::MeshProtocol::Reticulum:
+        return config.reticulumConfig();
     case ::chat::MeshProtocol::Meshtastic:
     default:
         return config.meshtastic_config;
@@ -319,8 +317,7 @@ void updateSettingsProtocolVisibility(GtkUConsoleAppState& state)
     const auto protocol = selectedSettingsProtocol(state);
     const bool meshtastic = protocol == ::chat::MeshProtocol::Meshtastic;
     const bool meshcore = protocol == ::chat::MeshProtocol::MeshCore;
-    const bool raw_lora = protocol == ::chat::MeshProtocol::RNode ||
-                          protocol == ::chat::MeshProtocol::LXMF;
+    const bool raw_lora = ::chat::infra::isReticulumMeshProtocol(protocol);
 
     setSettingsStackPageVisible(state,
                                 state.settings_meshtastic_page,

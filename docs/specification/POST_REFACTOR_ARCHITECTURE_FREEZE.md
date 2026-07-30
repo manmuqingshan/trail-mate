@@ -27,6 +27,11 @@ New UI/runtime work should enter through this shape:
 Fallback may exist only as compatibility containment and must not become the
 default path again.
 
+Runtime fact ownership is frozen by
+`docs/specification/RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md`. The pipeline above
+does not authorize UI, Settings, renderers, or platform adapters to own message,
+read/unread, protocol, font, call, or resource facts directly.
+
 ## Explicit Prohibitions
 
 1. Renderers must not select UX packs.
@@ -47,6 +52,10 @@ default path again.
 14. `docs/archive` must not contain a source archive.
 15. New `legacy_source_descriptor` files are forbidden.
 16. New transitional UI layers are forbidden.
+17. New runtime fact bypasses are forbidden. Message, read/unread, Reticulum
+    path/link/call, Wi-Fi lease, audio, MQTT downlink relay, and font loading
+    changes must identify the owner named in
+    `RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md` before implementation.
 
 ## Removed Legacy Roots
 

@@ -1,7 +1,7 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
-#include <vector>
 
 namespace platform::ui::wifi
 {
@@ -20,6 +20,7 @@ enum class ConnectionState : uint8_t
     Connecting,
     Connected,
     Error,
+    ResourceDeferred,
 };
 
 struct Config
@@ -53,10 +54,11 @@ struct ScanResult
 bool is_supported();
 bool load_config(Config& out);
 bool save_config(const Config& config);
+bool find_saved_config(const char* ssid, Config& out);
 bool apply_enabled(bool enabled);
 bool connect(const Config* override_config = nullptr);
 void disconnect();
-bool scan(std::vector<ScanResult>& out_results);
+bool scan(ScanResult* out_results, std::size_t capacity, std::size_t& out_count);
 Status status();
 
 } // namespace platform::ui::wifi

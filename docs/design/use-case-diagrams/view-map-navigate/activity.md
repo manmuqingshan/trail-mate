@@ -1,104 +1,46 @@
-# Activity Diagram：业务流程：查看地图并导航
-
-<!-- praxis:use-case-diagram:start -->
-
-## 元数据
-
-项目版本：0.1.30-alpha
-设计文档版本：0.1.30-alpha
-Git 分支：main
-Git 提交：34aad0bffa2f6450192f655f248a94b6c3cbd767
-Git 工作区状态：dirty
-Agent 版本决策：none - 本次渲染没有单独的 agent 版本决策
-更新于：2026-06-25T14:17:55.307Z
-来源：Agent 候选分析
-父级 Use Case：use-case:view-map-navigate
-业务边界路径：Trail Mate 系统 / 地图导航
-父级文档：docs/design/use-case-diagrams/view-map-navigate.md
-Markdown 路径：docs/design/use-case-diagrams/view-map-navigate/activity.md
-HTML 路径：docs/design/use-case-diagrams/view-map-navigate/activity.html
-
-## 业务流程目标
-
-用户查看自己的位置和地图环境
-
-## 流程边界
-
-从用户打开地图到显示当前位置
-
-## 参与泳道 / 阶段
-
-- 未显式声明泳道；请结合节点标签和实现范围判断业务阶段。
-
-## 主成功路径
-
-地图导航主流程
-
-- mainSuccessScenario[1]
-- mainSuccessScenario[2]
-- mainSuccessScenario[3]
-
-## 决策点与分支
-
-- 无
-
-## 失败 / 补偿路径
-
-- 无
-
-## 流程业务规则
-
-MapLayout 负责加载地图控件并初始化 GPS 监听
-
-## Activity UML 读图说明
-
-流程图，从打开页面到显示位置
-
-## 实现范围锚点
-
-- 模块：apps/linux_uconsole_gtk
-- 关键文件：apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp
-- 代码锚点：apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp#L1
-- 不覆盖代码：底层函数调用链
-- 不覆盖代码：DTO/Mapper/Repository 细节
-
-## 不覆盖范围
-
-- 离线地图缓存
-- 路线规划
-
-
-## Mermaid 图
-
+# Activity：离线态势组装
 ```mermaid
 flowchart TD
-  startNode[用户打开地图页面] --> loadTiles[加载地图瓦片]
-  loadTiles --> getGPS[获取 GPS 位置]
-  getGPS --> displayPos[显示位置标记]
-  displayPos --> endNode[地图显示就绪]
+  Open --> Viewport["恢复视口"]
+  Viewport --> Fix{"可信 GNSS fix?"}
+  Fix -- 是 --> Offer["允许用户居中"]
+  Fix -- 否 --> Last["last-known / unknown"]
+  Offer --> Tiles
+  Last --> Tiles["读取本地瓦片"]
+  Tiles --> TileState{"瓦片存在?"}
+  TileState -- 否 --> Base["坐标背景 + 缺瓦片状态"]
+  TileState -- 是 --> Base["离线底图"]
+  Base --> Overlay["节点/团队/航点/路线/轨迹投影"]
+  Overlay --> Fresh["按来源和时间标记新鲜度"]
+  Fresh --> Interact["平移/缩放/查看详情"]
 ```
 
-## 证据上下文
+## 本图回答的问题
 
-| 来源 | 路径 | 行号 | 强度 | 摘要 |
-| --- | --- | --- | --- | --- |
-| 本地仓库扫描 | apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp | _n/a_ | medium | 存在地图页面逻辑实现 |
-| 本地仓库扫描 | apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp | 1-1 | medium | 地图逻辑文件负责地图视图和位置更新 |
-| 本地仓库扫描 | apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp | 1-1 | medium | 地图页面布局，包含地图显示入口 |
+设备在无网络、无当前 fix 或缺少部分瓦片时，如何仍然构造诚实的现场态势。地图活动不把“能画出来”当成“数据仍有效”，每个底图和叠加对象都保留来源与新鲜度。
 
-## 变更记录
+## 数据层与 owner
 
-### 0.1.30-alpha - 2026-06-25T14:17:55.307Z
+视口属于用户界面偏好；GNSS fix 属于定位服务；瓦片属于本地地图存储；节点、团队成员、航点、路线和轨迹来自各自业务投影。Map model 只组合和渲染，不获得这些事实的写权限。
 
-变更类型：DISCOVERY
-版本决策：none - 本次渲染没有单独的 agent 版本决策
+## 分支规则
 
+| 条件 | 地图行为 |
+| --- | --- |
+| 有可信当前 fix | 允许用户主动居中，不强制抢回视口 |
+| 只有 last-known | 显示来源时间和陈旧标识 |
+| 无位置 | 保留用户视口，不制造默认“当前位置” |
+| 瓦片缺失 | 显示坐标背景与缺瓦片状态 |
+| 存储忙 | 保留已显示瓦片并标记加载暂停 |
 
-Git 分支：main
-Git 提交：34aad0bffa2f6450192f655f248a94b6c3cbd767
-Git 工作区状态：dirty
+## 叠加对象语义
 
-摘要：
-- 恢复或更新「查看地图并导航」的 Activity Diagram。
+不同来源使用不同类型、标识和时间。协议节点不是联系人，联系人不是团队成员，路线不是已记录轨迹。点击详情沿 source owner 下钻，不能在地图层直接改写对方聚合。
 
-<!-- praxis:use-case-diagram:end -->
+## 并发与性能
+
+视口变化、fix 更新和瓦片读取可以并发。每次异步瓦片结果携带 viewport generation，迟到结果不能覆盖新视口。叠加更新采用快照/差异投影，避免在 UI 线程读取可变共享容器。
+
+## 测试
+
+覆盖无 fix、last-known、缺瓦片、存储忙、快速平移导致迟到瓦片、过期团队位置和相同坐标的不同对象类型。

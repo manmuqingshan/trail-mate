@@ -56,7 +56,7 @@ bool RuntimeSettingsSource::buildSettingsSnapshot(
     ui::copyText(out.sections[0].options[0].key, "gps_enabled");
     ui::copyText(out.sections[0].options[0].label, "GPS Enabled");
     ui::copyText(out.sections[0].options[0].value_label,
-                 app::configFacade().getConfig().gps_enabled ? "ON" : "OFF");
+                 app::configFacade().readConfig().gps_enabled ? "ON" : "OFF");
     out.sections[0].options[0].control =
         ui::settings::SettingControlKind::Toggle;
     return true;
@@ -74,8 +74,13 @@ ui::UiActionResult RuntimeSettingsActionSink::applySetting(
         }
 
         app::IAppFacade& app_ctx = app::appFacade();
-        app_ctx.getConfig().gps_enabled = enabled;
-        app_ctx.saveConfig();
+        auto edit = app_ctx.beginConfigEdit();
+        if (!edit)
+        {
+            return ui::UiActionResult::fail(ui::UiActionFailure::NotReady);
+        }
+        edit.config().gps_enabled = enabled;
+        edit.commit(app::AppConfigChangeSet::gps());
         ::platform::ui::gps::set_enabled(enabled);
         return ui::UiActionResult::success();
     }

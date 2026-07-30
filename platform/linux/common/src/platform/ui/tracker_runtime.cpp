@@ -24,6 +24,7 @@ namespace
 bool s_recording = false;
 std::string s_current_path{};
 bool s_auto_recording = false;
+bool s_started_automatically = false;
 uint32_t s_interval_seconds = 60;
 bool s_distance_only = false;
 Format s_format = Format::GPX;
@@ -273,6 +274,7 @@ void stop_recording()
         }
     }
     s_recording = false;
+    s_started_automatically = false;
     s_current_path.clear();
     s_last_sample_ms = 0;
     s_has_last_point = false;
@@ -280,6 +282,11 @@ void stop_recording()
 
 void poll()
 {
+    if (s_auto_recording && !s_recording)
+    {
+        s_started_automatically = start_recording();
+    }
+
     const uint32_t now_ms = sys::millis_now();
     if (!should_sample_now(now_ms))
     {
@@ -347,7 +354,14 @@ const char* track_dir()
     return s_track_dir_cache.c_str();
 }
 
-void set_auto_recording(bool enabled) { s_auto_recording = enabled; }
+void set_auto_recording(bool enabled)
+{
+    s_auto_recording = enabled;
+    if (!enabled && s_started_automatically)
+    {
+        stop_recording();
+    }
+}
 void set_interval_seconds(uint32_t seconds) { s_interval_seconds = seconds; }
 void set_distance_only(bool enabled) { s_distance_only = enabled; }
 void set_format(Format format) { s_format = format; }

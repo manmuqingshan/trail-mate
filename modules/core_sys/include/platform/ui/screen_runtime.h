@@ -12,6 +12,9 @@ struct Hooks
     int (*read_unread_count)() = nullptr;
     void (*show_main_menu)() = nullptr;
     void (*on_wake_from_sleep)() = nullptr;
+    void (*show_screen_saver)() = nullptr;
+    void (*hide_screen_saver)() = nullptr;
+    void (*present_screen_saver)() = nullptr;
 };
 
 uint32_t clamp_timeout_ms(uint32_t timeout_ms);
@@ -23,9 +26,10 @@ void init(const Hooks& hooks);
 bool is_sleeping();
 bool is_sleep_disabled();
 bool is_saver_active();
-void wake_saver();
-void enter_from_saver();
-void update_user_activity();
+void handle_input();
+void handle_input_release();
+void wake_for_modal();
+void record_activity();
 void disable_sleep();
 void enable_sleep();
 

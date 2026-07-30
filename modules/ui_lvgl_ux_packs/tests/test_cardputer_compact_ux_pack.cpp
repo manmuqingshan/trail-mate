@@ -28,7 +28,6 @@ int main()
     for (std::size_t index = 0; index < screens.size(); ++index)
     {
         assert(screens.items()[index].id != ui_lvgl_ux::ScreenId::Gps);
-        assert(screens.items()[index].id != ui_lvgl_ux::ScreenId::PcLink);
         assert(screens.items()[index].id != ui_lvgl_ux::ScreenId::EnergySweep);
         assert(screens.items()[index].id != ui_lvgl_ux::ScreenId::Sstv);
     }

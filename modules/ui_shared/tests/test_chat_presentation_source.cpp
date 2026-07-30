@@ -1,18 +1,22 @@
 #include "chat/delivery/chat_delivery_message_projection.h"
 #include "chat/delivery/chat_delivery_read_model.h"
 #include "chat/domain/chat_model.h"
+#include "chat/infra/mesh_peer_directory_core.h"
 #include "chat/infra/store/ram_store.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/usecase/chat_service.h"
+#include "chat/usecase/contact_service.h"
 #include "sys/clock.h"
 #include "ui/presentation_sources/chat_presentation_source.h"
 #include "ui/presentation_sources/runtime_chat_action_sink.h"
 
 #include <cassert>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -75,6 +79,7 @@ class FakeMeshAdapter final : public ::chat::IMeshAdapter
     void applyConfig(const ::chat::MeshConfig&) override {}
     bool isReady() const override { return true; }
     bool pollIncomingRawPacket(uint8_t*, size_t&, size_t) override { return false; }
+    ::chat::NodeId getNodeId() const override { return self_node_id; }
 
     int send_count = 0;
     bool send_ok = true;
@@ -84,7 +89,223 @@ class FakeMeshAdapter final : public ::chat::IMeshAdapter
     ::chat::ChannelId last_channel = ::chat::ChannelId::PRIMARY;
     std::string last_text;
     ::chat::NodeId last_peer = 0;
+    ::chat::NodeId self_node_id = 0;
     std::deque<::chat::MeshIncomingText> incoming;
+};
+
+class MemoryPeerDirectoryBlobStore final
+    : public ::chat::IMeshPeerDirectoryBlobStore
+{
+  public:
+    ::chat::MeshPeerDirectoryBlobLoadResult loadBlob(
+        std::vector<uint8_t>& out) override
+    {
+        out = bytes_;
+        return bytes_.empty()
+                   ? ::chat::MeshPeerDirectoryBlobLoadResult::Missing
+                   : ::chat::MeshPeerDirectoryBlobLoadResult::Loaded;
+    }
+
+    bool saveBlob(const uint8_t* data, std::size_t len) override
+    {
+        bytes_.assign(data, data + len);
+        return true;
+    }
+
+    void clearBlob() override { bytes_.clear(); }
+
+  private:
+    std::vector<uint8_t> bytes_{};
+};
+
+class PagingStore final : public ::chat::IChatStore
+{
+  public:
+    bool isReady() const override { return ready_; }
+
+    void setReady(const bool ready)
+    {
+        ready_ = ready;
+    }
+
+    void append(const ::chat::ChatMessage& msg) override
+    {
+        messages_.push_back(msg);
+    }
+
+    std::vector<::chat::ChatMessage> loadRecent(const ::chat::ConversationId& conv,
+                                                size_t n) override
+    {
+        return loadPageFromLatest(conv, 0, n, nullptr);
+    }
+
+    std::vector<::chat::ChatMessage> loadPageFromLatest(
+        const ::chat::ConversationId& conv,
+        size_t offset_from_latest,
+        size_t limit,
+        size_t* total) override
+    {
+        size_t count = 0;
+        for (const auto& msg : messages_)
+        {
+            if (::chat::conversationIdForMessage(msg) == conv)
+            {
+                ++count;
+            }
+        }
+        if (total)
+        {
+            *total = count;
+        }
+        if (limit == 0 || offset_from_latest >= count)
+        {
+            return {};
+        }
+
+        const size_t available = count - offset_from_latest;
+        const size_t to_read = available < limit ? available : limit;
+        const size_t start = count - offset_from_latest - to_read;
+        const size_t end = start + to_read;
+
+        std::vector<::chat::ChatMessage> out;
+        out.reserve(to_read);
+        size_t index = 0;
+        for (const auto& msg : messages_)
+        {
+            if (!(::chat::conversationIdForMessage(msg) == conv))
+            {
+                continue;
+            }
+            if (index >= start && index < end)
+            {
+                out.push_back(msg);
+            }
+            ++index;
+        }
+        return out;
+    }
+
+    std::vector<::chat::ConversationMeta> loadConversationPage(size_t offset,
+                                                               size_t limit,
+                                                               size_t* total) override
+    {
+        const size_t count = messages_.empty() ? 0U : 1U;
+        if (total)
+        {
+            *total = count;
+        }
+        if (messages_.empty() || offset > 0)
+        {
+            return {};
+        }
+
+        const auto& latest = messages_.back();
+        ::chat::ConversationMeta meta;
+        meta.id = ::chat::conversationIdForMessage(latest);
+        meta.preview = latest.text;
+        meta.last_timestamp = latest.timestamp;
+        return {meta};
+    }
+
+    bool setUnread(const ::chat::ConversationId&, int unread) override
+    {
+        unread_ = unread;
+        return true;
+    }
+
+    int getUnread(const ::chat::ConversationId&) const override
+    {
+        return unread_;
+    }
+
+    void clearConversation(const ::chat::ConversationId& conv) override
+    {
+        std::vector<::chat::ChatMessage> kept;
+        kept.reserve(messages_.size());
+        for (const auto& msg : messages_)
+        {
+            if (!(::chat::conversationIdForMessage(msg) == conv))
+            {
+                kept.push_back(msg);
+            }
+        }
+        messages_ = kept;
+    }
+
+    void clearAll() override
+    {
+        messages_.clear();
+        unread_ = 0;
+    }
+
+    bool updateMessageStatus(::chat::MessageId msg_id,
+                             ::chat::MessageStatus status) override
+    {
+        for (auto& msg : messages_)
+        {
+            if (msg.msg_id == msg_id)
+            {
+                msg.status = status;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool updateMessageStatusForProtocol(::chat::MessageId msg_id,
+                                        ::chat::MeshProtocol protocol,
+                                        ::chat::MessageStatus status) override
+    {
+        for (auto& msg : messages_)
+        {
+            if (msg.msg_id == msg_id && msg.protocol == protocol)
+            {
+                msg.status = status;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool getMessage(::chat::MessageId msg_id,
+                    ::chat::ChatMessage* out) const override
+    {
+        for (const auto& msg : messages_)
+        {
+            if (msg.msg_id == msg_id)
+            {
+                if (out)
+                {
+                    *out = msg;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool getMessageForProtocol(::chat::MessageId msg_id,
+                               ::chat::MeshProtocol protocol,
+                               ::chat::ChatMessage* out) const override
+    {
+        for (const auto& msg : messages_)
+        {
+            if (msg.msg_id == msg_id && msg.protocol == protocol)
+            {
+                if (out)
+                {
+                    *out = msg;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+  private:
+    std::vector<::chat::ChatMessage> messages_;
+    int unread_ = 0;
+    bool ready_ = true;
 };
 
 ui::chat::ConversationId directPeer(uint32_t peer)
@@ -133,10 +354,52 @@ ui::chat::ConversationId systemConversation()
     return id;
 }
 
+const ui::chat::ConversationLocationParticipant* findLocationParticipant(
+    const ui::chat::ChatWorkspaceSnapshot& snapshot,
+    uint32_t node_id)
+{
+    for (size_t i = 0; i < snapshot.location_participant_count; ++i)
+    {
+        if (snapshot.location_participants[i].node_id == node_id)
+        {
+            return &snapshot.location_participants[i];
+        }
+    }
+    return nullptr;
+}
+
+uint16_t unreadForConversation(const ui::chat::ChatWorkspaceSnapshot& snapshot,
+                               const ui::chat::ConversationId& id)
+{
+    for (size_t i = 0; i < snapshot.conversation_count; ++i)
+    {
+        if (snapshot.conversations[i].id == id)
+        {
+            return snapshot.conversations[i].unread_count;
+        }
+    }
+    assert(false);
+    return 0;
+}
+
+void setNodePosition(::chat::contacts::ContactService& contacts,
+                     uint32_t node_id,
+                     int32_t lat_e7,
+                     int32_t lon_e7)
+{
+    ::chat::contacts::NodePosition pos{};
+    pos.valid = true;
+    pos.latitude_i = lat_e7;
+    pos.longitude_i = lon_e7;
+    pos.timestamp = 1700000000U;
+    contacts.updateNodePosition(node_id, pos);
+}
+
 } // namespace
 
 int main()
 {
+    static_assert(::ui::chat::ChatWorkspaceSnapshot::kMaxMessages == 10);
     sys::set_epoch_seconds_provider([]() -> uint32_t
                                     { return 1700000000U; });
     sys::set_millis_provider([]() -> uint32_t
@@ -144,13 +407,31 @@ int main()
 
     ::chat::ChatModel model;
     FakeMeshAdapter mesh;
+    mesh.self_node_id = 0x01020304;
     ::chat::RamStore store;
     ::chat::ChatService service(model, mesh, store);
     ::chat::delivery::ChatDeliveryReadModel delivery_read_model;
+    MemoryPeerDirectoryBlobStore peer_blob_store;
+    ::chat::MeshPeerDirectoryCore peer_directory(peer_blob_store);
+    ::chat::contacts::ContactService contacts(peer_directory);
+    contacts.begin();
+    setNodePosition(contacts, mesh.self_node_id, 312345678, 1219876543);
+    setNodePosition(contacts, 1234, 313000000, 1220000000);
+    contacts.updateNodeInfo(1234,
+                            "04D2",
+                            "Ada Mesh",
+                            0.0f,
+                            0.0f,
+                            1700000000U,
+                            0,
+                            ::chat::contacts::kNodeRoleUnknown,
+                            0xFF,
+                            0,
+                            0xFF);
 
     ui::presentation_sources::RuntimeChatActionSink sink(service);
     ui::presentation_sources::ChatPresentationSource source(
-        service, nullptr, &delivery_read_model);
+        service, &contacts, &delivery_read_model, &mesh);
 
     const ui::chat::ConversationId ada = directPeer(1234);
     ui::chat::SendMessageView send;
@@ -181,6 +462,8 @@ int main()
 
     ::chat::delivery::ChatDeliveryRecord delivered{};
     delivered.ref.protocol_id = 100;
+    delivered.ref.protocol =
+        static_cast<uint8_t>(::chat::MeshProtocol::Meshtastic);
     delivered.state = ::chat::delivery::DeliveryState::Delivered;
     delivered.failure = ::chat::delivery::DeliveryFailureKind::None;
     assert(delivery_read_model.upsert(delivered));
@@ -194,7 +477,7 @@ int main()
     assert(snapshot.conversations[0].id == ada);
     assert(snapshot.conversations[0].selected);
     assert(snapshot.conversations[0].last_timestamp != 0);
-    assert(std::strcmp(snapshot.conversations[0].title.c_str(), "04D2") == 0);
+    assert(std::strcmp(snapshot.conversations[0].title.c_str(), "Ada Mesh") == 0);
     assert(snapshot.message_count == 1);
     assert(snapshot.messages[0].conversation == ada);
     assert(snapshot.messages[0].outgoing);
@@ -207,6 +490,18 @@ int main()
     assert(std::strcmp(snapshot.messages[0].text.c_str(), "hello") == 0);
     assert(snapshot.can_send);
     assert(snapshot.composer_enabled);
+    assert(snapshot.location_participant_count == 2);
+    const auto* self_location =
+        findLocationParticipant(snapshot, mesh.self_node_id);
+    assert(self_location != nullptr);
+    assert(self_location->self);
+    assert(self_location->valid);
+    assert(self_location->lat > 31.23 && self_location->lat < 31.24);
+    const auto* peer_location = findLocationParticipant(snapshot, 1234);
+    assert(peer_location != nullptr);
+    assert(!peer_location->self);
+    assert(peer_location->valid);
+    assert(peer_location->lon > 121.99 && peer_location->lon < 122.01);
 
     mesh.send_ok = false;
     mesh.send_failure = ::chat::MeshOperationFailure::PeerKeyMissing;
@@ -227,7 +522,11 @@ int main()
     assert(radio_offline_send.failure == ui::UiActionFailure::RadioOffline);
     mesh.fail_returns_msg_id = true;
     assert(delivery_read_model.upsert(::chat::delivery::toFailedDeliveryRecord(
-        ::chat::delivery::ChatDeliveryRef{0, 101, 0},
+        ::chat::delivery::ChatDeliveryRef{
+            0,
+            101,
+            0,
+            static_cast<uint8_t>(::chat::MeshProtocol::Meshtastic)},
         ::chat::delivery::SendFailureKind::PeerKeyMissing)));
     assert(source.buildChatWorkspaceSnapshot(request, snapshot));
     assert(snapshot.message_count == 2);
@@ -236,7 +535,11 @@ int main()
            ui::chat::MessageFailureKind::PeerKeyMissing);
 
     assert(delivery_read_model.upsert(::chat::delivery::toFailedDeliveryRecord(
-        ::chat::delivery::ChatDeliveryRef{0, 101, 0},
+        ::chat::delivery::ChatDeliveryRef{
+            0,
+            101,
+            0,
+            static_cast<uint8_t>(::chat::MeshProtocol::Meshtastic)},
         ::chat::delivery::SendFailureKind::ChannelKeyMissing)));
     assert(source.buildChatWorkspaceSnapshot(request, snapshot));
     assert(snapshot.message_count == 2);
@@ -251,6 +554,19 @@ int main()
     incoming.to = 0xFFFFFFFFUL;
     incoming.msg_id = 900;
     incoming.text = "broadcast hello";
+    incoming.source_unverified = true;
+    incoming.rx_meta.origin = ::chat::RxOrigin::LoRa;
+    contacts.updateNodeInfo(0x648144D4,
+                            "44D4",
+                            "Mother",
+                            0.0f,
+                            0.0f,
+                            1700000000U,
+                            0,
+                            ::chat::contacts::kNodeRoleUnknown,
+                            0xFF,
+                            0,
+                            0xFF);
     mesh.incoming.push_back(incoming);
     service.processIncoming();
 
@@ -261,8 +577,78 @@ int main()
     assert(snapshot.message_count == 1);
     assert(snapshot.messages[0].conversation == broadcast);
     assert(!snapshot.messages[0].outgoing);
+    assert(snapshot.messages[0].ingress_transport ==
+           ui::chat::MessageIngressTransport::LoRa);
+    assert(snapshot.messages[0].source_unverified);
     assert(snapshot.messages[0].sender_node_id == 0x648144D4);
-    assert(std::strcmp(snapshot.messages[0].sender_label.c_str(), "44D4") == 0);
+    assert(std::strcmp(snapshot.messages[0].sender_label.c_str(), "Mother") == 0);
+    assert(unreadForConversation(snapshot, broadcast) == 1);
+    assert(sink.markRead(broadcast).ok);
+    assert(source.buildChatWorkspaceSnapshot(request, snapshot));
+    assert(unreadForConversation(snapshot, broadcast) == 0);
+
+    const uint32_t paging_peer = 0x00ABCDEF;
+    contacts.updateNodeInfo(paging_peer,
+                            "CDEF",
+                            "Pager",
+                            0.0f,
+                            0.0f,
+                            1700000000U,
+                            0,
+                            ::chat::contacts::kNodeRoleUnknown,
+                            0xFF,
+                            0,
+                            0xFF);
+    ::chat::ChatModel paging_model;
+    FakeMeshAdapter paging_mesh;
+    paging_mesh.self_node_id = mesh.self_node_id;
+    PagingStore paging_store;
+    ::chat::ChatService paging_service(paging_model, paging_mesh, paging_store);
+    ui::presentation_sources::ChatPresentationSource paging_source(
+        paging_service, &contacts, &delivery_read_model, &paging_mesh);
+    const ui::chat::ConversationId paging = directPeer(paging_peer);
+    for (::chat::MessageId id = 1; id <= 25; ++id)
+    {
+        ::chat::ChatMessage page_msg;
+        page_msg.protocol = ::chat::MeshProtocol::Meshtastic;
+        page_msg.channel = ::chat::ChannelId::PRIMARY;
+        page_msg.from = paging_peer;
+        page_msg.peer = paging_peer;
+        page_msg.msg_id = 2000 + id;
+        page_msg.timestamp = 1700000000U + id;
+        page_msg.text = "page-" + std::to_string(id);
+        page_msg.status = ::chat::MessageStatus::Incoming;
+        paging_store.append(page_msg);
+    }
+
+    ui::chat::ChatWorkspaceRequest paging_request;
+    paging_request.selected = paging;
+    paging_request.message_offset = 0;
+    paging_store.setReady(false);
+    ui::chat::ChatWorkspaceSnapshot not_ready_snapshot;
+    assert(!paging_source.buildChatWorkspaceSnapshot(paging_request,
+                                                     not_ready_snapshot));
+    assert(!not_ready_snapshot.header.valid);
+    paging_store.setReady(true);
+
+    assert(paging_source.buildChatWorkspaceSnapshot(paging_request, snapshot));
+    assert(snapshot.message_count == ui::chat::ChatWorkspaceSnapshot::kMaxMessages);
+    assert(snapshot.message_total_count == 25);
+    assert(!snapshot.has_newer_messages);
+    assert(snapshot.has_older_messages);
+    assert(std::strcmp(snapshot.messages[0].text.c_str(), "page-16") == 0);
+    assert(std::strcmp(snapshot.messages[snapshot.message_count - 1].text.c_str(),
+                       "page-25") == 0);
+
+    paging_request.message_offset =
+        2U * ui::chat::ChatWorkspaceSnapshot::kMaxMessages;
+    assert(paging_source.buildChatWorkspaceSnapshot(paging_request, snapshot));
+    assert(snapshot.message_count == 5);
+    assert(snapshot.message_total_count == 25);
+    assert(snapshot.has_newer_messages);
+    assert(!snapshot.has_older_messages);
+    assert(std::strcmp(snapshot.messages[0].text.c_str(), "page-1") == 0);
+    assert(std::strcmp(snapshot.messages[4].text.c_str(), "page-5") == 0);
 
     service.setActiveProtocol(::chat::MeshProtocol::MeshCore);
     ::chat::MeshIncomingText unknown_meshcore_incoming{};

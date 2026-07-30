@@ -20,7 +20,7 @@ constexpr uint32_t kMinShowMs = TRAIL_MATE_BOOT_MIN_SHOW_MS;
 #elif defined(TRAIL_MATE_ESP_BOARD_TAB5)
 constexpr uint32_t kMinShowMs = 900;
 #else
-constexpr uint32_t kMinShowMs = 3000;
+constexpr uint32_t kMinShowMs = 900;
 #endif
 constexpr uint32_t kBootBgColor = 0xF6E6C6;
 constexpr uint32_t kBootLogTextColor = 0x8A6A3A;

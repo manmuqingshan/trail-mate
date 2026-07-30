@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "app/app_config_changes.h"
+#include "app/app_config_edit.h"
 #include "chat/domain/chat_types.h"
 
 class BoardBase;
@@ -22,10 +24,14 @@ namespace chat
 {
 class ChatService;
 class IMeshAdapter;
+namespace delivery
+{
+class ChatDeliveryReadModel;
+class IChatDeliveryEventPort;
+} // namespace delivery
 namespace contacts
 {
 class ContactService;
-class INodeStore;
 } // namespace contacts
 namespace ui
 {
@@ -48,10 +54,17 @@ class IAppConfigFacade
 {
   public:
     virtual ~IAppConfigFacade() = default;
-    virtual AppConfig& getConfig() = 0;
-    virtual const AppConfig& getConfig() const = 0;
+    // Read-only configuration view. This is not a snapshot and does not
+    // acquire an edit lease.
+    [[nodiscard]] const AppConfig& readConfig() const { return getConfig(); }
+    virtual AppConfigEdit beginConfigEdit() = 0;
     virtual void saveConfig() = 0;
     virtual void requestSaveConfig() { saveConfig(); }
+    virtual void saveConfig(AppConfigChangeSet changes) = 0;
+    virtual void requestSaveConfig(AppConfigChangeSet changes)
+    {
+        saveConfig(changes);
+    }
     virtual void applyMeshConfig() = 0;
     virtual void applyUserInfo() = 0;
     virtual void applyPositionConfig() = 0;
@@ -61,6 +74,11 @@ class IAppConfigFacade
     virtual chat::MeshProtocol getMeshProtocol() const = 0;
     virtual void getEffectiveUserInfo(char* out_long, std::size_t long_len, char* out_short, std::size_t short_len) const = 0;
     virtual bool switchMeshProtocol(chat::MeshProtocol protocol, bool persist = true) = 0;
+
+  protected:
+    // Virtual storage hook for readConfig(). Consumers must use the explicit
+    // read-only API rather than accessing implementation storage directly.
+    virtual const AppConfig& getConfig() const = 0;
 };
 
 class IAppMessagingFacade
@@ -72,6 +90,19 @@ class IAppMessagingFacade
     virtual chat::IMeshAdapter* getMeshAdapter() = 0;
     virtual const chat::IMeshAdapter* getMeshAdapter() const = 0;
     virtual chat::NodeId getSelfNodeId() const = 0;
+    virtual chat::delivery::ChatDeliveryReadModel* getChatDeliveryReadModel()
+    {
+        return nullptr;
+    }
+    virtual const chat::delivery::ChatDeliveryReadModel*
+    getChatDeliveryReadModel() const
+    {
+        return nullptr;
+    }
+    virtual chat::delivery::IChatDeliveryEventPort* getChatDeliveryEventPort()
+    {
+        return nullptr;
+    }
 };
 
 class IAppTeamFacade
@@ -108,6 +139,11 @@ class IAppRuntimeFacade
     virtual void setChatUiRuntime(chat::ui::IChatUiRuntime* runtime) = 0;
     virtual BoardBase* getBoard() = 0;
     virtual const BoardBase* getBoard() const = 0;
+
+    // Some persistent stores hydrate their contact data exclusively during
+    // startup. Shared UI can use this lifecycle fact without depending on a
+    // platform storage implementation. Platforms without that phase are ready.
+    virtual bool isInitialStorageHydrationPending() const { return false; }
 };
 
 class IAppLifecycleFacade
@@ -134,8 +170,6 @@ class IAppBleFacade : public IAppFacade
 {
   public:
     ~IAppBleFacade() override = default;
-    virtual chat::contacts::INodeStore* getNodeStore() = 0;
-    virtual const chat::contacts::INodeStore* getNodeStore() const = 0;
     virtual bool getDeviceMacAddress(uint8_t out_mac[6]) const = 0;
     virtual bool syncCurrentEpochSeconds(uint32_t epoch_seconds) = 0;
     virtual void resetMeshConfig() = 0;

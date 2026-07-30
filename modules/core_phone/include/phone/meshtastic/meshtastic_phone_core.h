@@ -242,7 +242,10 @@ class MeshtasticPhoneCore
             meshtastic_NodeInfo node_info;
             meshtastic_MeshPacket packet;
 
-            Payload() {}
+            Payload()
+                : packet(meshtastic_MeshPacket_init_zero)
+            {
+            }
         } payload;
 
         OutputEvent()
@@ -256,7 +259,7 @@ class MeshtasticPhoneCore
             priority = OutputPriority::P3;
             notify_id = 0;
             coalesce_key = 0;
-            std::memset(&payload, 0, sizeof(payload));
+            payload.packet = meshtastic_MeshPacket_init_zero;
         }
     };
 

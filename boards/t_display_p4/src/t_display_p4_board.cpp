@@ -5,16 +5,21 @@
 #include <cstring>
 #include <ctime>
 
+#include "boards/t_display_p4/haptic_runtime.h"
 #include "boards/t_display_p4/rtc_runtime.h"
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 #include "driver/sdmmc_default_configs.h"
 #include "driver/sdmmc_host.h"
 #include "esp_err.h"
 #include "esp_log.h"
-#include "esp_vfs_fat.h"
+#include "esp_sleep.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/esp/idf_common/gps_runtime.h"
+#include "platform/esp/idf_common/sd_card_runtime_sdfat_adapter.h"
+#include "platform/esp/idf_common/sdmmc_host_runtime.h"
 #include "platform/esp/idf_common/sx126x_radio.h"
+#include "platform/esp/idf_common/wireless_companion/c6_companion.h"
 #include "platform/ui/device_runtime.h"
 #include "sd_pwr_ctrl.h"
 #include "sd_pwr_ctrl_by_on_chip_ldo.h"
@@ -24,11 +29,29 @@ namespace
 
 constexpr const char* kTag = "TDisplayP4Board";
 constexpr uint32_t kI2cTimeoutMs = 1000;
+constexpr uint32_t kI2cOwnerDiagnosticIntervalMs = 2000;
+constexpr uint32_t kPowerButtonDebounceMs = 30;
+constexpr uint32_t kPowerButtonLongPressMs = 1800;
 constexpr int kSdLdoChannel = 4;
 constexpr int kExternal3v3Mv = 3300;
 constexpr uint8_t kBatteryRegVoltage = 0x08;
 constexpr uint8_t kBatteryRegCurrent = 0x0C;
 constexpr uint8_t kBatteryRegStateOfCharge = 0x2C;
+constexpr uint8_t kBatteryRegOperationStatus = 0x3A;
+constexpr uint8_t kBatteryRegDataClass = 0x3E;
+constexpr uint8_t kBatteryRegDataBlock = 0x40;
+constexpr uint8_t kBatteryRegDataChecksum = 0x60;
+constexpr uint8_t kBatteryRegDataLength = 0x61;
+constexpr uint16_t kBatterySubcommandEnterConfigUpdate = 0x0090;
+constexpr uint16_t kBatterySubcommandExitConfigUpdateReinit = 0x0091;
+constexpr uint16_t kBatterySubcommandSeal = 0x0030;
+constexpr uint16_t kBatteryDesignCapacityAddress = 0x929F;
+constexpr uint16_t kBatteryFullChargeCapacityAddress = 0x929D;
+constexpr uint16_t kBatteryConfigUpdateMask = 0x0400;
+constexpr uint8_t kBatterySecurityAccessMask = 0x03;
+constexpr uint8_t kBatterySecurityAccessShift = 1;
+constexpr uint8_t kBatteryFullAccess = 1;
+constexpr uint8_t kBatterySealedAccess = 3;
 
 constexpr uint8_t kExpanderRegInput0 = 0x00;
 constexpr uint8_t kExpanderRegInput1 = 0x01;
@@ -41,8 +64,19 @@ constexpr uint8_t kExpanderRegConfig1 = 0x07;
 constexpr uint32_t kRadioTxBaseTimeoutMs = 500;
 constexpr uint32_t kRadioTxPerByteTimeoutMs = 100;
 constexpr uint32_t kRadioTxMaxTimeoutMs = 30000;
+constexpr uint32_t kRadioTxPollIntervalMs = 10;
+constexpr uint32_t kCompanionPollIntervalMs = 50;
+constexpr uint32_t kRadioIrqTxDone = 0x0001;
+constexpr uint32_t kRadioIrqTimeout = 0x0200;
 sd_pwr_ctrl_handle_t s_external_3v3_pwr_ctrl_handle = nullptr;
 bool s_external_3v3_ready = false;
+bool s_keyboard_backlight_ready = false;
+constexpr ledc_mode_t kKeyboardBacklightSpeedMode = LEDC_LOW_SPEED_MODE;
+constexpr ledc_timer_t kKeyboardBacklightTimer = LEDC_TIMER_1;
+constexpr ledc_channel_t kKeyboardBacklightChannel = LEDC_CHANNEL_1;
+constexpr ledc_timer_bit_t kKeyboardBacklightResolution = LEDC_TIMER_10_BIT;
+constexpr uint32_t kKeyboardBacklightFrequencyHz = 20000;
+constexpr uint32_t kKeyboardBacklightMaxDuty = (1U << 10U) - 1U;
 
 struct ExpanderPinLocation
 {
@@ -123,7 +157,7 @@ TDisplayP4Board::ManagedSystemI2cGuard::ManagedSystemI2cGuard(TDisplayP4Board& b
         return;
     }
 
-    locked_ = board.lockSystemI2c(timeout_ms);
+    locked_ = board.lockSystemI2c(timeout_ms, config.owner, __FILE__, __LINE__);
     if (!locked_)
     {
         ESP_LOGW(kTag,
@@ -243,6 +277,28 @@ uint32_t TDisplayP4Board::begin(uint32_t disable_hw_init)
     (void)initializeBatteryGauge();
     (void)ensureRtcAccessible();
 
+    if (profile().boot >= 0)
+    {
+        gpio_config_t power_button_config{};
+        power_button_config.pin_bit_mask = 1ULL << profile().boot;
+        power_button_config.mode = GPIO_MODE_INPUT;
+        power_button_config.pull_up_en = GPIO_PULLUP_ENABLE;
+        power_button_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+        power_button_config.intr_type = GPIO_INTR_DISABLE;
+        power_button_initialized_ = gpio_config(&power_button_config) == ESP_OK;
+        power_button_pressed_ =
+            power_button_initialized_ &&
+            gpio_get_level(static_cast<gpio_num_t>(profile().boot)) == 0;
+        power_button_last_change_ticks_ = xTaskGetTickCount();
+        power_button_press_start_ticks_ = power_button_last_change_ticks_;
+        ESP_LOGI(kTag,
+                 "power button gpio=%d ready=%u pressed=%u long_press_ms=%lu",
+                 profile().boot,
+                 power_button_initialized_ ? 1U : 0U,
+                 power_button_pressed_ ? 1U : 0U,
+                 static_cast<unsigned long>(kPowerButtonLongPressMs));
+    }
+
     started_ = buses_ok && expander_ok && power_ok;
     return started_ ? 0 : 1;
 }
@@ -252,9 +308,67 @@ void TDisplayP4Board::wakeUp()
     (void)platform::esp::idf_common::bsp_runtime::wake_display();
 }
 
-void TDisplayP4Board::handlePowerButton() {}
+void TDisplayP4Board::handlePowerButton()
+{
+    if (!power_button_initialized_ || profile().boot < 0)
+    {
+        return;
+    }
 
-void TDisplayP4Board::softwareShutdown() {}
+    const TickType_t now = xTaskGetTickCount();
+    const bool pressed =
+        gpio_get_level(static_cast<gpio_num_t>(profile().boot)) == 0;
+    if (pressed != power_button_pressed_ &&
+        (now - power_button_last_change_ticks_) >=
+            pdMS_TO_TICKS(kPowerButtonDebounceMs))
+    {
+        power_button_pressed_ = pressed;
+        power_button_last_change_ticks_ = now;
+        if (pressed)
+        {
+            power_button_press_start_ticks_ = now;
+            power_button_long_press_handled_ = false;
+            wakeUp();
+            ESP_LOGI(kTag, "power button pressed");
+        }
+        else
+        {
+            ESP_LOGI(kTag, "power button released");
+        }
+    }
+
+    if (power_button_pressed_ && !power_button_long_press_handled_ &&
+        (now - power_button_press_start_ticks_) >=
+            pdMS_TO_TICKS(kPowerButtonLongPressMs))
+    {
+        power_button_long_press_handled_ = true;
+        ESP_LOGI(kTag, "power button long press -> software shutdown");
+        softwareShutdown();
+    }
+}
+
+void TDisplayP4Board::softwareShutdown()
+{
+    ESP_LOGI(kTag, "Software shutdown requested");
+    stopVibrator();
+    keyboardSetBrightness(0);
+    (void)platform::esp::idf_common::bsp_runtime::sleep_display();
+
+    if (expander_ready_)
+    {
+        const auto& io = ioExpanderPins();
+        const auto& p = profile();
+        (void)expanderWriteActive(io.gps_wake, false, p.gps_wake_active_high);
+        (void)expanderWriteActive(io.c6_enable, false, p.c6_enable_active_high);
+        (void)expanderWriteActive(io.screen_rst, true, !p.screen_reset_active_low);
+        (void)expanderWriteActive(io.touch_rst, true, !p.touch_reset_active_low);
+        (void)expanderWriteActive(io.power_3v3, false, p.power_3v3_active_high);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(50));
+    ESP_LOGI(kTag, "Entering deep sleep; hardware power key/reset resumes the device");
+    esp_deep_sleep_start();
+}
 
 void TDisplayP4Board::enterScreenSleep()
 {
@@ -288,7 +402,48 @@ bool TDisplayP4Board::hasKeyboard()
 
 void TDisplayP4Board::keyboardSetBrightness(uint8_t level)
 {
-    keyboard_brightness_ = level;
+    keyboard_brightness_ = std::min<uint8_t>(level, DEVICE_MAX_BRIGHTNESS_LEVEL);
+    if (!keyboard_ready_ || keyboardModule().backlight < 0)
+    {
+        return;
+    }
+
+    if (!s_keyboard_backlight_ready)
+    {
+        ledc_timer_config_t timer_config{};
+        timer_config.speed_mode = kKeyboardBacklightSpeedMode;
+        timer_config.duty_resolution = kKeyboardBacklightResolution;
+        timer_config.timer_num = kKeyboardBacklightTimer;
+        timer_config.freq_hz = kKeyboardBacklightFrequencyHz;
+        timer_config.clk_cfg = LEDC_AUTO_CLK;
+        if (ledc_timer_config(&timer_config) != ESP_OK)
+        {
+            ESP_LOGE(kTag, "Failed to configure keyboard backlight LEDC timer");
+            return;
+        }
+
+        ledc_channel_config_t channel_config{};
+        channel_config.gpio_num = keyboardModule().backlight;
+        channel_config.speed_mode = kKeyboardBacklightSpeedMode;
+        channel_config.channel = kKeyboardBacklightChannel;
+        channel_config.timer_sel = kKeyboardBacklightTimer;
+        channel_config.duty = 0;
+        channel_config.hpoint = 0;
+        if (ledc_channel_config(&channel_config) != ESP_OK)
+        {
+            ESP_LOGE(kTag, "Failed to configure keyboard backlight LEDC channel");
+            return;
+        }
+        s_keyboard_backlight_ready = true;
+    }
+
+    const uint32_t duty = DEVICE_MAX_BRIGHTNESS_LEVEL > 0
+                              ? (static_cast<uint32_t>(keyboard_brightness_) *
+                                 kKeyboardBacklightMaxDuty) /
+                                    DEVICE_MAX_BRIGHTNESS_LEVEL
+                              : kKeyboardBacklightMaxDuty;
+    (void)ledc_set_duty(kKeyboardBacklightSpeedMode, kKeyboardBacklightChannel, duty);
+    (void)ledc_update_duty(kKeyboardBacklightSpeedMode, kKeyboardBacklightChannel);
 }
 
 uint8_t TDisplayP4Board::keyboardGetBrightness()
@@ -299,6 +454,158 @@ uint8_t TDisplayP4Board::keyboardGetBrightness()
 bool TDisplayP4Board::ensureExternal3v3Power()
 {
     return ensure_external_3v3_power_control();
+}
+
+bool TDisplayP4Board::configureBatteryGaugeCapacity(uint16_t design_capacity_mah,
+                                                    uint16_t full_charge_capacity_mah)
+{
+    if (design_capacity_mah == 0 || full_charge_capacity_mah == 0)
+    {
+        return false;
+    }
+    if (!initializeBatteryGauge())
+    {
+        return false;
+    }
+
+    const SystemI2cDeviceConfig config{
+        "battery-config", profile().i2c.battery_gauge, 400000};
+    ManagedSystemI2cGuard guard(*this, config, kI2cTimeoutMs);
+    if (!guard)
+    {
+        return false;
+    }
+
+    const auto write_bytes = [&](const uint8_t* data, size_t len)
+    {
+        return guard.transmit(data, len, kI2cTimeoutMs) == ESP_OK;
+    };
+    const auto send_subcommand = [&](uint16_t command)
+    {
+        const uint8_t payload[] = {
+            0x00,
+            static_cast<uint8_t>(command & 0xFFU),
+            static_cast<uint8_t>((command >> 8U) & 0xFFU),
+        };
+        const bool ok = write_bytes(payload, sizeof(payload));
+        vTaskDelay(pdMS_TO_TICKS(10));
+        return ok;
+    };
+    const auto read_operation_status = [&](uint16_t* out_status)
+    {
+        if (!out_status)
+        {
+            return false;
+        }
+        const uint8_t reg = kBatteryRegOperationStatus;
+        uint8_t data[2] = {};
+        if (guard.transmitReceive(&reg, 1, data, sizeof(data), kI2cTimeoutMs) != ESP_OK)
+        {
+            return false;
+        }
+        *out_status = static_cast<uint16_t>(data[0] |
+                                            (static_cast<uint16_t>(data[1]) << 8U));
+        return true;
+    };
+    const auto wait_config_update = [&](bool expected, uint32_t timeout_ms)
+    {
+        const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
+        while (static_cast<int32_t>(deadline - xTaskGetTickCount()) > 0)
+        {
+            uint16_t status = 0;
+            if (read_operation_status(&status) &&
+                ((status & kBatteryConfigUpdateMask) != 0) == expected)
+            {
+                return true;
+            }
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+        return false;
+    };
+    const auto write_capacity = [&](uint16_t address, uint16_t capacity_mah)
+    {
+        const uint8_t address_low = static_cast<uint8_t>(address & 0xFFU);
+        const uint8_t address_high = static_cast<uint8_t>((address >> 8U) & 0xFFU);
+        const uint8_t capacity_high = static_cast<uint8_t>((capacity_mah >> 8U) & 0xFFU);
+        const uint8_t capacity_low = static_cast<uint8_t>(capacity_mah & 0xFFU);
+        const uint8_t select[] = {kBatteryRegDataClass, address_low, address_high};
+        const uint8_t data[] = {kBatteryRegDataBlock, capacity_high, capacity_low};
+        const uint8_t checksum = static_cast<uint8_t>(
+            0xFFU - ((address_low + address_high + capacity_high + capacity_low) & 0xFFU));
+        const uint8_t checksum_payload[] = {kBatteryRegDataChecksum, checksum};
+        const uint8_t length_payload[] = {kBatteryRegDataLength, 0x06};
+        if (!write_bytes(select, sizeof(select)))
+        {
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+        return write_bytes(data, sizeof(data)) &&
+               write_bytes(checksum_payload, sizeof(checksum_payload)) &&
+               write_bytes(length_payload, sizeof(length_payload));
+    };
+
+    uint16_t operation_status = 0;
+    if (!read_operation_status(&operation_status))
+    {
+        return false;
+    }
+    const uint8_t access = static_cast<uint8_t>(
+        (operation_status >> kBatterySecurityAccessShift) & kBatterySecurityAccessMask);
+    const bool was_sealed = access == kBatterySealedAccess;
+    if (was_sealed)
+    {
+        const uint8_t unseal_first[] = {0x00, 0x14, 0x04};
+        const uint8_t unseal_second[] = {0x00, 0x72, 0x36};
+        if (!write_bytes(unseal_first, sizeof(unseal_first)))
+        {
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+        if (!write_bytes(unseal_second, sizeof(unseal_second)))
+        {
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    if (access != kBatteryFullAccess)
+    {
+        const uint8_t full_access[] = {0x00, 0xFF, 0xFF};
+        if (!write_bytes(full_access, sizeof(full_access)))
+        {
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+        if (!write_bytes(full_access, sizeof(full_access)))
+        {
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    bool ok = send_subcommand(kBatterySubcommandEnterConfigUpdate) &&
+              wait_config_update(true, 1500) &&
+              write_capacity(kBatteryDesignCapacityAddress, design_capacity_mah);
+    if (ok)
+    {
+        vTaskDelay(pdMS_TO_TICKS(10));
+        ok = write_capacity(kBatteryFullChargeCapacityAddress, full_charge_capacity_mah);
+    }
+    if (!send_subcommand(kBatterySubcommandExitConfigUpdateReinit) ||
+        !wait_config_update(false, 3000))
+    {
+        ok = false;
+    }
+    if (was_sealed && !send_subcommand(kBatterySubcommandSeal))
+    {
+        ok = false;
+    }
+
+    ESP_LOGI(kTag,
+             "Battery gauge capacity config ok=%u design=%umAh full=%umAh",
+             ok ? 1U : 0U,
+             static_cast<unsigned>(design_capacity_mah),
+             static_cast<unsigned>(full_charge_capacity_mah));
+    return ok;
 }
 
 void TDisplayP4Board::setKeyboardReady(bool ready)
@@ -361,9 +668,18 @@ bool TDisplayP4Board::isGPSReady() const
            platform::esp::idf_common::gps_runtime::is_powered();
 }
 
-void TDisplayP4Board::vibrator() {}
+void TDisplayP4Board::vibrator()
+{
+    if (!haptic_runtime::trigger())
+    {
+        ESP_LOGW(kTag, "Haptic trigger failed");
+    }
+}
 
-void TDisplayP4Board::stopVibrator() {}
+void TDisplayP4Board::stopVibrator()
+{
+    haptic_runtime::stop();
+}
 
 void TDisplayP4Board::setMessageToneVolume(uint8_t volume_percent)
 {
@@ -375,7 +691,10 @@ uint8_t TDisplayP4Board::getMessageToneVolume() const
     return message_tone_volume_;
 }
 
-bool TDisplayP4Board::lockSystemI2c(uint32_t timeout_ms)
+bool TDisplayP4Board::lockSystemI2c(uint32_t timeout_ms,
+                                    const char* owner,
+                                    const char* source_file,
+                                    int source_line)
 {
     if (system_i2c_mutex_ == nullptr)
     {
@@ -387,13 +706,110 @@ bool TDisplayP4Board::lockSystemI2c(uint32_t timeout_ms)
     {
         timeout_ticks = portMAX_DELAY;
     }
-    return xSemaphoreTake(system_i2c_mutex_, timeout_ticks) == pdTRUE;
+
+    const TaskHandle_t requester = xTaskGetCurrentTaskHandle();
+    const TickType_t wait_started = xTaskGetTickCount();
+    system_i2c_waiter_since_ticks_.store(wait_started, std::memory_order_relaxed);
+    system_i2c_waiter_timeout_ms_.store(timeout_ms, std::memory_order_relaxed);
+    system_i2c_waiter_label_.store(owner, std::memory_order_release);
+    system_i2c_waiter_file_.store(source_file, std::memory_order_release);
+    system_i2c_waiter_line_.store(source_line, std::memory_order_relaxed);
+    system_i2c_waiter_task_.store(requester, std::memory_order_release);
+
+    if (xSemaphoreTake(system_i2c_mutex_, timeout_ticks) == pdTRUE)
+    {
+        TaskHandle_t expected_waiter = requester;
+        if (system_i2c_waiter_task_.compare_exchange_strong(
+                expected_waiter, nullptr, std::memory_order_acq_rel))
+        {
+            system_i2c_waiter_since_ticks_.store(0, std::memory_order_relaxed);
+            system_i2c_waiter_timeout_ms_.store(0, std::memory_order_relaxed);
+            system_i2c_waiter_label_.store(nullptr, std::memory_order_release);
+            system_i2c_waiter_file_.store(nullptr, std::memory_order_release);
+            system_i2c_waiter_line_.store(0, std::memory_order_relaxed);
+        }
+        system_i2c_owner_since_ticks_.store(xTaskGetTickCount(), std::memory_order_relaxed);
+        system_i2c_owner_label_.store(owner, std::memory_order_release);
+        system_i2c_owner_task_.store(requester, std::memory_order_release);
+        return true;
+    }
+
+    const TickType_t now = xTaskGetTickCount();
+    TickType_t last_log = system_i2c_last_timeout_log_ticks_.load(std::memory_order_relaxed);
+    if ((now - last_log) >= pdMS_TO_TICKS(kI2cOwnerDiagnosticIntervalMs) &&
+        system_i2c_last_timeout_log_ticks_.compare_exchange_strong(
+            last_log, now, std::memory_order_relaxed))
+    {
+        const TaskHandle_t holder = system_i2c_owner_task_.load(std::memory_order_acquire);
+        const TickType_t held_since =
+            system_i2c_owner_since_ticks_.load(std::memory_order_relaxed);
+        const TaskHandle_t waiter = system_i2c_waiter_task_.load(std::memory_order_acquire);
+        const TickType_t waiter_since =
+            system_i2c_waiter_since_ticks_.load(std::memory_order_relaxed);
+        const uint32_t waiter_timeout_ms =
+            system_i2c_waiter_timeout_ms_.load(std::memory_order_relaxed);
+        const char* holder_label =
+            system_i2c_owner_label_.load(std::memory_order_acquire);
+        const char* waiter_label =
+            system_i2c_waiter_label_.load(std::memory_order_acquire);
+        const char* waiter_file =
+            system_i2c_waiter_file_.load(std::memory_order_acquire);
+        const int waiter_line =
+            system_i2c_waiter_line_.load(std::memory_order_relaxed);
+        const uint32_t held_ms =
+            (holder != nullptr && held_since != 0)
+                ? static_cast<uint32_t>((now - held_since) * portTICK_PERIOD_MS)
+                : 0;
+        const uint32_t waiting_ms =
+            (waiter != nullptr && waiter_since != 0)
+                ? static_cast<uint32_t>((now - waiter_since) * portTICK_PERIOD_MS)
+                : 0;
+        ESP_LOGW(kTag,
+                 "SYS I2C lock timeout requester=%s request_owner=%s at=%s:%d "
+                 "owner=%s owner_task=%s held_ms=%lu waiter=%s waiter_task=%s "
+                 "waiting_ms=%lu waiter_timeout_ms=%lu request_timeout_ms=%lu",
+                 pcTaskGetName(requester),
+                 owner ? owner : "unknown",
+                 source_file ? source_file : "unknown",
+                 source_line,
+                 holder_label ? holder_label : "unknown",
+                 holder != nullptr ? pcTaskGetName(holder) : "unknown",
+                 static_cast<unsigned long>(held_ms),
+                 waiter_label ? waiter_label : "unknown",
+                 waiter != nullptr ? pcTaskGetName(waiter) : "none",
+                 static_cast<unsigned long>(waiting_ms),
+                 static_cast<unsigned long>(waiter_timeout_ms),
+                 static_cast<unsigned long>(timeout_ms));
+        if (waiter_file != nullptr && waiter_line != 0)
+        {
+            ESP_LOGW(kTag,
+                     "SYS I2C waiter location owner=%s at=%s:%d",
+                     waiter_label ? waiter_label : "unknown",
+                     waiter_file,
+                     waiter_line);
+        }
+    }
+
+    TaskHandle_t expected_waiter = requester;
+    if (system_i2c_waiter_task_.compare_exchange_strong(
+            expected_waiter, nullptr, std::memory_order_acq_rel))
+    {
+        system_i2c_waiter_since_ticks_.store(0, std::memory_order_relaxed);
+        system_i2c_waiter_timeout_ms_.store(0, std::memory_order_relaxed);
+        system_i2c_waiter_label_.store(nullptr, std::memory_order_release);
+        system_i2c_waiter_file_.store(nullptr, std::memory_order_release);
+        system_i2c_waiter_line_.store(0, std::memory_order_relaxed);
+    }
+    return false;
 }
 
 void TDisplayP4Board::unlockSystemI2c()
 {
     if (system_i2c_mutex_ != nullptr)
     {
+        system_i2c_owner_task_.store(nullptr, std::memory_order_release);
+        system_i2c_owner_since_ticks_.store(0, std::memory_order_relaxed);
+        system_i2c_owner_label_.store(nullptr, std::memory_order_release);
         xSemaphoreGive(system_i2c_mutex_);
     }
 }
@@ -454,17 +870,71 @@ i2c_master_dev_handle_t TDisplayP4Board::getManagedSystemI2cDevice(const SystemI
         return nullptr;
     }
 
+    ManagedI2cSlot* reserved_slot = nullptr;
+    const TickType_t wait_started = xTaskGetTickCount();
+    const bool wait_forever = timeout_ms == UINT32_MAX;
+    const TickType_t timeout_ticks = timeout_ms == 0 ? 0 : pdMS_TO_TICKS(timeout_ms);
+    while (reserved_slot == nullptr)
     {
-        std::lock_guard<std::mutex> lock(resource_mutex_);
-        ManagedI2cSlot* existing = findManagedI2cSlot(config.address, config.speed_hz);
-        if (existing != nullptr)
         {
-            return existing->handle;
+            std::lock_guard<std::mutex> resource_lock(resource_mutex_);
+            ManagedI2cSlot* existing = findManagedI2cSlot(config.address, config.speed_hz);
+            if (existing != nullptr)
+            {
+                return existing->handle;
+            }
+
+            bool creation_in_progress = false;
+            for (const auto& slot : managed_system_i2c_)
+            {
+                if (slot.active && slot.creating && slot.address == config.address &&
+                    slot.speed_hz == config.speed_hz)
+                {
+                    creation_in_progress = true;
+                    break;
+                }
+            }
+
+            if (!creation_in_progress)
+            {
+                reserved_slot = findFreeManagedI2cSlot();
+                if (reserved_slot == nullptr)
+                {
+                    ESP_LOGW(kTag,
+                             "No free managed SYS I2C slot for owner=%s addr=0x%02X",
+                             config.owner ? config.owner : "unknown",
+                             static_cast<unsigned>(config.address));
+                    return nullptr;
+                }
+
+                reserved_slot->active = true;
+                reserved_slot->creating = true;
+                reserved_slot->address = config.address;
+                reserved_slot->speed_hz = config.speed_hz;
+                reserved_slot->handle = nullptr;
+                copyOwnerTag(config.owner, reserved_slot->owner, sizeof(reserved_slot->owner));
+                break;
+            }
         }
+
+        if (!wait_forever && (xTaskGetTickCount() - wait_started) >= timeout_ticks)
+        {
+            ESP_LOGW(kTag,
+                     "Timed out waiting for managed SYS I2C device creation owner=%s addr=0x%02X timeout_ms=%lu",
+                     config.owner ? config.owner : "unknown",
+                     static_cast<unsigned>(config.address),
+                     static_cast<unsigned long>(timeout_ms));
+            return nullptr;
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 
-    if (!lockSystemI2c(timeout_ms))
+    if (!lockSystemI2c(timeout_ms, config.owner, __FILE__, __LINE__))
     {
+        {
+            std::lock_guard<std::mutex> resource_lock(resource_mutex_);
+            *reserved_slot = ManagedI2cSlot{};
+        }
         ESP_LOGW(kTag,
                  "Failed to lock SYS I2C while creating managed device owner=%s addr=0x%02X",
                  config.owner ? config.owner : "unknown",
@@ -472,40 +942,19 @@ i2c_master_dev_handle_t TDisplayP4Board::getManagedSystemI2cDevice(const SystemI
         return nullptr;
     }
 
-    i2c_master_dev_handle_t handle = nullptr;
+    i2c_master_dev_handle_t handle = addSystemI2cDevice(config.address, config.speed_hz);
+    unlockSystemI2c();
+
+    std::lock_guard<std::mutex> resource_lock(resource_mutex_);
+    if (handle != nullptr)
     {
-        std::lock_guard<std::mutex> lock(resource_mutex_);
-        ManagedI2cSlot* existing = findManagedI2cSlot(config.address, config.speed_hz);
-        if (existing != nullptr)
-        {
-            unlockSystemI2c();
-            return existing->handle;
-        }
-
-        ManagedI2cSlot* slot = findFreeManagedI2cSlot();
-        if (slot == nullptr)
-        {
-            unlockSystemI2c();
-            ESP_LOGW(kTag,
-                     "No free managed SYS I2C slot for owner=%s addr=0x%02X",
-                     config.owner ? config.owner : "unknown",
-                     static_cast<unsigned>(config.address));
-            return nullptr;
-        }
-
-        handle = addSystemI2cDevice(config.address, config.speed_hz);
-        if (handle != nullptr)
-        {
-            slot->active = true;
-            slot->address = config.address;
-            slot->speed_hz = config.speed_hz;
-            slot->handle = handle;
-            copyOwnerTag(config.owner, slot->owner, sizeof(slot->owner));
-        }
+        reserved_slot->creating = false;
+        reserved_slot->handle = handle;
+        return handle;
     }
 
-    unlockSystemI2c();
-    return handle;
+    *reserved_slot = ManagedI2cSlot{};
+    return nullptr;
 }
 
 bool TDisplayP4Board::expanderReady() const
@@ -777,19 +1226,19 @@ bool TDisplayP4Board::mountSdCard(const char* mount_point, size_t max_files)
     slot_config.d3 = static_cast<gpio_num_t>(sdmmcPins().d3);
     slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
-    esp_vfs_fat_sdmmc_mount_config_t mount_config{};
-    mount_config.format_if_mount_failed = false;
-    mount_config.max_files = max_files;
-    mount_config.allocation_unit_size = 16 * 1024;
-
-    const esp_err_t err =
-        esp_vfs_fat_sdmmc_mount(mount_point, &host, &slot_config, &mount_config, &sd_card_);
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+    const bool mounted = platform::esp::idf_common::sd_card_runtime::mount_sdmmc(
+        platform::esp::idf_common::sdmmc_host_runtime::SlotOwner::SdCard,
+        host,
+        slot_config,
+        mount_point,
+        static_cast<uint8_t>(std::min<size_t>(max_files, 255)));
+    if (!mounted)
     {
-        ESP_LOGW(kTag, "SD mount failed: %s", esp_err_to_name(err));
+        ESP_LOGW(kTag, "SD mount failed via SdFat SDMMC backend");
         return false;
     }
 
+    sd_card_ = platform::esp::idf_common::sd_card_runtime::mounted_card();
     sd_ready_ = true;
     std::snprintf(sd_mount_point_, sizeof(sd_mount_point_), "%s", mount_point);
     if (sd_card_ != nullptr)
@@ -803,6 +1252,22 @@ bool TDisplayP4Board::mountSdCard(const char* mount_point, size_t max_files)
 bool TDisplayP4Board::sdCardMounted() const
 {
     return sd_ready_;
+}
+
+bool TDisplayP4Board::unmountSdCard()
+{
+    if (!sd_ready_)
+    {
+        return true;
+    }
+
+    platform::esp::idf_common::sd_card_runtime::unmount_sdmmc(
+        platform::esp::idf_common::sdmmc_host_runtime::SlotOwner::SdCard);
+
+    sd_card_ = nullptr;
+    sd_ready_ = false;
+    ESP_LOGI(kTag, "SD unmounted from %s", sd_mount_point_);
+    return true;
 }
 
 sdmmc_card_t* TDisplayP4Board::sdCard() const
@@ -902,22 +1367,38 @@ int TDisplayP4Board::transmitRadio(const uint8_t* data, size_t len)
 
     const TickType_t started = xTaskGetTickCount();
     const TickType_t timeout = radio_tx_timeout_ticks(len);
+    TickType_t last_companion_poll = started;
     while (true)
     {
-        bool dio1_high = false;
-        if (readLoraDio1(&dio1_high) && dio1_high)
+        const TickType_t now = xTaskGetTickCount();
+        if (static_cast<TickType_t>(now - last_companion_poll) >=
+            pdMS_TO_TICKS(kCompanionPollIntervalMs))
+        {
+            platform::esp::idf_common::wireless_companion::c6_companion().poll();
+            last_companion_poll = now;
+        }
+
+        const uint32_t irq_flags = radio().getIrqFlags();
+        if ((irq_flags & kRadioIrqTxDone) != 0)
         {
             radio().clearIrqFlags(0xFFFF);
             radio().standby();
             return 0;
         }
-        if (static_cast<TickType_t>(xTaskGetTickCount() - started) > timeout)
+        const TickType_t elapsed = static_cast<TickType_t>(xTaskGetTickCount() - started);
+        if ((irq_flags & kRadioIrqTimeout) != 0 || elapsed > timeout)
         {
+            ESP_LOGW(kTag,
+                     "SX1262 transmit timeout len=%u elapsed_ms=%lu irq=0x%04lX chip_timeout=%d",
+                     static_cast<unsigned>(len),
+                     static_cast<unsigned long>(elapsed * portTICK_PERIOD_MS),
+                     static_cast<unsigned long>(irq_flags),
+                     (irq_flags & kRadioIrqTimeout) != 0 ? 1 : 0);
             radio().clearIrqFlags(0xFFFF);
             radio().standby();
             return -5;
         }
-        vTaskDelay(pdMS_TO_TICKS(2));
+        vTaskDelay(pdMS_TO_TICKS(kRadioTxPollIntervalMs));
     }
 }
 

@@ -7,6 +7,7 @@ namespace trailmate::uconsole::gtk::layout_spec
 // Update the specification before changing product geometry here.
 
 constexpr int kGlobalStatusBarHeight = 28;
+constexpr int kNavigationRailWidth = 184;
 
 constexpr int kOverviewGpsRailWidth = 208;
 constexpr int kOverviewTimelineRailWidth = 252;

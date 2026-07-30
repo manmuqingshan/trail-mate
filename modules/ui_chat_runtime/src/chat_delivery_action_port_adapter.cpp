@@ -51,6 +51,7 @@ ChatDeliveryActionResult ChatDeliveryActionPortAdapter::clearFailure(
     out.local_id = ref.local_id;
     out.protocol_id = ref.protocol_id;
     out.nonce_or_seq = ref.nonce_or_seq;
+    out.protocol = ref.protocol;
     return out;
 }
 

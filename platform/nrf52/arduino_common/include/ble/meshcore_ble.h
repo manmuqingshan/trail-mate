@@ -4,7 +4,6 @@
 #include "ble/app_phone_facade.h"
 #include "ble_manager.h"
 #include "chat/domain/chat_types.h"
-#include "chat/ports/i_node_store.h"
 #include "chat/usecase/chat_service.h"
 #include "phone/meshcore/meshcore_phone_core.h"
 #include "phone/meshtastic/meshtastic_phone_core.h"

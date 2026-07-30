@@ -26,9 +26,8 @@ uint32_t dedupeKeyForTile(const MapTileRef& ref)
 
 } // namespace
 
-MapTileAsyncRuntime::MapTileAsyncRuntime(IMapTileCommandSink& commands,
-                                         sys::runtime::RuntimePolicyStrategy* policy)
-    : commands_(commands), policy_(policy ? policy : &default_policy_)
+MapTileAsyncRuntime::MapTileAsyncRuntime(IMapTileCommandSink& commands)
+    : commands_(commands)
 {
 }
 
@@ -103,7 +102,7 @@ bool MapTileAsyncRuntime::handleEvent(const MapTileAsyncEvent& event, MapTileRen
     case MapTileAsyncEventKind::Cancelled:
         ref.state = MapTileRenderState::Cancelled;
         break;
-    case MapTileAsyncEventKind::ResourceBusy:
+    case MapTileAsyncEventKind::RetryLater:
         ref.state = MapTileRenderState::Loading;
         break;
     case MapTileAsyncEventKind::Failed:
@@ -126,7 +125,7 @@ sys::runtime::RuntimeCommand MapTileAsyncRuntime::commandFromIntent(
     sys::runtime::RuntimeCommand command{};
     command.command_id = next_command_id_++;
     command.kind = intent.kind;
-    command.priority = policy_->selectPriority(intent);
+    command.priority = intent.priority_hint;
     command.cancel_policy = intent.cancel_policy;
     command.created_at_ms = intent.submitted_at_ms;
     command.deadline_ms = intent.deadline_ms;
@@ -137,15 +136,11 @@ sys::runtime::RuntimeCommand MapTileAsyncRuntime::commandFromIntent(
 }
 
 MapTileWorker::MapTileWorker(IMapTileWorkerBackend& backend,
-                             sys::runtime::IBusArbiter& bus,
                              IMapTileEventSink& events,
                              uint8_t* scratch,
-                             std::size_t scratch_size,
-                             sys::runtime::RuntimePolicyStrategy* policy)
+                             std::size_t scratch_size)
     : backend_(backend),
-      bus_(bus),
       events_(events),
-      policy_(policy ? policy : &default_policy_),
       scratch_(scratch),
       scratch_size_(scratch_size)
 {
@@ -153,46 +148,32 @@ MapTileWorker::MapTileWorker(IMapTileWorkerBackend& backend,
 
 bool MapTileWorker::execute(const LoadTileCommand& command, uint32_t now_ms)
 {
-    sys::runtime::BusAcquireRequest request{};
-    request.resource = command.runtime.origin;
-    request.policy = policy_->selectBusPolicy(command.runtime);
-    request.command_id = command.runtime.command_id;
-    request.deadline_ms = command.runtime.deadline_ms;
-
-    const auto acquired = bus_.acquire(request);
-    if (acquired.status != sys::runtime::BusAcquireStatus::Acquired)
-    {
-        MapTileAsyncEvent event{};
-        event.kind = MapTileAsyncEventKind::ResourceBusy;
-        event.command_id = command.runtime.command_id;
-        event.generation = command.runtime.generation;
-        event.tile = command.tile;
-        event.error = static_cast<int32_t>(acquired.status);
-        (void)events_.publish(event);
-        return false;
-    }
-
     MapTileAsyncEvent event{};
     event.command_id = command.runtime.command_id;
     event.generation = command.runtime.generation;
     event.tile = command.tile;
 
-    std::size_t out_size = 0;
-    MapTileFormat out_format = MapTileFormat::Unknown;
-    const bool ok = backend_.read(command.tile, scratch_, scratch_size_, out_size, out_format);
-    bus_.release(acquired.token);
-
-    event.kind = ok ? MapTileAsyncEventKind::Ready : MapTileAsyncEventKind::Failed;
-    event.format = out_format;
-    event.payload_size = out_size;
+    const MapTileReadResult read_result =
+        backend_.read(command.tile, scratch_, scratch_size_);
+    const bool ok = read_result.status == MapTileReadStatus::Ready;
+    if (read_result.status == MapTileReadStatus::RetryLater)
+    {
+        event.kind = MapTileAsyncEventKind::RetryLater;
+    }
+    else
+    {
+        event.kind = ok ? MapTileAsyncEventKind::Ready : MapTileAsyncEventKind::Failed;
+    }
+    event.format = read_result.format;
+    event.payload_size = read_result.size;
     if (ok)
     {
         event.payload.ref = command.tile;
-        event.payload.format = out_format;
+        event.payload.format = read_result.format;
         event.payload.data = scratch_;
-        event.payload.size = out_size;
+        event.payload.size = read_result.size;
     }
-    event.error = ok ? 0 : -1;
+    event.error = ok ? 0 : read_result.error;
     (void)events_.publish(event);
     (void)now_ms;
     return ok;

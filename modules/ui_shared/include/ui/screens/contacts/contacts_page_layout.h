@@ -4,6 +4,8 @@
 #include "contacts_state.h"
 #include "lvgl.h"
 
+#include <string>
+
 namespace contacts
 {
 namespace ui
@@ -36,8 +38,10 @@ void create_list_panel(lv_obj_t* parent);
  */
 void ensure_list_subcontainers();
 
+std::string preferred_node_display_name(const chat::contacts::PeerDirectoryItem& node);
+
 lv_obj_t* create_list_item(lv_obj_t* parent,
-                           const chat::contacts::NodeInfo& node,
+                           const chat::contacts::PeerDirectoryItem& node,
                            ContactsMode mode,
                            const char* status_text);
 

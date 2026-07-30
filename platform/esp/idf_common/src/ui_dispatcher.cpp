@@ -27,6 +27,48 @@ Hooks s_hooks{};
 QueueHandle_t s_queue = nullptr;
 lv_timer_t* s_drain_timer = nullptr;
 
+void dispatch(Event event)
+{
+    switch (event)
+    {
+    case Event::WakeFromSleep:
+        if (s_hooks.show_screen_saver)
+        {
+            s_hooks.show_screen_saver();
+        }
+        else if (s_hooks.on_wake_from_sleep)
+        {
+            s_hooks.on_wake_from_sleep();
+        }
+        break;
+
+    case Event::ShowScreenSaver:
+        if (s_hooks.show_screen_saver)
+        {
+            s_hooks.show_screen_saver();
+        }
+        break;
+
+    case Event::HideScreenSaver:
+        if (s_hooks.hide_screen_saver)
+        {
+            s_hooks.hide_screen_saver();
+        }
+        break;
+
+    case Event::ShowMainMenu:
+        if (s_hooks.show_main_menu)
+        {
+            s_hooks.show_main_menu();
+        }
+        break;
+
+    case Event::None:
+    default:
+        break;
+    }
+}
+
 } // namespace
 
 void init(const Hooks& hooks)
@@ -65,26 +107,7 @@ void drain()
     Event event = Event::None;
     while (xQueueReceive(s_queue, &event, 0) == pdTRUE)
     {
-        switch (event)
-        {
-        case Event::WakeFromSleep:
-            if (s_hooks.on_wake_from_sleep)
-            {
-                s_hooks.on_wake_from_sleep();
-            }
-            break;
-
-        case Event::ShowMainMenu:
-            if (s_hooks.show_main_menu)
-            {
-                s_hooks.show_main_menu();
-            }
-            break;
-
-        case Event::None:
-        default:
-            break;
-        }
+        dispatch(event);
     }
 }
 
@@ -105,18 +128,7 @@ void drain_timer_cb(lv_timer_t* /*timer*/)
         return;
     }
 
-    switch (event)
-    {
-    case Event::WakeFromSleep:
-        if (s_hooks.on_wake_from_sleep) s_hooks.on_wake_from_sleep();
-        break;
-    case Event::ShowMainMenu:
-        if (s_hooks.show_main_menu) s_hooks.show_main_menu();
-        break;
-    case Event::None:
-    default:
-        break;
-    }
+    dispatch(event);
 }
 
 void* ensure_drain_timer(std::uint32_t period_ms)

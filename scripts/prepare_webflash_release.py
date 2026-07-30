@@ -25,12 +25,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--boot-app0",
-        required=True,
+        default=None,
         help="Path to boot_app0.bin from the Arduino ESP32 framework package",
     )
     parser.add_argument(
         "--esptool",
-        required=True,
+        default=None,
         help="Path to esptool.py used to merge the firmware image",
     )
     return parser.parse_args()
@@ -43,18 +43,59 @@ def main() -> int:
         print(f"Skipping web flasher packaging for unsupported env: {args.env}")
         return 0
 
-    build_dir = Path(args.build_root) / args.env
+    build_system = target.get("build_system", "platformio")
+    build_dir = (
+        Path(args.build_root) / f"build.{args.env}"
+        if build_system == "esp_idf"
+        else Path(args.build_root) / args.env
+    )
     dist_dir = Path(args.dist)
     dist_dir.mkdir(parents=True, exist_ok=True)
 
-    bootloader = build_dir / "bootloader.bin"
-    partitions = build_dir / "partitions.bin"
-    firmware = build_dir / "firmware.bin"
-    boot_app0 = Path(args.boot_app0)
-    esptool = Path(args.esptool)
     output = dist_dir / target["merged_asset_name"]
 
-    required_paths = (bootloader, partitions, firmware, boot_app0, esptool)
+    if build_system == "esp_idf":
+        bootloader = build_dir / "bootloader" / "bootloader.bin"
+        partitions = build_dir / "partition_table" / "partition-table.bin"
+        ota_data = build_dir / "ota_data_initial.bin"
+        firmware = build_dir / "trail-mate.bin"
+        required_paths = (bootloader, partitions, ota_data, firmware)
+        esptool_command = (
+            [sys.executable, args.esptool]
+            if args.esptool
+            else [sys.executable, "-m", "esptool"]
+        )
+        image_parts = (
+            "0x2000",
+            str(bootloader),
+            "0x8000",
+            str(partitions),
+            "0xe000",
+            str(ota_data),
+            "0x10000",
+            str(firmware),
+        )
+    else:
+        if not args.boot_app0 or not args.esptool:
+            raise ValueError("PlatformIO webflash packaging requires --boot-app0 and --esptool")
+        bootloader = build_dir / "bootloader.bin"
+        partitions = build_dir / "partitions.bin"
+        firmware = build_dir / "firmware.bin"
+        boot_app0 = Path(args.boot_app0)
+        esptool = Path(args.esptool)
+        required_paths = (bootloader, partitions, firmware, boot_app0, esptool)
+        esptool_command = [sys.executable, str(esptool)]
+        image_parts = (
+            "0x0",
+            str(bootloader),
+            "0x8000",
+            str(partitions),
+            "0xe000",
+            str(boot_app0),
+            "0x10000",
+            str(firmware),
+        )
+
     missing_paths = [str(path) for path in required_paths if not path.exists()]
     if missing_paths:
         raise FileNotFoundError(
@@ -62,11 +103,9 @@ def main() -> int:
             + "\n  ".join(missing_paths)
         )
 
-    command = [
-        sys.executable,
-        str(esptool),
+    command = esptool_command + [
         "--chip",
-        "esp32s3",
+        target.get("esptool_chip", "esp32s3"),
         "merge_bin",
         "-o",
         str(output),
@@ -76,14 +115,7 @@ def main() -> int:
         target["flash_freq"],
         "--flash_size",
         target["flash_size"],
-        "0x0",
-        str(bootloader),
-        "0x8000",
-        str(partitions),
-        "0xe000",
-        str(boot_app0),
-        "0x10000",
-        str(firmware),
+        *image_parts,
     ]
 
     print(f"Creating merged web flasher image for {args.env} -> {output}")

@@ -5,7 +5,6 @@
  */
 
 #include "ui/screens/chat/chat_message_list_layout.h"
-#include "chat/infra/mesh_protocol_utils.h"
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/components/air_status_footer.h"
 #include "ui/components/info_card.h"
@@ -14,11 +13,8 @@
 #include "ui/page/page_profile.h"
 #include "ui/ui_common.h"
 
-#include "sys/clock.h"
-
 #include <algorithm>
 #include <cstdio>
-#include <ctime>
 #include <string>
 
 namespace chat::ui::layout
@@ -27,10 +23,6 @@ namespace
 {
 
 constexpr int kPanelGap = 0;
-constexpr uint32_t kMinValidEpochSeconds = 1577836800U; // 2020-01-01
-constexpr uint32_t kSecondsPerDay = 24U * 60U * 60U;
-constexpr uint32_t kSecondsPerMonth = 30U * kSecondsPerDay;
-constexpr uint32_t kSecondsPerYear = 365U * kSecondsPerDay;
 
 struct Metrics
 {
@@ -78,68 +70,6 @@ Metrics current_metrics()
 const char* broadcast_filter_text()
 {
     return ::ui::page_profile::current().large_touch_hitbox ? "Broadcast" : "Bcast";
-}
-
-bool is_valid_epoch_ts(uint32_t ts)
-{
-    return ts >= kMinValidEpochSeconds;
-}
-
-void format_time_hhmm(char out[16], uint32_t ts)
-{
-    if (ts == 0)
-    {
-        std::snprintf(out, 16, "--:--");
-        return;
-    }
-    if (!is_valid_epoch_ts(ts))
-    {
-        uint32_t now_epoch = sys::epoch_seconds_now();
-        uint32_t now_secs = is_valid_epoch_ts(now_epoch)
-                                ? now_epoch
-                                : static_cast<uint32_t>(sys::millis_now() / 1000U);
-        if (now_secs < ts)
-        {
-            now_secs = ts;
-        }
-        uint32_t diff = now_secs - ts;
-        if (diff < 60U)
-        {
-            std::snprintf(out, 16, "%s", ::ui::i18n::tr("now"));
-        }
-        else if (diff < 3600U)
-        {
-            std::snprintf(out, 16, "%s", ::ui::i18n::format("%um", static_cast<unsigned>(diff / 60U)).c_str());
-        }
-        else if (diff < kSecondsPerDay)
-        {
-            std::snprintf(out, 16, "%s", ::ui::i18n::format("%uh", static_cast<unsigned>(diff / 3600U)).c_str());
-        }
-        else if (diff < kSecondsPerMonth)
-        {
-            std::snprintf(out, 16, "%s", ::ui::i18n::format("%ud", static_cast<unsigned>(diff / kSecondsPerDay)).c_str());
-        }
-        else if (diff < kSecondsPerYear)
-        {
-            std::snprintf(out, 16, "%s", ::ui::i18n::format("%umo", static_cast<unsigned>(diff / kSecondsPerMonth)).c_str());
-        }
-        else
-        {
-            std::snprintf(out, 16, "%s", ::ui::i18n::format("%uy", static_cast<unsigned>(diff / kSecondsPerYear)).c_str());
-        }
-        return;
-    }
-
-    time_t t = ui_apply_timezone_offset(static_cast<time_t>(ts));
-    struct tm* info = gmtime(&t);
-    if (info)
-    {
-        strftime(out, 16, "%H:%M", info);
-    }
-    else
-    {
-        std::snprintf(out, 16, "--:--");
-    }
 }
 
 std::string truncate_preview(const std::string& text)
@@ -241,8 +171,7 @@ std::string compact_list_name(const std::string& name)
 
 std::string build_list_title(const chat::ConversationMeta& conv)
 {
-    return "[" + std::string(chat::infra::meshProtocolShortName(conv.id.protocol)) +
-           "] " + compact_list_name(conv.name);
+    return compact_list_name(conv.name);
 }
 
 void style_filter_label(lv_obj_t* label)
@@ -335,7 +264,7 @@ lv_obj_t* create_list_panel(lv_obj_t* parent)
     panel_spec.pad_row = profile.list_panel_pad_row;
     panel_spec.pad_left = profile.list_panel_pad_left;
     panel_spec.pad_right = profile.list_panel_pad_right;
-    panel_spec.scrollbar_mode = LV_SCROLLBAR_MODE_OFF;
+    panel_spec.scrollbar_mode = LV_SCROLLBAR_MODE_AUTO;
     return ::ui::components::two_pane_layout::create_main_panel(parent, panel_spec);
 }
 
@@ -370,37 +299,47 @@ MessageItemWidgets create_message_item(lv_obj_t* parent)
         w.time_label = slots.header_meta_label;
         w.preview_label = slots.body_main_label;
         w.unread_label = slots.body_meta_label;
+        if (w.time_label)
+        {
+            lv_obj_add_flag(w.time_label, LV_OBJ_FLAG_HIDDEN);
+        }
     }
     else
     {
         lv_obj_set_size(w.btn, LV_PCT(100), metrics.list_item_height);
         ::ui::components::two_pane_layout::make_non_scrollable(w.btn);
+        lv_obj_set_flex_flow(w.btn, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(w.btn,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_left(w.btn, metrics.name_x, LV_PART_MAIN);
+        lv_obj_set_style_pad_right(w.btn, 6, LV_PART_MAIN);
+        lv_obj_set_style_pad_column(w.btn, 6, LV_PART_MAIN);
 
         w.name_label = lv_label_create(w.btn);
         lv_obj_add_flag(w.name_label, LV_OBJ_FLAG_EVENT_BUBBLE);
-        lv_obj_align(w.name_label, LV_ALIGN_LEFT_MID, metrics.name_x, 0);
         lv_obj_set_width(w.name_label, metrics.name_width);
         apply_single_line(w.name_label);
 
         w.preview_label = lv_label_create(w.btn);
         lv_obj_add_flag(w.preview_label, LV_OBJ_FLAG_EVENT_BUBBLE);
-        lv_obj_align(w.preview_label, LV_ALIGN_LEFT_MID, metrics.preview_x, 0);
-        lv_obj_set_width(w.preview_label, metrics.preview_width);
+        lv_obj_set_width(w.preview_label, 0);
+        lv_obj_set_flex_grow(w.preview_label, 1);
         apply_single_line(w.preview_label);
 
         w.time_label = lv_label_create(w.btn);
         lv_obj_add_flag(w.time_label, LV_OBJ_FLAG_EVENT_BUBBLE);
-        lv_obj_align(w.time_label, LV_ALIGN_RIGHT_MID, -metrics.time_x, 0);
-        lv_obj_set_width(w.time_label, metrics.time_width);
+        lv_obj_add_flag(w.time_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_width(w.time_label, 0);
         lv_obj_set_style_text_align(w.time_label, LV_TEXT_ALIGN_RIGHT, 0);
         apply_single_line(w.time_label);
 
         w.unread_label = lv_label_create(w.btn);
         lv_obj_add_flag(w.unread_label, LV_OBJ_FLAG_EVENT_BUBBLE);
-        lv_obj_align(w.unread_label, LV_ALIGN_RIGHT_MID, -metrics.unread_x, 0);
-        lv_obj_set_width(w.unread_label, metrics.unread_width);
-        lv_obj_set_style_text_align(w.unread_label, LV_TEXT_ALIGN_RIGHT, 0);
-        apply_single_line(w.unread_label);
+        lv_obj_set_width(w.unread_label, LV_SIZE_CONTENT);
+        lv_obj_set_style_text_align(w.unread_label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_long_mode(w.unread_label, LV_LABEL_LONG_CLIP);
     }
 
     return w;
@@ -435,17 +374,10 @@ void populate_message_item(const MessageItemWidgets& widgets,
         apply_single_line(widgets.preview_label);
     }
 
-    char time_buf[16];
-    format_time_hhmm(time_buf, conv.last_timestamp);
-    lv_label_set_text(widgets.time_label, time_buf);
-    ::ui::fonts::apply_localized_font(widgets.time_label, time_buf, ::ui::fonts::ui_chrome_font());
-    if (use_info_card)
+    if (widgets.time_label)
     {
-        ::ui::components::info_card::apply_single_line_label(widgets.time_label);
-    }
-    else
-    {
-        apply_single_line(widgets.time_label);
+        lv_label_set_text(widgets.time_label, "");
+        lv_obj_add_flag(widgets.time_label, LV_OBJ_FLAG_HIDDEN);
     }
 
     if (conv.unread > 0)
@@ -453,21 +385,16 @@ void populate_message_item(const MessageItemWidgets& widgets,
         char unread_str[16];
         std::snprintf(unread_str, sizeof(unread_str), "%d", conv.unread);
         lv_label_set_text(widgets.unread_label, unread_str);
+        lv_obj_clear_flag(widgets.unread_label, LV_OBJ_FLAG_HIDDEN);
     }
     else
     {
         lv_label_set_text(widgets.unread_label, "");
+        lv_obj_add_flag(widgets.unread_label, LV_OBJ_FLAG_HIDDEN);
     }
     ::ui::fonts::apply_localized_font(
         widgets.unread_label, lv_label_get_text(widgets.unread_label), ::ui::fonts::ui_chrome_font());
-    if (use_info_card)
-    {
-        ::ui::components::info_card::apply_single_line_label(widgets.unread_label);
-    }
-    else
-    {
-        apply_single_line(widgets.unread_label);
-    }
+    lv_label_set_long_mode(widgets.unread_label, LV_LABEL_LONG_CLIP);
 }
 
 lv_obj_t* create_placeholder(lv_obj_t* parent)

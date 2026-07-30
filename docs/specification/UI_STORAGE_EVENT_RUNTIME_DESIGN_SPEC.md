@@ -3,23 +3,40 @@
 Status date: 2026-06-17
 
 This document defines the design baseline for removing UI stalls caused by
-blocking storage, shared-SPI contention, synchronous persistence, and page-owned
-runtime side effects.
+blocking storage, synchronous persistence, and page-owned runtime side
+effects.
 
 It complements `RUNTIME_CONCURRENCY_SPEC.md`. The concurrency spec states the
 rules. This document explains the design that makes those rules implementable
 and testable.
 
+The physical shared-device mechanism is a technical concern owned by
+`docs/spi_bus_architecture.md`. This document defines only UI/runtime ownership
+and semantic storage behavior.
+
+There is no generic `sys::runtime::PersistenceRuntime` in production. Storage
+responsibilities are deliberately split:
+
+- `StorageMaintenanceRuntime` owns SD-backed hydration, compaction, startup
+  gating, and maintenance retry state.
+- `ConfigPersistenceRuntime` owns application-config dirty tracking, debounce,
+  immutable payloads, generations, critical flush, and config retry state.
+- Domain stores own their domain state and domain-specific snapshot policy.
+
+These owners use semantic storage adapters. They do not expose SPI tokens,
+chip-select lines, filesystem sessions, mutexes, or RTOS task handles to
+callers, and neither runtime is a universal storage service.
+
 ## Problem Statement
 
 Trail Mate currently has several paths where renderer-owned code, runtime
-services, and platform storage operations can enter the same slow resource path:
+services, and platform device operations can enter the same slow resource path:
 
-- LVGL timers and page callbacks can trigger SD or shared-SPI access.
+- LVGL timers and page callbacks can trigger device I/O.
 - Map tile loading can perform file lookup, image object setup, and decode work
   from the UI owner context.
-- GPS track recording can hold recorder state and shared-SPI access while it
-  opens, writes, flushes, and closes files.
+- GPS track recording can hold recorder state while it opens, writes, flushes,
+  and closes files.
 - Node and contact persistence can be reached from event dispatch paths.
 - Feedback notices, protocol completion, and UI mutation can be coupled to the
   page that happened to start an operation.
@@ -32,17 +49,16 @@ handling appear frozen even though background logs continue.
 The design goal is therefore:
 
 ```text
-UI owner context never waits for storage, shared-SPI, filesystem, decode,
-protocol completion, or persistence.
+UI owner context never waits for device I/O, filesystem, decode, protocol
+completion, or persistence.
 ```
 
-After the ESP shared-SPI map freeze investigation, this goal is tightened:
+After the map freeze investigation, this goal is tightened:
 
 ```text
 Moving work off the UI owner context is necessary but not sufficient.
-No storage worker may hold, starve, or repeatedly reacquire a physical bus that
-display flush depends on in a way that prevents frame progress, input-visible
-feedback, wake rendering, or page navigation.
+No device service may starve frame presentation or input-visible feedback in a
+way that prevents wake rendering or page navigation.
 ```
 
 Responsiveness is protected by ownership of time-critical resources, not only
@@ -110,7 +126,8 @@ Examples:
 
 - `MapTileWorker`
 - `TrackStorageWorker`
-- `PersistenceWorker`
+- `StorageMaintenanceRuntime` for SD-backed maintenance
+- `ConfigPersistenceRuntime` for application-config persistence
 - `ProtocolRuntimeWorker`
 - `FeedbackDispatchWorker` when a target needs one
 
@@ -128,7 +145,7 @@ objects.
 A platform adapter wraps a technical API:
 
 - SD file open/read/write/flush
-- SPI bus acquire/release
+- semantic device I/O
 - LVGL image descriptor setup
 - nRF flash write
 - GTK idle invocation
@@ -136,43 +153,6 @@ A platform adapter wraps a technical API:
 
 Adapters must not own business rules, retry policy, tile priority, feedback
 eligibility, chat delivery semantics, or tracker state transitions.
-
-### Resource Topology
-
-Resource topology describes the physical resource domains that can block each
-other on a target:
-
-- display flush bus / DMA path
-- SD or flash storage bus
-- radio SPI bus
-- touch or NFC bus
-- shared mutex or controller domain
-
-Two features are in different business contexts but the same physical topology
-when they share a controller, chip-select bus, DMA path, or lock. On ESP targets
-such as T-Deck and T-LoRa Pager, display, SD, radio, and optional NFC can share
-the same SPI domain. Therefore a storage operation that holds the shared bus can
-freeze display progress even when it runs outside the UI owner task.
-
-### Display Frame Critical Resource
-
-Display flush, wake rendering, and input-visible feedback are frame-critical.
-They are not ordinary bus consumers. Any storage or protocol worker using a
-display-shared resource must yield to frame progress.
-
-Four budgets are distinct:
-
-| Budget | Meaning | Failure mode when missing |
-| --- | --- | --- |
-| `wait_budget` | Maximum time a caller waits to acquire a resource | Caller blocks before work starts |
-| `hold_budget` | Maximum expected time a holder keeps the resource | Display frames are starved after acquisition |
-| `burst_budget` | Maximum repeated acquisitions in a time window | Many short operations still freeze UI |
-| `frame_budget` | Maximum time display can be denied progress | Screen appears frozen while logs continue |
-
-Bounded waiting alone is not sufficient. A worker can acquire immediately and
-still hold the display-shared bus for tens of milliseconds during SD open/read.
-That violates this spec unless the operation is outside UI hot paths, explicitly
-budgeted, and followed by cooldown/backpressure.
 
 ## Pattern Decision
 
@@ -184,12 +164,12 @@ The design uses a small set of patterns with explicit responsibilities.
 | Command | Runtime intents queued to workers | Separates request creation from execution and enables cancellation, priority, diagnostics | Wire-format payloads or platform calls |
 | Observer / Event Bus | Completion, failure, state, feedback, UI effects | Reports asynchronous outcomes without coupling to the current page | Direct renderer mutation from background contexts |
 | State | Track recording, tile loading, storage health, chat send lifecycle | Makes cross-time behavior explicit instead of encoded in locks or call stacks | Page-local boolean flags |
-| Strategy | Bus access, tile loading, flush, persistence, retry policies | Keeps environment and mode differences explicit and swappable | Scattered `if target` branches |
+| Strategy | Device I/O, tile loading, flush, persistence, retry policies | Keeps environment and mode differences explicit and swappable | Scattered `if target` branches |
 | Bridge | Runtime rule side to platform execution side | Keeps shared business rules single-source while allowing ESP/nRF/Linux backends | Another adapter with business decisions |
 | Adapter | Wrap platform APIs | Contains technical integration details | A second business implementation |
-| Mediator / Arbiter | Shared resource scheduling | Replaces ad-hoc lock competition with observable scheduling | A new god object for product behavior |
-| Unit of Work | Track flush, node/contact save, config persistence | Batches durable writes and reduces SD/SPI transaction count | An unbounded memory buffer |
-| Circuit Breaker / Backpressure | Slow or failing SD/SPI/storage | Degrades features without freezing UI | Silent data loss |
+| Device service | Technical I/O boundary | Replaces ad-hoc hardware calls with observable semantic results | A new god object for product behavior |
+| Unit of Work | Track flush, node/contact save, config persistence | Batches durable writes and reduces device I/O calls | An unbounded memory buffer |
+| Circuit Breaker / Backpressure | Slow or failing device I/O/storage | Degrades features without freezing UI | Silent data loss |
 | Visitor / Effect Apply | Optional UI-effect application in owner context | Centralizes renderer-side effect application | Business decision engine |
 
 The primary axis is:
@@ -212,7 +192,7 @@ The first code slice for a runtime area must add:
 
 - value objects for intents, commands, events, state, priority, generation, and
   diagnostics
-- interfaces for queues, workers, bus/storage arbitration, platform adapters,
+- interfaces for queues, workers, device services, platform adapters,
   event sinks, and UI-effect application
 - fake implementations for clock, command queue, event bus, storage backend,
   bus arbiter, worker completion, and feedback presenter
@@ -309,12 +289,6 @@ classDiagram
     +publish(event)
   }
 
-  class IBusArbiter {
-    <<interface>>
-    +acquire(policy, command_id)
-    +release(token)
-  }
-
   class IPlatformStorageAdapter {
     <<interface>>
     +read(request)
@@ -331,7 +305,6 @@ classDiagram
   class RuntimePolicyStrategy {
     <<strategy>>
     +selectPriority(intent)
-    +selectBusPolicy(command)
     +selectRetry(command, result)
   }
 
@@ -343,7 +316,6 @@ classDiagram
   RuntimeFacade o-- RuntimePolicyStrategy
   IActiveWorker --> RuntimeCommand
   IActiveWorker --> RuntimeEvent
-  IActiveWorker o-- IBusArbiter
   IActiveWorker o-- IPlatformStorageAdapter
   IEventSink --> RuntimeEvent
   IUiEffectSink --> RuntimeEvent
@@ -374,11 +346,12 @@ flowchart TB
   subgraph Workers["Active Objects"]
     TileWorker["MapTileWorker"]
     TrackWorker["TrackStorageWorker"]
-    PersistWorker["PersistenceWorker"]
+    ConfigPersist["ConfigPersistenceRuntime"]
+    Maintenance["StorageMaintenanceRuntime"]
   end
 
   subgraph Platform["Platform Adapters"]
-    Bus["Bus / Storage Arbiter"]
+    DeviceIo["Device I/O Services"]
     Storage["Storage Adapter"]
     Decode["Decode Adapter"]
   end
@@ -389,15 +362,18 @@ flowchart TB
   Facade --> Policies
   Commands --> TileWorker
   Commands --> TrackWorker
-  Commands --> PersistWorker
-  TileWorker --> Bus
-  TrackWorker --> Bus
-  PersistWorker --> Bus
-  Bus --> Storage
+  Commands --> ConfigPersist
+  Commands --> Maintenance
+  TileWorker --> DeviceIo
+  TrackWorker --> DeviceIo
+  ConfigPersist --> DeviceIo
+  Maintenance --> DeviceIo
+  DeviceIo --> Storage
   TileWorker --> Decode
   TileWorker --> Events
   TrackWorker --> Events
-  PersistWorker --> Events
+  ConfigPersist --> Events
+  Maintenance --> Events
   Events --> State
   Events --> UiDrain
   UiDrain --> Renderer
@@ -408,7 +384,7 @@ Forbidden reverse dependencies:
 - platform adapter to page/widget
 - worker to concrete renderer
 - page/widget to storage adapter
-- page/widget to shared-SPI lock
+- page/widget to device I/O implementation
 - adapter to product policy
 - UI event drain to blocking worker execution
 
@@ -496,13 +472,14 @@ flowchart TB
   subgraph WorkerContext["Worker Context"]
     TileWorker["Tile worker"]
     TrackWorker["Track worker"]
-    PersistWorker["Persistence worker"]
+    ConfigPersist["Config persistence runtime"]
+    Maintenance["Storage maintenance runtime"]
     ProtocolWorker["Protocol worker"]
   end
 
   subgraph PlatformContext["Platform Adapter Context"]
     StorageAdapter["Storage adapter"]
-    BusAdapter["Bus / SPI adapter"]
+    DeviceIo["Device I/O adapter"]
     DecodeAdapter["Decode adapter"]
     ClockAdapter["Clock adapter"]
     RadioAdapter["Radio adapter"]
@@ -511,7 +488,7 @@ flowchart TB
   subgraph TestContext["Simulation Context"]
     FakeClock["Fake clock"]
     FakeStorage["Fake storage"]
-    FakeBus["Fake bus arbiter"]
+    FakeDeviceIo["Fake device I/O"]
     FakeUi["Fake UI owner"]
     FakeEvents["Fake event bus"]
   end
@@ -523,14 +500,13 @@ flowchart TB
   Facades --> Policies
   Commands --> TileWorker
   Commands --> TrackWorker
-  Commands --> PersistWorker
+  Commands --> ConfigPersist
+  Commands --> Maintenance
   Commands --> ProtocolWorker
   TileWorker --> StorageAdapter
   TrackWorker --> StorageAdapter
-  PersistWorker --> StorageAdapter
-  TileWorker --> BusAdapter
-  TrackWorker --> BusAdapter
-  PersistWorker --> BusAdapter
+  ConfigPersist --> StorageAdapter
+  Maintenance --> StorageAdapter
   TileWorker --> DecodeAdapter
   ProtocolWorker --> RadioAdapter
   WorkerContext --> Events
@@ -573,11 +549,12 @@ flowchart LR
     CommandPump["Command pump"]
     TileWorker["Tile worker"]
     TrackWorker["Track worker"]
-    PersistWorker["Persistence worker"]
+    ConfigPersist["Config persistence runtime"]
+    Maintenance["Storage maintenance runtime"]
   end
 
   subgraph ResourceOwner["Resource owner"]
-    Arbiter["Storage / bus arbiter"]
+    DeviceIo["Device I/O service"]
     Storage["SD / flash adapter"]
     Decode["Decode adapter"]
   end
@@ -592,11 +569,13 @@ flowchart LR
   ProtocolIntent --> CommandPump
   CommandPump --> TileWorker
   CommandPump --> TrackWorker
-  CommandPump --> PersistWorker
-  TileWorker --> Arbiter
-  TrackWorker --> Arbiter
-  PersistWorker --> Arbiter
-  Arbiter --> Storage
+  CommandPump --> ConfigPersist
+  CommandPump --> Maintenance
+  TileWorker --> DeviceIo
+  TrackWorker --> DeviceIo
+  ConfigPersist --> DeviceIo
+  Maintenance --> DeviceIo
+  DeviceIo --> Storage
   TileWorker --> Decode
   TileWorker --> UiDrain
   TrackWorker --> UiDrain
@@ -608,479 +587,72 @@ one physical thread, the same ownership model still applies cooperatively:
 slow work must be incremental, budgeted, and represented as commands/events
 rather than blocking UI execution.
 
-When storage and display share a physical SPI domain, the storage worker is also
-not the resource owner. It owns command state. A bus/storage scheduler owns
-permission to occupy the display-shared resource and must apply wait, hold,
-burst, and frame budgets.
-
-## UML Bus Arbitration Class Model
-
-```mermaid
-classDiagram
-  class BusAccessPolicy {
-    <<enum>>
-    DisplayFrameCritical
-    UiNeverBlock
-    InteractiveWorkerBounded
-    BackgroundWorkerBounded
-    DurableCommit
-    RecoveryExclusive
-  }
-
-  class BusAcquireRequest {
-    +resource
-    +policy
-    +command_id
-    +deadline_ms
-    +origin
-  }
-
-  class BusAccessToken {
-    +resource
-    +owner
-    +acquired_ms
-    +valid
-  }
-
-  class BusAcquireResult {
-    +status
-    +token
-    +diagnostics
-  }
-
-  class BusDiagnostics {
-    +resource
-    +owner_task
-    +wait_ms
-    +hold_ms
-    +policy
-    +command_id
-  }
-
-  class IBusArbiter {
-    <<interface>>
-    +acquire(request) BusAcquireResult
-    +release(token)
-    +health() StorageHealthState
-  }
-
-  class IBusAdapter {
-    <<interface>>
-    +tryAcquire(timeout_ms)
-    +release()
-  }
-
-  class BusPolicyStrategy {
-    <<strategy>>
-    +select(command) BusAccessPolicy
-    +timeoutFor(policy)
-  }
-
-  class StorageHealthState {
-    <<state>>
-    +status
-    +last_error
-    +last_transition_ms
-  }
-
-  class StorageBusArbiter {
-    +acquire(request)
-    +release(token)
-    +health()
-  }
-
-  IBusArbiter <|.. StorageBusArbiter
-  StorageBusArbiter o-- IBusAdapter
-  StorageBusArbiter o-- BusPolicyStrategy
-  StorageBusArbiter o-- StorageHealthState
-  BusAcquireRequest --> BusAccessPolicy
-  BusAcquireResult --> BusAccessToken
-  BusAcquireResult --> BusDiagnostics
-```
-
-## UML ESP Shared-SPI Lock Mechanism
-
-This section is the normative specification for the ESP shared-SPI lock
-mechanism that protects UI responsiveness when display refresh, SD-backed LVGL
-FS, map tile IO, track persistence, radio, NFC, USB, and other peripherals share
-one physical SPI controller.
-
-The mechanism is intentionally specified in `docs/specification`, not in
-historical best-practice notes. Any future change to the lock behavior must
-update this section and the code bindings below in the same commit.
-
-### Lock Mechanism Distinctions
-
-| Concept | Meaning | Current code binding |
-| --- | --- | --- |
-| Physical shared bus | The real contested resource: board-level SPI controller and chip-select domain | `platform/esp/common/include/platform/esp/common/shared_spi_lock.h` |
-| Frame-critical display consumer | Display flush, wake rendering, and input-visible feedback | `platform/esp/boards/src/display/DisplayInterface.cpp` |
-| Worker-domain storage consumer | Map tile SD reads, track persistence, node/team/config stores, pack IO | Platform/runtime adapters that use `SharedSpiLockGuard` or `IBusArbiter` |
-| LVGL FS adapter | Technical adapter allowing LVGL to read SD/flash paths; not a scheduler and not a business owner | `platform/esp/arduino_common/src/LV_Helper_v9.cpp` |
-| Runtime bus arbiter | Policy boundary that turns commands into bounded bus acquire/release attempts | `modules/core_sys/include/sys/runtime_async.h`, ESP map binding in `platform/esp/arduino_common/src/ui/widgets/map/map_tiles.cpp` |
-| Display pressure signal | A recent display lock timeout that tells worker-domain storage to cool down | `note_display_spi_timeout()`, `display_spi_recently_timed_out()` |
-| Legacy display-lock alias | Old naming that implied the lock belonged to display instead of the bus | Burned down; `display_spi_lock()` / `display_spi_unlock()` must not exist in active headers |
-
-The most important distinction is this:
-
-```text
-The lock belongs to the physical shared SPI bus.
-Display is the frame-critical client of that bus, not the owner of the concept.
-```
-
-Therefore code outside the display driver must not name the mechanism as a
-display-private lock. New code must use runtime bus ports, `shared_spi_lock*`,
-or `SharedSpiLockGuard` depending on layer.
-
-### Why LVGL FS Does Not Solve This
-
-LVGL can register file-system callbacks. That gives LVGL a path to call open,
-read, write, seek, tell, and dir operations. It does not give LVGL knowledge of:
-
-- which board peripherals share one physical SPI controller
-- which consumer is frame-critical
-- whether a display flush just timed out
-- how many storage commands may run in one burst
-- whether a tile load is stale after a map drag
-- whether a track flush is durable or background
-
-For that reason `init_sd_fs_driver()` is only a platform adapter registration.
-It does not make SD and display contention safe by itself. The callbacks in
-`LV_Helper_v9.cpp` must remain short, bounded, and allowed to fail with busy or
-failed-open semantics. Product/UI code must not use LVGL FS as a synchronous
-storage probe from renderer hot paths.
-
-### Static Class Binding
-
-```mermaid
-classDiagram
-  class SharedSpiLockPort {
-    <<platform port>>
-    +shared_spi_lock(wait_ticks)
-    +shared_spi_lock_with_owner(wait_ticks, owner)
-    +shared_spi_unlock()
-    +note_display_spi_timeout(now_ms)
-    +display_spi_recently_timed_out(now_ms, window_ms)
-  }
-
-  class SharedSpiLockGuard {
-    <<RAII adapter>>
-    +SharedSpiLockGuard(wait_ticks, owner)
-    +locked()
-  }
-
-  class LilyGoDispArduinoSPI {
-    <<frame-critical adapter>>
-    +pushColors(area)
-    +writeCommand(cmd)
-    +lock(wait_ticks, owner)
-    +unlock()
-    +lockOwnerLabel()
-    +lastLockHeldMs()
-  }
-
-  class LvglSdFsAdapter {
-    <<platform adapter>>
-    +sd_fs_open(path, mode)
-    +sd_fs_read(file, buffer, bytes)
-    +sd_fs_write(file, buffer, bytes)
-    +sd_fs_dir_open(path)
-  }
-
-  class RuntimeBusAbstractions {
-    <<runtime contract>>
-    +BusAcquireRequest
-    +BusAccessToken
-    +BusAcquireResult
-    +IBusArbiter
-    +StorageHealthState
-  }
-
-  class EspMapTileBusArbiter {
-    <<ESP adapter>>
-    +acquire(request)
-    +release(token)
-    +health()
-  }
-
-  class MapTileWorker {
-    <<active object>>
-    +execute(command, now_ms)
-  }
-
-  class SdMapTileFileSystem {
-    <<storage adapter>>
-    +exists(path)
-    +isDirectory(path)
-    +readFile(path, buffer, capacity)
-  }
-
-  SharedSpiLockGuard --> SharedSpiLockPort
-  LilyGoDispArduinoSPI --> SharedSpiLockPort : publishes pressure
-  LvglSdFsAdapter --> SharedSpiLockGuard
-  RuntimeBusAbstractions <|.. EspMapTileBusArbiter
-  EspMapTileBusArbiter --> SharedSpiLockPort
-  MapTileWorker --> RuntimeBusAbstractions
-  MapTileWorker --> SdMapTileFileSystem
-  SdMapTileFileSystem --> SharedSpiLockPort : chunk yield
-```
-
-Static ownership rules:
-
-- `LilyGoDispArduinoSPI` is allowed to own the concrete mutex because it is the
-  platform object that initializes the shared display SPI implementation on the
-  Arduino ESP boards.
-- The public platform name remains `shared_spi_*`; callers must not use or
-  reintroduce `display_spi_*` aliases.
-- Runtime workers should depend on `IBusArbiter`, not directly on the physical
-  lock. A temporary ESP adapter may call `shared_spi_*` while it implements the
-  arbiter port.
-- LVGL FS callbacks are adapters. They must not contain product policy, retry
-  strategy, tile priority, or page state.
-
-### Component Deployment
-
-```mermaid
-flowchart TB
-  subgraph UiDomain["UI realtime domain"]
-    LvglTick["lv_timer_handler / input drain"]
-    DisplayFlush["Display flush callback"]
-    WakeRender["Wake/sleep visual transition"]
-  end
-
-  subgraph RuntimeDomain["Runtime command domain"]
-    TileRuntime["MapTileAsyncRuntime"]
-    TrackRuntime["Track runtime"]
-    PersistRuntime["Persistence runtime"]
-    CommandQueue["Command queues"]
-  end
-
-  subgraph WorkerDomain["Worker / adapter domain"]
-    TileWorker["MapTileWorker"]
-    TrackWorker["TrackStorageWorker"]
-    PersistWorker["PersistenceWorker"]
-    LvglFs["LVGL SD FS adapter"]
-  end
-
-  subgraph BusDomain["Physical shared-SPI domain"]
-    DisplayLock["LilyGoDispArduinoSPI mutex"]
-    SharedPort["shared_spi_* port"]
-    Pressure["display pressure timestamp"]
-  end
-
-  subgraph StorageDomain["Storage media"]
-    SdRuntime["SdRuntimeFile / SdRuntimeDir"]
-    SdCard["SD card"]
-  end
-
-  LvglTick --> DisplayFlush
-  DisplayFlush --> DisplayLock
-  DisplayLock --> Pressure
-  TileRuntime --> CommandQueue
-  TrackRuntime --> CommandQueue
-  PersistRuntime --> CommandQueue
-  CommandQueue --> TileWorker
-  CommandQueue --> TrackWorker
-  CommandQueue --> PersistWorker
-  TileWorker --> SharedPort
-  TrackWorker --> SharedPort
-  PersistWorker --> SharedPort
-  LvglFs --> SharedPort
-  SharedPort --> DisplayLock
-  SharedPort --> SdRuntime
-  SdRuntime --> SdCard
-  Pressure --> TileWorker
-```
-
-The UI realtime domain may be denied a single frame, but it must never wait
-indefinitely. Worker-domain storage may be delayed, cancelled, retried, or
-marked busy when display pressure exists.
-
-### Display Flush Sequence
-
-```mermaid
-sequenceDiagram
-  participant UI as UI owner / LVGL
-  participant Display as LilyGoDispArduinoSPI
-  participant Lock as Shared SPI mutex
-  participant Pressure as Display pressure signal
-
-  UI->>Display: pushColorsArea()
-  Display->>Lock: lock(wait=frame budget, owner="display")
-  alt acquired
-    Lock-->>Display: token
-    Display->>Display: SPI transaction
-    Display->>Lock: unlock()
-    Display-->>UI: flush complete
-  else timed out
-    Display->>Pressure: note_display_spi_timeout(now_ms)
-    Display-->>UI: return without blocking
-  end
-```
-
-Display timeout is not a normal success path. It is a pressure signal that
-storage workers must observe. Returning from the flush is still required because
-blocking inside display refresh prevents input, wake rendering, and page
-navigation from recovering.
-
-### LVGL SD FS Callback Sequence
-
-```mermaid
-sequenceDiagram
-  participant LVGL as LVGL file consumer
-  participant Fs as LVGL SD FS adapter
-  participant Guard as SharedSpiLockGuard
-  participant SD as SdRuntimeFile
-
-  LVGL->>Fs: sd_fs_open/read/write/dir()
-  Fs->>Guard: acquire(short bounded wait)
-  alt acquired
-    Fs->>SD: perform one storage operation
-    Fs->>Guard: release on scope exit
-    Fs-->>LVGL: ok/result
-  else busy
-    Fs-->>LVGL: LV_FS_RES_BUSY or failed open
-  end
-```
-
-The adapter must not retry in a loop. A busy result is valid and lets the caller
-or runtime decide whether to defer, cancel, or show pending state. This keeps
-legacy LVGL FS callers from monopolising the UI owner task.
-
-### Map Tile Worker Sequence With Display Pressure
-
-```mermaid
-sequenceDiagram
-  participant UI as Map UI owner
-  participant Runtime as MapTileAsyncRuntime
-  participant Worker as MapTileWorker
-  participant Arbiter as EspMapTileBusArbiter
-  participant Bus as shared_spi_* port
-  participant TileStore as SdMapTileFileSystem
-  participant Events as MapTileEventSink
-
-  UI->>Runtime: requestVisibleTiles(plan, generation)
-  Runtime->>Worker: enqueue LoadTileCommand
-  UI-->>UI: return to input/render loop
-  Worker->>Arbiter: acquire(command policy)
-  Arbiter->>Bus: display_spi_recently_timed_out()
-  alt recent display pressure or cooldown
-    Arbiter-->>Worker: Busy
-    Worker->>Events: ResourceBusy(generation, tile)
-  else acquired
-    Arbiter->>Bus: shared_spi_lock_with_owner("map_tile_sd")
-    Bus-->>Arbiter: token
-    Worker->>TileStore: readFile()
-    loop between tile chunks
-      TileStore->>Bus: shared_spi_unlock()
-      TileStore->>Bus: bounded reacquire
-    end
-    Worker->>Arbiter: release(token)
-    Arbiter->>Bus: shared_spi_unlock()
-    Arbiter->>Arbiter: cooldown based on hold/display pressure
-    Worker->>Events: Ready or Failed
-  end
-  Events-->>UI: drain at most one tile event per UI pass
-```
-
-This is the current ESP Arduino map binding. It is conforming only because:
-
-- the UI owner submits a command and returns
-- the worker owns the SD read
-- `EspMapTileBusArbiter` checks display pressure before acquiring
-- tile reads release the bus between chunks
-- completed events are drained with a UI budget
-
-Moving any of these operations back into a page callback, LVGL timer, input
-handler, or renderer mutation path is a regression.
-
-Display pressure is a storage-worker backpressure signal, not permission to
-stop UI-domain map state work. While pressure is recent, the UI owner may still
-calculate visible tile refs, update anchors, move already-created LVGL tile
-objects, rebuild render queues, and drain a bounded number of already-delivered
-tile events. The pressure signal must reduce or pause new SD-backed worker
-requests; it must not make viewport/layout calculation return early.
-
-### Lock Health State
-
-```mermaid
-stateDiagram-v2
-  [*] --> Healthy
-  Healthy --> DisplayPressure: display lock timeout
-  DisplayPressure --> WorkerCooldown: worker observes pressure
-  WorkerCooldown --> Healthy: cooldown elapsed without new timeout
-  DisplayPressure --> Slow: repeated busy/timed out acquire
-  Slow --> Degraded: consecutive worker acquire failures >= threshold
-  Degraded --> Recovering: recovery/backoff window starts
-  Recovering --> Healthy: acquired and released within budget
-  Recovering --> Degraded: pressure continues
-```
-
-The state is intentionally driven by observable resource events, not by page
-state. A map page, contacts page, tracker page, chat page, or boot UI can all be
-affected by the same physical contention.
-
-### Code Binding Table
-
-| Role | File | Required behavior |
-| --- | --- | --- |
-| Runtime lock contract | `modules/core_sys/include/sys/runtime_async.h` | Owns `BusAccessPolicy`, `BusAcquireRequest`, `BusAccessToken`, `BusAcquireResult`, `IBusArbiter`, `StorageHealthState`. Shared business/runtime code depends on these abstractions. |
-| Shared SPI port | `platform/esp/common/include/platform/esp/common/shared_spi_lock.h` | Names the physical bus. Must not expose `display_spi_lock` aliases. |
-| Arduino display mutex implementation | `platform/esp/boards/src/display/DisplayInterface.cpp` | Uses bounded display waits; logs and records pressure; never waits forever in `pushColors*`. |
-| IDF no-contention implementation | `platform/esp/idf_common/src/shared_spi_lock.cpp` | Provides a no-op conforming implementation for ESP IDF targets that do not use the Arduino shared bus path. |
-| LVGL SD FS adapter | `platform/esp/arduino_common/src/LV_Helper_v9.cpp` | Uses short bounded acquisitions and returns busy/failed-open instead of retrying. |
-| Map runtime worker contract | `modules/ui_map_runtime/src/map_tiles/map_tile_async_runtime.cpp` | Executes tile commands through `IBusArbiter` and publishes ready/busy/failed events. |
-| ESP map bus arbiter | `platform/esp/arduino_common/src/ui/widgets/map/map_tiles.cpp` | Checks display pressure, applies cooldown, maps runtime policy to short waits, and releases bus after each tile command. |
-| ESP map tile SD adapter | `platform/esp/arduino_common/src/ui/widgets/map/map_tiles.cpp` | Reads tile payload in worker domain and yields the bus between chunks. Only confirmed not-found results may enter missing-tile memory; retryable read failures remain requestable after short backoff. |
-
-### Forbidden Bypasses
-
-The following are non-conforming in active UI-visible paths:
-
-- adding `display_spi_lock()` / `display_spi_unlock()` aliases back to public
-  headers
-- page/widget code calling `shared_spi_lock*`
-- page/widget code calling Arduino `SD.open`, `SdRuntimeFile`, or LVGL SD FS to
-  probe whether content exists
-- LVGL timer callbacks performing synchronous SD open/read/list operations
-- storage adapters spinning until the bus becomes available
-- worker loops draining many SD operations without cooldown after display
-  pressure
-- `lv_refr_now()` or forced flush used as feedback while storage owns the
-  display-shared bus
-
-Allowed exceptions must be explicit platform adapter code and must document
-their wait, hold, burst, and frame budgets.
-
-### Legacy Burn-Down Status
-
-| Legacy path | Status | Deletion/containment rule |
-| --- | --- | --- |
-| `display_spi_lock` / `display_spi_unlock` public aliases | Burned down | No active declaration or inline alias may remain. New code must use `shared_spi_*` or runtime bus ports. |
-| `display_spi_lock.cpp` source filename | Burned down | Platform implementations must be named after `shared_spi_lock`, not display-private terminology. |
-| ESP map UI source synchronous storage behavior | Burned down | UI map source is path/planning only; worker source performs SD reads. |
-| LVGL SD FS adapter reachable from legacy resource paths | Contained | Adapter remains but uses short bounded lock attempts and must not be used as a UI hot-path storage probe. |
-| ESP map worker direct physical lock calls | Contained adapter | Allowed only inside `EspMapTileBusArbiter` and tile SD adapter until all ESP storage paths use a common `IBusArbiter` implementation. |
-| Team UI store direct SD persistence | Remaining legacy | Must move behind team/storage runtime worker in a separate migration. |
-| Route/track file load from GPS page | Remaining legacy | Must move behind route/track runtime worker in a separate migration. |
-| Pack repository direct file operations | Remaining legacy | Must move behind pack repository commands/events. |
-
-### Simulation Requirements
-
-Every future change to this mechanism must have a hardware-free simulation or
-host test that covers:
-
-- display acquire timeout while storage owns the bus
-- worker receiving `Busy` because display pressure was recent
-- worker cooldown ending and a later command succeeding
-- stale map generation completion being ignored
-- LVGL SD FS callback returning busy rather than blocking
-- deletion guard proving no `display_spi_lock` alias or UI-page direct SD probe
-  was reintroduced
-
-The simulation may use fake `IBusArbiter`, fake clock, fake event sink, fake UI
-drain, and fake storage backend. It must not require real SD, LVGL, display SPI,
-or radio hardware.
+The storage runtimes are not the device owner. They own operation state and
+call semantic device services. Those services own the physical transaction
+mechanism described in `docs/spi_bus_architecture.md`.
+
+## Device I/O Boundary
+
+Workers call semantic device services for storage, display, and radio work.
+Those services own all physical transactions. The runtime layer receives only
+semantic results. The complete shared-device mechanism is specified only in
+`docs/spi_bus_architecture.md`.
+
+### Long-Running Progress Overlay Boundary
+
+`busy_overlay` is the single visual component for modal long-running progress.
+`foreground_operation_overlay` is the only ownership boundary for code that
+publishes user-visible long-running operation state. `ProgressOverlayPresenter`
+is only the renderer adapter behind that coordinator; page code and runtime
+status sync code must not own a presenter directly.
+
+Foreground operation snapshots are fixed-size UI projections. They describe:
+
+- operation slot (`FirmwareUpdate`, `PackageInstall`, `I18nFontLoad`,
+  `RouteImage`, or `SettingsAction`)
+- presentation policy (`Hidden`, `PageOnly`, `Overlay`, or
+  `OverlayImmediate`)
+- priority
+- title, detail, optional result, and optional `progress_percent`
+
+They are not task executors, storage transactions, JSON payloads, or business
+state owners. The underlying runtimes continue to own their real state.
+
+The foreground operation runtime is used by:
+
+- external font loading, where the presenter flushes the modal before the
+  device font service begins its foreground load
+- package/language-pack installation, where download status may publish
+  `progress_percent` while SD writes stay in the storage runtime/file adapter
+- firmware update, where OTA status publishes `progress_percent` and the
+  settings page only presents the status
+- route image download/cache, where user-triggered KML image download publishes
+  a foreground operation while route preview and GPS map pages keep their own
+  page-local route/image context widgets
+
+The illegal shortcut is to treat every progress bar as a device transaction.
+Progress UI describes user-visible operation state; device services own
+physical storage, display, and radio work.
+
+Route image tasks are explicitly split by presentation semantics:
+
+- `UserVisible` route image tasks may publish a global overlay.
+- `PageOnly` route image tasks may update page-local status such as route image
+  strips, counters, and map loader pause state, but must not steal the global
+  overlay.
+- `Hidden` route image tasks are status-only.
+
+Route image HTTP downloads use `wifi_access` with the `RouteStorage` client.
+They must not make an HTTP transfer a storage transaction. Cache/build stages
+call the storage service for bounded semantic operations; they must not own
+device transaction state.
+
+### Device I/O Delegation
+
+UI/runtime specifications describe commands, worker ownership, semantic
+results, and event delivery. The concrete display, radio, and storage
+services perform physical I/O behind the device boundary. Their shared-device
+transaction rules are defined only in `docs/spi_bus_architecture.md`.
 
 ## UML Map Tile Class Model
 
@@ -1143,7 +715,6 @@ classDiagram
   MapTileRuntime --> LoadTileCommand
   MapTileRuntime o-- MapTileStateMachine
   MapTileWorker --> LoadTileCommand
-  MapTileWorker o-- IBusArbiter
   MapTileWorker o-- IMapTileSource
   MapTileWorker o-- IMapTileDecoder
   MapTileWorker --> MapTileEvent
@@ -1215,75 +786,74 @@ classDiagram
   TrackRuntime o-- TrackFlushPolicy
   TrackStorageWorker --> TrackCommand
   TrackStorageWorker o-- ITrackFileAdapter
-  TrackStorageWorker o-- IBusArbiter
   TrackStorageWorker --> TrackEvent
   TrackRuntime --> TrackEvent
 ```
 
-## UML Persistence Class Model
+## UML Configuration Persistence Class Model
 
 ```mermaid
 classDiagram
-  class PersistenceRuntime {
-    +markDirty(store_key)
-    +requestSave(store_key, policy)
-    +handle(event)
+  class ConfigPersistenceRuntime {
+    +initialize(baseline)
+    +submit(desired, changes, now_ms, urgency)
+    +takeDue(now_ms, work)
+    +complete(generation, result, now_ms)
   }
 
-  class PersistenceCommand {
-    +command_id
-    +store_key
-    +policy
-    +deadline_ms
+  class AppConfigEdit {
+    +config()
+    +commit(change_set)
+    +cancel()
   }
 
-  class PersistencePolicy {
-    <<strategy>>
-    DebouncedSave
-    BatchSave
-    ImmediateCriticalSave
-    DropDuplicateSave
+  class AppConfigChangeSet {
+    +domains
+    +generation
   }
 
-  class DirtyStoreRegistry {
-    +markDirty(store_key)
-    +takeDue(now_ms)
-    +hasPending(store_key)
+  class ConfigPersistenceWork {
+    +snapshot
+    +changes
+    +generation
   }
 
-  class PersistenceWorker {
-    +submit(command)
-    +tick(now_ms)
+  class PersistenceGeneration {
+    <<value>>
+    +value
   }
 
-  class IStoreSnapshotProvider {
+  class PersistenceResultKind {
+    <<enumeration>>
+    Completed
+    InProgress
+    StateBusy
+    DeviceUnavailable
+    RetryLater
+    IoError
+    Cancelled
+    StaleGeneration
+  }
+
+  class ISemanticStorageAdapter {
     <<interface>>
-    +snapshot(store_key)
+    +begin(operation, generation)
+    +step(operation, generation, budget)
+    +cancelAtStepBoundary(operation, generation)
   }
 
-  class IStoreStorageAdapter {
-    <<interface>>
-    +write(store_key, bytes)
-    +read(store_key)
-  }
-
-  class PersistenceEvent {
-    +kind
-    +store_key
-    +command_id
-    +error
-  }
-
-  PersistenceRuntime o-- DirtyStoreRegistry
-  PersistenceRuntime --> PersistenceCommand
-  PersistenceCommand --> PersistencePolicy
-  PersistenceWorker --> PersistenceCommand
-  PersistenceWorker o-- IStoreSnapshotProvider
-  PersistenceWorker o-- IStoreStorageAdapter
-  PersistenceWorker o-- IBusArbiter
-  PersistenceWorker --> PersistenceEvent
-  PersistenceRuntime --> PersistenceEvent
+  ConfigPersistenceRuntime o-- ConfigPersistenceWork
+  ConfigPersistenceRuntime --> AppConfigChangeSet
+  ConfigPersistenceWork --> PersistenceGeneration
+  ConfigPersistenceRuntime --> PersistenceResultKind
+  AppConfigEdit --> AppConfigChangeSet
 ```
+
+`ConfigPersistenceRuntime` is the only owner of configuration persistence
+state. `AppConfigEdit` creates an immutable intent from a caller-owned edit;
+the runtime snapshots the authoritative configuration and owns the pending and
+in-flight payloads. Domain stores such as contacts, peers, maps, and tracks do
+not enter this model merely because they also use SD or flash.
 
 ## UML Feedback Class Model
 
@@ -1458,7 +1028,7 @@ sequenceDiagram
   participant Track as TrackRuntime
   participant Queue as Command Queue
   participant Worker as Workers
-  participant Bus as Bus Arbiter
+  participant DeviceIo as Device I/O service
   participant Events as Event Bus
 
   UI->>Map: requestVisibleTiles(generation=42, interactive)
@@ -1466,39 +1036,40 @@ sequenceDiagram
   GPS->>Track: appendPoint(point)
   Track->>Queue: enqueue/buffer AppendTrackPointCommand
   Queue->>Worker: dispatch tile before idle/background work
-  Worker->>Bus: acquire InteractiveWorkerBounded
-  Bus-->>Worker: acquired
+  Worker->>DeviceIo: execute tile read
+  DeviceIo-->>Worker: ready or retry later
   Worker->>Events: MapTileReady(generation=42)
   Queue->>Worker: dispatch batched track write
-  Worker->>Bus: acquire BackgroundWorkerBounded
-  Bus-->>Worker: delayed or acquired
+  Worker->>DeviceIo: execute track write
+  DeviceIo-->>Worker: completed or deferred
   Worker->>Events: TrackFlushSucceeded or Backpressure
   Events->>UI: drain UI-safe events
 ```
 
-### NodeInfo Storm With Debounced Persistence
+### NodeInfo Storm With Domain-Owned Maintenance
 
 ```mermaid
 sequenceDiagram
   participant Radio as Radio Task
   participant Runtime as Protocol Runtime
   participant Contacts as Contact/Node Runtime
-  participant Persist as PersistenceRuntime
-  participant Worker as PersistenceWorker
-  participant Store as Storage Adapter
+  participant StoreOwner as Contact/Node Store Owner
+  participant Maintenance as StorageMaintenanceRuntime
+  participant Adapter as Semantic Storage Adapter
   participant UI as UI Owner
 
   loop many packets
     Radio->>Runtime: incoming NodeInfo/Position
     Runtime->>Contacts: update in-memory projection
-    Contacts->>Persist: markDirty(nodes)
+    Contacts->>StoreOwner: apply domain update
     Contacts->>UI: publish projection update
   end
-  Persist->>Persist: coalesce dirty notifications
-  Persist->>Worker: enqueue SaveStoreCommand after debounce
-  Worker->>Store: write snapshot
-  Worker->>Persist: PersistenceSaved/PersistenceFailed
-  Persist->>UI: optional storage feedback event
+  StoreOwner->>StoreOwner: coalesce domain changes
+  StoreOwner->>Maintenance: request maintenance when policy is due
+  Maintenance->>Adapter: hydrate or compact store
+  Adapter-->>Maintenance: result(generation)
+  Maintenance-->>StoreOwner: completion or retry state
+  StoreOwner->>UI: optional storage feedback event
 ```
 
 ### Chat Send Result While Page Changes
@@ -1530,16 +1101,16 @@ sequenceDiagram
   participant Power as Power Manager
   participant Runtime as Runtime Facade
   participant Worker as Storage Worker
-  participant Bus as Bus Arbiter
+  participant DeviceIo as Device I/O service
 
   UI->>Runtime: submit command
   Runtime->>Worker: enqueue slow storage work
-  Worker->>Bus: acquire BackgroundWorkerBounded
+  Worker->>DeviceIo: execute storage command
   Power->>UI: sleep timeout event
   UI->>UI: render sleep transition
   Power->>UI: wake input
   UI->>UI: process wake input
-  Bus-->>Worker: storage complete later
+  DeviceIo-->>Worker: storage complete later
   Worker->>UI: publish completion event
 ```
 
@@ -1569,16 +1140,16 @@ classDiagram
     +drain()
   }
 
-  class FakeStorageBackend {
+  class FakeSemanticStorageAdapter {
     +scriptDelay(operation, ms)
     +scriptFailure(operation, error)
-    +read(request)
-    +write(request)
+    +execute(operation)
+    +result()
   }
 
-  class FakeBusArbiter {
-    +scriptAcquire(result)
-    +acquire(request)
+  class FakeDeviceIo {
+    +scriptResult(result)
+    +execute(request)
     +diagnostics()
   }
 
@@ -1596,8 +1167,8 @@ classDiagram
   RuntimeHarness o-- FakeClock
   RuntimeHarness o-- FakeCommandQueue
   RuntimeHarness o-- FakeEventBus
-  RuntimeHarness o-- FakeStorageBackend
-  RuntimeHarness o-- FakeBusArbiter
+  RuntimeHarness o-- FakeSemanticStorageAdapter
+  RuntimeHarness o-- FakeDeviceIo
   RuntimeHarness o-- FakeUiOwner
   RuntimeHarness o-- FakeFeedbackPresenter
 ```
@@ -1614,8 +1185,8 @@ flowchart LR
   Intent --> Facade["Runtime Facade"]
   Facade --> CommandQueue["Command Queue"]
   CommandQueue --> Worker["Active Object Worker"]
-  Worker --> Arbiter["Storage / Bus Arbiter"]
-  Arbiter --> Adapter["Platform Adapter"]
+  Worker --> DeviceIo["Device I/O service"]
+  DeviceIo --> Adapter["Platform Adapter"]
   Adapter --> Completion["Completion Result"]
   Completion --> EventBus["Event Bus"]
   EventBus --> State["Runtime State Projection"]
@@ -1629,42 +1200,12 @@ or app service. The rule is the same: submit intent or command, then return.
 The UI event drain is the only step in this flow that may touch concrete UI
 objects.
 
-## Shared Resource Arbitration
+## Device I/O Delegation
 
-Direct shared-SPI locking from feature code is legacy. The target design is a
-bus/storage arbiter with explicit policies:
-
-| Policy | Intended callers | Wait behavior | Failure behavior |
-| --- | --- | --- | --- |
-| `DisplayFrameCritical` | display flush, wake render, input-visible feedback | frame-budget bounded, highest priority | skip/defer non-critical storage |
-| `UiNeverBlock` | UI event/timer/input paths | no wait or frame-budget-only try | defer, cancel, or render pending state |
-| `InteractiveWorkerBounded` | map tile worker during drag | short bounded wait | cancel stale tile or retry later |
-| `BackgroundWorkerBounded` | track append, node save, prefetch | bounded wait with backpressure | reschedule, batch, or enter degraded state |
-| `DurableCommit` | explicit stop/close/final flush | bounded but higher priority | report durable failure event |
-| `RecoveryExclusive` | storage remount or card recovery | exclusive, never from UI | publish degraded/unavailable state |
-
-Every acquisition must be diagnosable:
-
-```text
-resource
-owner_task_or_thread
-command_id
-wait_start_ms
-acquired_ms
-released_ms
-hold_ms
-wait_ms
-policy
-```
-
-The arbiter expresses scheduling intent. A mutex only expresses exclusion. Code
-that uses a bare blocking mutex to coordinate UI, SD, and display refresh is not
-conformant.
-
-For display-shared SPI, storage work must use a try-lock or bounded acquisition
-and must enter cooldown/backpressure after every slow hold. The scheduler may
-drop, defer, or mark commands `ResourceBusy`; it must not spin on the lock or
-drain a burst of SD operations while display is trying to render.
+Workers submit semantic operations to device services. Device services own
+physical arbitration and return semantic completion, retry, unavailable, or
+failure results. The shared-device mechanism is specified only in
+`docs/spi_bus_architecture.md`.
 
 ## Map Tile Runtime Design
 
@@ -1677,14 +1218,14 @@ sequenceDiagram
   participant Runtime as MapTileRuntime
   participant Worker as MapTileWorker
   participant Store as Tile Storage Adapter
-  participant Bus as Storage/Bus Arbiter
+  participant DeviceIo as Device I/O service
   participant Events as Event Bus
 
   UI->>Runtime: requestVisibleTiles(viewport, generation)
   Runtime->>Worker: enqueue LoadTileCommand(ref, generation, priority)
   UI-->>UI: return to input/render loop
-  Worker->>Bus: acquire(policy)
-  Bus-->>Worker: acquired or retry later
+  Worker->>DeviceIo: execute tile read
+  DeviceIo-->>Worker: ready or retry later
   Worker->>Store: read/decode tile payload
   Worker->>Events: MapTileReady/Failed(ref, generation, image_ref)
   Events->>UI: drain event on UI owner context
@@ -1694,7 +1235,7 @@ sequenceDiagram
 Mandatory behavior:
 
 - LVGL timers and input callbacks must not open tile files.
-- LVGL timers and input callbacks must not wait for shared-SPI.
+- LVGL timers and input callbacks must not wait for device I/O.
 - Tile file lookup/read/decode must not be performed from drag, timer, input,
   or page render callbacks.
 - Tile requests carry a viewport generation.
@@ -1718,13 +1259,11 @@ ESP active loader rules:
 - `tile_loader_step()` may calculate visible tile refs, move existing renderer
   objects, apply completed in-memory tile events, and submit/cancel runtime
   events.
-- `tile_loader_step()` must not call `lv_fs_open`, SD file APIs, or a
-  shared-SPI lock.
-- The ESP worker adapter uses the SD runtime file adapter and acquires
-  display-shared SPI only through the bus/storage scheduler. For visible tiles
-  it must use try-lock or tightly bounded acquisition, publish `ResourceBusy`
-  when the bus is not immediately available, and apply cooldown after any slow
-  hold.
+- `tile_loader_step()` must not call `lv_fs_open`, SD file APIs, or a device
+  I/O transaction.
+- The ESP worker adapter uses the SD storage service. It may return
+  `RetryLater` when the device cannot complete the read yet; the service owns
+  all arbitration and transaction backpressure.
 - `MapTileAsyncEvent` carries a copied `MapTilePayload` to the UI owner drain.
   The payload must be released even when stale.
 - The ESP UI drain is non-blocking on command/event queues. A busy queue means
@@ -1771,28 +1310,39 @@ Mandatory behavior:
 - The runtime state machine owns `Idle`, `Starting`, `Recording`, `Flushing`,
   `Stopping`, `Stopped`, `Error`, and `Recovering`.
 
-## Persistence Runtime Design
+## Configuration Persistence Design
 
-Node/contact/config persistence must be decoupled from event dispatch.
+Configuration persistence must be decoupled from event dispatch. Node/contact,
+map, and track persistence remain domain-owned and do not share this runtime's
+business state.
 
 ```text
-Runtime event updates in-memory state.
-Persistence intent is recorded.
-PersistenceWorker batches/debounces writes.
-Persistence result is published as an event.
+Caller creates an AppConfigEdit.
+The edit commits an AppConfigChangeSet.
+ConfigPersistenceRuntime snapshots the authoritative configuration.
+The runtime debounces, writes an immutable payload, and publishes the result.
 ```
 
-Required strategies:
+Required configuration semantics:
 
-- `DebouncedSave` for node/contact store updates.
-- `ImmediateCriticalSave` only for explicit user settings or shutdown-critical
-  state.
-- `BatchSave` for high-frequency updates.
-- `DropDuplicateSave` for repeated dirty notifications while one save is
-  already pending.
+- Debounce ordinary changes and coalesce them by configuration generation.
+- Use an immediate critical flush only for explicit user settings or
+  shutdown-critical state.
+- Keep pending and in-flight payloads immutable and independently owned.
+- Retry the failed generation without overwriting a newer generation.
+- Treat stale completions as observations, never as permission to mutate the
+  current runtime state.
 
-Event dispatch may mark a store dirty. It must not synchronously write storage
-from the UI owner context.
+Event dispatch may submit a configuration intent. It must not synchronously
+write storage from the UI owner context.
+
+## Domain Store Maintenance Design
+
+Domain stores own their state and decide when their snapshot is durable. The
+maintenance runtime provides the shared lifecycle for SD-backed hydration,
+compaction, startup gating, and retry, but it does not become a universal
+`save(store_key, bytes)` service. A domain owner submits a semantic operation
+and consumes a completion tagged with the corresponding generation.
 
 ## Feedback Runtime Design
 
@@ -1869,8 +1419,8 @@ The simulator must provide:
 | `FakeUiThread` | records UI ticks and asserts no blocking operation runs on UI |
 | `FakeEventBus` | publishes and drains runtime events deterministically |
 | `FakeCommandQueue` | bounded queue, priorities, cancellation, dedupe |
-| `FakeStorageBackend` | scripted read/write/list/flush delay and failure |
-| `FakeBusArbiter` | scripted acquisition delay, timeout, owner diagnostics |
+| `FakeSemanticStorageAdapter` | scripted semantic storage results, delay, and failure |
+| `FakeDeviceIo` | scripted device result, delay, and diagnostic outcome |
 | `FakeMapTileWorker` | completes tile commands in controlled order |
 | `FakeTrackStorageWorker` | batches points and emits track events |
 | `FakeFeedbackPresenter` | captures notices without concrete renderer objects |
@@ -2011,8 +1561,7 @@ Assertions:
 
 All runtime tests must assert:
 
-- UI owner context does not call blocking storage, blocking shared-SPI, or
-  filesystem APIs.
+- UI owner context does not call blocking device I/O or filesystem APIs.
 - Background workers do not call concrete renderer APIs.
 - Every command completes, fails, is cancelled, or remains pending for an
   explained reason.
@@ -2033,8 +1582,9 @@ The burn-down should proceed in slices that each leave the system shippable.
 3. Move map tile file access out of LVGL timer/input paths.
 4. Move track start/stop/list/append/flush into an asynchronous track storage
    worker.
-5. Move node/contact persistence to a debounced persistence worker.
-6. Replace direct shared-SPI lock calls in UI-facing code with arbiter policies.
+5. Consolidate node/contact maintenance under domain store owners and
+   `StorageMaintenanceRuntime`; keep it separate from configuration persistence.
+6. Replace direct hardware access in UI-facing code with device service calls.
 7. Burn down adapter-owned business decisions and route them through shared
    runtimes/facades.
 8. Turn remaining synchronous storage calls in page/widget code into compile or

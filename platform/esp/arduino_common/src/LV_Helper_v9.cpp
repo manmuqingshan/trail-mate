@@ -10,8 +10,10 @@
 #include "display/DisplayInterface.h"
 #include "input/morse_engine.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_lock.h"
+#include "platform/esp/common/shared_spi_coordinator.h"
+#include "platform/ui/screen_runtime.h"
 #include "screen_sleep.h"
+#include "sys/clock.h"
 #include "ui/LV_Helper.h"
 #include "ui/app_runtime.h"
 #include "ui/menu/menu_runtime.h"
@@ -24,6 +26,7 @@
 #include <errno.h>
 #include <esp_heap_caps.h>
 #include <fcntl.h>
+#include <freertos/task.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -54,34 +57,51 @@ constexpr const char* kLvglFlashFsMountPoint = "/fs";
 #endif
 constexpr size_t kTDeckDmaDrawBufferLines = TRAIL_MATE_TDECK_DMA_DRAW_BUFFER_LINES;
 static_assert(kTDeckDmaDrawBufferLines >= 10, "TDeck draw buffers below 10 lines make refresh visibly unstable");
+
+#ifndef TRAIL_MATE_TDECK_USE_DMA_DRAW_BUFFERS
+#define TRAIL_MATE_TDECK_USE_DMA_DRAW_BUFFERS 0
+#endif
+constexpr bool kTDeckUseDmaDrawBuffers = TRAIL_MATE_TDECK_USE_DMA_DRAW_BUFFERS != 0;
 #endif
 // LVGL's SD drive callback can still be reached by resource-pack and image
 // paths. Keep every callback acquisition extremely short: a busy shared
 // bus must surface as LV_FS_RES_BUSY/failed open, not as a blocked UI frame.
 constexpr TickType_t kLvglSdFsWait = pdMS_TO_TICKS(2);
 constexpr TickType_t kLvglSdFsCloseWait = pdMS_TO_TICKS(10);
-constexpr TickType_t kLvglSdFsExternalFontWait = pdMS_TO_TICKS(100);
-constexpr TickType_t kLvglSdFsExternalFontCloseWait = pdMS_TO_TICKS(100);
+constexpr const char* kLvglExternalFontOwner = "lvgl_font_sd";
 
 lv_fs_drv_t s_flash_fs_drv;
 lv_fs_drv_t s_sd_fs_drv;
 bool s_flash_fs_ready = false;
 bool s_sd_fs_ready = false;
 std::atomic<unsigned> s_external_font_load_fs_depth{0};
+std::atomic<bool> s_external_font_fs_busy{false};
+TaskHandle_t s_external_font_owner_task = nullptr;
 
 bool external_font_load_fs_scope_active()
 {
-    return s_external_font_load_fs_depth.load(std::memory_order_relaxed) > 0;
+    return s_external_font_load_fs_depth.load(std::memory_order_relaxed) > 0 &&
+           s_external_font_owner_task == xTaskGetCurrentTaskHandle();
 }
 
-TickType_t current_sd_fs_wait(TickType_t normal_wait, TickType_t font_wait)
+TickType_t current_sd_fs_wait(TickType_t normal_wait)
 {
-    return external_font_load_fs_scope_active() ? font_wait : normal_wait;
+    // Font loading is a sequence of short filesystem transactions. Do not
+    // carry one SPI token across the whole lv_binfont_create() call.
+    return normal_wait;
 }
 
 const char* current_sd_fs_owner()
 {
-    return external_font_load_fs_scope_active() ? "lvgl_font_sd" : nullptr;
+    return external_font_load_fs_scope_active() ? kLvglExternalFontOwner : nullptr;
+}
+
+void mark_external_font_fs_busy()
+{
+    if (external_font_load_fs_scope_active())
+    {
+        s_external_font_fs_busy.store(true, std::memory_order_release);
+    }
 }
 
 inline int flash_fs_fd_from_ptr(void* file_p)
@@ -132,6 +152,44 @@ lv_fs_res_t sd_fs_error_to_res()
     return LV_FS_RES_FS_ERR;
 }
 
+class LvglSdBusGuard final
+{
+  public:
+    LvglSdBusGuard(TickType_t wait_ticks, const char* owner)
+    {
+        sys::runtime::BusAcquireRequest request{};
+        request.resource =
+            ::platform::esp::common::SharedSpiCoordinator::kSharedBusResource;
+        request.policy = wait_ticks == 0
+                             ? sys::runtime::BusAccessPolicy::UiNeverBlock
+                             : sys::runtime::BusAccessPolicy::InteractiveWorkerBounded;
+        request.command_id = 0x4C564653U;
+        request.origin = request.command_id;
+        request.deadline_ms =
+            sys::millis_now() + static_cast<uint32_t>(wait_ticks) * portTICK_PERIOD_MS;
+        request.owner_label = owner ? owner : "lvgl_sd_fs";
+        result_ = ::platform::esp::common::shared_spi_coordinator().acquire(request);
+        token_ = result_.token;
+        locked_ = result_.status == sys::runtime::BusAcquireStatus::Acquired &&
+                  token_.valid;
+    }
+
+    ~LvglSdBusGuard()
+    {
+        if (locked_)
+        {
+            ::platform::esp::common::shared_spi_coordinator().release(token_);
+        }
+    }
+
+    bool locked() const { return locked_; }
+
+  private:
+    sys::runtime::BusAcquireResult result_{};
+    sys::runtime::BusAccessToken token_{};
+    bool locked_ = false;
+};
+
 bool sd_fs_ready_cb(lv_fs_drv_t* drv)
 {
     LV_UNUSED(drv);
@@ -144,11 +202,11 @@ void* sd_fs_open(lv_fs_drv_t* drv, const char* path, lv_fs_mode_t mode)
     // This is a platform adapter boundary. Product/UI code must not use LVGL
     // FS as a synchronous SD probe; callers should submit runtime work and let
     // worker-domain code handle retry/backpressure.
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
-        current_sd_fs_owner());
+    LvglSdBusGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
+        mark_external_font_fs_busy();
         return nullptr;
     }
 
@@ -183,11 +241,15 @@ lv_fs_res_t sd_fs_close(lv_fs_drv_t* drv, void* file_p)
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsCloseWait, kLvglSdFsExternalFontCloseWait),
-        current_sd_fs_owner());
+    LvglSdBusGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsCloseWait), current_sd_fs_owner());
     file->close();
     delete file;
+    if (!spi_guard.locked())
+    {
+        mark_external_font_fs_busy();
+        return LV_FS_RES_BUSY;
+    }
     return LV_FS_RES_OK;
 }
 
@@ -199,17 +261,18 @@ lv_fs_res_t sd_fs_read(lv_fs_drv_t* drv, void* file_p, void* buf, uint32_t btr, 
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
-        current_sd_fs_owner());
+    LvglSdBusGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
+        mark_external_font_fs_busy();
         return LV_FS_RES_BUSY;
     }
 
     const int result = file->read(buf, btr);
     if (result < 0)
     {
+        mark_external_font_fs_busy();
         return sd_fs_error_to_res();
     }
     if (br != nullptr)
@@ -231,11 +294,11 @@ lv_fs_res_t sd_fs_write(lv_fs_drv_t* drv,
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
-        current_sd_fs_owner());
+    LvglSdBusGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
+        mark_external_font_fs_busy();
         return LV_FS_RES_BUSY;
     }
 
@@ -255,11 +318,11 @@ lv_fs_res_t sd_fs_seek(lv_fs_drv_t* drv, void* file_p, uint32_t pos, lv_fs_whenc
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
-        current_sd_fs_owner());
+    LvglSdBusGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
+        mark_external_font_fs_busy();
         return LV_FS_RES_BUSY;
     }
 
@@ -278,7 +341,12 @@ lv_fs_res_t sd_fs_seek(lv_fs_drv_t* drv, void* file_p, uint32_t pos, lv_fs_whenc
         break;
     }
 
-    return file->seek(target) ? LV_FS_RES_OK : sd_fs_error_to_res();
+    if (!file->seek(target))
+    {
+        mark_external_font_fs_busy();
+        return sd_fs_error_to_res();
+    }
+    return LV_FS_RES_OK;
 }
 
 lv_fs_res_t sd_fs_tell(lv_fs_drv_t* drv, void* file_p, uint32_t* pos_p)
@@ -289,11 +357,11 @@ lv_fs_res_t sd_fs_tell(lv_fs_drv_t* drv, void* file_p, uint32_t* pos_p)
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
-        current_sd_fs_owner());
+    LvglSdBusGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
+        mark_external_font_fs_busy();
         return LV_FS_RES_BUSY;
     }
     *pos_p = static_cast<uint32_t>(file->position());
@@ -303,9 +371,8 @@ lv_fs_res_t sd_fs_tell(lv_fs_drv_t* drv, void* file_p, uint32_t* pos_p)
 void* sd_fs_dir_open(lv_fs_drv_t* drv, const char* path)
 {
     LV_UNUSED(drv);
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
-        current_sd_fs_owner());
+    LvglSdBusGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return nullptr;
@@ -332,9 +399,8 @@ lv_fs_res_t sd_fs_dir_read(lv_fs_drv_t* drv, void* dir_p, char* fn, uint32_t fn_
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait, kLvglSdFsExternalFontWait),
-        current_sd_fs_owner());
+    LvglSdBusGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
     if (!spi_guard.locked())
     {
         return LV_FS_RES_BUSY;
@@ -363,9 +429,8 @@ lv_fs_res_t sd_fs_dir_close(lv_fs_drv_t* drv, void* dir_p)
     {
         return LV_FS_RES_INV_PARAM;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsCloseWait, kLvglSdFsExternalFontCloseWait),
-        current_sd_fs_owner());
+    LvglSdBusGuard spi_guard(
+        current_sd_fs_wait(kLvglSdFsCloseWait), current_sd_fs_owner());
     dir->close();
     delete dir;
     return LV_FS_RES_OK;
@@ -671,6 +736,7 @@ void init_sd_fs_driver()
 static void disp_flush(lv_display_t* disp_drv, const lv_area_t* area, uint8_t* color_p)
 {
     static uint8_t s_tdeck_pro_flush_log_count = 0;
+    static uint32_t s_display_flush_log_count = 0;
 #if LV_TEST_FLUSH_LOG
     static uint32_t s_flush_count = 0;
     static uint32_t s_flush_last_ms = 0;
@@ -683,6 +749,34 @@ static void disp_flush(lv_display_t* disp_drv, const lv_area_t* area, uint8_t* c
     uint32_t w = lv_area_get_width(area);
     uint32_t h = lv_area_get_height(area);
     auto* plane = (LilyGo_Display*)lv_display_get_user_data(disp_drv);
+    const uint32_t flush_sequence = ++s_display_flush_log_count;
+    if (flush_sequence <= 8U)
+    {
+        uint32_t nonzero = 0;
+        if (color_p != nullptr)
+        {
+            const uint16_t* pixels = reinterpret_cast<const uint16_t*>(color_p);
+            for (size_t i = 0; i < len; ++i)
+            {
+                if (pixels[i] != 0U)
+                {
+                    ++nonzero;
+                }
+            }
+        }
+        Serial.printf("[LVGL][DISPLAY] flush_begin seq=%lu area=(%d,%d)-(%d,%d) "
+                      "size=%lux%lu pixels=%lu nonzero=%lu plane=%p\n",
+                      static_cast<unsigned long>(flush_sequence),
+                      static_cast<int>(area->x1),
+                      static_cast<int>(area->y1),
+                      static_cast<int>(area->x2),
+                      static_cast<int>(area->y2),
+                      static_cast<unsigned long>(w),
+                      static_cast<unsigned long>(h),
+                      static_cast<unsigned long>(len),
+                      static_cast<unsigned long>(nonzero),
+                      static_cast<void*>(plane));
+    }
 
 #if defined(ARDUINO_T_DECK_PRO)
     if (s_tdeck_pro_flush_log_count < 8)
@@ -711,9 +805,45 @@ static void disp_flush(lv_display_t* disp_drv, const lv_area_t* area, uint8_t* c
     }
 #endif
 
-    plane->pushColors(area->x1, area->y1, w, h, (uint16_t*)color_p);
+    const bool transferred =
+        plane->pushColorsResult(area->x1, area->y1, w, h, (uint16_t*)color_p);
+    if (!transferred)
+    {
+        auto& coordinator = platform::esp::common::shared_spi_coordinator();
+        coordinator.noteDisplayFrameFailed();
+        Serial.printf("[SPI][DISPLAY] flush_recovery area=(%d,%d)-(%d,%d) "
+                      "requests=%lu completed=%lu busy=%lu failed=%lu\n",
+                      static_cast<int>(area->x1),
+                      static_cast<int>(area->y1),
+                      static_cast<int>(area->x2),
+                      static_cast<int>(area->y2),
+                      static_cast<unsigned long>(coordinator.displayFrameRequests()),
+                      static_cast<unsigned long>(coordinator.displayFrameCompletions()),
+                      static_cast<unsigned long>(coordinator.displayFrameBusyRetries()),
+                      static_cast<unsigned long>(coordinator.displayFrameFailures()));
+        // LVGL cannot be left waiting forever for a transfer that was never
+        // started. Complete this flush through the explicit recovery path and
+        // invalidate both the active screen and the top layer so the next
+        // timer pass retries the pixels instead of accepting a silent drop.
+        lv_display_flush_ready(disp_drv);
+        lv_obj_invalidate(lv_screen_active());
+        lv_obj_invalidate(lv_layer_top());
+        return;
+    }
 
+    platform::esp::common::shared_spi_coordinator().noteDisplayFrameCompleted();
     lv_display_flush_ready(disp_drv);
+    if (flush_sequence <= 8U)
+    {
+        auto& coordinator = platform::esp::common::shared_spi_coordinator();
+        Serial.printf("[LVGL][DISPLAY] flush_complete seq=%lu requests=%lu "
+                      "completed=%lu busy=%lu failed=%lu\n",
+                      static_cast<unsigned long>(flush_sequence),
+                      static_cast<unsigned long>(coordinator.displayFrameRequests()),
+                      static_cast<unsigned long>(coordinator.displayFrameCompletions()),
+                      static_cast<unsigned long>(coordinator.displayFrameBusyRetries()),
+                      static_cast<unsigned long>(coordinator.displayFrameFailures()));
+    }
 
 #if LV_TEST_FLUSH_LOG
 #if LV_TEST_FLUSH_SAMPLE
@@ -768,51 +898,30 @@ static void disp_flush(lv_display_t* disp_drv, const lv_area_t* area, uint8_t* c
 static void touchpad_read(lv_indev_t* drv, lv_indev_data_t* data)
 {
     static int16_t x, y;
+    static bool was_touched = false;
     auto* plane = (LilyGo_Display*)lv_indev_get_user_data(drv);
     uint8_t touched = plane->getPoint(&x, &y, 1);
     if (touched)
     {
+        was_touched = true;
         input::MorseEngine::notifyTouch();
-#if defined(ARDUINO_T_DECK) || defined(ARDUINO_T_DECK_PRO)
-        // T-Deck: touch can wake/show the screen saver, but only SPACE enters the main menu.
-        if (isScreenSaverActive())
+        if (::platform::ui::screen::is_sleeping() ||
+            ::platform::ui::screen::is_saver_active())
         {
-            wakeScreenSaver();
+            ::platform::ui::screen::handle_input();
             data->state = LV_INDEV_STATE_REL;
             return;
         }
-        else if (isScreenSleeping())
-        {
-            wakeScreenSaver();
-            data->state = LV_INDEV_STATE_REL;
-            return;
-        }
-        updateUserActivity();
+        ::platform::ui::screen::record_activity();
         data->point.x = x;
         data->point.y = y;
         data->state = LV_INDEV_STATE_PR;
         return;
-#else
-        // Priority: if the screen saver is visible, consume the touch and exit it.
-        if (isScreenSaverActive())
-        {
-            enterFromScreenSaver();
-            data->state = LV_INDEV_STATE_REL;
-            return;
-        }
-        // Otherwise, if the screen is sleeping, first touch only wakes it and shows the screen saver.
-        if (isScreenSleeping())
-        {
-            wakeScreenSaver();
-            data->state = LV_INDEV_STATE_REL;
-            return;
-        }
-        updateUserActivity();
-        data->point.x = x;
-        data->point.y = y;
-        data->state = LV_INDEV_STATE_PR;
-        return;
-#endif
+    }
+    if (was_touched)
+    {
+        was_touched = false;
+        ::platform::ui::screen::handle_input_release();
     }
     data->state = LV_INDEV_STATE_REL;
 }
@@ -832,12 +941,15 @@ static void lv_encoder_read(lv_indev_t* drv, lv_indev_data_t* data)
     data->state = LV_INDEV_STATE_RELEASED;
 #endif
 
-    // If screen is sleeping, only wake it up, don't pass input to UI
-    if (isScreenSleeping() || isScreenSaverActive())
+    // Screen power transitions consume the input event before normal UI
+    // navigation. The state machine decides whether this is a wake preview
+    // or confirmation into the main menu.
+    if (::platform::ui::screen::is_sleeping() ||
+        ::platform::ui::screen::is_saver_active())
     {
         if (msg.dir != ROTARY_DIR_NONE || msg.centerBtnPressed)
         {
-            wakeScreenSaver();
+            ::platform::ui::screen::handle_input();
         }
 #if defined(ARDUINO_T_DECK) || defined(ARDUINO_T_DECK_PRO)
         // T-Deck path already reset above.
@@ -861,7 +973,7 @@ static void lv_encoder_read(lv_indev_t* drv, lv_indev_data_t* data)
     // Screen is awake, process input normally
     if (msg.dir != ROTARY_DIR_NONE || msg.centerBtnPressed)
     {
-        updateUserActivity(); // Update activity timestamp
+        ::platform::ui::screen::record_activity();
     }
 
     switch (msg.dir)
@@ -928,23 +1040,19 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
         }
     }
 
-    // If screen is sleeping or screen saver is active, only a *real* key press
-    // should wake/exit. Previously this path ran unconditionally on every poll,
-    // which could cause a spurious wake or enterFromScreenSaver() without user input.
-    if (isScreenSleeping() || isScreenSaverActive())
+    // Screen power transitions consume the input event before normal keyboard
+    // dispatch. The state machine applies the same two-step policy to every
+    // physical input device.
+    if (::platform::ui::screen::is_sleeping() ||
+        ::platform::ui::screen::is_saver_active())
     {
         if (state == KEYBOARD_PRESSED)
         {
-            // Keyboard wake policy: any key can wake into the saver shell, but
-            // only SPACE is allowed to continue into the main menu.
-            if (isScreenSaverActive() && c == ' ')
-            {
-                enterFromScreenSaver();
-            }
-            else
-            {
-                wakeScreenSaver();
-            }
+            ::platform::ui::screen::handle_input();
+        }
+        else if (state == KEYBOARD_RELEASED)
+        {
+            ::platform::ui::screen::handle_input_release();
         }
         data->state = LV_INDEV_STATE_REL; // Don't pass key to UI
         return;
@@ -961,7 +1069,7 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
 
         if (on_menu && ui::menu_runtime::handleWalkieKey(c, state))
         {
-            updateUserActivity();
+            ::platform::ui::screen::record_activity();
             plane->feedback((void*)drv);
             data->state = LV_INDEV_STATE_REL;
             return;
@@ -969,7 +1077,7 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
 
         if (on_menu && ui::menu_runtime::handleShortcutKey(c, state))
         {
-            updateUserActivity();
+            ::platform::ui::screen::record_activity();
             plane->feedback((void*)drv);
             data->state = LV_INDEV_STATE_REL;
             return;
@@ -981,10 +1089,10 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
         }
     }
 
-#if defined(ARDUINO_T_DECK) || defined(ARDUINO_T_DECK_PRO)
+#if defined(ARDUINO_T_LORA_PAGER) || defined(ARDUINO_T_DECK) || defined(ARDUINO_T_DECK_PRO)
     if (!from_nav && state == KEYBOARD_PRESSED && c == ' ' && ui_get_active_app() == nullptr)
     {
-        updateUserActivity();
+        ::platform::ui::screen::record_activity();
         menu_show();
         plane->feedback((void*)drv);
         data->state = LV_INDEV_STATE_REL;
@@ -994,7 +1102,7 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
 
     if (state == KEYBOARD_PRESSED)
     {
-        updateUserActivity(); // Update activity timestamp
+        ::platform::ui::screen::record_activity();
         data->key = key;
         data->state = LV_INDEV_STATE_PR;
         plane->feedback((void*)drv);
@@ -1042,9 +1150,13 @@ void beginLvglHelper(LilyGo_Display& board, bool debug)
     }
 #endif
 
-    // Allocate display buffers
-    // Use DMA-capable memory if board supports DMA, otherwise use PSRAM
+    // Allocate display buffers. T-Deck retains DMA capability for the display
+    // transport, while its large LVGL draw buffers default to PSRAM to protect
+    // internal SRAM for task stacks, radio, and peripheral DMA allocations.
     bool use_dma_draw_buffers = board.useDMA();
+#if defined(ARDUINO_T_DECK)
+    use_dma_draw_buffers = kTDeckUseDmaDrawBuffers;
+#endif
 #if LV_TEST_FORCE_DMA_BUF
     use_dma_draw_buffers = true;
 #endif
@@ -1271,22 +1383,56 @@ lv_indev_t* lv_get_encoder_indev()
     return indev_encoder;
 }
 
-void lv_begin_external_font_load_fs_scope()
+bool lv_begin_external_font_load_fs_scope()
 {
-    s_external_font_load_fs_depth.fetch_add(1, std::memory_order_relaxed);
+    const TaskHandle_t current_task = xTaskGetCurrentTaskHandle();
+    const unsigned depth =
+        s_external_font_load_fs_depth.load(std::memory_order_acquire);
+    if (depth > 0)
+    {
+        if (s_external_font_owner_task != current_task)
+        {
+            return false;
+        }
+        s_external_font_load_fs_depth.fetch_add(1, std::memory_order_acq_rel);
+        return true;
+    }
+
+    s_external_font_fs_busy.store(false, std::memory_order_release);
+    s_external_font_owner_task = current_task;
+    s_external_font_load_fs_depth.store(1, std::memory_order_release);
+    return true;
 }
 
 void lv_end_external_font_load_fs_scope()
 {
-    unsigned depth = s_external_font_load_fs_depth.load(std::memory_order_relaxed);
+    const TaskHandle_t current_task = xTaskGetCurrentTaskHandle();
+    if (s_external_font_owner_task != current_task)
+    {
+        return;
+    }
+
+    unsigned depth =
+        s_external_font_load_fs_depth.load(std::memory_order_acquire);
     while (depth > 0)
     {
-        if (s_external_font_load_fs_depth.compare_exchange_weak(
-                depth, depth - 1, std::memory_order_relaxed))
+        const unsigned next_depth = depth - 1U;
+        if (!s_external_font_load_fs_depth.compare_exchange_weak(
+                depth, next_depth, std::memory_order_acq_rel))
         {
-            return;
+            continue;
         }
+        if (next_depth == 0)
+        {
+            s_external_font_owner_task = nullptr;
+        }
+        return;
     }
+}
+
+bool lv_external_font_load_fs_was_busy()
+{
+    return s_external_font_fs_busy.exchange(false, std::memory_order_acq_rel);
 }
 
 #if LV_USE_STDLIB_MALLOC == LV_STDLIB_CUSTOM

@@ -33,7 +33,7 @@ int main()
     assert(tab5->has_audio);
     assert(tab5->has_motion_sensor);
     assert(tab5->has_wireless_companion);
-    assert(tab5->ble_backend == product_composition::BleBackend::C6Companion);
+    assert(tab5->ble_backend == product_composition::BleBackend::None);
     assert(tab5->wireless_companion ==
            product_composition::WirelessCompanionKind::Esp32C6);
     assert(tab5->display_orientation_policy ==
@@ -44,7 +44,7 @@ int main()
     assert(std::strcmp(tft->board_id, "t_display_p4") == 0);
     assert(tft->has_motion_sensor);
     assert(tft->has_wireless_companion);
-    assert(tft->ble_backend == product_composition::BleBackend::C6Companion);
+    assert(tft->ble_backend == product_composition::BleBackend::None);
     assert(tft->status == product_composition::TargetSupportStatus::Active);
     assert(tft->display_orientation_policy ==
            product_composition::DisplayOrientationPolicy::SensorLandscapeOnly);
@@ -54,7 +54,7 @@ int main()
     assert(std::strcmp(amoled->board_id, "t_display_p4") == 0);
     assert(amoled->has_motion_sensor);
     assert(amoled->has_wireless_companion);
-    assert(amoled->ble_backend == product_composition::BleBackend::C6Companion);
+    assert(amoled->ble_backend == product_composition::BleBackend::None);
     assert(amoled->status == product_composition::TargetSupportStatus::Active);
     assert(amoled->display_orientation_policy ==
            product_composition::DisplayOrientationPolicy::SensorLandscapeOnly);

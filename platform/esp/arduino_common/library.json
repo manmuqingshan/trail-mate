@@ -9,6 +9,10 @@
                   "srcDir":  "src",
                   "srcFilter":  [
                                     "+<*>",
+                                    "-<ble/>",
+                                    "-<hostlink/>",
+                                    "-<rnode_kiss/>",
+                                    "-<platform_ui_hostlink_runtime.cpp>",
                                     "-<ui/screens/gps/>"
                                 ],
                   "flags":  [
@@ -25,7 +29,6 @@
                                 "-I../../../modules/core_sys/include",
                                 "-I../../../modules/core_chat/include",
                                 "-I../../../modules/core_gps/include",
-                                "-I../../../modules/core_hostlink/include",
                                 "-I../../../modules/core_team/include",
                                 "-I../../../modules/core_chat/generated",
                                 "-I../../../modules/core_chat/third_party/nanopb",
@@ -33,6 +36,9 @@
                             ]
               },
     "dependencies":  [
+                         {
+                             "name":  "esp_common"
+                         },
                          {
                              "name":  "esp_boards"
                          },

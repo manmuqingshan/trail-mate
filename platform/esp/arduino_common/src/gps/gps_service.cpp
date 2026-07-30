@@ -16,6 +16,12 @@
 #define TRAIL_MATE_GPS_TASK_DEBUG 0
 #endif
 
+// Periodic receiver counters are useful during GPS bring-up, but continuously
+// printing them competes with UI and serial-monitor bandwidth in normal use.
+#ifndef TRAIL_MATE_GPS_HEALTH_LOG
+#define TRAIL_MATE_GPS_HEALTH_LOG 0
+#endif
+
 #if TRAIL_MATE_GPS_TASK_DEBUG
 #define GPS_TASK_LOG(...) Serial.printf(__VA_ARGS__)
 #else
@@ -30,13 +36,17 @@ namespace
 
 constexpr uint32_t kGpsUartPollIntervalMs = 250;
 constexpr uint32_t kGpsIdlePollIntervalMs = 1000;
+#if TRAIL_MATE_GPS_HEALTH_LOG
 constexpr uint32_t kGpsHealthLogIntervalMs = 10000;
+#endif
 constexpr uint32_t kGpsPostConfigWatchMs = 8000;
 
+#if TRAIL_MATE_GPS_HEALTH_LOG
 const char* gps_valid_text(bool valid)
 {
     return valid ? "fix" : "nofix";
 }
+#endif
 
 } // namespace
 
@@ -632,11 +642,15 @@ void GpsService::gpsTask(void* pvParameters)
     uint32_t loop_count = 0;
     uint32_t task_start_ms = millis();
     uint32_t last_log_ms = 0;
+#if TRAIL_MATE_GPS_HEALTH_LOG
     uint32_t last_health_log_ms = 0;
     uint32_t last_health_total_chars = 0;
     uint32_t last_health_total_uart_reads = 0;
+#endif
     uint32_t last_total_chars = 0;
+#if TRAIL_MATE_GPS_HEALTH_LOG
     uint32_t total_uart_reads = 0;
+#endif
 
     GPS_TASK_LOG("[GPS Task] ===== TASK STARTED =====\n");
     GPS_TASK_LOG("[GPS Task] Started at %lu ms, GPS ready: %d\n", task_start_ms, service->gps_adapter_.isReady());
@@ -656,6 +670,7 @@ void GpsService::gpsTask(void* pvParameters)
         uint32_t total_chars = last_total_chars;
         uint32_t chars_this_loop = 0;
         uint32_t uart_read_bytes = 0;
+#if TRAIL_MATE_GPS_HEALTH_LOG
         bool health_valid = false;
         uint8_t health_sat_count = 0;
         uint8_t health_sats_in_view = 0;
@@ -663,6 +678,7 @@ void GpsService::gpsTask(void* pvParameters)
         double health_lat = 0.0;
         double health_lng = 0.0;
         uint32_t health_fix_age_ms = UINT32_MAX;
+#endif
 
         if (service->motion_adapter_.isReady() && service->motion_policy_.isEnabled())
         {
@@ -709,7 +725,9 @@ void GpsService::gpsTask(void* pvParameters)
             {
                 total_chars = service->gps_adapter_.loop();
                 uart_read_bytes = service->gps_adapter_.lastLoopReadBytes();
+#if TRAIL_MATE_GPS_HEALTH_LOG
                 total_uart_reads += uart_read_bytes;
+#endif
                 chars_this_loop = (total_chars > last_total_chars) ? (total_chars - last_total_chars) : 0;
                 last_total_chars = total_chars;
                 service->gps_chars_total_ = total_chars;
@@ -848,6 +866,7 @@ void GpsService::gpsTask(void* pvParameters)
                                      loop_count, sat_count, chars_this_loop);
                     }
                 }
+#if TRAIL_MATE_GPS_HEALTH_LOG
                 health_valid = service->gps_state_.valid;
                 health_sat_count = sat_count;
                 health_sats_in_view = service->gnss_status_.sats_in_view;
@@ -858,6 +877,7 @@ void GpsService::gpsTask(void* pvParameters)
                     (service->gps_state_.valid && service->gps_last_update_time_ > 0)
                         ? (millis() - service->gps_last_update_time_)
                         : UINT32_MAX;
+#endif
                 xSemaphoreGive(service->gps_data_mutex_);
 
                 // Append GPX track points outside the GPS mutex to keep the task responsive.
@@ -968,6 +988,7 @@ void GpsService::gpsTask(void* pvParameters)
             }
         }
 
+#if TRAIL_MATE_GPS_HEALTH_LOG
         now_ms = millis();
         if (last_health_log_ms == 0 || (now_ms - last_health_log_ms) >= kGpsHealthLogIntervalMs)
         {
@@ -975,7 +996,9 @@ void GpsService::gpsTask(void* pvParameters)
                 (total_chars >= last_health_total_chars) ? (total_chars - last_health_total_chars) : 0;
             const uint32_t reads_since_log =
                 (total_uart_reads >= last_health_total_uart_reads) ? (total_uart_reads - last_health_total_uart_reads) : 0;
-            Serial.printf("[GPS] health ready=%d powered=%d state=%s lat=%.6f lng=%.6f age_ms=%lu sats=%u view=%u use=%u chars_total=%lu chars_%lus=%lu read_%lus=%lu poll_ms=%lu collection_ms=%lu loops=%lu\n",
+            const bool parser_stalled = gps_ready && service->gps_powered_ &&
+                                        reads_since_log > 0 && chars_since_log == 0;
+            Serial.printf("[GPS] health ready=%d powered=%d state=%s lat=%.6f lng=%.6f age_ms=%lu sats=%u view=%u use=%u chars_total=%lu chars_%lus=%lu read_%lus=%lu parser_stalled=%u poll_ms=%lu collection_ms=%lu loops=%lu\n",
                           gps_ready ? 1 : 0,
                           service->gps_powered_ ? 1 : 0,
                           gps_valid_text(health_valid),
@@ -990,6 +1013,7 @@ void GpsService::gpsTask(void* pvParameters)
                           static_cast<unsigned long>(chars_since_log),
                           static_cast<unsigned long>(kGpsHealthLogIntervalMs / 1000),
                           static_cast<unsigned long>(reads_since_log),
+                          parser_stalled ? 1U : 0U,
                           static_cast<unsigned long>(kGpsUartPollIntervalMs),
                           static_cast<unsigned long>(service->getCollectionInterval()),
                           static_cast<unsigned long>(loop_count));
@@ -998,6 +1022,7 @@ void GpsService::gpsTask(void* pvParameters)
             service->gps_chars_recent_ = chars_since_log;
             last_health_log_ms = now_ms;
         }
+#endif
 
         const uint32_t interval_ms =
             (service->gps_powered_ && gps_ready) ? kGpsUartPollIntervalMs : kGpsIdlePollIntervalMs;

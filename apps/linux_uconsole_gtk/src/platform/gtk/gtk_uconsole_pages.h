@@ -50,6 +50,8 @@ GtkUConsolePageLifecycle makeMapPageLifecycle();
 GtkWidget* launchMapLayout(GtkUConsoleAppState& state);
 void refreshMapLogic(GtkUConsoleAppState& state,
                      const GtkUConsoleRefreshSnapshot& snapshot);
+void serviceMapDownloads(GtkUConsoleAppState& state,
+                         const MapWorkspaceSnapshot& snapshot);
 void refreshMap(GtkUConsoleAppState& state);
 void refreshMap(GtkUConsoleAppState& state, const MapWorkspaceSnapshot& snapshot);
 void onMapSourceClicked(GtkButton* button, gpointer data);
@@ -95,6 +97,13 @@ GtkUConsolePageLifecycle makeDataPageLifecycle();
 GtkWidget* launchDataLayout(GtkUConsoleAppState& state);
 void refreshDataLogic(GtkUConsoleAppState& state,
                       const GtkUConsoleRefreshSnapshot& snapshot);
+
+GtkUConsolePageLifecycle makeContactsPageLifecycle();
+GtkUConsolePageLifecycle makeGpsPageLifecycle();
+GtkUConsolePageLifecycle makeTeamPageLifecycle();
+GtkUConsolePageLifecycle makeTrackerPageLifecycle();
+GtkUConsolePageLifecycle makeRadioToolsPageLifecycle();
+GtkUConsolePageLifecycle makeExtensionsPageLifecycle();
 
 GtkUConsolePageLifecycle makeLogsPageLifecycle();
 GtkWidget* launchLogsLayout(GtkUConsoleAppState& state);

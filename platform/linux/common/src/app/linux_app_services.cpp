@@ -24,17 +24,15 @@ extern char** environ;
 #endif
 
 #include "chat/domain/chat_model.h"
-#include "chat/infra/contact_store_core.h"
-#include "chat/infra/node_store_core.h"
 #include "chat/linux_noop_mesh_adapter.h"
 #include "chat/linux_raw_lora_mesh_adapter.h"
 #include "chat/linux_sqlite_chat_store.h"
-#include "chat/ports/i_contact_blob_store.h"
-#include "chat/ports/i_node_blob_store.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/gps_runtime.h"
+#include "platform/ui/reticulum_directory_runtime.h"
+#include "platform/ui/reticulum_group_config_runtime.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/team_ui_store_runtime.h"
 #include "platform/ui/tracker_runtime.h"
@@ -63,11 +61,6 @@ constexpr const char* kConfigNamespace = "linux_app_facade";
 constexpr const char* kConfigBlobKey = "app_config_v1";
 constexpr uint32_t kConfigBlobMagic = 0x544D4346U; // TMCF
 constexpr uint32_t kConfigBlobVersion = 2U;
-
-constexpr const char* kNodeStoreNamespace = "linux_contact_nodes";
-constexpr const char* kNodeStoreKey = "nodes_v1";
-constexpr const char* kContactStoreNamespace = "linux_contact_names";
-constexpr const char* kContactStoreKey = "contacts_v1";
 
 constexpr ::chat::NodeId kDemoAlphaNodeId = 0x435A1001U;
 constexpr ::chat::NodeId kDemoBravoNodeId = 0x435A1002U;
@@ -179,12 +172,11 @@ void copy_bounded(char* out, std::size_t out_len, const char* text)
 
 bool is_supported_protocol(::chat::MeshProtocol protocol)
 {
-    switch (protocol)
+    switch (::chat::infra::normalizeMeshProtocol(protocol))
     {
     case ::chat::MeshProtocol::Meshtastic:
     case ::chat::MeshProtocol::MeshCore:
-    case ::chat::MeshProtocol::RNode:
-    case ::chat::MeshProtocol::LXMF:
+    case ::chat::MeshProtocol::Reticulum:
         return true;
     default:
         return false;
@@ -322,56 +314,36 @@ void send_desktop_notification_async(std::string summary, std::string body)
 const ::chat::MeshConfig& mesh_config_for_protocol(
     const ::app::AppConfig& config)
 {
-    switch (config.mesh_protocol)
+    switch (::chat::infra::normalizeMeshProtocol(config.mesh_protocol))
     {
     case ::chat::MeshProtocol::MeshCore:
         return config.meshcore_config;
-    case ::chat::MeshProtocol::RNode:
-        return config.rnode_config;
-    case ::chat::MeshProtocol::LXMF:
+    case ::chat::MeshProtocol::Reticulum:
+        return config.reticulumConfig();
     case ::chat::MeshProtocol::Meshtastic:
     default:
         return config.meshtastic_config;
     }
 }
 
-class LinuxNodeBlobStore final : public ::chat::contacts::INodeBlobStore
+void sync_reticulum_group_config(::app::AppConfig& config)
 {
-  public:
-    bool loadBlob(std::vector<uint8_t>& out) override
+    if (!::chat::infra::isReticulumMeshProtocol(
+            ::chat::infra::normalizeMeshProtocol(config.mesh_protocol)))
     {
-        return ::platform::ui::settings_store::get_blob(kNodeStoreNamespace, kNodeStoreKey, out);
+        return;
     }
 
-    bool saveBlob(const uint8_t* data, size_t len) override
-    {
-        return ::platform::ui::settings_store::put_blob(kNodeStoreNamespace, kNodeStoreKey, data, len);
-    }
-
-    void clearBlob() override
-    {
-        ::platform::ui::settings_store::clear_namespace(kNodeStoreNamespace);
-    }
-};
-
-class LinuxContactBlobStore final : public ::chat::IContactBlobStore
-{
-  public:
-    bool loadBlob(std::vector<uint8_t>& out) override
-    {
-        return ::platform::ui::settings_store::get_blob(kContactStoreNamespace, kContactStoreKey, out);
-    }
-
-    bool saveBlob(const uint8_t* data, size_t len) override
-    {
-        return ::platform::ui::settings_store::put_blob(kContactStoreNamespace, kContactStoreKey, data, len);
-    }
-
-    void clear()
-    {
-        ::platform::ui::settings_store::clear_namespace(kContactStoreNamespace);
-    }
-};
+    const auto status = ::platform::ui::reticulum_groups::load(
+        config.reticulumConfig().reticulum_groups,
+        ::chat::kReticulumGroupDestinationMaxCount);
+    std::printf("[RTGroupConfig] sync sd=%u loaded=%u file=%u message=%s detail=%s\n",
+                status.sd_present ? 1U : 0U,
+                status.loaded ? 1U : 0U,
+                status.file_present ? 1U : 0U,
+                status.message,
+                status.detail);
+}
 
 class LinuxLoopbackMeshAdapter final : public ::chat::IMeshAdapter
 {
@@ -1271,6 +1243,7 @@ bool dispatchCoreEvent(LinuxAppServices& services, ::sys::Event* event)
         update.public_key_present = node_event->has_public_key;
         update.has_key_manually_verified = node_event->has_key_manually_verified_state;
         update.key_manually_verified = node_event->key_manually_verified;
+        update.reticulum_identity = node_event->reticulum_identity;
         update.has_device_metrics = node_event->has_device_metrics;
         if (node_event->has_device_metrics)
         {
@@ -1550,11 +1523,9 @@ struct LinuxAppServices::Implementation
         : options(options_in),
           demo_world_enabled(
               ::platform::linux_runtime::demo_world_enabled(options.runtime_mode)),
-          node_blob_store(),
-          contact_blob_store(),
-          node_store(node_blob_store),
-          contact_store(contact_blob_store),
-          contact_service(node_store, contact_store),
+          mesh_peer_directory(
+              ::platform::ui::reticulum_directory::mesh_peer_directory()),
+          contact_service(mesh_peer_directory),
           chat_model(),
           chat_store(),
           raw_lora_enabled(raw_lora_enabled_for_mode(options.runtime_mode)),
@@ -1597,12 +1568,9 @@ struct LinuxAppServices::Implementation
         noop_mesh_adapter.setSelfNodeId(self_node_id);
         raw_lora_mesh_adapter.setSelfNodeId(self_node_id);
         loopback_mesh_adapter.setSelfNodeId(self_node_id);
-        node_store.setProtectedNodeChecker(
-            [self_node_id](uint32_t node_id)
-            {
-                return node_id == self_node_id;
-            });
         contact_service.begin();
+        ::platform::ui::reticulum_directory::bind_mesh_peer_directory(
+            &mesh_peer_directory);
         if (demo_world_enabled)
         {
             seedDemoWorld(self_node_id);
@@ -1612,8 +1580,10 @@ struct LinuxAppServices::Implementation
 
     void clearContactAndNodeData()
     {
-        contact_blob_store.clear();
-        node_store.clear();
+        (void)mesh_peer_directory.clearProtocol(::chat::MeshProtocol::Meshtastic);
+        (void)mesh_peer_directory.clearProtocol(::chat::MeshProtocol::MeshCore);
+        (void)mesh_peer_directory.clearProtocol(::chat::MeshProtocol::RNode);
+        (void)mesh_peer_directory.clearProtocol(::chat::MeshProtocol::Reticulum);
         contact_service.begin();
         demo_seeded = false;
     }
@@ -1730,10 +1700,7 @@ struct LinuxAppServices::Implementation
 
     LinuxAppServicesOptions options{};
     bool demo_world_enabled = false;
-    LinuxNodeBlobStore node_blob_store;
-    LinuxContactBlobStore contact_blob_store;
-    ::chat::contacts::NodeStoreCore node_store;
-    ::chat::contacts::ContactStoreCore contact_store;
+    ::chat::IMeshPeerDirectory& mesh_peer_directory;
     ::chat::contacts::ContactService contact_service;
     ::chat::ChatModel chat_model;
     LinuxSqliteChatStore chat_store;
@@ -1788,6 +1755,7 @@ bool LinuxAppServices::initialize()
 
     loadPersistedConfig();
     seedDefaultIdentity();
+    config_persistence_runtime_.initialize(config_);
     (void)::sys::EventBus::init();
     ensureServicesReady();
     syncLocalIdentity();
@@ -1828,7 +1796,15 @@ bool LinuxAppServices::dispatchUiEvent(::sys::Event* event)
 
 void LinuxAppServices::tick(std::size_t max_events)
 {
-    if (!initialized_) return;
+    if (!initialized_)
+    {
+        return;
+    }
+    flushConfigPersistence(::sys::millis_now());
+    if (::platform::ui::reticulum_groups::hasPending())
+    {
+        (void)::platform::ui::reticulum_groups::flushPending();
+    }
     updateCoreServices();
     tickEventRuntime();
     dispatchPendingEvents(max_events);
@@ -1854,18 +1830,75 @@ const ::app::AppConfig& LinuxAppServices::getConfig() const
     return config_;
 }
 
+::app::AppConfigEdit LinuxAppServices::beginConfigEdit()
+{
+    return ::app::AppConfigEdit(&config_,
+                                this,
+                                &LinuxAppServices::commitConfigEdit,
+                                &LinuxAppServices::cancelConfigEdit);
+}
+
 void LinuxAppServices::saveConfig()
+{
+    saveConfig(::app::AppConfigChangeSet::allPersisted());
+}
+
+void LinuxAppServices::saveConfig(::app::AppConfigChangeSet changes)
+{
+    // The Linux blob backend has no section-level writer yet. Keep the
+    // scoped request explicit while preserving the complete blob contract.
+    config_.mesh_protocol =
+        ::chat::infra::normalizeMeshProtocol(config_.mesh_protocol);
+    const uint32_t now_ms = ::sys::millis_now();
+    const auto submission = config_persistence_runtime_.submit(
+        config_, changes, now_ms, ::app::ConfigPersistenceUrgency::Debounced);
+    (void)submission;
+}
+
+void LinuxAppServices::flushConfigPersistence(uint32_t now_ms)
+{
+    ::app::ConfigPersistenceWork work{};
+    if (!config_persistence_runtime_.takeDue(now_ms, work) ||
+        work.snapshot == nullptr)
+    {
+        return;
+    }
+
+    const bool ok = writePersistedConfig(*work.snapshot);
+    config_persistence_runtime_.complete(
+        work.generation,
+        ok ? ::app::ConfigPersistenceResultKind::Completed
+           : ::app::ConfigPersistenceResultKind::IoError,
+        ::sys::millis_now());
+}
+
+bool LinuxAppServices::writePersistedConfig(const ::app::AppConfig& config)
 {
     const PersistedConfigBlob blob{.magic = kConfigBlobMagic,
                                    .version = kConfigBlobVersion,
-                                   .config = config_};
-    (void)::platform::ui::settings_store::put_blob(
+                                   .config = config};
+    return ::platform::ui::settings_store::put_blob(
         kConfigNamespace, kConfigBlobKey, &blob, sizeof(blob));
+}
+
+void LinuxAppServices::commitConfigEdit(void* context,
+                                        ::app::AppConfigChangeSet changes)
+{
+    auto* self = static_cast<LinuxAppServices*>(context);
+    if (self != nullptr)
+    {
+        self->saveConfig(changes);
+    }
+}
+
+void LinuxAppServices::cancelConfigEdit(void*)
+{
 }
 
 void LinuxAppServices::applyMeshConfig()
 {
     ensureServicesReady();
+    sync_reticulum_group_config(config_);
     if (impl().raw_lora_enabled && !impl().demo_world_enabled)
     {
         impl().raw_lora_mesh_adapter.applyProtocolConfig(
@@ -1906,6 +1939,12 @@ void LinuxAppServices::applyPositionConfig()
                                                 config_.external_nmea_sentence_mask);
     platform::ui::gps::set_motion_idle_timeout(config_.motion_config.idle_timeout_ms);
     platform::ui::gps::set_motion_sensor_id(config_.motion_config.sensor_id);
+    platform::ui::tracker::set_interval_seconds(
+        std::max<uint32_t>(1U, config_.map_track_interval));
+    platform::ui::tracker::set_format(
+        static_cast<platform::ui::tracker::Format>(
+            std::min<std::uint8_t>(config_.map_track_format, 2U)));
+    platform::ui::tracker::set_auto_recording(config_.map_track_enabled);
     (void)platform::ui::gps::diagnostics();
 }
 
@@ -1947,12 +1986,13 @@ void LinuxAppServices::applyChatDefaults()
 bool LinuxAppServices::switchMeshProtocol(::chat::MeshProtocol protocol,
                                           bool persist)
 {
-    if (!is_supported_protocol(protocol))
+    const auto normalized = ::chat::infra::normalizeMeshProtocol(protocol);
+    if (!is_supported_protocol(normalized))
     {
         return false;
     }
 
-    config_.mesh_protocol = protocol;
+    config_.mesh_protocol = normalized;
     if (impl_)
     {
         applyMeshConfig();
@@ -2150,8 +2190,21 @@ void LinuxAppServices::dispatchPendingEvents(std::size_t max_events)
         {
             break;
         }
-        impl_->chat_service.handleSendResult(msg_id, ok);
-        ::sys::EventBus::publish(new ::sys::ChatSendResultEvent(msg_id, ok), 0);
+        const auto protocol = impl_->chat_service.getActiveProtocol();
+        const auto status = ok ? ::chat::MessageStatus::Sent
+                               : ::chat::MessageStatus::Failed;
+        const auto failure =
+            ok ? ::chat::delivery::SendFailureKind::None
+               : ::chat::delivery::SendFailureKind::RadioSendFailed;
+        impl_->chat_service.handleSendResultForProtocol(
+            msg_id,
+            protocol,
+            status,
+            0,
+            failure);
+        ::sys::EventBus::publish(
+            new ::sys::ChatSendResultEvent(msg_id, status, protocol, failure),
+            0);
     }
 
     std::size_t processed = 0;
@@ -2200,6 +2253,7 @@ void LinuxAppServices::loadPersistedConfig()
     }
 
     config_ = blob.config;
+    config_.mesh_protocol = ::chat::infra::normalizeMeshProtocol(config_.mesh_protocol);
     config_.ble_enabled = false;
 }
 
@@ -2228,7 +2282,8 @@ void LinuxAppServices::syncLocalIdentity()
                                           0.0f,
                                           0.0f,
                                           sys::epoch_seconds_now(),
-                                          static_cast<uint8_t>(config_.mesh_protocol));
+                                          static_cast<uint8_t>(
+                                              ::chat::infra::normalizeMeshProtocol(config_.mesh_protocol)));
     ::chat::contacts::NodeUpdate self_update{};
     self_update.has_is_ignored = true;
     self_update.is_ignored = true;

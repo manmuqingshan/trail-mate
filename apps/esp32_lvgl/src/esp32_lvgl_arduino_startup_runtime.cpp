@@ -10,6 +10,7 @@
 #include "platform/esp/arduino_common/display_runtime.h"
 #include "platform/esp/arduino_common/startup_support.h"
 #include "platform/esp/boards/board_runtime.h"
+#include "platform/ui/screen_brightness_steps.h"
 #include "platform/ui/settings_store.h"
 #include "ui/app_registry.h"
 #include "ui/app_runtime.h"
@@ -23,11 +24,9 @@ uint8_t readStartupBrightness()
 {
     const int saved = platform::ui::settings_store::get_int("settings", "screen_brightness",
                                                             DEVICE_MAX_BRIGHTNESS_LEVEL);
-    const int clamped =
-        saved < DEVICE_MIN_BRIGHTNESS_LEVEL
-            ? DEVICE_MIN_BRIGHTNESS_LEVEL
-            : (saved > DEVICE_MAX_BRIGHTNESS_LEVEL ? DEVICE_MAX_BRIGHTNESS_LEVEL : saved);
-    return static_cast<uint8_t>(clamped);
+    return platform::ui::screen_brightness_steps::clampLevel(
+        saved,
+        DEVICE_MAX_BRIGHTNESS_LEVEL);
 }
 
 void applyStartupBrightness(const char* stage)
@@ -93,7 +92,7 @@ void run()
         Serial.printf("[Setup] Wakeup cause: %d\n", wakeup_reason);
     }
 
-    platform::esp::arduino_common::startup_support::initializeBoard(waking_from_sleep);
+    platform::esp::boards::initializeBoardDisplayHardware(waking_from_sleep);
     Serial.printf("[Setup] heap=%u psram=%u\n", ESP.getFreeHeap(), ESP.getFreePsram());
 
     Serial.println("[Setup] LVGL init begin");
@@ -102,6 +101,8 @@ void run()
 
     applyStartupBrightness("after_lvgl");
     ui::startup_shell::beginBootUi(waking_from_sleep, "Starting services...");
+    platform::esp::boards::initializeBoardServices(waking_from_sleep);
+    ui::startup_shell::setBootLogLine("Starting services...");
     ui::startup_shell::setBootLogLine("Mounting SD card...");
     const bool sd_ready = platform::esp::boards::initializeStorage();
     Serial.printf("[Setup] SD storage initialized after boot UI ready=%d\n", sd_ready ? 1 : 0);
@@ -153,6 +154,10 @@ void run()
     initializeShell();
     ui::startup_shell::setBootLogLine("Startup complete");
     finishStartup(waking_from_sleep);
+    // Storage recovery is armed only after the boot UI is finalized. The
+    // storage runtime defers the worker itself until the first loop has had a
+    // chance to present an LVGL frame.
+    trailmate::apps::esp32_lvgl::arduino_app_runtime_access::startDeferredStorage();
     platform::esp::arduino_common::debug::append_line("[Setup] Startup complete");
     platform::esp::arduino_common::debug::flush();
 }

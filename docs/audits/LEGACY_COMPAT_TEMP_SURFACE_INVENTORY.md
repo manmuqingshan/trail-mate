@@ -93,9 +93,8 @@ Current location:
 
 Current callers:
 - root `CMakeLists.txt`
-- `builds/esp_idf/CMakeLists.txt`
-- `apps/esp32_lvgl/CMakeLists.txt`
-- ESP-IDF component registration under the root
+- `builds/esp_idf/main/CMakeLists.txt`
+- ESP-IDF component registration under the root entrypoint
 
 Current responsibility:
 - transitional ESP-IDF build/component root, target sdkconfig defaults, and
@@ -390,7 +389,7 @@ Is this final architecture?
 
 Final owner:
 - `apps/esp32_lvgl` for app shell/runtime ownership and `builds/esp_idf` for
-  build entrypoint wiring.
+  IDF component assets and target defaults.
 
 Disposition:
 - Deleted.

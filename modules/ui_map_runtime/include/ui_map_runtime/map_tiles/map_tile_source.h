@@ -10,6 +10,23 @@ namespace ui
 namespace map_tiles
 {
 
+enum class MapTileReadStatus : uint8_t
+{
+    Ready,
+    Missing,
+    RetryLater,
+    Error,
+    Invalid,
+};
+
+struct MapTileReadResult
+{
+    MapTileReadStatus status = MapTileReadStatus::Error;
+    std::size_t size = 0;
+    int32_t error = -1;
+    MapTileFormat format = MapTileFormat::Unknown;
+};
+
 class IMapTileSource
 {
   public:
@@ -17,11 +34,9 @@ class IMapTileSource
 
     virtual MapTileLookupResult lookup(const MapTileRef& ref) const = 0;
 
-    virtual bool read(const MapTileRef& ref,
-                      uint8_t* buffer,
-                      std::size_t capacity,
-                      std::size_t& out_size,
-                      MapTileFormat& out_format) const = 0;
+    virtual MapTileReadResult read(const MapTileRef& ref,
+                                   uint8_t* buffer,
+                                   std::size_t capacity) const = 0;
 };
 
 class IMapTileFileSystem
@@ -31,10 +46,9 @@ class IMapTileFileSystem
 
     virtual bool exists(const char* path) const = 0;
     virtual bool isDirectory(const char* path) const = 0;
-    virtual bool readFile(const char* path,
-                          uint8_t* buffer,
-                          std::size_t capacity,
-                          std::size_t& out_size) const = 0;
+    virtual MapTileReadResult readFile(const char* path,
+                                       uint8_t* buffer,
+                                       std::size_t capacity) const = 0;
 };
 
 } // namespace map_tiles

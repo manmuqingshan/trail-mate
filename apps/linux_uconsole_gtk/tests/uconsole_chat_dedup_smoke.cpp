@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <deque>
 #include <iostream>
 #include <string>
@@ -30,6 +31,28 @@ class FakeMeshAdapter final : public ::chat::IMeshAdapter
         incoming.timestamp = 1;
         incoming.hop_limit = 3;
         incoming.encrypted = true;
+        incoming_.push_back(incoming);
+    }
+
+    void pushIncomingReticulum(::chat::NodeId from,
+                               ::chat::NodeId to,
+                               ::chat::MessageId msg_id,
+                               const std::string& text,
+                               const std::uint8_t lxmf_hash[::chat::kReticulumLxmfHashSize])
+    {
+        ::chat::MeshIncomingText incoming{};
+        incoming.channel = ::chat::ChannelId::PRIMARY;
+        incoming.from = from;
+        incoming.to = to;
+        incoming.msg_id = msg_id;
+        incoming.text = text;
+        incoming.timestamp = 1;
+        incoming.hop_limit = 3;
+        incoming.encrypted = true;
+        incoming.has_reticulum_lxmf_hash = true;
+        std::memcpy(incoming.reticulum_lxmf_hash,
+                    lxmf_hash,
+                    sizeof(incoming.reticulum_lxmf_hash));
         incoming_.push_back(incoming);
     }
 
@@ -134,9 +157,10 @@ class FakeChatStore final : public ::chat::IChatStore
         return {};
     }
 
-    void setUnread(const ::chat::ConversationId&, int unread) override
+    bool setUnread(const ::chat::ConversationId&, int unread) override
     {
         unread_ = unread;
+        return true;
     }
 
     int getUnread(const ::chat::ConversationId&) const override
@@ -188,6 +212,28 @@ class FakeChatStore final : public ::chat::IChatStore
                 {
                     *out = msg;
                 }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool hasReticulumLxmfMessageHash(const std::uint8_t* lxmf_hash) const override
+    {
+        if (lxmf_hash == nullptr)
+        {
+            return false;
+        }
+        for (const auto& msg : messages_)
+        {
+            if (!::chat::hasReticulumLxmfMessageHash(msg))
+            {
+                continue;
+            }
+            if (std::memcmp(msg.reticulum_lxmf_hash,
+                            lxmf_hash,
+                            ::chat::kReticulumLxmfHashSize) == 0)
+            {
                 return true;
             }
         }
@@ -291,7 +337,13 @@ int main()
     {
         adapter.pushIncoming(0x1234ABCDU, 0x1000U + i, "window fill");
     }
-    service.processIncoming();
+    // Incoming processing is intentionally budgeted to four packets per UI
+    // tick. Drain all queued fixtures so this test exercises the 256-entry
+    // dedup window rather than assuming an unbounded single-tick drain.
+    for (std::size_t tick = 0; tick < 64U; ++tick)
+    {
+        service.processIncoming();
+    }
 
     messages = store.loadRecent(broadcast, 300);
     if (int rc = expect(messages.size() == 259U,
@@ -312,6 +364,44 @@ int main()
     }
     if (int rc = expect(messages.back().msg_id == 0x42U,
                         "evicted original incoming id was not accepted again"))
+    {
+        return rc;
+    }
+
+    std::uint8_t lxmf_hash[::chat::kReticulumLxmfHashSize] = {};
+    for (std::size_t index = 0; index < sizeof(lxmf_hash); ++index)
+    {
+        lxmf_hash[index] = static_cast<std::uint8_t>(index + 1U);
+    }
+    service.setActiveProtocol(::chat::MeshProtocol::Reticulum);
+    adapter.pushIncomingReticulum(0x0BADCAFEU,
+                                  0x11121314U,
+                                  0xA0A0U,
+                                  "propagated original",
+                                  lxmf_hash);
+    adapter.pushIncomingReticulum(0x0BADCAFEU,
+                                  0x11121314U,
+                                  0xB0B0U,
+                                  "propagated duplicate",
+                                  lxmf_hash);
+    service.processIncoming();
+
+    const ::chat::ConversationId reticulum_conv(::chat::ChannelId::PRIMARY,
+                                                0x0BADCAFEU,
+                                                ::chat::MeshProtocol::Reticulum);
+    messages = store.loadRecent(reticulum_conv, 10);
+    if (int rc = expect(messages.size() == 1U,
+                        "duplicate Reticulum LXMF hash was stored more than once"))
+    {
+        return rc;
+    }
+    if (int rc = expect(messages.front().msg_id == 0xA0A0U,
+                        "Reticulum LXMF duplicate replaced the original message"))
+    {
+        return rc;
+    }
+    if (int rc = expect(messages.front().text == "propagated original",
+                        "Reticulum LXMF duplicate changed stored text"))
     {
         return rc;
     }

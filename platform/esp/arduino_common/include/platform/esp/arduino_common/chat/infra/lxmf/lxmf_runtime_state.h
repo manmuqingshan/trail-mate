@@ -5,8 +5,11 @@
 
 #pragma once
 
+#include "chat/domain/chat_types.h"
 #include "chat/infra/lxmf/lxmf_wire.h"
+#include "chat/infra/reticulum/lxst_call_state_machine.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_identity.h"
+#include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_memory.h"
 
 #include <array>
 #include <cstddef>
@@ -16,6 +19,9 @@
 namespace chat::lxmf::runtime
 {
 
+constexpr std::size_t kAnnounceRandomBlobSize = 10;
+constexpr std::size_t kPathRandomBlobHistory = 4;
+
 struct PeerInfo
 {
     uint32_t node_id = 0;
@@ -23,9 +29,12 @@ struct PeerInfo
     uint8_t identity_hash[reticulum::kTruncatedHashSize] = {};
     uint8_t enc_pub[LxmfIdentity::kEncPubKeySize] = {};
     uint8_t sig_pub[LxmfIdentity::kSigPubKeySize] = {};
+    uint8_t ratchet_pub[reticulum::kRatchetSize] = {};
     char display_name[32] = {};
     uint32_t last_seen_s = 0;
     uint32_t last_path_request_ms = 0;
+    uint32_t ratchet_seen_s = 0;
+    bool has_ratchet = false;
 };
 
 struct PathEntry
@@ -35,10 +44,17 @@ struct PathEntry
     uint8_t cached_packet_hash[reticulum::kFullHashSize] = {};
     uint8_t cached_announce[reticulum::kReticulumMtu] = {};
     size_t cached_announce_len = 0;
+    uint8_t announce_random_blobs[kPathRandomBlobHistory][kAnnounceRandomBlobSize] = {};
+    uint8_t announce_random_blob_count = 0;
+    uint8_t interface_id = 0;
     uint8_t hops = 0;
     uint32_t last_seen_s = 0;
+    uint32_t updated_ms = 0;
+    uint64_t announce_timebase = 0;
     bool direct = false;
 };
+
+using PathEntryList = std::vector<PathEntry, PsramAllocator<PathEntry>>;
 
 struct PacketFilterEntry
 {
@@ -46,12 +62,19 @@ struct PacketFilterEntry
     uint32_t seen_ms = 0;
 };
 
+using PacketFilterEntryList =
+    std::vector<PacketFilterEntry, PsramAllocator<PacketFilterEntry>>;
+
 struct ReverseEntry
 {
     uint8_t proof_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t interface_id = 0;
     uint8_t expected_hops = 0;
     uint32_t created_ms = 0;
 };
+
+using ReverseEntryList =
+    std::vector<ReverseEntry, PsramAllocator<ReverseEntry>>;
 
 struct PendingPathRequest
 {
@@ -62,18 +85,40 @@ struct PendingPathRequest
     bool resolved = false;
 };
 
+using PendingPathRequestList =
+    std::vector<PendingPathRequest, PsramAllocator<PendingPathRequest>>;
+
+struct PendingPingReceipt
+{
+    uint8_t packet_hash[reticulum::kFullHashSize] = {};
+    uint8_t proof_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t peer_sig_pub[LxmfIdentity::kSigPubKeySize] = {};
+    uint32_t created_ms = 0;
+};
+
+using PendingPingReceiptList =
+    std::vector<PendingPingReceipt, PsramAllocator<PendingPingReceipt>>;
+
 struct LinkRelayEntry
 {
     uint8_t link_id[reticulum::kTruncatedHashSize] = {};
+    uint8_t initiator_interface_id = 0;
+    uint8_t responder_interface_id = 0;
     uint8_t initiator_hops = 0;
     uint8_t responder_hops = 0;
     uint32_t last_seen_ms = 0;
 };
 
+using LinkRelayEntryList =
+    std::vector<LinkRelayEntry, PsramAllocator<LinkRelayEntry>>;
+
 enum class LocalDestinationKind : uint8_t
 {
     Delivery = 0,
-    Propagation = 1
+    Propagation = 1,
+    CallAudio = 2,
+    NomadPage = 3
 };
 
 enum class LinkState : uint8_t
@@ -96,19 +141,26 @@ enum class LinkCloseReason : uint8_t
 
 struct LinkPendingRequest
 {
-    std::vector<uint8_t> request_id;
+    ResourceMetadataBuffer request_id;
     uint32_t created_ms = 0;
     bool awaiting_resource = false;
     bool response_ready = false;
-    std::vector<uint8_t> response;
+    ResourcePayloadBuffer response;
 };
+
+using LinkPendingRequestList =
+    std::vector<LinkPendingRequest, PsramAllocator<LinkPendingRequest>>;
 
 struct DeferredLinkPayload
 {
-    std::vector<uint8_t> payload;
-    std::vector<uint8_t> request_id;
+    ResourcePayloadBuffer payload;
+    ResourceMetadataBuffer request_id;
+    uint32_t message_id = 0;
     uint8_t resource_flags = 0;
 };
+
+using DeferredLinkPayloadList =
+    std::vector<DeferredLinkPayload, PsramAllocator<DeferredLinkPayload>>;
 
 struct LinkResourceTransfer
 {
@@ -116,12 +168,12 @@ struct LinkResourceTransfer
     uint8_t random_hash[4] = {};
     uint8_t original_hash[reticulum::kFullHashSize] = {};
     uint8_t expected_proof[reticulum::kFullHashSize] = {};
-    std::vector<uint8_t> request_id;
-    std::vector<uint8_t> hashmap;
-    std::vector<std::array<uint8_t, 4>> map_hashes;
-    std::vector<uint8_t> map_hash_known;
-    std::vector<std::vector<uint8_t>> parts;
-    std::vector<uint8_t> received_bitmap;
+    ResourceMetadataBuffer request_id;
+    ResourceMetadataBuffer hashmap;
+    ResourceMapHashList map_hashes;
+    ResourceBitmapBuffer map_hash_known;
+    ResourcePayloadList parts;
+    ResourceBitmapBuffer received_bitmap;
     uint32_t data_size = 0;
     uint32_t transfer_size = 0;
     uint32_t part_count = 0;
@@ -144,16 +196,22 @@ struct LinkResourceTransfer
     int32_t consecutive_complete_index = -1;
 };
 
+using LinkResourceTransferList =
+    std::vector<LinkResourceTransfer, PsramAllocator<LinkResourceTransfer>>;
+
 struct LinkResourceAssembly
 {
     uint8_t original_hash[reticulum::kFullHashSize] = {};
-    std::vector<uint8_t> request_id;
-    std::vector<uint8_t> payload;
+    ResourceMetadataBuffer request_id;
+    ResourcePayloadBuffer payload;
     uint32_t next_segment_index = 1;
     uint32_t total_segments = 1;
     uint32_t last_activity_ms = 0;
     uint8_t flags = 0;
 };
+
+using LinkResourceAssemblyList =
+    std::vector<LinkResourceAssembly, PsramAllocator<LinkResourceAssembly>>;
 
 struct LinkSession
 {
@@ -178,29 +236,40 @@ struct LinkSession
     uint32_t keepalive_interval_ms = 15000;
     uint32_t stale_timeout_ms = 30000;
     uint32_t last_keepalive_ms = 0;
+    uint8_t interface_id = 0;
     uint8_t expected_hops = 0;
     bool initiator = false;
+    bool local_identity_sent = false;
     bool remote_identity_known = false;
     bool validated = false;
+    ReticulumCallWireProfile call_wire_profile =
+        ReticulumCallWireProfile::SidebandLxst;
+    reticulum::lxst::call::State lxst_call{};
+    bool call_runtime_started = false;
     LocalDestinationKind destination = LocalDestinationKind::Delivery;
     LinkState state = LinkState::Pending;
     LinkCloseReason close_reason = LinkCloseReason::None;
     bool propagation_offer_validated = false;
-    std::vector<LinkPendingRequest> pending_requests;
-    std::vector<DeferredLinkPayload> deferred_payloads;
-    std::vector<LinkResourceTransfer> incoming_resources;
-    std::vector<LinkResourceAssembly> incoming_resource_assemblies;
-    std::vector<LinkResourceTransfer> outgoing_resources;
+    LinkPendingRequestList pending_requests;
+    DeferredLinkPayloadList deferred_payloads;
+    LinkResourceTransferList incoming_resources;
+    LinkResourceAssemblyList incoming_resource_assemblies;
+    LinkResourceTransferList outgoing_resources;
 };
+
+using LinkSessionList = std::vector<LinkSession, PsramAllocator<LinkSession>>;
 
 struct PropagationEntry
 {
     uint8_t transient_id[reticulum::kFullHashSize] = {};
     uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
-    std::vector<uint8_t> lxmf_data;
+    ResourcePayloadBuffer lxmf_data;
     uint32_t created_s = 0;
     uint32_t served_count = 0;
 };
+
+using PropagationEntryList =
+    std::vector<PropagationEntry, PsramAllocator<PropagationEntry>>;
 
 struct PropagationTransientEntry
 {
@@ -209,35 +278,125 @@ struct PropagationTransientEntry
     bool delivered = false;
 };
 
+using PropagationTransientEntryList =
+    std::vector<PropagationTransientEntry,
+                PsramAllocator<PropagationTransientEntry>>;
+
+enum class PropagationUploadState : uint8_t
+{
+    WaitingNode = 0,
+    NeedsStamp = 1,
+    Stamping = 2,
+    Ready = 3,
+    QueuedToLink = 4,
+    Failed = 5,
+};
+
+struct PendingPropagationUpload
+{
+    uint8_t node_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t message_hash[reticulum::kFullHashSize] = {};
+    uint8_t transient_id[reticulum::kFullHashSize] = {};
+    ResourcePayloadBuffer transient_data;
+    uint32_t created_ms = 0;
+    uint8_t stamp_cost = 0;
+    PropagationUploadState state = PropagationUploadState::WaitingNode;
+};
+
+using PendingPropagationUploadList =
+    std::vector<PendingPropagationUpload,
+                PsramAllocator<PendingPropagationUpload>>;
+
+enum class PropagationDeliveryCommitState : uint8_t
+{
+    AwaitingPersistence = 0,
+    Accepted = 1,
+    Rejected = 2,
+};
+
+struct PendingPropagationDelivery
+{
+    uint8_t transient_id[reticulum::kFullHashSize] = {};
+    uint8_t message_hash[reticulum::kFullHashSize] = {};
+    PropagationDeliveryCommitState state =
+        PropagationDeliveryCommitState::AwaitingPersistence;
+};
+
+using PendingPropagationDeliveryList =
+    std::vector<PendingPropagationDelivery,
+                PsramAllocator<PendingPropagationDelivery>>;
+
+enum class PropagationSyncStage : uint8_t
+{
+    Idle = 0,
+    NeedList = 1,
+    Listing = 2,
+    NeedMessages = 3,
+    Downloading = 4,
+    AwaitingPersistence = 5,
+    NeedAcknowledge = 6,
+    Acknowledging = 7,
+    Complete = 8,
+    Failed = 9,
+};
+
 struct PropagationPeerState
 {
     uint8_t propagation_hash[reticulum::kTruncatedHashSize] = {};
     uint8_t delivery_hash[reticulum::kTruncatedHashSize] = {};
     uint8_t identity_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t enc_pub[LxmfIdentity::kEncPubKeySize] = {};
+    uint8_t sig_pub[LxmfIdentity::kSigPubKeySize] = {};
+    char display_name[32] = {};
+    uint32_t announce_timebase_s = 0;
     uint32_t last_seen_s = 0;
+    uint32_t transfer_limit_kb = 0;
+    uint32_t sync_limit_kb = 0;
     uint32_t incoming_messages = 0;
     uint32_t served_messages = 0;
+    uint8_t hops = 0;
+    uint8_t stamp_cost = 0;
+    uint8_t stamp_cost_flexibility = 0;
+    uint8_t peering_cost = 0;
+    bool node_active = false;
 };
+
+using PropagationPeerStateList =
+    std::vector<PropagationPeerState, PsramAllocator<PropagationPeerState>>;
 
 struct TransportRuntime
 {
-    std::vector<PathEntry> paths;
-    std::vector<PacketFilterEntry> packet_filter;
-    std::vector<ReverseEntry> reverse_table;
-    std::vector<PendingPathRequest> pending_path_requests;
-    std::vector<LinkRelayEntry> link_relays;
+    PathEntryList paths;
+    PacketFilterEntryList packet_filter;
+    ReverseEntryList reverse_table;
+    PendingPathRequestList pending_path_requests;
+    PendingPingReceiptList pending_ping_receipts;
+    LinkRelayEntryList link_relays;
 };
 
 struct LinkRuntime
 {
-    std::vector<LinkSession> sessions;
+    LinkSessionList sessions;
 };
 
 struct PropagationRuntime
 {
-    std::vector<PropagationEntry> entries;
-    std::vector<PropagationTransientEntry> transients;
-    std::vector<PropagationPeerState> peers;
+    PropagationEntryList entries;
+    PropagationTransientEntryList transients;
+    PropagationPeerStateList peers;
+    PendingPropagationUploadList pending_uploads;
+    PendingPropagationDeliveryList pending_deliveries;
+    PropagationIdList sync_wants;
+    PropagationIdList sync_haves;
+    uint8_t active_node_hash[reticulum::kTruncatedHashSize] = {};
+    uint8_t sync_request_id[reticulum::kTruncatedHashSize] = {};
+    uint32_t last_sync_s = 0;
+    uint32_t sync_started_ms = 0;
+    uint32_t persistence_started_ms = 0;
+    PropagationSyncStage sync_stage = PropagationSyncStage::Idle;
+    bool has_active_node = false;
+    bool initial_sync_pending = true;
 };
 
 } // namespace chat::lxmf::runtime

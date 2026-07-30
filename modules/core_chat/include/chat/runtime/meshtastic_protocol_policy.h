@@ -155,10 +155,6 @@ inline MeshtasticMqttDownlinkPolicy resolveMeshtasticMqttDownlinkPolicy(
         policy.reason = MeshtasticMqttDownlinkReason::LocalDestination;
         return policy;
     }
-
-    // Zero-hop packets are still transmitted by the gateway; direct neighbors
-    // receive them, but should not relay them further. Therefore hop_limit is
-    // not a transmit gate here.
     policy.transmit_to_mesh = true;
     policy.reason = MeshtasticMqttDownlinkReason::TransmitToMesh;
     return policy;

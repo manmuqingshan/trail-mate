@@ -2,9 +2,12 @@
 
 #include "platform/ui/team_ui_chat_log_store.h"
 #include "platform/ui/team_ui_snapshot_store.h"
+#include "platform/ui/team_ui_store_runtime.h"
+#include "ui/team_presentation/team_member_label.h"
 #include "ui/team_presentation/team_rich_payload_projector.h"
 #include "ui_presentation/common/fixed_text.h"
 
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <string>
@@ -15,7 +18,8 @@ namespace ui::presentation_sources
 namespace
 {
 
-constexpr std::size_t kMaxMessageRows = 24;
+constexpr std::size_t kMaxMessageRows = ::ui::chat::ChatWorkspaceSnapshot::kMaxMessages;
+constexpr double kCoordinateScale = 10000000.0;
 
 uint32_t foldTeamId(const ::team::TeamId& team_id)
 {
@@ -82,6 +86,66 @@ void copySenderLabel(ui::FixedText<32>& out,
                   "%04lX",
                   static_cast<unsigned long>(entry.peer_id & 0xFFFFU));
     ui::copyText(out, buffer);
+}
+
+bool hasCoordinate(const ::team::ui::TeamPosSample& sample)
+{
+    return sample.lat_e7 != 0 || sample.lon_e7 != 0;
+}
+
+bool validCoordinate(double lat, double lon)
+{
+    return std::isfinite(lat) && std::isfinite(lon) && lat >= -90.0 &&
+           lat <= 90.0 && lon >= -180.0 && lon <= 180.0;
+}
+
+void appendTeamLocationParticipants(ui::chat::ChatWorkspaceSnapshot& out,
+                                    const ::team::ui::TeamUiSnapshot& snap)
+{
+    if (!snap.in_team || !snap.has_team_id)
+    {
+        return;
+    }
+
+    std::vector<::team::ui::TeamPosSample> samples;
+    if (!::team::ui::team_ui_posring_load_latest(snap.team_id, samples))
+    {
+        return;
+    }
+
+    for (const auto& sample : samples)
+    {
+        if (!hasCoordinate(sample))
+        {
+            continue;
+        }
+
+        const double lat = static_cast<double>(sample.lat_e7) / kCoordinateScale;
+        const double lon = static_cast<double>(sample.lon_e7) / kCoordinateScale;
+        if (!validCoordinate(lat, lon))
+        {
+            continue;
+        }
+
+        if (out.location_participant_count >=
+            ui::chat::ChatWorkspaceSnapshot::kMaxLocationParticipants)
+        {
+            out.location_participants_truncated = true;
+            break;
+        }
+
+        auto& participant =
+            out.location_participants[out.location_participant_count++];
+        participant.node_id = sample.member_id;
+        participant.lat = lat;
+        participant.lon = lon;
+        participant.timestamp = sample.ts;
+        participant.valid = true;
+        participant.self = false;
+        const std::string label =
+            ::ui::team_presentation::shortTeamMemberLabel(sample.member_id);
+        ui::copyText(participant.label, label.c_str());
+    }
 }
 
 uint64_t messageLocalId(const ::team::ui::TeamChatLogEntry& entry,
@@ -227,6 +291,7 @@ bool TeamChatPresentationSource::buildChatWorkspaceSnapshot(
 
     out.can_send = snap.has_team_psk;
     out.composer_enabled = out.can_send;
+    appendTeamLocationParticipants(out, snap);
     out.message_count =
         entries.size() < kMaxMessageRows ? entries.size() : kMaxMessageRows;
 

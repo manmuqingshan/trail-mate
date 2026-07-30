@@ -15,7 +15,6 @@ enum class PageId
     Contacts,
     Team,
     Tracker,
-    PcLink,
     EnergySweep,
     Settings,
     WalkieTalkie,

@@ -18,6 +18,7 @@ struct TopBarConfig
     lv_obj_t* back_btn_override = nullptr;    // Use existing back button (keeps its style)
     lv_obj_t* title_label_override = nullptr; // Use existing title label if provided
     bool create_back = true;                  // Create new back button when no override
+    bool power_indicator = true;              // Presenter owns right label as battery/status power slot
     lv_coord_t height = 0;                    // 0 = use current page profile height
 };
 

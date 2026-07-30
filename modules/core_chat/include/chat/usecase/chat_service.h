@@ -9,8 +9,12 @@
 #include "../domain/chat_types.h"
 #include "../ports/i_chat_store.h"
 #include "../ports/i_mesh_adapter.h"
+#include "chat/delivery/chat_delivery_event_port.h"
+#include "chat/delivery/chat_message_ledger.h"
+#include "chat/read/chat_read_state_ledger.h"
 #include <array>
 #include <cstddef>
+#include <cstring>
 #include <vector>
 
 namespace chat
@@ -80,6 +84,12 @@ class ChatService
      */
     bool triggerDiscoveryAction(MeshDiscoveryAction action);
     MeshActionResult triggerDiscoveryActionDetailed(MeshDiscoveryAction action);
+    MeshActionResult startReticulumAudioCall(
+        const ReticulumPeerIdentity& destination);
+    MeshActionResult pingReticulumDestination(
+        const ReticulumPeerIdentity& destination);
+    MeshActionResult persistReticulumPeer(const ReticulumPeerIdentity& destination,
+                                          bool favorite);
 
     /**
      * @brief Switch to channel
@@ -91,7 +101,7 @@ class ChatService
      * @brief Mark conversation as read
      * @param conv Conversation ID
      */
-    void markConversationRead(const ConversationId& conv);
+    bool markConversationRead(const ConversationId& conv);
 
     /**
      * @brief Resend failed message
@@ -99,12 +109,26 @@ class ChatService
      * @return true if queued for resend
      */
     bool resendFailed(MessageId msg_id);
+    bool resendFailedForProtocol(MessageId msg_id, MeshProtocol protocol);
 
     /**
      * @brief Get recent messages for a conversation
      */
     std::vector<ChatMessage> getRecentMessages(const ConversationId& conv, size_t limit) const;
+    std::vector<ChatMessage> getMessagePageFromLatest(const ConversationId& conv,
+                                                      size_t offset_from_latest,
+                                                      size_t limit,
+                                                      size_t* total) const;
     std::vector<ConversationMeta> getConversations(size_t offset, size_t limit, size_t* total) const;
+
+    /**
+     * Report whether the store-backed conversation projection is available.
+     *
+     * This is intentionally a domain-level readiness signal. The service
+     * does not expose how the store obtains or protects its data.
+     */
+    bool isDataReady() const { return store_.isReady(); }
+
     int getTotalUnread() const;
 
     /**
@@ -117,6 +141,11 @@ class ChatService
      * @brief Clear all stored messages and model state
      */
     void clearAllMessages();
+
+    /**
+     * @brief Clear one conversation from model and backing store
+     */
+    void clearConversation(const ConversationId& conv);
 
     /**
      * @brief Process incoming messages (call from mesh task)
@@ -144,9 +173,32 @@ class ChatService
     void handleSendResult(MessageId msg_id, bool ok);
 
     /**
+     * @brief Apply an outbound delivery state update.
+     *
+     * Queued, Sent, Delivered, and Failed are accepted. Delivered is terminal;
+     * an earlier failure may still be superseded by a later valid proof.
+     */
+    void handleSendResult(MessageId msg_id,
+                          MessageStatus status,
+                          uint32_t timestamp_ms = 0,
+                          delivery::SendFailureKind failure =
+                              delivery::SendFailureKind::Unknown);
+    void handleSendResultForProtocol(MessageId msg_id,
+                                     MeshProtocol protocol,
+                                     MessageStatus status,
+                                     uint32_t timestamp_ms = 0,
+                                     delivery::SendFailureKind failure =
+                                         delivery::SendFailureKind::Unknown);
+
+    /**
      * @brief Get message by ID (for UI send status)
      */
     const ChatMessage* getMessage(MessageId msg_id) const;
+    const ChatMessage* getMessageForProtocol(MessageId msg_id,
+                                             MeshProtocol protocol) const;
+
+    void setDeliveryEventPort(
+        delivery::IChatDeliveryEventPort* delivery_event_port);
 
     void setActiveProtocol(MeshProtocol protocol)
     {
@@ -174,14 +226,43 @@ class ChatService
         NodeId from = 0;
         NodeId peer = 0;
         MessageId msg_id = 0;
+        bool has_reticulum_destination = false;
+        uint8_t reticulum_destination_hash[kReticulumPeerHashSize] = {};
+        bool has_reticulum_lxmf_hash = false;
+        uint8_t reticulum_lxmf_hash[kReticulumLxmfHashSize] = {};
 
         bool operator==(const IncomingIdentity& other) const
         {
-            return protocol == other.protocol &&
-                   channel == other.channel &&
-                   from == other.from &&
-                   peer == other.peer &&
-                   msg_id == other.msg_id;
+            if (protocol != other.protocol ||
+                channel != other.channel)
+            {
+                return false;
+            }
+            if (protocol == MeshProtocol::Reticulum &&
+                has_reticulum_lxmf_hash &&
+                other.has_reticulum_lxmf_hash)
+            {
+                return std::memcmp(reticulum_lxmf_hash,
+                                   other.reticulum_lxmf_hash,
+                                   kReticulumLxmfHashSize) == 0;
+            }
+            if (msg_id != other.msg_id)
+            {
+                return false;
+            }
+            if (protocol == MeshProtocol::Reticulum &&
+                has_reticulum_destination &&
+                other.has_reticulum_destination)
+            {
+                return std::memcmp(reticulum_destination_hash,
+                                   other.reticulum_destination_hash,
+                                   kReticulumPeerHashSize) == 0;
+            }
+            if (has_reticulum_destination != other.has_reticulum_destination)
+            {
+                return false;
+            }
+            return from == other.from && peer == other.peer;
         }
     };
 
@@ -198,14 +279,56 @@ class ChatService
         std::size_t count = 0;
     };
 
+    static constexpr std::size_t kDeferredIncomingDepth = 8;
+    static constexpr std::size_t kDeferredIncomingTextMaxLen = 255;
+
+    struct DeferredIncomingQueue
+    {
+        struct Slot
+        {
+            MeshProtocol protocol = MeshProtocol::Meshtastic;
+            ChannelId channel = ChannelId::PRIMARY;
+            NodeId from = 0;
+            NodeId to = 0;
+            MessageId msg_id = 0;
+            uint32_t timestamp = 0;
+            uint8_t hop_limit = 0xFF;
+            bool encrypted = false;
+            ReticulumPeerIdentity reticulum_identity{};
+            bool has_reticulum_lxmf_hash = false;
+            uint8_t reticulum_lxmf_hash[kReticulumLxmfHashSize] = {};
+            bool source_unverified = false;
+            RxMeta rx_meta{};
+            IncomingIdentity identity{};
+            std::array<char, kDeferredIncomingTextMaxLen + 1> text{};
+            uint16_t text_len = 0;
+        };
+
+        void clear();
+        [[nodiscard]] bool empty() const { return count == 0; }
+        [[nodiscard]] bool contains(const IncomingIdentity& identity) const;
+        bool push(const MeshIncomingText& incoming,
+                  MeshProtocol protocol,
+                  const IncomingIdentity& identity);
+        bool peek(MeshIncomingText& incoming, MeshProtocol& protocol) const;
+        void pop();
+
+        std::array<Slot, kDeferredIncomingDepth> slots{};
+        std::size_t head = 0;
+        std::size_t count = 0;
+    };
+
     ChatModel& model_;
     IMeshAdapter& adapter_;
     IChatStore& store_;
+    delivery::ChatMessageLedger message_ledger_;
+    read::ChatReadStateLedger read_state_ledger_;
     ChannelId current_channel_;
     bool model_enabled_ = true;
     MeshProtocol active_protocol_ = MeshProtocol::Meshtastic;
     mutable ChatMessage store_lookup_cache_{};
     RecentIncomingWindow recent_incoming_{};
+    DeferredIncomingQueue deferred_incoming_{};
 
     std::vector<IncomingTextObserver*> incoming_text_observers_;
     std::vector<IncomingMessageObserver*> incoming_message_observers_;
@@ -213,7 +336,21 @@ class ChatService
     std::vector<IncomingDataObserver*> incoming_data_observers_;
 
     [[nodiscard]] bool isDuplicateIncoming(const ChatMessage& msg) const;
+    [[nodiscard]] bool isDeferredIncoming(const ChatMessage& msg) const;
+    [[nodiscard]] static IncomingIdentity incomingIdentityForMessage(
+        const ChatMessage& msg);
     void rememberIncoming(const ChatMessage& msg);
+    static ChatMessage incomingChatMessage(const MeshIncomingText& incoming,
+                                           MeshProtocol protocol);
+    void commitIncoming(const MeshIncomingText& incoming,
+                        const ChatMessage& message);
+    void retryDeferredIncoming();
+    MeshSendResult sendTextResolvedDetailed(
+        ChannelId channel,
+        const std::string& text,
+        MessageId forced_msg_id,
+        NodeId peer,
+        const ReticulumPeerIdentity* reticulum_destination);
 };
 
 } // namespace chat

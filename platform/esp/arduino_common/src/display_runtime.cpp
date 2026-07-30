@@ -27,7 +27,11 @@ void initialize()
 
 void tickIfDue(uint32_t now_ms)
 {
-    const bool run_lvgl = (now_ms - s_last_lvgl_ms >= kLvglIntervalMs);
+    // A freshly initialized display must render once immediately. Waiting
+    // for the first 20 ms interval lets startup runtime work run before the
+    // first frame and makes a slow Wi-Fi/MQTT path look like a black screen.
+    const bool run_lvgl =
+        s_last_lvgl_ms == 0 || now_ms - s_last_lvgl_ms >= kLvglIntervalMs;
 #if MAIN_TIMING_DEBUG
     uint32_t t_before = 0;
 #endif

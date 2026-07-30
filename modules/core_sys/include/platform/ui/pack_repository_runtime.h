@@ -57,6 +57,7 @@ struct PackageInstallStatus
 {
     PackageInstallPhase phase = PackageInstallPhase::Idle;
     bool busy = false;
+    int progress_percent = -1;
     std::string package_id;
     std::string message;
     std::string detail;

@@ -86,8 +86,7 @@ bool MeshtasticSelfAnnouncementCore::buildNodeInfoPacket(const MeshtasticAnnounc
         (request.user_id_override && request.user_id_override[0] != '\0')
             ? std::string(request.user_id_override)
             : default_user_id;
-    uint8_t payload[192] = {};
-    size_t payload_size = sizeof(payload);
+    size_t payload_size = sizeof(out_packet->wire);
 
     if (!chat::meshtastic::encodeNodeInfoMessage(user_id,
                                                  request.identity.long_name,
@@ -97,8 +96,9 @@ bool MeshtasticSelfAnnouncementCore::buildNodeInfoPacket(const MeshtasticAnnounc
                                                  request.public_key,
                                                  request.public_key_len,
                                                  request.want_response,
-                                                 payload,
-                                                 &payload_size))
+                                                 out_packet->wire,
+                                                 &payload_size,
+                                                 &out_packet->data_scratch))
     {
         return false;
     }
@@ -111,7 +111,7 @@ bool MeshtasticSelfAnnouncementCore::buildNodeInfoPacket(const MeshtasticAnnounc
         key,
         key_len);
     out_packet->wire_size = sizeof(out_packet->wire);
-    if (!chat::meshtastic::buildWirePacket(payload,
+    if (!chat::meshtastic::buildWirePacket(out_packet->wire,
                                            payload_size,
                                            request.identity.node_id,
                                            request.packet_id,

@@ -8,9 +8,12 @@
 #include "lvgl.h"
 
 #include "ui_map_runtime/map_tiles/filesystem_map_tile_source.h"
+#include "ui_map_runtime/map_tiles/map_tile_geometry.h"
+#include "ui_map_runtime/map_tiles/map_tile_types.h"
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -85,27 +88,39 @@ class StdMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
         return path && std::filesystem::is_directory(std::filesystem::path(path));
     }
 
-    bool readFile(const char* path,
-                  uint8_t* buffer,
-                  std::size_t capacity,
-                  std::size_t& out_size) const override
+    ui::map_tiles::MapTileReadResult readFile(
+        const char* path,
+        uint8_t* buffer,
+        std::size_t capacity) const override
     {
-        out_size = 0;
         if (!path || !buffer || capacity == 0)
         {
-            return false;
+            return {ui::map_tiles::MapTileReadStatus::Invalid, 0, -4};
         }
 
         FILE* file = std::fopen(path, "rb");
         if (!file)
         {
-            return false;
+            return {errno == ENOENT ? ui::map_tiles::MapTileReadStatus::Missing
+                                    : ui::map_tiles::MapTileReadStatus::Error,
+                    0,
+                    errno == ENOENT ? -1 : -2};
         }
 
-        out_size = std::fread(buffer, 1, capacity, file);
+        const std::size_t bytes_read = std::fread(buffer, 1, capacity, file);
         const bool ok = std::ferror(file) == 0;
-        std::fclose(file);
-        return ok;
+        const int close_result = std::fclose(file);
+        if (!ok || close_result != 0)
+        {
+            return {ui::map_tiles::MapTileReadStatus::Error,
+                    bytes_read,
+                    -2};
+        }
+        if (bytes_read == 0)
+        {
+            return {ui::map_tiles::MapTileReadStatus::Invalid, 0, -5};
+        }
+        return {ui::map_tiles::MapTileReadStatus::Ready, bytes_read, 0};
     }
 };
 
@@ -991,15 +1006,21 @@ void create_or_refresh_tile_card(TileContext& ctx, MapTile& tile)
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(label, TILE_SIZE - 18);
 
+    char coordinate_text[48] = {};
+    ui::map_tiles::formatMapTileCoordinateLabel(
+        static_cast<std::uint8_t>(tile.z),
+        static_cast<std::uint32_t>(tile.x),
+        static_cast<std::uint32_t>(tile.y),
+        coordinate_text,
+        sizeof(coordinate_text));
+
     char text[128];
     std::snprintf(text,
                   sizeof(text),
-                  "%s %s\nz%d x%d\ny%d",
+                  "%s %s\n%s",
                   has_base ? "Decode failed:" : "Missing",
                   map_source_label(tile.map_source),
-                  tile.z,
-                  static_cast<int>(tile.x),
-                  static_cast<int>(tile.y));
+                  coordinate_text);
     lv_label_set_text(label, text);
     lv_obj_center(label);
 
@@ -1095,33 +1116,12 @@ void set_map_render_options(uint8_t map_source, bool contour_enabled)
 
 void normalize_tile(int z, int& x, int& y)
 {
-    const int tiles = 1 << std::clamp(z, 0, 18);
-    if (tiles <= 0)
-    {
-        x = 0;
-        y = 0;
-        return;
-    }
-
-    x %= tiles;
-    if (x < 0)
-    {
-        x += tiles;
-    }
-    y = std::clamp(y, 0, tiles - 1);
+    ::ui::map_tiles::normalizeTile(z, x, y);
 }
 
 void latLngToTile(double lat, double lng, int zoom, int& tile_x, int& tile_y)
 {
-    const double tiles = world_tiles(zoom);
-    const double clamped_lat = clamp_lat(lat);
-    const double lat_rad = clamped_lat * kPi / 180.0;
-    const double x = (lng + 180.0) / 360.0 * tiles;
-    const double y = (1.0 - std::log(std::tan(lat_rad) + 1.0 / std::cos(lat_rad)) / kPi) / 2.0 * tiles;
-
-    tile_x = static_cast<int>(std::floor(x));
-    tile_y = static_cast<int>(std::floor(y));
-    normalize_tile(zoom, tile_x, tile_y);
+    ::ui::map_tiles::latLngToTile(lat, lng, zoom, tile_x, tile_y);
 }
 
 void tileToLatLng(int tile_x, int tile_y, int zoom, double& lat, double& lng)
@@ -1472,4 +1472,9 @@ void cleanup_tiles(TileContext& ctx)
     {
         ctx.render_queue->clear();
     }
+}
+
+void release_tile_context(TileContext&)
+{
+    // Linux tile loading has no dedicated worker lease.
 }

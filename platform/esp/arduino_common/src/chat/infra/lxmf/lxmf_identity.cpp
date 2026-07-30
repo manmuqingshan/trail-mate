@@ -7,10 +7,8 @@
 
 #include "../../internal/blob_store_io.h"
 #include "chat/infra/meshcore/crypto/ed25519/ed_25519.h"
-
-#include <Arduino.h>
-#include <Curve25519.h>
-#include <RNG.h>
+#include "platform/esp/common/reticulum_crypto_compat.h"
+#include "platform/esp/common/reticulum_runtime_compat.h"
 
 #include <cstring>
 #include <vector>

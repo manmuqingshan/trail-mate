@@ -89,6 +89,7 @@ struct TileContext
     ui::map_tiles::MapTileRenderQueue* render_queue;
     bool* has_map_data;         // Global: any tile ever loaded
     bool* has_visible_map_data; // Viewport: current visible tiles have PNG
+    bool runtime_acquired = false;
 };
 
 // Core tile functions - implemented in map_tiles.cpp
@@ -212,5 +213,12 @@ void init_tile_context(TileContext& ctx, lv_obj_t* map_container, MapAnchor* anc
  * Cleanup tiles
  */
 void cleanup_tiles(TileContext& ctx);
+
+/**
+ * Release the asynchronous tile service lease owned by this context.
+ * cleanup_tiles() intentionally keeps the lease because it is also used for
+ * ordinary viewport refreshes.
+ */
+void release_tile_context(TileContext& ctx);
 
 #endif // MAP_TILES_H

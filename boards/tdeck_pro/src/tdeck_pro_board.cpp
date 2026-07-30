@@ -14,7 +14,10 @@
 #include <sys/time.h>
 
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/common/shared_spi_coordinator.h"
 #include "platform/ui/audio/pager_notification_tone.h"
+#include "sys/bus_access_scope.h"
+#include "sys/clock.h"
 
 namespace boards::tdeck_pro
 {
@@ -29,7 +32,9 @@ constexpr uint32_t kEpdSpiHz = 2000000;
 constexpr uint32_t kSdSpiHz = 4000000;
 constexpr uint8_t kFlushLogLimit = 8;
 constexpr uint32_t kRadioTxMaxTimeoutMs = 120000;
-SemaphoreHandle_t g_shared_spi_mutex = nullptr;
+sys::runtime::BusAccessToken g_shared_spi_token{};
+TaskHandle_t g_shared_spi_task = nullptr;
+uint32_t g_shared_spi_depth = 0;
 
 uint32_t radioTxTimeoutMs(SX1262Access& radio, size_t len)
 {
@@ -55,37 +60,59 @@ void sharedSpiReleaseAllCs()
 
 void sharedSpiBusInit()
 {
-    if (g_shared_spi_mutex == nullptr)
-    {
-        g_shared_spi_mutex = xSemaphoreCreateRecursiveMutex();
-        if (g_shared_spi_mutex == nullptr)
-        {
-            Serial.printf("[%s] shared SPI mutex create failed\n", kTag);
-            return;
-        }
-    }
     sharedSpiReleaseAllCs();
 }
 
-void sharedSpiLock()
+bool sharedSpiLock(
+    sys::runtime::BusAccessPolicy policy =
+        sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+    const char* owner = "tdeck_pro_spi",
+    uint32_t wait_ms = 200U)
 {
-    if (g_shared_spi_mutex == nullptr)
+    sys::runtime::BusAcquireRequest request{};
+    request.resource =
+        ::platform::esp::common::SharedSpiCoordinator::kSharedBusResource;
+    request.policy = policy;
+    request.command_id = 0x54445053U;
+    request.origin = request.command_id;
+    request.deadline_ms = sys::millis_now() + wait_ms;
+    request.owner_label = owner;
+    const sys::runtime::BusAcquireResult result =
+        ::platform::esp::common::shared_spi_coordinator().acquire(request);
+    if (result.status != sys::runtime::BusAcquireStatus::Acquired ||
+        !result.token.valid)
     {
-        sharedSpiBusInit();
+        return false;
     }
-    if (g_shared_spi_mutex != nullptr)
-    {
-        xSemaphoreTakeRecursive(g_shared_spi_mutex, portMAX_DELAY);
-    }
+    g_shared_spi_token = result.token;
+    g_shared_spi_task = xTaskGetCurrentTaskHandle();
+    g_shared_spi_depth = result.token.depth;
+    return true;
 }
 
 void sharedSpiUnlock()
 {
-    if (g_shared_spi_mutex != nullptr)
+    const TaskHandle_t current = xTaskGetCurrentTaskHandle();
+    if (!g_shared_spi_token.valid || g_shared_spi_task != current)
     {
-        sharedSpiReleaseAllCs();
-        xSemaphoreGiveRecursive(g_shared_spi_mutex);
+        return;
     }
+    sys::runtime::BusAccessToken token = g_shared_spi_token;
+    token.depth = g_shared_spi_depth;
+    const bool final_release = g_shared_spi_depth <= 1U;
+    if (final_release)
+    {
+        g_shared_spi_token = {};
+        g_shared_spi_task = nullptr;
+        g_shared_spi_depth = 0;
+    }
+    else
+    {
+        --g_shared_spi_depth;
+        g_shared_spi_token.depth = g_shared_spi_depth;
+    }
+    sharedSpiReleaseAllCs();
+    ::platform::esp::common::shared_spi_coordinator().release(token);
 }
 
 void sharedSpiPrepareDevice(int cs_pin)
@@ -272,7 +299,12 @@ bool TDeckProBoard::initPower()
 bool TDeckProBoard::initDisplay()
 {
     SPI.begin(profile().spi.sck, profile().spi.miso, profile().spi.mosi, profile().epd.cs);
-    sharedSpiLock();
+    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::DisplayFrameCritical,
+                       "tdeck_pro_epd_init",
+                       45U))
+    {
+        return false;
+    }
     sharedSpiPrepareDevice(profile().epd.cs);
     epd_.epd2.selectSPI(SPI, SPISettings(kEpdSpiHz, MSBFIRST, SPI_MODE0));
     epd_.init(0, true, 2, false);
@@ -327,7 +359,12 @@ bool TDeckProBoard::initMotion()
 bool TDeckProBoard::initRadio()
 {
     SPI.begin(profile().spi.sck, profile().spi.miso, profile().spi.mosi, profile().lora.cs);
-    sharedSpiLock();
+    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+                       "tdeck_pro_radio_init",
+                       200U))
+    {
+        return false;
+    }
     sharedSpiPrepareDevice(profile().lora.cs);
     radio_.reset();
     radio_ready_ = (radio_.begin() == RADIOLIB_ERR_NONE);
@@ -356,15 +393,12 @@ bool TDeckProBoard::installSD()
         pinMode(pin, OUTPUT);
         digitalWrite(pin, HIGH);
     }
-    sharedSpiLock();
-    sharedSpiPrepareDevice(profile().sd.cs);
     const bool ok = ::platform::esp::arduino_common::storage::mount_sd_card(
         profile().sd.cs,
         SPI,
         kSdSpiHz,
         "/sd",
         8);
-    sharedSpiUnlock();
     return ok;
 }
 
@@ -612,7 +646,12 @@ void TDeckProBoard::renderEpd()
         return;
     }
 
-    sharedSpiLock();
+    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::DisplayFrameCritical,
+                       "tdeck_pro_epd_frame",
+                       45U))
+    {
+        return;
+    }
     sharedSpiPrepareDevice(profile().epd.cs);
     epd_.setRotation(rotation_);
     epd_.setFullWindow();
@@ -738,7 +777,12 @@ int TDeckProBoard::getKeyChar(char* c)
 int TDeckProBoard::transmitRadio(const uint8_t* data, size_t len)
 {
     const uint32_t timeout_ms = radioTxTimeoutMs(radio_, len);
-    sharedSpiLock();
+    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+                       "tdeck_pro_radio_tx",
+                       200U))
+    {
+        return RADIOLIB_ERR_SPI_CMD_TIMEOUT;
+    }
     sharedSpiPrepareDevice(profile().lora.cs);
     const int rc = radio_.startTransmit(data, len);
     sharedSpiUnlock();
@@ -752,7 +796,12 @@ int TDeckProBoard::transmitRadio(const uint8_t* data, size_t len)
     {
         if (static_cast<uint32_t>(millis() - started_ms) > timeout_ms)
         {
-            sharedSpiLock();
+            if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+                               "tdeck_pro_radio_tx_timeout",
+                               200U))
+            {
+                return RADIOLIB_ERR_TX_TIMEOUT;
+            }
             sharedSpiPrepareDevice(profile().lora.cs);
             (void)radio_.finishTransmit();
             sharedSpiUnlock();
@@ -761,7 +810,12 @@ int TDeckProBoard::transmitRadio(const uint8_t* data, size_t len)
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 
-    sharedSpiLock();
+    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+                       "tdeck_pro_radio_tx_finish",
+                       200U))
+    {
+        return RADIOLIB_ERR_SPI_CMD_TIMEOUT;
+    }
     sharedSpiPrepareDevice(profile().lora.cs);
     const int finish_rc = radio_.finishTransmit();
     sharedSpiUnlock();
@@ -770,7 +824,12 @@ int TDeckProBoard::transmitRadio(const uint8_t* data, size_t len)
 
 int TDeckProBoard::startRadioReceive()
 {
-    sharedSpiLock();
+    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+                       "tdeck_pro_radio_rx_start",
+                       200U))
+    {
+        return RADIOLIB_ERR_SPI_CMD_TIMEOUT;
+    }
     sharedSpiPrepareDevice(profile().lora.cs);
     const int rc = radio_.startReceive();
     sharedSpiUnlock();
@@ -779,7 +838,12 @@ int TDeckProBoard::startRadioReceive()
 
 uint32_t TDeckProBoard::getRadioIrqFlags()
 {
-    sharedSpiLock();
+    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+                       "tdeck_pro_radio_irq",
+                       200U))
+    {
+        return 0;
+    }
     sharedSpiPrepareDevice(profile().lora.cs);
     const uint32_t flags = radio_.getIrqFlags();
     sharedSpiUnlock();
@@ -788,7 +852,12 @@ uint32_t TDeckProBoard::getRadioIrqFlags()
 
 int TDeckProBoard::getRadioPacketLength(bool update)
 {
-    sharedSpiLock();
+    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+                       "tdeck_pro_radio_length",
+                       200U))
+    {
+        return -1;
+    }
     sharedSpiPrepareDevice(profile().lora.cs);
     const int len = static_cast<int>(radio_.getPacketLength(update));
     sharedSpiUnlock();
@@ -797,7 +866,12 @@ int TDeckProBoard::getRadioPacketLength(bool update)
 
 int TDeckProBoard::readRadioData(uint8_t* buf, size_t len)
 {
-    sharedSpiLock();
+    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+                       "tdeck_pro_radio_read",
+                       200U))
+    {
+        return RADIOLIB_ERR_SPI_CMD_TIMEOUT;
+    }
     sharedSpiPrepareDevice(profile().lora.cs);
     const int rc = radio_.readData(buf, len);
     sharedSpiUnlock();
@@ -806,7 +880,12 @@ int TDeckProBoard::readRadioData(uint8_t* buf, size_t len)
 
 void TDeckProBoard::clearRadioIrqFlags(uint32_t flags)
 {
-    sharedSpiLock();
+    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+                       "tdeck_pro_radio_clear_irq",
+                       200U))
+    {
+        return;
+    }
     sharedSpiPrepareDevice(profile().lora.cs);
     radio_.clearIrqFlags(flags);
     sharedSpiUnlock();
@@ -814,7 +893,12 @@ void TDeckProBoard::clearRadioIrqFlags(uint32_t flags)
 
 float TDeckProBoard::getRadioRSSI()
 {
-    sharedSpiLock();
+    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+                       "tdeck_pro_radio_rssi",
+                       200U))
+    {
+        return std::numeric_limits<float>::quiet_NaN();
+    }
     sharedSpiPrepareDevice(profile().lora.cs);
     const float rssi = radio_.getRSSI();
     sharedSpiUnlock();
@@ -823,7 +907,12 @@ float TDeckProBoard::getRadioRSSI()
 
 float TDeckProBoard::getRadioInstantRSSI()
 {
-    sharedSpiLock();
+    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+                       "tdeck_pro_radio_instant_rssi",
+                       200U))
+    {
+        return std::numeric_limits<float>::quiet_NaN();
+    }
     sharedSpiPrepareDevice(profile().lora.cs);
     const float rssi = radio_.getRSSI(false);
     sharedSpiUnlock();
@@ -832,7 +921,12 @@ float TDeckProBoard::getRadioInstantRSSI()
 
 float TDeckProBoard::getRadioSNR()
 {
-    sharedSpiLock();
+    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+                       "tdeck_pro_radio_snr",
+                       200U))
+    {
+        return std::numeric_limits<float>::quiet_NaN();
+    }
     sharedSpiPrepareDevice(profile().lora.cs);
     const float snr = radio_.getSNR();
     sharedSpiUnlock();
@@ -843,7 +937,12 @@ void TDeckProBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf,
                                        int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
                                        uint8_t crc_len)
 {
-    sharedSpiLock();
+    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+                       "tdeck_pro_radio_config",
+                       200U))
+    {
+        return;
+    }
     sharedSpiPrepareDevice(profile().lora.cs);
     radio_.setFrequency(freq_mhz);
     radio_.setBandwidth(bw_khz);

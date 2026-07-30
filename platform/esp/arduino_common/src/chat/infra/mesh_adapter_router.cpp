@@ -8,11 +8,13 @@
 namespace chat
 {
 
-MeshAdapterRouter::LockGuard::LockGuard(SemaphoreHandle_t mutex) : mutex_(mutex)
+MeshAdapterRouter::LockGuard::LockGuard(SemaphoreHandle_t mutex,
+                                        TickType_t wait_ticks)
+    : mutex_(mutex)
 {
     if (mutex_ != nullptr)
     {
-        locked_ = (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE);
+        locked_ = (xSemaphoreTake(mutex_, wait_ticks) == pdTRUE);
     }
 }
 
@@ -100,10 +102,49 @@ MeshSendResult MeshAdapterRouter::sendTextDetailed(ChannelId channel, const std:
     return core_.sendTextDetailed(channel, text, forced_msg_id, peer);
 }
 
-bool MeshAdapterRouter::pollIncomingText(MeshIncomingText* out)
+MeshSendResult MeshAdapterRouter::sendTextToReticulumDestination(
+    ChannelId channel,
+    const std::string& text,
+    MessageId forced_msg_id,
+    const ReticulumPeerIdentity& destination)
 {
     LockGuard lock(mutex_);
+    if (!lock.locked())
+    {
+        return MeshSendResult::fail(MeshOperationFailure::Busy);
+    }
+    return core_.sendTextToReticulumDestination(channel, text, forced_msg_id, destination);
+}
+
+bool MeshAdapterRouter::pollIncomingText(MeshIncomingText* out)
+{
+    // UI/runtime polls must not wait behind synchronous radio work that can
+    // retain the router lock for the full LoRa airtime.
+    LockGuard lock(mutex_, 0);
     return lock.locked() && core_.pollIncomingText(out);
+}
+
+IIncomingDeliveryCommitPort* MeshAdapterRouter::incomingDeliveryCommitPort()
+{
+    return this;
+}
+
+void MeshAdapterRouter::commitIncomingText(const MeshIncomingText& message,
+                                           bool durably_accepted)
+{
+    LockGuard lock(mutex_);
+    if (!lock.locked())
+    {
+        return;
+    }
+
+    IMeshAdapter* backend = core_.backendForProtocol(core_.backendProtocol());
+    IIncomingDeliveryCommitPort* commit_port =
+        backend ? backend->incomingDeliveryCommitPort() : nullptr;
+    if (commit_port)
+    {
+        commit_port->commitIncomingText(message, durably_accepted);
+    }
 }
 
 bool MeshAdapterRouter::sendAppData(ChannelId channel, uint32_t portnum,
@@ -119,7 +160,7 @@ bool MeshAdapterRouter::sendAppData(ChannelId channel, uint32_t portnum,
 
 bool MeshAdapterRouter::pollIncomingData(MeshIncomingData* out)
 {
-    LockGuard lock(mutex_);
+    LockGuard lock(mutex_, 0);
     return lock.locked() && core_.pollIncomingData(out);
 }
 
@@ -127,6 +168,12 @@ bool MeshAdapterRouter::requestNodeInfo(NodeId dest, bool want_response)
 {
     LockGuard lock(mutex_);
     return lock.locked() && core_.requestNodeInfo(dest, want_response);
+}
+
+bool MeshAdapterRouter::broadcastSelfIdentity()
+{
+    LockGuard lock(mutex_);
+    return lock.locked() && core_.broadcastSelfIdentity();
 }
 
 bool MeshAdapterRouter::startKeyVerification(NodeId dest)
@@ -143,7 +190,14 @@ bool MeshAdapterRouter::submitKeyVerificationNumber(NodeId dest, uint64_t nonce,
 
 NodeId MeshAdapterRouter::getNodeId() const
 {
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    // The P4 IDF radio runtime can spend a full LoRa airtime inside
+    // processSendQueue() while holding the router lock.  Node identity is a
+    // presentation read, so do not stall the LVGL task behind that work.
+    LockGuard lock(mutex_, 0);
+#else
     LockGuard lock(mutex_);
+#endif
     return lock.locked() ? core_.getNodeId() : 0;
 }
 
@@ -151,6 +205,27 @@ bool MeshAdapterRouter::isPkiReady() const
 {
     LockGuard lock(mutex_);
     return lock.locked() && core_.isPkiReady();
+}
+
+bool MeshAdapterRouter::getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const
+{
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    // Settings may be opened while an announce is on air.  A temporarily
+    // unavailable identity snapshot is preferable to blocking every LVGL
+    // input event until the synchronous transmit finishes.
+    LockGuard lock(mutex_, 0);
+#else
+    LockGuard lock(mutex_);
+#endif
+    if (!lock.locked())
+    {
+        if (out)
+        {
+            *out = ReticulumLocalIdentityInfo{};
+        }
+        return false;
+    }
+    return core_.getReticulumLocalIdentityInfo(out);
 }
 
 bool MeshAdapterRouter::hasPkiKey(NodeId dest) const
@@ -173,6 +248,28 @@ MeshActionResult MeshAdapterRouter::triggerDiscoveryActionDetailed(MeshDiscovery
         return MeshActionResult::fail(MeshOperationFailure::Busy);
     }
     return core_.triggerDiscoveryActionDetailed(action);
+}
+
+MeshActionResult MeshAdapterRouter::startReticulumAudioCall(
+    const ReticulumPeerIdentity& destination)
+{
+    LockGuard lock(mutex_);
+    if (!lock.locked())
+    {
+        return MeshActionResult::fail(MeshOperationFailure::Busy);
+    }
+    return core_.startReticulumAudioCall(destination);
+}
+
+MeshActionResult MeshAdapterRouter::pingReticulumDestination(
+    const ReticulumPeerIdentity& destination)
+{
+    LockGuard lock(mutex_);
+    if (!lock.locked())
+    {
+        return MeshActionResult::fail(MeshOperationFailure::Busy);
+    }
+    return core_.pingReticulumDestination(destination);
 }
 
 void MeshAdapterRouter::applyConfig(const MeshConfig& config)
@@ -211,6 +308,12 @@ void MeshAdapterRouter::setPrivacyConfig(uint8_t encrypt_mode)
     }
 }
 
+bool MeshAdapterRouter::setWifiTransportEnabled(bool enabled)
+{
+    LockGuard lock(mutex_);
+    return lock.locked() && core_.setWifiTransportEnabled(enabled);
+}
+
 bool MeshAdapterRouter::isReady() const
 {
     LockGuard lock(mutex_);
@@ -219,7 +322,7 @@ bool MeshAdapterRouter::isReady() const
 
 bool MeshAdapterRouter::pollIncomingRawPacket(uint8_t* out_data, size_t& out_len, size_t max_len)
 {
-    LockGuard lock(mutex_);
+    LockGuard lock(mutex_, 0);
     return lock.locked() && core_.pollIncomingRawPacket(out_data, out_len, max_len);
 }
 

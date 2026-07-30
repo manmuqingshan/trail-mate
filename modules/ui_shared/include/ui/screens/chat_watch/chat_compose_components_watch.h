@@ -55,6 +55,7 @@ class ChatComposeScreen
     struct LifetimeGuard
     {
         bool alive = false;
+        int pending_async = 0;
     };
 
     struct ActionPayload
@@ -107,6 +108,7 @@ class ChatComposeScreen
     void stopMorse();
     void updateMorseUi();
     void schedule_action_async(ActionIntent intent);
+    static void release_async_guard(LifetimeGuard* guard);
 
     static void main_event_cb(lv_event_t* e);
     static void preset_event_cb(lv_event_t* e);

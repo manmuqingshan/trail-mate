@@ -11,6 +11,7 @@
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/page/page_profile.h"
 #include "ui/ui_theme.h"
+#include "ui/widgets/top_bar_power_presenter.h"
 
 #if !defined(LV_FONT_MONTSERRAT_16) || !LV_FONT_MONTSERRAT_16
 #define lv_font_montserrat_16 lv_font_montserrat_14
@@ -153,6 +154,11 @@ void top_bar_init(TopBar& bar, lv_obj_t* parent, const TopBarConfig& config)
     lv_obj_set_style_text_align(bar.right_label, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_set_style_text_font(bar.right_label, text_font, 0);
     lv_obj_set_style_bg_opa(bar.right_label, LV_OPA_TRANSP, 0);
+
+    if (config.power_indicator)
+    {
+        top_bar_power::bind(bar);
+    }
 }
 
 void top_bar_set_title(TopBar& bar, const char* title)
@@ -179,6 +185,8 @@ void top_bar_set_right_text(TopBar& bar, const char* text)
     {
         return;
     }
+
+    top_bar_power::unbind(bar);
 
     const char* current = lv_label_get_text(bar.right_label);
     if (current != nullptr && std::strcmp(current, text) == 0)

@@ -40,11 +40,13 @@ namespace meshtastic
  */
 bool encodeTextMessage(ChannelId channel, const std::string& text,
                        NodeId from_node, uint32_t packet_id, NodeId dest_node,
-                       uint8_t* out_buffer, size_t* out_size);
+                       uint8_t* out_buffer, size_t* out_size,
+                       meshtastic_Data* data_scratch = nullptr);
 
 bool encodeTextMessageBytes(ChannelId channel, const char* text, size_t text_len,
                             NodeId from_node, uint32_t packet_id, NodeId dest_node,
-                            uint8_t* out_buffer, size_t* out_size);
+                            uint8_t* out_buffer, size_t* out_size,
+                            meshtastic_Data* data_scratch = nullptr);
 
 /**
  * @brief Decode an already-parsed Meshtastic Data payload into text
@@ -74,7 +76,8 @@ bool decodeTextPayloadToBuffer(const meshtastic_Data& data,
  * @param out Output message
  * @return true if successful
  */
-bool decodeTextMessage(const uint8_t* buffer, size_t size, MeshIncomingText* out);
+bool decodeTextMessage(const uint8_t* buffer, size_t size, MeshIncomingText* out,
+                       meshtastic_Data* data_scratch = nullptr);
 
 /**
  * @brief Decode Meshtastic Data payload to key verification message
@@ -83,7 +86,9 @@ bool decodeTextMessage(const uint8_t* buffer, size_t size, MeshIncomingText* out
  * @param out Output KeyVerification message
  * @return true if successful
  */
-bool decodeKeyVerificationMessage(const uint8_t* buffer, size_t size, meshtastic_KeyVerification* out);
+bool decodeKeyVerificationMessage(const uint8_t* buffer, size_t size,
+                                  meshtastic_KeyVerification* out,
+                                  meshtastic_Data* data_scratch = nullptr);
 
 /**
  * @brief Encode node info (User) message to Meshtastic Data payload using protobuf
@@ -99,7 +104,8 @@ bool decodeKeyVerificationMessage(const uint8_t* buffer, size_t size, meshtastic
 bool encodeNodeInfoMessage(const std::string& user_id, const std::string& long_name,
                            const std::string& short_name, meshtastic_HardwareModel hw_model,
                            const uint8_t macaddr[6], const uint8_t* public_key, size_t public_key_len,
-                           bool want_response, uint8_t* out_buffer, size_t* out_size);
+                           bool want_response, uint8_t* out_buffer, size_t* out_size,
+                           meshtastic_Data* data_scratch = nullptr);
 
 /**
  * @brief Encode app payload to Meshtastic Data message
@@ -112,12 +118,15 @@ bool encodeNodeInfoMessage(const std::string& user_id, const std::string& long_n
  * @return true if successful
  */
 bool encodeAppData(uint32_t portnum, const uint8_t* payload, size_t payload_len,
-                   bool want_response, uint8_t* out_buffer, size_t* out_size);
+                   bool want_response, uint8_t* out_buffer, size_t* out_size,
+                   meshtastic_Data* data_scratch = nullptr);
 bool encodeAppDataWithRequestId(uint32_t portnum, const uint8_t* payload, size_t payload_len,
                                 bool want_response, uint32_t request_id,
-                                uint8_t* out_buffer, size_t* out_size);
+                                uint8_t* out_buffer, size_t* out_size,
+                                meshtastic_Data* data_scratch = nullptr);
 bool decodeAppPayload(const meshtastic_Data& data, MeshIncomingData* out);
-bool decodeAppData(const uint8_t* buffer, size_t size, MeshIncomingData* out);
+bool decodeAppData(const uint8_t* buffer, size_t size, MeshIncomingData* out,
+                   meshtastic_Data* data_scratch = nullptr);
 
 /**
  * @brief Encode MeshPacket to buffer

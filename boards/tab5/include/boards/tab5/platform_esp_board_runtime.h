@@ -77,6 +77,18 @@ inline void initializeBoard(bool waking_from_sleep)
     (void)::boards::tab5::Tab5Board::instance().begin();
 }
 
+// T-LoRa uses the staged display-first contract. Keep the existing Tab5
+// bootstrap intact until its board class exposes the same split entry points.
+inline void initializeBoardDisplayHardware(bool waking_from_sleep)
+{
+    initializeBoard(waking_from_sleep);
+}
+
+inline void initializeBoardServices(bool waking_from_sleep)
+{
+    (void)waking_from_sleep;
+}
+
 inline void initializeDisplay()
 {
     if (trail_mate_tab5_display_runtime_init())

@@ -8,6 +8,7 @@
 #include "board/LoraBoard.h"
 #include "chat/domain/chat_types.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include "chat/ports/i_mesh_peer_directory.h"
 #include <memory>
 
 namespace chat
@@ -26,7 +27,8 @@ class ProtocolFactory
      * @brief Create a mesh adapter for the specified protocol
      */
     static std::unique_ptr<IMeshAdapter> createAdapter(MeshProtocol protocol,
-                                                       LoraBoard& board);
+                                                       LoraBoard& board,
+                                                       IMeshPeerDirectory* peer_directory);
 };
 
 } // namespace chat

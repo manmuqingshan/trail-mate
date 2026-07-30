@@ -16,24 +16,6 @@ bool isReservedNodeId(::chat::NodeId node_id)
     return node_id == 0 || node_id == kBroadcastNodeId || node_id < kReservedNodeCount;
 }
 
-bool nodeIdInUse(::chat::NodeId node_id, const ::chat::contacts::INodeStore* node_store)
-{
-    if (!node_store)
-    {
-        return false;
-    }
-
-    const auto& entries = node_store->getEntries();
-    for (const auto& entry : entries)
-    {
-        if (entry.node_id == node_id)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
 uint32_t mixSeed(uint32_t value)
 {
     value ^= value >> 16;
@@ -89,8 +71,7 @@ std::array<uint8_t, 6> deriveMacAddressFromDeviceAddress(uint32_t deviceaddr0, u
 }
 
 ::chat::NodeId resolveNodeId(uint32_t deviceaddr0, uint32_t deviceaddr1,
-                             uint32_t deviceid0, uint32_t deviceid1,
-                             const ::chat::contacts::INodeStore* node_store)
+                             uint32_t deviceid0, uint32_t deviceid1)
 {
     ::chat::NodeId node_id = deriveNodeIdFromDeviceAddress(deviceaddr0, deviceaddr1);
     // The node store may contain our own previously persisted NodeInfo. Treating
@@ -104,7 +85,7 @@ std::array<uint8_t, 6> deriveMacAddressFromDeviceAddress(uint32_t deviceaddr0, u
     for (uint32_t attempt = 0; attempt < 1024; ++attempt)
     {
         const ::chat::NodeId candidate = fallbackCandidate(seed, attempt);
-        if (!isReservedNodeId(candidate) && !nodeIdInUse(candidate, node_store))
+        if (!isReservedNodeId(candidate))
         {
             return candidate;
         }

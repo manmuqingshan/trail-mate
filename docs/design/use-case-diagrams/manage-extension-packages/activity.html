@@ -1,0 +1,8 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：Package 安装</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed"><h1>Package 安装提交</h1><pre class="mermaid">flowchart TD
+Compatible --> Download
+Download --> Hash{"hash?"}
+Hash -- 是 --> Extract{"safe extract?"}
+Extract -- 是 --> Visible{"visible?"}
+Visible -- 是 --> Index{"index saved?"}
+Index -- 是 --> Success
+Index -- 否 --> Rollback</pre></main></body></html>

@@ -107,7 +107,7 @@ class BoardBase
 #define DEVICE_MAX_BRIGHTNESS_LEVEL 16
 #endif
 #ifndef DEVICE_MIN_BRIGHTNESS_LEVEL
-#define DEVICE_MIN_BRIGHTNESS_LEVEL 0
+#define DEVICE_MIN_BRIGHTNESS_LEVEL 2
 #endif
 
 extern BoardBase& board;

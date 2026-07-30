@@ -10,6 +10,8 @@
 
 namespace chat
 {
+class IIncomingDeliveryCommitPort;
+
 namespace meshcore
 {
 class IMeshCoreBleBackend;
@@ -18,6 +20,7 @@ class IMeshCoreBleBackend;
 struct MeshCapabilities
 {
     bool supports_unicast_text = false;
+    bool supports_reticulum_destination_text = false;
     bool supports_unicast_appdata = false;
     bool supports_broadcast_appdata = false;
     bool supports_appdata_ack = false;
@@ -38,6 +41,19 @@ struct MeshCapabilities
     bool supports_meshcore_identity_keys = false;
     bool supports_meshcore_peer_secret_derivation = false;
     bool supports_meshcore_rich_trace_projection = false;
+    bool supports_reticulum_destination_ping = false;
+    bool supports_reticulum_audio_call = false;
+};
+
+struct ReticulumLocalIdentityInfo
+{
+    bool ready = false;
+    bool anonymous_peer = false;
+    NodeId node_id = 0;
+    char display_name[32] = {};
+    uint8_t identity_hash[kReticulumPeerHashSize] = {};
+    uint8_t lxmf_address[kReticulumPeerHashSize] = {};
+    uint8_t propagation_address[kReticulumPeerHashSize] = {};
 };
 
 /**
@@ -98,11 +114,40 @@ class IMeshAdapter
     }
 
     /**
+     * @brief Send text to a Reticulum destination-keyed conversation.
+     *
+     * This is intentionally optional so peer-addressed protocols do not inherit
+     * Reticulum group semantics. Adapters that support group/plain destination
+     * delivery should return the same destination identity in MeshSendResult.
+     */
+    virtual MeshSendResult sendTextToReticulumDestination(
+        ChannelId channel,
+        const std::string& text,
+        MessageId forced_msg_id,
+        const ReticulumPeerIdentity& destination)
+    {
+        (void)channel;
+        (void)text;
+        (void)forced_msg_id;
+        return hasReticulumDestinationIdentity(destination)
+                   ? MeshSendResult::fail(MeshOperationFailure::Unsupported)
+                   : MeshSendResult::fail(MeshOperationFailure::InvalidInput);
+    }
+
+    /**
      * @brief Poll for incoming text messages
      * @param out Output message (if available)
      * @return true if message available
      */
     virtual bool pollIncomingText(MeshIncomingText* out) = 0;
+
+    /**
+     * Expose the optional two-phase incoming-delivery capability.
+     */
+    virtual IIncomingDeliveryCommitPort* incomingDeliveryCommitPort()
+    {
+        return nullptr;
+    }
 
     /**
      * @brief Send app payload data (non-text)
@@ -143,6 +188,15 @@ class IMeshAdapter
     }
 
     /**
+     * @brief Broadcast this device's self identity on the active mesh protocol
+     * @return true if the broadcast was queued or sent successfully
+     */
+    virtual bool broadcastSelfIdentity()
+    {
+        return requestNodeInfo(0xFFFFFFFFUL, false);
+    }
+
+    /**
      * @brief Start PKI key verification with a remote node (if supported)
      * @param dest Destination node
      * @return true if started
@@ -174,6 +228,18 @@ class IMeshAdapter
     virtual NodeId getNodeId() const
     {
         return 0;
+    }
+
+    /**
+     * @brief Read local Reticulum/LXMF identity facts for UI display.
+     */
+    virtual bool getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const
+    {
+        if (out)
+        {
+            *out = ReticulumLocalIdentityInfo{};
+        }
+        return false;
     }
 
     /**
@@ -213,6 +279,48 @@ class IMeshAdapter
     }
 
     /**
+     * @brief Start a Sideband-compatible LXST telephony Link call.
+     */
+    virtual MeshActionResult startReticulumAudioCall(
+        const ReticulumPeerIdentity& destination)
+    {
+        (void)destination;
+        return MeshActionResult::fail(MeshOperationFailure::Unsupported);
+    }
+
+    /**
+     * @brief Send a Reticulum Ping Destination proof probe.
+     *
+     * This is a protocol action: it sends an empty encrypted packet to an
+     * LXMF delivery destination so the remote can answer with a Reticulum
+     * proof. It is not a chat message and does not mutate contact state.
+     */
+    virtual MeshActionResult pingReticulumDestination(
+        const ReticulumPeerIdentity& destination)
+    {
+        return hasReticulumDestinationIdentity(destination)
+                   ? MeshActionResult::fail(MeshOperationFailure::Unsupported)
+                   : MeshActionResult::fail(MeshOperationFailure::InvalidInput);
+    }
+
+    /**
+     * @brief Persist a known Reticulum peer into the SD-backed LXMF address book.
+     *
+     * This is a user-action path, not a runtime RX path. Reticulum adapters may
+     * perform synchronous durable writes here so adding a contact survives an
+     * immediate reboot. Other protocols keep the default Unsupported result.
+     */
+    virtual MeshActionResult persistReticulumPeer(
+        const ReticulumPeerIdentity& destination,
+        bool favorite)
+    {
+        (void)favorite;
+        return hasReticulumDestinationIdentity(destination)
+                   ? MeshActionResult::fail(MeshOperationFailure::Unsupported)
+                   : MeshActionResult::fail(MeshOperationFailure::InvalidInput);
+    }
+
+    /**
      * @brief Apply mesh configuration
      * @param config Configuration to apply
      */
@@ -242,6 +350,18 @@ class IMeshAdapter
     virtual void setPrivacyConfig(uint8_t encrypt_mode)
     {
         (void)encrypt_mode;
+    }
+
+    /**
+     * @brief Notify the adapter that the platform Wi-Fi transport became available or unavailable.
+     *
+     * Implementations with Wi-Fi-owned sockets must close them synchronously when disabled.
+     * The default keeps adapters without Wi-Fi dependencies source-compatible.
+     */
+    virtual bool setWifiTransportEnabled(bool enabled)
+    {
+        (void)enabled;
+        return true;
     }
 
     /**

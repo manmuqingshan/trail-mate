@@ -35,8 +35,13 @@ static lv_obj_t* get_top_back_button(void* ctx)
     return screen ? screen->getBackButton() : nullptr;
 }
 
-static size_t get_filter_count(void* /*ctx*/)
+static size_t get_filter_count(void* ctx)
 {
+    auto* screen = static_cast<ChatMessageListScreen*>(ctx);
+    if (!screen || !screen->isFilterPanelVisible())
+    {
+        return 0;
+    }
     return 3;
 }
 
@@ -60,7 +65,7 @@ static lv_obj_t* get_filter_button(void* ctx, size_t index)
 static int get_preferred_filter_index(void* ctx)
 {
     auto* screen = static_cast<ChatMessageListScreen*>(ctx);
-    if (!screen) return -1;
+    if (!screen || !screen->isFilterPanelVisible()) return -1;
     if (lv_obj_t* btn = screen->getDirectButton())
     {
         if (lv_obj_has_state(btn, LV_STATE_CHECKED)) return 0;

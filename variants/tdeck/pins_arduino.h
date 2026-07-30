@@ -30,11 +30,14 @@ static const uint8_t SCK = 40;
 // Board power enable (required very early on T-Deck)
 #define BOARD_POWERON (10)
 
-// T-Deck I2S speaker/amp pins (aligned with Meshtastic T-Deck reference).
+// T-Deck audio wiring (aligned with the LilyGO factory test):
+//   I2S0 -> MAX98357 speaker amplifier
+//   I2S1 -> ES7210 microphone
+// The speaker has no MCLK pin; GPIO21 is the microphone LRCK.
+#define DAC_I2S_PORT (0)
 #define DAC_I2S_BCK (7)
 #define DAC_I2S_WS (5)
 #define DAC_I2S_DOUT (6)
-#define DAC_I2S_MCLK (21)
 
 // Display pins (aligned with LilyGo T-Deck examples)
 #define DISP_MOSI (MOSI)

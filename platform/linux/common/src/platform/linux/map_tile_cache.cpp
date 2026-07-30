@@ -19,6 +19,7 @@
 #include "platform/linux/env_config.h"
 #include "platform/linux/map_diagnostics.h"
 #include "platform/linux/runtime_paths.h"
+#include "ui_map_runtime/map_tiles/map_tile_geometry.h"
 
 namespace platform::linux_runtime
 {
@@ -352,11 +353,6 @@ MapTileResult fail_result(const MapTileId& tile,
                               http_status,
                               0,
                               message);
-}
-
-double clamp_lat(double lat)
-{
-    return std::clamp(lat, -kMaxMercatorLat, kMaxMercatorLat);
 }
 
 } // namespace
@@ -719,20 +715,7 @@ void normalize_map_tile(MapTileId& tile) noexcept
 {
     tile.source = sanitize_map_base_source(static_cast<std::uint8_t>(tile.source));
     tile.z = std::clamp(tile.z, 0, kMaxZoom);
-    const int tiles = 1 << tile.z;
-    if (tiles <= 0)
-    {
-        tile.x = 0;
-        tile.y = 0;
-        return;
-    }
-
-    tile.x %= tiles;
-    if (tile.x < 0)
-    {
-        tile.x += tiles;
-    }
-    tile.y = std::clamp(tile.y, 0, tiles - 1);
+    ::ui::map_tiles::normalizeTile(tile.z, tile.x, tile.y);
 }
 
 void normalize_map_contour_tile(MapContourTileId& tile) noexcept
@@ -763,32 +746,15 @@ std::vector<MapTileId> map_tiles_around(double lat,
                                         int radius_y)
 {
     zoom = std::clamp(zoom, 0, kMaxZoom);
-    radius_x = std::clamp(radius_x, 0, 5);
-    radius_y = std::clamp(radius_y, 0, 5);
-
-    const double tiles = static_cast<double>(1U << zoom);
-    const double clamped_lat = clamp_lat(lat);
-    const double lat_rad = clamped_lat * kPi / 180.0;
-    int center_x = static_cast<int>(
-        std::floor((lon + 180.0) / 360.0 * tiles));
-    int center_y = static_cast<int>(std::floor(
-        (1.0 - std::log(std::tan(lat_rad) + 1.0 / std::cos(lat_rad)) / kPi) /
-        2.0 * tiles));
-
-    MapTileId center{source, zoom, center_x, center_y};
-    normalize_map_tile(center);
-
+    const auto coordinates =
+        ::ui::map_tiles::tilesAround(lat, lon, zoom, radius_x, radius_y);
     std::vector<MapTileId> out;
-    out.reserve(static_cast<std::size_t>((radius_x * 2 + 1) *
-                                         (radius_y * 2 + 1)));
-    for (int dy = -radius_y; dy <= radius_y; ++dy)
+    out.reserve(coordinates.size());
+    for (const auto& coordinate : coordinates)
     {
-        for (int dx = -radius_x; dx <= radius_x; ++dx)
-        {
-            MapTileId tile{source, zoom, center.x + dx, center.y + dy};
-            normalize_map_tile(tile);
-            out.push_back(tile);
-        }
+        MapTileId tile{source, zoom, coordinate.x, coordinate.y};
+        normalize_map_tile(tile);
+        out.push_back(tile);
     }
     return out;
 }

@@ -13,8 +13,12 @@ contour data-source credentials.
 Tile source/cache work must also conform to
 `UI_STORAGE_EVENT_RUNTIME_DESIGN_SPEC.md`: UI owner code submits tile intents,
 workers perform filesystem/storage work, and tile results return as events. A
-renderer must not open tile files, wait for shared-SPI, or decode tile payloads
+renderer must not open tile files, wait for device I/O, or decode tile payloads
 from an input callback, LVGL timer, GTK callback, or page render callback.
+
+The physical shared-device mechanism is a platform technical concern defined
+only by `docs/spi_bus_architecture.md`. The map runtime calls a tile/storage
+service and consumes semantic results.
 
 ## Objects
 
@@ -111,7 +115,7 @@ The distinction for this phase is:
 
 | Concern | Owner | Must Not |
 | --- | --- | --- |
-| Visible tile math | UI owner / renderer | Open files, wait for shared SPI |
+| Visible tile math | UI owner / renderer | Open files, wait for device I/O |
 | Tile availability | Tile source worker | Drive LVGL objects |
 | Tile payload bytes | Tile source worker -> event payload | Leak filesystem paths into render code |
 | Decoded LVGL image descriptors | Renderer-owned decoded cache | Perform SD reads during decode from a page/timer/input callback |
@@ -123,17 +127,16 @@ Mandatory behavior:
   visible tile refs, move/hide LVGL objects, submit async tile commands, and
   apply already-delivered tile events.
 - `tile_loader_step()` and functions it calls synchronously must not call
-  `lv_fs_open`, Arduino `SD.open`, `SdRuntimeFile`, `SharedSpiLockGuard`, or
-  any other display-shared SPI acquisition.
+  `lv_fs_open`, Arduino `SD.open`, `SdRuntimeFile`, or any device I/O
+  transaction directly.
 - Missing tile detection is a worker result, not a UI probe. A missing result is
   cached/backed off so dragging over a sparse map area cannot repeatedly open
   the same missing files from the UI cadence.
-- A transient worker read failure is not a missing tile. Only an explicit
-  not-found classification may populate missing-tile memory. If the platform
-  storage API cannot expose the open/read failure reason directly, the worker
-  may perform a one-time failure-path lookup after a failed read to classify
-  the tile as missing or retryable. The successful read path must remain a
-  single source read.
+- A transient worker read failure is not a missing tile. The storage adapter
+  returns a typed read result (`Ready`, `Missing`, `RetryLater`, `Error`, or
+  `Invalid`) so the worker never performs a second `exists()` probe to guess
+  the reason. Only the explicit `Missing` result may populate missing-tile
+  memory. The successful read path remains a single source read.
 - Base and contour tiles use the same async source/event mechanism. Contour
   overlays must not keep a second synchronous `lv_fs_open` path.
 - ESP UI helpers such as `base_tile_available()` are not authoritative storage
@@ -146,12 +149,11 @@ Mandatory behavior:
   nonexistent SD paths and starve the display SPI bus.
 - The ESP worker must read a tile payload in one source operation on the
   success path. It must not perform a separate existence lookup followed by a
-  read for every tile in the active map path. A failure-path classification
-  lookup is allowed only after read failure and only to decide whether the
-  failure is confirmed missing or retryable pressure/transient failure.
-- The ESP worker may return `ResourceBusy` when display-shared SPI is busy or
-  cooling down. `ResourceBusy` is not a tile-missing result; the renderer keeps
-  the tile requestable after a short backoff.
+  read for every tile in the active map path. The device storage adapter owns
+  the complete sequence of bounded storage transactions.
+- The ESP worker may return `RetryLater` when the tile/storage service cannot
+  complete the request yet. `RetryLater` is not a tile-missing result; the
+  renderer keeps the tile requestable after a short backoff.
 - Display pressure is IO backpressure, not a viewport/layout veto. The UI owner
   may continue visible tile math, anchor updates, loaded-tile layout, render
   queue rebuilds, and bounded event draining while display pressure is recent.

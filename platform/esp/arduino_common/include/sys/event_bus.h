@@ -12,12 +12,32 @@
 #include <cstring>
 #include <vector>
 
+#include "chat/delivery/chat_delivery_types.h"
 #include "chat/domain/chat_types.h"
 #include "chat/domain/contact_types.h"
 #include "team/domain/team_events.h"
 
 namespace sys
 {
+
+inline void copy_bounded_text(char* out, size_t out_len, const char* text)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!text)
+    {
+        return;
+    }
+    const size_t max_copy_len = out_len - 1U;
+    const auto* terminator = static_cast<const char*>(std::memchr(text, '\0', max_copy_len));
+    const size_t copy_len =
+        terminator ? static_cast<size_t>(terminator - text) : max_copy_len;
+    std::memcpy(out, text, copy_len);
+    out[copy_len] = '\0';
+}
 
 /**
  * @brief Event types
@@ -47,7 +67,8 @@ enum class EventType
     TeamPairing,                  // Team pairing state update
     TeamError,                    // Team protocol error
     InputEvent,                   // Input event (keyboard/rotary)
-    SystemTick                    // System tick (for periodic tasks)
+    SystemTick,                   // System tick (for periodic tasks)
+    ReticulumPingResult           // Reticulum destination proof or timeout
 };
 
 /**
@@ -99,9 +120,68 @@ struct ChatSendResultEvent : public Event
 {
     uint32_t msg_id;
     bool success;
+    chat::MessageStatus status;
+    chat::delivery::SendFailureKind failure =
+        chat::delivery::SendFailureKind::None;
+    bool has_protocol = false;
+    chat::MeshProtocol protocol = chat::MeshProtocol::Meshtastic;
 
-    ChatSendResultEvent(uint32_t id, bool ok)
-        : Event(EventType::ChatSendResult), msg_id(id), success(ok) {}
+    ChatSendResultEvent(uint32_t id,
+                        chat::MessageStatus result_status,
+                        chat::MeshProtocol source_protocol)
+        : Event(EventType::ChatSendResult), msg_id(id),
+          success(result_status != chat::MessageStatus::Failed),
+          status(result_status),
+          failure(result_status == chat::MessageStatus::Failed
+                      ? chat::delivery::SendFailureKind::Unknown
+                      : chat::delivery::SendFailureKind::None),
+          has_protocol(true),
+          protocol(source_protocol) {}
+
+    ChatSendResultEvent(uint32_t id,
+                        chat::MessageStatus result_status,
+                        chat::MeshProtocol source_protocol,
+                        chat::delivery::SendFailureKind failure_kind)
+        : Event(EventType::ChatSendResult), msg_id(id),
+          success(result_status != chat::MessageStatus::Failed),
+          status(result_status),
+          failure(result_status == chat::MessageStatus::Failed
+                      ? failure_kind
+                      : chat::delivery::SendFailureKind::None),
+          has_protocol(true),
+          protocol(source_protocol) {}
+};
+
+enum class ReticulumPingResult : uint8_t
+{
+    Delivered = 0,
+    Timeout,
+};
+
+struct ReticulumPingResultEvent : public Event
+{
+    uint8_t destination_hash[chat::kReticulumPeerHashSize] = {};
+    ReticulumPingResult result = ReticulumPingResult::Timeout;
+    uint32_t elapsed_ms = 0;
+    uint8_t hops = 0;
+
+    ReticulumPingResultEvent(
+        const uint8_t hash[chat::kReticulumPeerHashSize],
+        ReticulumPingResult result_value,
+        uint32_t elapsed_ms_value,
+        uint8_t hops_value = 0)
+        : Event(EventType::ReticulumPingResult),
+          result(result_value),
+          elapsed_ms(elapsed_ms_value),
+          hops(hops_value)
+    {
+        if (hash)
+        {
+            std::memcpy(destination_hash,
+                        hash,
+                        sizeof(destination_hash));
+        }
+    }
 };
 
 /**
@@ -140,6 +220,7 @@ struct NodeInfoUpdateEvent : public Event
     bool has_public_key;
     bool has_key_manually_verified_state;
     bool key_manually_verified;
+    chat::contacts::ReticulumPeerIdentity reticulum_identity;
     bool has_device_metrics;
     chat::contacts::NodeDeviceMetrics device_metrics;
 
@@ -156,12 +237,11 @@ struct NodeInfoUpdateEvent : public Event
           role(r), hops_away(hops), hw_model(hw), channel(ch), has_macaddr(has_mac), macaddr{},
           via_mqtt(via_mqtt_value), is_ignored(is_ignored_value), has_public_key_state(has_pubkey_state),
           has_public_key(has_pubkey), has_key_manually_verified_state(has_key_verified_state),
-          key_manually_verified(key_verified), has_device_metrics(has_metrics), device_metrics{}
+          key_manually_verified(key_verified), reticulum_identity{}, has_device_metrics(has_metrics), device_metrics{}
     {
         if (sname)
         {
-            strncpy(short_name, sname, sizeof(short_name) - 1);
-            short_name[sizeof(short_name) - 1] = '\0';
+            copy_bounded_text(short_name, sizeof(short_name), sname);
         }
         else
         {
@@ -169,8 +249,7 @@ struct NodeInfoUpdateEvent : public Event
         }
         if (lname)
         {
-            strncpy(long_name, lname, sizeof(long_name) - 1);
-            long_name[sizeof(long_name) - 1] = '\0';
+            copy_bounded_text(long_name, sizeof(long_name), lname);
         }
         else
         {
@@ -325,8 +404,7 @@ struct KeyVerificationFinalEvent : public Event
     {
         if (code)
         {
-            strncpy(verification_code, code, sizeof(verification_code) - 1);
-            verification_code[sizeof(verification_code) - 1] = '\0';
+            copy_bounded_text(verification_code, sizeof(verification_code), code);
         }
         else
         {

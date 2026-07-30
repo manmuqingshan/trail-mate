@@ -4,7 +4,6 @@
  */
 
 #include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_adapter.h"
-#include "../../internal/blob_store_io.h"
 #include "chat/domain/contact_types.h"
 #include "chat/infra/meshcore/meshcore_payload_helpers.h"
 #include "chat/infra/meshcore/meshcore_protocol_helpers.h"
@@ -12,13 +11,17 @@
 #include "chat/runtime/meshcore_direct_secret_core.h"
 #include "chat/time_utils.h"
 #include "mesh/protocol/meshcore/meshcore_protocol_strategy.h"
+#if defined(ARDUINO)
 #include "platform/esp/arduino_common/app_tasks.h"
+#else
+#include "platform/esp/common/reticulum_runtime_compat.h"
+#endif
+#include "platform/esp/common/meshcore_runtime_compat.h"
 #include "sys/event_bus.h"
-#include <AES.h>
+#if defined(ARDUINO)
 #include <Arduino.h>
-#include <Preferences.h>
 #include <RadioLib.h>
-#include <SHA256.h>
+#endif
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -110,8 +113,6 @@ constexpr size_t kAdvertSignatureSize = 64;
 constexpr size_t kAdvertMinPayloadSize =
     kMeshcorePubKeySize + sizeof(uint32_t) + kAdvertSignatureSize;
 
-constexpr uint8_t kPersistedPeerFlagVerified = 0x01;
-
 template <typename T>
 T clampValue(T value, T min_value, T max_value)
 {
@@ -186,6 +187,7 @@ using chat::meshcore::aesEncrypt;
 using chat::meshcore::encryptThenMac;
 using chat::meshcore::macThenDecrypt;
 using chat::meshcore::trimTrailingZeros;
+using MeshCoreSha256 = ::platform::esp::common::meshcore_runtime::Sha256Digest;
 
 using chat::meshcore::buildDiscoverRequestControlPayload;
 using chat::meshcore::buildDiscoverResponseControlPayload;
@@ -280,12 +282,13 @@ bool buildPathPlain(const uint8_t* out_path, size_t out_path_len,
 
 } // namespace
 
-MeshCoreAdapter::MeshCoreAdapter(LoraBoard& board)
+MeshCoreAdapter::MeshCoreAdapter(LoraBoard& board,
+                                 IMeshPeerDirectory* peer_directory)
     : board_(board),
-      initialized_(false),
-      last_raw_packet_len_(0),
-      has_pending_raw_packet_(false),
-      next_msg_id_(1),
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+      idf_radio_pump_(board),
+#endif
+      peer_directory_(peer_directory),
       min_tx_interval_ms_(0),
       last_tx_ms_(0),
       encrypt_mode_(0),
@@ -296,14 +299,13 @@ MeshCoreAdapter::MeshCoreAdapter(LoraBoard& board)
       last_rx_snr_(NAN),
       last_noise_floor_dbm_(0),
       tx_airtime_ms_(0),
-      rx_airtime_ms_(0)
+      rx_airtime_ms_(0),
+      initialized_(false),
+      last_raw_packet_len_(0),
+      has_pending_raw_packet_(false),
+      next_msg_id_(1)
 {
-    const uint64_t raw = ESP.getEfuseMac();
-    const uint8_t* mac = reinterpret_cast<const uint8_t*>(&raw);
-    node_id_ = (static_cast<uint32_t>(mac[2]) << 24) |
-               (static_cast<uint32_t>(mac[3]) << 16) |
-               (static_cast<uint32_t>(mac[4]) << 8) |
-               static_cast<uint32_t>(mac[5]);
+    node_id_ = ::platform::esp::common::meshcore_runtime::device_node_id();
     self_hash_ = static_cast<uint8_t>(node_id_ & 0xFF);
 }
 
@@ -884,24 +886,15 @@ bool MeshCoreAdapter::resolveGroupSecret(ChannelId channel, uint8_t out_key16[16
         return false;
     }
 
+    const uint8_t slot = chat::meshCoreChannelSlotFromId(channel);
+    const chat::MeshCoreChannelConfig& channel_config = config_.meshCoreChannel(slot);
     const uint8_t* selected = nullptr;
-    if (channel == ChannelId::SECONDARY && !isZeroKey(config_.secondary_key, chat::kMeshCoreChannelKeyLen))
+    if (channel_config.enabled &&
+        !isZeroKey(channel_config.key, chat::kMeshCoreChannelKeyLen))
     {
-        selected = config_.secondary_key;
+        selected = channel_config.key;
     }
-    else if (channel == ChannelId::PRIMARY && !isZeroKey(config_.primary_key, chat::kMeshCoreChannelKeyLen))
-    {
-        selected = config_.primary_key;
-    }
-    else if (!isZeroKey(config_.secondary_key, chat::kMeshCoreChannelKeyLen))
-    {
-        selected = config_.secondary_key;
-    }
-    else if (!isZeroKey(config_.primary_key, chat::kMeshCoreChannelKeyLen))
-    {
-        selected = config_.primary_key;
-    }
-    else if (shouldUsePublicChannelFallback(config_))
+    else if (slot == 0 && shouldUsePublicChannelFallback(config_))
     {
         selected = publicGroupPsk();
     }
@@ -945,36 +938,35 @@ ChannelId MeshCoreAdapter::resolveChannelFromHash(PayloadProfile profile,
 
     const size_t hash_bytes = payloadHashBytes(profile);
     uint8_t expected[chat::meshcore::kMeshCoreV2HashBytes] = {};
-    if (!isZeroKey(config_.primary_key, chat::kMeshCoreChannelKeyLen) &&
-        computeChannelHashBytes(config_.primary_key, expected, hash_bytes) &&
-        memcmp(expected, channel_hash, hash_bytes) == 0)
+    for (uint8_t slot = 0; slot < chat::kMeshCoreChannelMaxCount; ++slot)
     {
-        if (out_match)
+        const chat::MeshCoreChannelConfig& channel_config = config_.meshCoreChannel(slot);
+        if (!channel_config.enabled)
         {
-            *out_match = true;
+            continue;
         }
-        return ChannelId::PRIMARY;
-    }
-    if (!isZeroKey(config_.secondary_key, chat::kMeshCoreChannelKeyLen) &&
-        computeChannelHashBytes(config_.secondary_key, expected, hash_bytes) &&
-        memcmp(expected, channel_hash, hash_bytes) == 0)
-    {
-        if (out_match)
+        const uint8_t* key = nullptr;
+        if (!isZeroKey(channel_config.key, chat::kMeshCoreChannelKeyLen))
         {
-            *out_match = true;
+            key = channel_config.key;
         }
-        return ChannelId::SECONDARY;
-    }
-
-    if (shouldUsePublicChannelFallback(config_) &&
-        computeChannelHashBytes(publicGroupPsk(), expected, hash_bytes) &&
-        memcmp(expected, channel_hash, hash_bytes) == 0)
-    {
-        if (out_match)
+        else if (slot == 0 && shouldUsePublicChannelFallback(config_))
         {
-            *out_match = true;
+            key = publicGroupPsk();
         }
-        return ChannelId::PRIMARY;
+        if (!key)
+        {
+            continue;
+        }
+        if (computeChannelHashBytes(key, expected, hash_bytes) &&
+            memcmp(expected, channel_hash, hash_bytes) == 0)
+        {
+            if (out_match)
+            {
+                *out_match = true;
+            }
+            return chat::meshCoreChannelIdFromSlot(slot);
+        }
     }
 
     return ChannelId::PRIMARY;
@@ -1573,62 +1565,71 @@ void MeshCoreAdapter::rememberPeerPubKey(const uint8_t pubkey[MeshCoreIdentity::
     }
     if (changed)
     {
-        savePeerPubKeysToPrefs();
+        savePeerPubKeyToDirectory(entry);
     }
 }
 
-void MeshCoreAdapter::loadPeerPubKeysFromPrefs()
+void MeshCoreAdapter::loadPeerPubKeysFromDirectory()
 {
-    std::vector<uint8_t> blob;
-    chat::infra::PreferencesBlobMetadata meta;
-    if (!chat::infra::loadRawBlobFromPreferencesWithMetadata(kPeerPubKeyPrefsNs,
-                                                             kPeerPubKeyPrefsKey,
-                                                             kPeerPubKeyPrefsKeyVer,
-                                                             nullptr,
-                                                             blob,
-                                                             &meta))
+    if (!peer_directory_)
     {
-        MESHCORE_LOG("[MESHCORE] peer key store not initialized ns=%s (first run)\n",
-                     kPeerPubKeyPrefsNs);
+        MESHCORE_LOG("[MESHCORE] peer directory unavailable, hot cache empty\n");
         return;
     }
 
-    if (!meta.has_version || meta.version != kPeerPubKeyPrefsVersion ||
-        meta.len < sizeof(PersistedPeerPubKeyEntryV1) ||
-        (meta.len % sizeof(PersistedPeerPubKeyEntryV1)) != 0)
+    size_t count = 0;
+    const MeshPeerDirectoryStatus status =
+        peer_directory_->loadRecent(MeshProtocol::MeshCore,
+                                    peer_directory_load_entries_.data(),
+                                    peer_directory_load_entries_.size(),
+                                    &count);
+    if (!status.succeeded())
     {
+        MESHCORE_LOG("[MESHCORE] peer directory load failed status=%u\n",
+                     static_cast<unsigned>(status.code));
         return;
     }
-
-    size_t count = meta.len / sizeof(PersistedPeerPubKeyEntryV1);
-    if (count > kMaxPersistedPeerPubKeys)
-    {
-        count = kMaxPersistedPeerPubKeys;
-    }
-    const auto* entries = reinterpret_cast<const PersistedPeerPubKeyEntryV1*>(blob.data());
 
     const uint32_t now_ms = millis();
     size_t loaded = 0;
     for (size_t i = 0; i < count; ++i)
     {
-        const PersistedPeerPubKeyEntryV1& persisted = entries[i];
-        if (persisted.peer_hash == 0x00 || persisted.peer_hash == 0xFF || persisted.peer_hash == self_hash_)
+        const MeshPeerRecord& persisted = peer_directory_load_entries_[i];
+        const uint8_t* pubkey = nullptr;
+        bool verified = false;
+        if (persisted.meshcore.has_public_key)
+        {
+            pubkey = persisted.meshcore.public_key;
+            verified = persisted.meshcore.public_key_verified;
+        }
+        else if (persisted.identity.kind == MeshPeerIdentityKind::PublicKey &&
+                 meshPeerSameProtocol(persisted.identity.protocol, MeshProtocol::MeshCore) &&
+                 persisted.identity.public_key_len == MeshCoreIdentity::kPubKeySize)
+        {
+            pubkey = persisted.identity.public_key;
+        }
+        else
         {
             continue;
         }
-        if (persisted.pubkey[0] != persisted.peer_hash ||
-            isZeroKey(persisted.pubkey, sizeof(persisted.pubkey)))
+
+        const uint8_t peer_hash = pubkey[0];
+        if (peer_hash == 0x00 || peer_hash == 0xFF || peer_hash == self_hash_)
+        {
+            continue;
+        }
+        if (isZeroKey(pubkey, MeshCoreIdentity::kPubKeySize))
         {
             continue;
         }
 
         uint8_t peer_hash2[chat::meshcore::kMeshCoreV2HashBytes] = {};
-        copyPublicHash(PayloadProfile::V2, persisted.pubkey, sizeof(persisted.pubkey),
+        copyPublicHash(PayloadProfile::V2, pubkey, MeshCoreIdentity::kPubKeySize,
                        peer_hash2, sizeof(peer_hash2));
         PeerRouteEntry& entry = upsertPeerRoute(PayloadProfile::V2, peer_hash2, now_ms);
         entry.has_pubkey = true;
-        entry.pubkey_verified = (persisted.flags & kPersistedPeerFlagVerified) != 0;
-        memcpy(entry.pubkey, persisted.pubkey, sizeof(entry.pubkey));
+        entry.pubkey_verified = verified;
+        memcpy(entry.pubkey, pubkey, sizeof(entry.pubkey));
         entry.pubkey_seen_ms = now_ms;
         const NodeId node = deriveNodeIdFromPubkey(entry.pubkey, sizeof(entry.pubkey));
         if (node != 0)
@@ -1640,92 +1641,55 @@ void MeshCoreAdapter::loadPeerPubKeysFromPrefs()
 
     if (loaded > 0)
     {
-        MESHCORE_LOG("[MESHCORE] peer keys loaded=%u ns=%s\n",
-                     static_cast<unsigned>(loaded),
-                     kPeerPubKeyPrefsNs);
+        MESHCORE_LOG("[MESHCORE] peer keys loaded=%u directory=mesh_peer_directory\n",
+                     static_cast<unsigned>(loaded));
     }
 }
 
-void MeshCoreAdapter::savePeerPubKeysToPrefs()
+void MeshCoreAdapter::savePeerPubKeyToDirectory(const PeerRouteEntry& route)
 {
-    size_t staged_count = 0;
-    for (const PeerRouteEntry& route : peer_routes_)
+    if (!peer_directory_ || !route.has_pubkey ||
+        route.peer_hash == 0x00 || route.peer_hash == 0xFF ||
+        route.peer_hash == self_hash_ ||
+        isZeroKey(route.pubkey, sizeof(route.pubkey)))
     {
-        if (!route.has_pubkey || route.peer_hash == 0x00 || route.peer_hash == 0xFF ||
-            route.peer_hash == self_hash_ || isZeroKey(route.pubkey, sizeof(route.pubkey)))
-        {
-            continue;
-        }
-
-        StagedPeerPubKeySaveEntry item{};
-        item.seen_ms = route.pubkey_seen_ms;
-        item.entry.peer_hash = route.peer_hash;
-        item.entry.flags = route.pubkey_verified ? kPersistedPeerFlagVerified : 0;
-        memcpy(item.entry.pubkey, route.pubkey, sizeof(item.entry.pubkey));
-
-        size_t insert_pos = 0;
-        while (insert_pos < staged_count &&
-               peer_key_save_scratch_[insert_pos].seen_ms >= item.seen_ms)
-        {
-            ++insert_pos;
-        }
-        if (insert_pos >= kMaxPersistedPeerPubKeys &&
-            staged_count >= kMaxPersistedPeerPubKeys)
-        {
-            continue;
-        }
-
-        const size_t move_start =
-            (staged_count < kMaxPersistedPeerPubKeys) ? staged_count
-                                                      : (kMaxPersistedPeerPubKeys - 1);
-        for (size_t move = move_start; move > insert_pos; --move)
-        {
-            peer_key_save_scratch_[move] = peer_key_save_scratch_[move - 1];
-        }
-        peer_key_save_scratch_[insert_pos] = item;
-        if (staged_count < kMaxPersistedPeerPubKeys)
-        {
-            ++staged_count;
-        }
-    }
-
-    for (size_t index = 0; index < staged_count; ++index)
-    {
-        peer_key_save_entries_[index] = peer_key_save_scratch_[index].entry;
-    }
-    for (size_t index = staged_count; index < peer_key_save_entries_.size(); ++index)
-    {
-        peer_key_save_entries_[index] = PersistedPeerPubKeyEntryV1{};
-    }
-
-    chat::infra::PreferencesBlobMetadata meta;
-    if (staged_count > 0)
-    {
-        meta.len = staged_count * sizeof(PersistedPeerPubKeyEntryV1);
-        meta.has_version = true;
-        meta.version = kPeerPubKeyPrefsVersion;
-    }
-
-    const bool ok = chat::infra::saveRawBlobToPreferencesWithMetadata(
-        kPeerPubKeyPrefsNs,
-        kPeerPubKeyPrefsKey,
-        kPeerPubKeyPrefsKeyVer,
-        nullptr,
-        staged_count == 0 ? nullptr : reinterpret_cast<const uint8_t*>(peer_key_save_entries_.data()),
-        staged_count * sizeof(PersistedPeerPubKeyEntryV1),
-        &meta,
-        false);
-    if (!ok)
-    {
-        MESHCORE_LOG("[MESHCORE] peer key save failed open ns=%s\n", kPeerPubKeyPrefsNs);
         return;
     }
-    if (staged_count > 0)
+
+    MeshPeerRecord record{};
+    record.valid = true;
+    if (!makeMeshPeerPublicKeyIdentity(MeshProtocol::MeshCore,
+                                       route.pubkey,
+                                       sizeof(route.pubkey),
+                                       record.identity))
     {
-        MESHCORE_LOG("[MESHCORE] peer key saved total=%u ns=%s\n",
-                     static_cast<unsigned>(staged_count),
-                     kPeerPubKeyPrefsNs);
+        return;
     }
+
+    const uint32_t now_s = now_message_timestamp();
+    record.source = MeshPeerSource::RuntimeRx;
+    record.first_seen_s = now_s;
+    record.last_seen_s = now_s;
+    record.meshcore.has_public_key = true;
+    memcpy(record.meshcore.public_key,
+           route.pubkey,
+           sizeof(record.meshcore.public_key));
+    record.meshcore.public_key_verified = route.pubkey_verified;
+    record.meshcore.has_peer_hash = true;
+    record.meshcore.peer_hash = route.peer_hash;
+    record.meshcore.node_id_hint =
+        deriveNodeIdFromPubkey(route.pubkey, sizeof(route.pubkey));
+
+    const MeshPeerDirectoryStatus status = peer_directory_->record(record);
+    if (!status.succeeded())
+    {
+        MESHCORE_LOG("[MESHCORE] peer key directory save failed hash=%02X status=%u\n",
+                     route.peer_hash,
+                     static_cast<unsigned>(status.code));
+        return;
+    }
+    MESHCORE_LOG("[MESHCORE] peer key saved hash=%02X directory=mesh_peer_directory\n",
+                 route.peer_hash);
 }
 
 void MeshCoreAdapter::maybeAutoDiscoverMissingPeer(uint8_t peer_hash, uint32_t now_ms)
@@ -1824,46 +1788,57 @@ bool MeshCoreAdapter::tryDecryptPeerPayload(PayloadProfile profile, const uint8_
         return false;
     }
 
-    ChannelId order[3] = {ChannelId::PRIMARY, ChannelId::SECONDARY, ChannelId::PRIMARY};
+    ChannelId order[chat::kMeshCoreChannelMaxCount] = {};
     size_t order_len = 0;
+    auto addCandidateChannel = [&](ChannelId candidate)
+    {
+        const uint8_t slot = chat::meshCoreChannelSlotFromId(candidate);
+        if (!config_.meshCoreChannel(slot).enabled)
+        {
+            return;
+        }
+        for (size_t j = 0; j < order_len; ++j)
+        {
+            if (order[j] == candidate)
+            {
+                return;
+            }
+        }
+        if (order_len < (sizeof(order) / sizeof(order[0])))
+        {
+            order[order_len++] = candidate;
+        }
+    };
     const PeerRouteEntry* known = findPeerRouteByHash(profile, src_hash);
     if (known)
     {
-        order[order_len++] = known->preferred_channel;
-        order[order_len++] = (known->preferred_channel == ChannelId::PRIMARY) ? ChannelId::SECONDARY : ChannelId::PRIMARY;
+        addCandidateChannel(known->preferred_channel);
     }
-    else
+    addCandidateChannel(config_.activeMeshCoreChannel().enabled
+                            ? chat::meshCoreChannelIdFromSlot(config_.meshcore_channel_slot)
+                            : ChannelId::PRIMARY);
+    for (uint8_t slot = 0; slot < chat::kMeshCoreChannelMaxCount; ++slot)
     {
-        order[order_len++] = ChannelId::PRIMARY;
-        order[order_len++] = ChannelId::SECONDARY;
+        addCandidateChannel(chat::meshCoreChannelIdFromSlot(slot));
     }
 
-    uint8_t tried_key16[6][16];
-    uint8_t tried_key32[6][32];
-    size_t tried = 0;
+    uint8_t tried_key16[16] = {};
+    uint8_t tried_key32[32] = {};
+    bool has_tried_key = false;
 
     auto tryCandidate = [&](ChannelId candidate_channel,
                             const uint8_t key16[16],
                             const uint8_t key32[32]) -> bool
     {
-        bool duplicate = false;
-        for (size_t j = 0; j < tried; ++j)
-        {
-            if (memcmp(tried_key16[j], key16, 16) == 0 &&
-                memcmp(tried_key32[j], key32, 32) == 0)
-            {
-                duplicate = true;
-                break;
-            }
-        }
-        if (duplicate || tried >= (sizeof(tried_key16) / sizeof(tried_key16[0])))
+        if (has_tried_key &&
+            memcmp(tried_key16, key16, sizeof(tried_key16)) == 0 &&
+            memcmp(tried_key32, key32, sizeof(tried_key32)) == 0)
         {
             return false;
         }
-
-        memcpy(tried_key16[tried], key16, 16);
-        memcpy(tried_key32[tried], key32, 32);
-        ++tried;
+        memcpy(tried_key16, key16, sizeof(tried_key16));
+        memcpy(tried_key32, key32, sizeof(tried_key32));
+        has_tried_key = true;
 
         size_t plain_len = 0;
         if (!macThenDecrypt(key16, key32, cipher, cipher_len, out_plain, &plain_len,
@@ -1889,10 +1864,6 @@ bool MeshCoreAdapter::tryDecryptPeerPayload(PayloadProfile profile, const uint8_
             {
                 return true;
             }
-        }
-        if (tried >= (sizeof(tried_key16) / sizeof(tried_key16[0])))
-        {
-            break;
         }
     }
 
@@ -1984,35 +1955,52 @@ MeshActionResult MeshCoreAdapter::transmitFrameNowDetailed(const uint8_t* data, 
                                 ? static_cast<uint32_t>(std::lround(air_ms_f))
                                 : 0U;
 
-    int state = RADIOLIB_ERR_UNSUPPORTED;
-#if defined(ARDUINO_LILYGO_LORA_SX1262) || defined(ARDUINO_LILYGO_LORA_SX1280) || \
-    defined(ARDUINO_LILYGO_LORA_LR1121)
+    int state = -1;
+#if defined(ARDUINO)
     app::AppTasks::requestRadioReceiveRestart();
     {
         app::AppTasks::ScopedRadioTransmitActivity tx_activity;
         state = board_.transmitRadio(data, len);
     }
+#else
+    idf_radio_pump_.markReceiveStopped();
+    state = board_.transmitRadio(data, len);
 #endif
-    if (state == RADIOLIB_ERR_NONE)
+    if (state == 0)
     {
         ParsedPacket parsed;
-        if (parsePacket(data, len, &parsed) && isSupportedPayloadVersion(parsed.payload_ver))
+        const bool parsed_ok = parsePacket(data, len, &parsed);
+        const bool bridge_candidate = parsed_ok && isSupportedPayloadVersion(parsed.payload_ver);
+        bool bridge_already_seen = false;
+        if (bridge_candidate)
         {
             const uint32_t packet_sig = packetSignature(parsed.payload_type, parsed.path_len,
                                                         parsed.payload, parsed.payload_len);
-            hasSeenSignature(packet_sig, now_ms);
+            bridge_already_seen = hasSeenSignature(packet_sig, now_ms);
         }
         last_tx_ms_ = now_ms;
         tx_airtime_ms_ = saturatingAddU32(tx_airtime_ms_, air_ms);
-        int rx_state = board_.startRadioReceive();
-        if (rx_state != RADIOLIB_ERR_NONE)
+        if (bridge_candidate && !bridge_already_seen)
         {
+            queueMqttBridgePacket(data, len);
+        }
+#if defined(ARDUINO)
+        const int rx_state = board_.startRadioReceive();
+#else
+        const int rx_state = idf_radio_pump_.restartReceive() ? 0 : -1;
+#endif
+        if (rx_state != 0)
+        {
+#if defined(ARDUINO)
             app::AppTasks::requestRadioReceiveRestart();
+#endif
             MESHCORE_LOG("[MESHCORE] RX restart fail state=%d\n", rx_state);
         }
         else
         {
+#if defined(ARDUINO)
             app::AppTasks::setRadioReceiveActive(true);
+#endif
             if (parsePacket(data, len, &parsed))
             {
                 MESHCORE_LOG("[MESHCORE] RX restart ok after_tx route=%u type=%u len=%u\n",
@@ -2028,8 +2016,14 @@ MeshActionResult MeshCoreAdapter::transmitFrameNowDetailed(const uint8_t* data, 
         }
         return MeshActionResult::success();
     }
+#if defined(ARDUINO)
     app::AppTasks::requestRadioReceiveRestart();
-    return MeshActionResult::fail(state == RADIOLIB_ERR_SPI_WRITE_FAILED
+    const bool radio_busy = (state == RADIOLIB_ERR_SPI_WRITE_FAILED);
+#else
+    (void)idf_radio_pump_.restartReceive();
+    const bool radio_busy = false;
+#endif
+    return MeshActionResult::fail(radio_busy
                                       ? MeshOperationFailure::Busy
                                       : MeshOperationFailure::RadioTxFailed,
                                   state);
@@ -2086,6 +2080,28 @@ bool MeshCoreAdapter::hasSeenSignature(uint32_t signature, uint32_t now_ms)
     entry.seen_ms = now_ms;
     seen_recent_.appendDropOldest(entry);
     return false;
+}
+
+void MeshCoreAdapter::queueMqttBridgePacket(const uint8_t* data, size_t len)
+{
+    if (!mqtt_bridge_enabled_ || !data || len == 0 || len > kScheduledFrameMaxLen)
+    {
+        return;
+    }
+
+    if (mqtt_bridge_count_ >= mqtt_bridge_queue_.size())
+    {
+        mqtt_bridge_queue_[mqtt_bridge_read_index_].bytes_len = 0;
+        mqtt_bridge_read_index_ = (mqtt_bridge_read_index_ + 1U) % mqtt_bridge_queue_.size();
+        --mqtt_bridge_count_;
+    }
+
+    const size_t write_index =
+        (mqtt_bridge_read_index_ + mqtt_bridge_count_) % mqtt_bridge_queue_.size();
+    if (mqtt_bridge_queue_[write_index].assign(data, len))
+    {
+        ++mqtt_bridge_count_;
+    }
 }
 
 void MeshCoreAdapter::prunePendingAppAcks(uint32_t now_ms)
@@ -2211,7 +2227,7 @@ uint32_t MeshCoreAdapter::computeVerificationNumber(NodeId peer, uint64_t nonce)
     const uint32_t high = std::max(node_id_, peer);
 
     uint8_t digest[sizeof(uint32_t)] = {};
-    SHA256 sha;
+    MeshCoreSha256 sha;
     sha.update(key32, sizeof(key32));
     sha.update(reinterpret_cast<const uint8_t*>(&low), sizeof(low));
     sha.update(reinterpret_cast<const uint8_t*>(&high), sizeof(high));
@@ -2475,7 +2491,9 @@ bool MeshCoreAdapter::executeProtocolEffect(const runtime::ProtocolEffect& effec
                                 {
                                     t_ms = 1;
                                 }
-                                const uint32_t delay_ms = static_cast<uint32_t>(random(1, 5)) * t_ms * 4U;
+                                const uint32_t delay_ms =
+                                    ::platform::esp::common::meshcore_runtime::random_between(1, 5) *
+                                    t_ms * 4U;
                                 if (config_.tx_enabled)
                                 {
                                     enqueueScheduled(frame, frame_len, delay_ms);
@@ -2602,7 +2620,10 @@ bool MeshCoreAdapter::executeProtocolEffect(const runtime::ProtocolEffect& effec
                         if (item.message_id != 0)
                         {
                             sys::EventBus::publish(
-                                new sys::ChatSendResultEvent(item.message_id, true),
+                                new sys::ChatSendResultEvent(
+                                    item.message_id,
+                                    chat::MessageStatus::Delivered,
+                                    chat::MeshProtocol::MeshCore),
                                 0);
                         }
                     }
@@ -2619,7 +2640,11 @@ bool MeshCoreAdapter::executeProtocolEffect(const runtime::ProtocolEffect& effec
                         if (item.message_id != 0)
                         {
                             sys::EventBus::publish(
-                                new sys::ChatSendResultEvent(item.message_id, false),
+                                new sys::ChatSendResultEvent(
+                                    item.message_id,
+                                    chat::MessageStatus::Failed,
+                                    chat::MeshProtocol::MeshCore,
+                                    chat::delivery::SendFailureKind::AckTimeout),
                                 0);
                         }
                     }
@@ -3387,7 +3412,11 @@ MeshSendResult MeshCoreAdapter::sendTextDetailed(ChannelId channel, const std::s
         }
         else
         {
-            sys::EventBus::publish(new sys::ChatSendResultEvent(msg_id, true), 0);
+            sys::EventBus::publish(
+                new sys::ChatSendResultEvent(msg_id,
+                                             chat::MessageStatus::Sent,
+                                             chat::MeshProtocol::MeshCore),
+                0);
         }
         return MeshSendResult::success(msg_id);
     }
@@ -3473,7 +3502,11 @@ MeshSendResult MeshCoreAdapter::sendTextDetailed(ChannelId channel, const std::s
     }
 
     const MessageId msg_id = (forced_msg_id != 0) ? forced_msg_id : next_msg_id_++;
-    sys::EventBus::publish(new sys::ChatSendResultEvent(msg_id, true), 0);
+    sys::EventBus::publish(
+        new sys::ChatSendResultEvent(msg_id,
+                                     chat::MessageStatus::Sent,
+                                     chat::MeshProtocol::MeshCore),
+        0);
     return MeshSendResult::success(msg_id);
 }
 
@@ -3575,7 +3608,7 @@ MeshActionResult MeshCoreAdapter::sendDirectTextDetailed(ChannelId channel, cons
     uint32_t ack_value = 0;
     if (identity_.isReady() && txt_type == kTxtTypePlain)
     {
-        SHA256 sha;
+        MeshCoreSha256 sha;
         sha.update(plain, plain_len);
         sha.update(identity_.publicKey(), kMeshcorePubKeySize);
         sha.finalize(reinterpret_cast<uint8_t*>(&ack_value), sizeof(ack_value));
@@ -3924,7 +3957,8 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
     config_.meshcore_rx_delay_base = clampValue<float>(config_.meshcore_rx_delay_base, 0.0f, 20.0f);
     config_.meshcore_airtime_factor = clampValue<float>(config_.meshcore_airtime_factor, 0.0f, 9.0f);
     config_.meshcore_flood_max = clampValue<uint8_t>(config_.meshcore_flood_max, 0, 64);
-    config_.meshcore_channel_slot = clampValue<uint8_t>(config_.meshcore_channel_slot, 0, 14);
+    config_.meshcore_channel_slot =
+        chat::normalizeMeshCoreChannelSlot(config_.meshcore_channel_slot);
     if (static_cast<uint8_t>(config_.meshcore_send_profile) >
         static_cast<uint8_t>(MeshCorePayloadSendProfile::V2Only))
     {
@@ -3936,11 +3970,23 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
         config_.meshcore_forward_profile = MeshCoreForwardProfile::MultibyteOnly;
     }
 
-    if (config_.meshcore_channel_name[0] == '\0')
+    config_.meshCoreChannel(0).enabled = true;
+    if (config_.meshCoreChannel(0).name[0] == '\0')
     {
-        strncpy(config_.meshcore_channel_name, "Public", sizeof(config_.meshcore_channel_name) - 1);
-        config_.meshcore_channel_name[sizeof(config_.meshcore_channel_name) - 1] = '\0';
+        strncpy(config_.meshCoreChannel(0).name,
+                "Public",
+                sizeof(config_.meshCoreChannel(0).name) - 1);
+        config_.meshCoreChannel(0).name[sizeof(config_.meshCoreChannel(0).name) - 1] = '\0';
     }
+    for (uint8_t slot = 1; slot < chat::kMeshCoreChannelMaxCount; ++slot)
+    {
+        chat::MeshCoreChannelConfig& channel = config_.meshCoreChannel(slot);
+        if (channel.enabled && channel.name[0] == '\0')
+        {
+            snprintf(channel.name, sizeof(channel.name), "Channel %u", static_cast<unsigned>(slot));
+        }
+    }
+    config_.syncMeshCoreLegacyChannelMirror();
 
     if (!identity_.isReady())
     {
@@ -3960,13 +4006,24 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
         self_hash_ = static_cast<uint8_t>(node_id_ & 0xFFU);
     }
 
-    const bool has_primary_key = !isZeroKey(config_.primary_key, chat::kMeshCoreChannelKeyLen);
-    const bool has_secondary_key = !isZeroKey(config_.secondary_key, chat::kMeshCoreChannelKeyLen);
-    const uint8_t primary_hash = has_primary_key ? computeChannelHash(config_.primary_key) : 0xFF;
-    const uint8_t secondary_hash = has_secondary_key ? computeChannelHash(config_.secondary_key) : 0xFF;
-    const bool has_public = shouldUsePublicChannelFallback(config_);
-    const uint8_t public_hash = has_public ? computeChannelHash(publicGroupPsk()) : 0xFF;
-    MESHCORE_LOG("[MESHCORE] apply cfg preset=%u freq=%.3f bw=%.3f sf=%u cr=%u(4/%u) txp=%d tx_en=%u repeat=%u flood_max=%u multi_acks=%u send_profile=%u fwd_profile=%u slot=%u ch='%s' hash[p=%02X s=%02X pub=%02X] identity[ready=%u self=%02X]\n",
+    const chat::MeshCoreChannelConfig& active_channel = config_.activeMeshCoreChannel();
+    const bool active_has_key =
+        !isZeroKey(active_channel.key, chat::kMeshCoreChannelKeyLen);
+    const uint8_t active_hash =
+        active_has_key ? computeChannelHash(active_channel.key)
+                       : ((config_.meshcore_channel_slot == 0 &&
+                           shouldUsePublicChannelFallback(config_))
+                              ? computeChannelHash(publicGroupPsk())
+                              : 0xFF);
+    unsigned enabled_channels = 0;
+    for (uint8_t slot = 0; slot < chat::kMeshCoreChannelMaxCount; ++slot)
+    {
+        if (config_.meshCoreChannel(slot).enabled)
+        {
+            ++enabled_channels;
+        }
+    }
+    MESHCORE_LOG("[MESHCORE] apply cfg preset=%u freq=%.3f bw=%.3f sf=%u cr=%u(4/%u) txp=%d tx_en=%u repeat=%u flood_max=%u multi_acks=%u send_profile=%u fwd_profile=%u slot=%u ch='%s' ch_en=%u ch_key=%u ch_hash=%02X channels=%u identity[ready=%u self=%02X]\n",
                  static_cast<unsigned>(config_.meshcore_region_preset),
                  static_cast<double>(config_.meshcore_freq_mhz),
                  static_cast<double>(config_.meshcore_bw_khz),
@@ -3981,10 +4038,11 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
                  static_cast<unsigned>(static_cast<uint8_t>(config_.meshcore_send_profile)),
                  static_cast<unsigned>(static_cast<uint8_t>(config_.meshcore_forward_profile)),
                  static_cast<unsigned>(config_.meshcore_channel_slot),
-                 config_.meshcore_channel_name,
-                 static_cast<unsigned>(primary_hash),
-                 static_cast<unsigned>(secondary_hash),
-                 static_cast<unsigned>(public_hash),
+                 active_channel.name,
+                 active_channel.enabled ? 1U : 0U,
+                 active_has_key ? 1U : 0U,
+                 static_cast<unsigned>(active_hash),
+                 enabled_channels,
                  identity_.isReady() ? 1U : 0U,
                  static_cast<unsigned>(self_hash_));
 
@@ -3993,10 +4051,8 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
     key_verify_session_ = KeyVerifySession{};
     verified_peers_.clear();
     protocol_runtime_.resetAutoDiscoverState();
-    loadPeerPubKeysFromPrefs();
+    loadPeerPubKeysFromDirectory();
 
-#if defined(ARDUINO_LILYGO_LORA_SX1262) || defined(ARDUINO_LILYGO_LORA_SX1280) || \
-    defined(ARDUINO_LILYGO_LORA_LR1121)
     if (board_.isRadioOnline())
     {
         board_.configureLoraRadio(config_.meshcore_freq_mhz,
@@ -4007,8 +4063,10 @@ void MeshCoreAdapter::applyConfig(const MeshConfig& config)
                                   16,
                                   kLoraSyncWordPrivate,
                                   2);
-    }
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+        (void)idf_radio_pump_.restartReceive();
 #endif
+    }
     initialized_ = true;
 }
 
@@ -4085,6 +4143,52 @@ bool MeshCoreAdapter::pollIncomingRawPacket(uint8_t* out_data, size_t& out_len, 
     out_len = copy_len;
     has_pending_raw_packet_ = false;
     return true;
+}
+
+bool MeshCoreAdapter::pollMqttBridgePacket(uint8_t* out_data, size_t& out_len, size_t max_len)
+{
+    if (!out_data || max_len == 0 || mqtt_bridge_count_ == 0)
+    {
+        return false;
+    }
+
+    MqttBridgeFrame& frame = mqtt_bridge_queue_[mqtt_bridge_read_index_];
+    if (frame.bytes_len == 0 || frame.bytes_len > max_len)
+    {
+        mqtt_bridge_read_index_ = (mqtt_bridge_read_index_ + 1U) % mqtt_bridge_queue_.size();
+        --mqtt_bridge_count_;
+        return false;
+    }
+
+    memcpy(out_data, frame.bytes.data(), frame.bytes_len);
+    out_len = frame.bytes_len;
+    frame.bytes_len = 0;
+    mqtt_bridge_read_index_ = (mqtt_bridge_read_index_ + 1U) % mqtt_bridge_queue_.size();
+    --mqtt_bridge_count_;
+    return true;
+}
+
+void MeshCoreAdapter::handleMqttBridgePacket(const uint8_t* data, size_t size)
+{
+    MESHCORE_LOG("[MC][MQTT] downlink local rx begin bytes=%u\n",
+                 static_cast<unsigned>(size));
+    handleRawPacketInternal(data, size, false);
+    MESHCORE_LOG("[MC][MQTT] downlink local rx complete bytes=%u\n",
+                 static_cast<unsigned>(size));
+}
+
+void MeshCoreAdapter::setMqttBridgeEnabled(bool enabled)
+{
+    mqtt_bridge_enabled_ = enabled;
+    if (!enabled)
+    {
+        mqtt_bridge_read_index_ = 0;
+        mqtt_bridge_count_ = 0;
+        for (MqttBridgeFrame& frame : mqtt_bridge_queue_)
+        {
+            frame.bytes_len = 0;
+        }
+    }
 }
 
 void MeshCoreAdapter::handleRawPacket(const uint8_t* data, size_t size)
@@ -4684,7 +4788,8 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
             const uint32_t rx_delay = computeRxDelayMs(config_.meshcore_rx_delay_base, score, air_ms);
             const uint32_t tx_step = static_cast<uint32_t>(
                 std::lround(static_cast<float>(air_ms) * config_.meshcore_airtime_factor));
-            const uint32_t tx_delay = static_cast<uint32_t>(random(0, 6)) * tx_step;
+            const uint32_t tx_delay =
+                ::platform::esp::common::meshcore_runtime::random_between(0, 6) * tx_step;
             const uint32_t total_delay = rx_delay + tx_delay;
             enqueueScheduled(fwd.data(), fwd.size(), total_delay);
 
@@ -5014,7 +5119,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
                         ++text_len;
                     }
 
-                    SHA256 sha;
+                    MeshCoreSha256 sha;
                     sha.update(plain, 5 + text_len);
                     sha.update(sender_pubkey, kMeshcorePubKeySize);
                     sha.finalize(reinterpret_cast<uint8_t*>(&ack_value), sizeof(ack_value));
@@ -5057,7 +5162,7 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
                         ++text_len;
                     }
 
-                    SHA256 sha;
+                    MeshCoreSha256 sha;
                     sha.update(plain, 9 + text_len);
                     sha.update(self_pubkey, kMeshcorePubKeySize);
                     sha.finalize(reinterpret_cast<uint8_t*>(&ack_value), sizeof(ack_value));
@@ -5222,18 +5327,21 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
 
     auto logUnknownGroupHash = [&](const char* kind, const uint8_t* channel_hash) -> void
     {
-        const bool has_primary_key = !isZeroKey(config_.primary_key, chat::kMeshCoreChannelKeyLen);
-        const bool has_secondary_key = !isZeroKey(config_.secondary_key, chat::kMeshCoreChannelKeyLen);
-        const uint8_t primary_hash = has_primary_key ? computeChannelHash(config_.primary_key) : 0xFF;
-        const uint8_t secondary_hash = has_secondary_key ? computeChannelHash(config_.secondary_key) : 0xFF;
-        const bool has_public = shouldUsePublicChannelFallback(config_);
-        const uint8_t public_hash = has_public ? computeChannelHash(publicGroupPsk()) : 0xFF;
-        MESHCORE_LOG("[MESHCORE] RX group %s drop unknown hash=%s local[p=%02X s=%02X pub=%02X]\n",
+        const chat::MeshCoreChannelConfig& active_channel = config_.activeMeshCoreChannel();
+        const bool active_has_key =
+            !isZeroKey(active_channel.key, chat::kMeshCoreChannelKeyLen);
+        const uint8_t active_hash =
+            active_has_key ? computeChannelHash(active_channel.key)
+                           : ((config_.meshcore_channel_slot == 0 &&
+                               shouldUsePublicChannelFallback(config_))
+                                  ? computeChannelHash(publicGroupPsk())
+                                  : 0xFF);
+        MESHCORE_LOG("[MESHCORE] RX group %s drop unknown hash=%s local[slot=%u hash=%02X enabled=%u]\n",
                      kind,
                      toHex(channel_hash, hash_bytes).c_str(),
-                     static_cast<unsigned>(primary_hash),
-                     static_cast<unsigned>(secondary_hash),
-                     static_cast<unsigned>(public_hash));
+                     static_cast<unsigned>(config_.meshcore_channel_slot),
+                     static_cast<unsigned>(active_hash),
+                     active_channel.enabled ? 1U : 0U);
     };
 
     if (is_group_text_payload)
@@ -5602,8 +5710,48 @@ void MeshCoreAdapter::handleRawPacketInternal(const uint8_t* data, size_t size, 
     }
 }
 
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+void MeshCoreAdapter::pollIdfRadio()
+{
+    if (!initialized_ || !board_.isRadioOnline())
+    {
+        return;
+    }
+
+    ::platform::esp::radio::IdfLoraRadioFrame frame{};
+    const auto result = idf_radio_pump_.poll(frame);
+    if (result == ::platform::esp::radio::IdfLoraPollResult::Frame)
+    {
+        setLastRxStats(frame.rssi, frame.snr);
+        MESHCORE_LOG("[MESHCORE] IDF RX raw len=%u rssi=%.1f snr=%.1f irq=0x%04lX\n",
+                     static_cast<unsigned>(frame.len),
+                     static_cast<double>(frame.rssi),
+                     static_cast<double>(frame.snr),
+                     static_cast<unsigned long>(frame.irq));
+        handleRawPacket(frame.data, frame.len);
+        return;
+    }
+
+    if (result == ::platform::esp::radio::IdfLoraPollResult::InvalidPacketLength)
+    {
+        MESHCORE_LOG("[MESHCORE] IDF RX invalid length=%d irq=0x%04lX\n",
+                     frame.packet_length,
+                     static_cast<unsigned long>(frame.irq));
+    }
+    else if (result == ::platform::esp::radio::IdfLoraPollResult::ReadFailed)
+    {
+        MESHCORE_LOG("[MESHCORE] IDF RX read failed length=%d irq=0x%04lX\n",
+                     frame.packet_length,
+                     static_cast<unsigned long>(frame.irq));
+    }
+}
+#endif
+
 void MeshCoreAdapter::processSendQueue()
 {
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+    pollIdfRadio();
+#endif
     uint32_t now_ms = millis();
     prunePendingAppAcks(now_ms);
     prunePeerRoutes(now_ms);

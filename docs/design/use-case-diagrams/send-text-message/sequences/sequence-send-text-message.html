@@ -1,0 +1,15 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Sequence：Compose 到 Ledger</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/send-text-message/sequences/sequence-send-text-message.md"><h1>Compose 到 Ledger</h1><pre class="mermaid">sequenceDiagram
+actor U as 用户
+participant UI as Compose
+participant S as SendService
+participant L as Ledger
+participant B as Backend
+participant R as Radio
+U->>UI: send
+UI->>S: intent
+S->>L: Queued
+S->>B: encode
+B->>R: enqueue
+R-->>B: outcome
+B->>L: Sent/Failed
+L-->>UI: projection</pre></main></body></html>

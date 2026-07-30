@@ -9,7 +9,6 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_lock.h"
 #include "src/draw/lv_image_decoder_private.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include "sys/clock.h"
@@ -19,6 +18,8 @@
 #include "ui_map_runtime/map_tiles/filesystem_map_tile_source.h"
 #include "ui_map_runtime/map_tiles/map_tile_async_runtime.h"
 #include "ui_map_runtime/map_tiles/map_tile_decoder_cache.h"
+#include "ui_map_runtime/map_tiles/map_tile_geometry.h"
+#include "ui_map_runtime/map_tiles/map_tile_types.h"
 
 #include <algorithm>
 #include <cmath>
@@ -61,8 +62,6 @@
 static uint32_t g_cache_full_log_ms = 0;
 static uint8_t g_requested_map_source = 0;
 
-constexpr std::size_t kMapTileSdReadChunkBytes = 2U * 1024U;
-
 static void style_placeholder_card(lv_obj_t* card);
 static void style_placeholder_text(lv_obj_t* label);
 
@@ -102,12 +101,12 @@ static void create_placeholder_tile_card(lv_obj_t* parent, MapTile& tile, int sc
 
     lv_obj_t* placeholder_label = lv_label_create(tile.img_obj);
     char placeholder_text[48];
-    snprintf(placeholder_text,
-             sizeof(placeholder_text),
-             "z=%d\nx=%d\ny=%d",
-             tile.z,
-             fmt_tile_coord(tile.x),
-             fmt_tile_coord(tile.y));
+    ui::map_tiles::formatMapTileCoordinateLabel(
+        static_cast<std::uint8_t>(tile.z),
+        static_cast<std::uint32_t>(fmt_tile_coord(tile.x)),
+        static_cast<std::uint32_t>(fmt_tile_coord(tile.y)),
+        placeholder_text,
+        sizeof(placeholder_text));
     lv_label_set_text(placeholder_label, placeholder_text);
     style_placeholder_text(placeholder_label);
     lv_obj_center(placeholder_label);
@@ -143,24 +142,19 @@ class PathOnlyMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
         return false;
     }
 
-    bool readFile(const char* path,
-                  uint8_t* buffer,
-                  std::size_t capacity,
-                  std::size_t& out_size) const override
+    ui::map_tiles::MapTileReadResult readFile(
+        const char* path,
+        uint8_t* buffer,
+        std::size_t capacity) const override
     {
-        out_size = 0;
         (void)path;
         (void)buffer;
         (void)capacity;
-        return false;
+        return {ui::map_tiles::MapTileReadStatus::Missing, 0, -1};
     }
 };
 
 #if defined(ARDUINO) || defined(ARDUINO_ARCH_ESP32)
-bool yield_map_tile_sd_bus_between_chunks(const char* path,
-                                          std::size_t bytes_read,
-                                          std::size_t total_bytes);
-
 class SdMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
 {
   public:
@@ -174,57 +168,40 @@ class SdMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
         return ::platform::esp::arduino_common::storage::sd_is_directory(path);
     }
 
-    bool readFile(const char* path,
-                  uint8_t* buffer,
-                  std::size_t capacity,
-                  std::size_t& out_size) const override
+    ui::map_tiles::MapTileReadResult readFile(
+        const char* path,
+        uint8_t* buffer,
+        std::size_t capacity) const override
     {
-        out_size = 0;
-        if (!path || !buffer || capacity == 0)
+        const auto result =
+            ::platform::esp::arduino_common::storage::sd_read_file(
+                path,
+                buffer,
+                capacity);
+        ui::map_tiles::MapTileReadResult mapped{};
+        mapped.size = result.bytes_read;
+        mapped.error = result.error;
+        switch (result.status)
         {
-            return false;
+        case ::platform::esp::arduino_common::storage::SdFileReadStatus::Ready:
+            mapped.status = ui::map_tiles::MapTileReadStatus::Ready;
+            break;
+        case ::platform::esp::arduino_common::storage::SdFileReadStatus::Missing:
+            mapped.status = ui::map_tiles::MapTileReadStatus::Missing;
+            break;
+        case ::platform::esp::arduino_common::storage::SdFileReadStatus::Busy:
+            mapped.status = ui::map_tiles::MapTileReadStatus::RetryLater;
+            break;
+        case ::platform::esp::arduino_common::storage::SdFileReadStatus::Invalid:
+            mapped.status = ui::map_tiles::MapTileReadStatus::Invalid;
+            break;
+        case ::platform::esp::arduino_common::storage::SdFileReadStatus::Unavailable:
+        case ::platform::esp::arduino_common::storage::SdFileReadStatus::IoError:
+        default:
+            mapped.status = ui::map_tiles::MapTileReadStatus::Error;
+            break;
         }
-
-        ::platform::esp::arduino_common::storage::SdRuntimeFile file;
-        if (!file.open(path, "r"))
-        {
-            return false;
-        }
-
-        const uint64_t file_size = file.size();
-        if (file_size == 0 || file_size > capacity)
-        {
-            file.close();
-            return false;
-        }
-
-        const std::size_t target_size = static_cast<std::size_t>(file_size);
-        std::size_t total_read = 0;
-        while (total_read < target_size)
-        {
-            const std::size_t chunk_size =
-                std::min<std::size_t>(kMapTileSdReadChunkBytes, target_size - total_read);
-            const int bytes_read = file.read(buffer + total_read, chunk_size);
-            if (bytes_read <= 0)
-            {
-                out_size = total_read;
-                file.close();
-                return false;
-            }
-
-            total_read += static_cast<std::size_t>(bytes_read);
-            if (total_read < target_size &&
-                !yield_map_tile_sd_bus_between_chunks(path, total_read, target_size))
-            {
-                out_size = total_read;
-                file.close();
-                return false;
-            }
-        }
-
-        file.close();
-        out_size = total_read;
-        return true;
+        return mapped;
     }
 };
 #endif
@@ -232,6 +209,7 @@ class SdMapTileFileSystem final : public ui::map_tiles::IMapTileFileSystem
 constexpr std::size_t kMapTileCommandQueueCapacity = 16;
 constexpr std::size_t kMapTileEventQueueCapacity = 16;
 constexpr std::size_t kMapTileWorkerScratchBytes = 192U * 1024U;
+constexpr std::size_t kMapTileWorkerTaskStackBytes = 4U * 1024U;
 constexpr int kMapTileEventsPerUiDrain = 1;
 constexpr int kMapTileRequestsPerUiStep = 2;
 constexpr uint32_t kMapTileUiDrainBudgetMs = 4;
@@ -241,22 +219,14 @@ constexpr uint32_t kMapTileLayerTransientBackoffMs = 450;
 constexpr uint32_t kMapTileLayerCacheBackoffMs = 350;
 constexpr uint32_t kMapTileMissingCacheTtlMs = 5U * 60U * 1000U;
 constexpr uint32_t kMapTileGenerationInitial = 1;
-constexpr uint32_t kMapTileBusResource = 1;
 constexpr uint32_t kMapTileDiagnosticLogIntervalMs = 1000;
 constexpr TickType_t kMapTileWorkerPostCommandYieldTicks = pdMS_TO_TICKS(32);
-constexpr TickType_t kMapTileSdChunkYieldTicks = pdMS_TO_TICKS(1);
-constexpr TickType_t kMapTileSdChunkReacquireTicks = pdMS_TO_TICKS(50);
-constexpr uint32_t kMapTileDisplaySpiSlowHoldMs = 8;
-constexpr uint32_t kMapTileDisplaySpiNormalCooldownMs = 160;
-constexpr uint32_t kMapTileDisplaySpiSlowCooldownMs = 1500;
-constexpr uint32_t kMapTileDisplayPressureCooldownMs = 1500;
-constexpr uint32_t kMapTileDisplayPressureTileBackoffMs = 450;
+StaticTask_t s_map_tile_worker_task_tcb{};
+StackType_t s_map_tile_worker_task_stack[(kMapTileWorkerTaskStackBytes + sizeof(StackType_t) - 1U) / sizeof(StackType_t)]{};
 
 uint32_t g_map_tile_decode_log_ms = 0;
 uint32_t g_map_tile_event_log_ms = 0;
 uint32_t g_map_tile_next_event_drain_ms = 0;
-uint32_t g_map_tile_chunk_yield_log_ms = 0;
-uint32_t g_map_tile_display_pressure_log_ms = 0;
 
 bool should_log_map_tile_diagnostic(uint32_t& last_ms, uint32_t now_ms)
 {
@@ -266,61 +236,6 @@ bool should_log_map_tile_diagnostic(uint32_t& last_ms, uint32_t now_ms)
         return true;
     }
     return false;
-}
-
-bool map_tile_display_under_pressure(uint32_t now_ms)
-{
-    return ::platform::esp::common::display_spi_recently_timed_out(
-        now_ms,
-        kMapTileDisplayPressureCooldownMs);
-}
-
-void log_map_tile_display_pressure_pause(uint32_t now_ms, const char* stage)
-{
-    if (!should_log_map_tile_diagnostic(g_map_tile_display_pressure_log_ms, now_ms))
-    {
-        return;
-    }
-    const uint32_t last_timeout_ms = ::platform::esp::common::last_display_spi_timeout_ms();
-    std::printf("[GPS][MAP][bus] display_pressure_pause stage=%s last_timeout_age_ms=%lu backoff_ms=%lu\n",
-                stage ? stage : "",
-                static_cast<unsigned long>(now_ms - last_timeout_ms),
-                static_cast<unsigned long>(kMapTileDisplayPressureTileBackoffMs));
-    std::fflush(stdout);
-}
-
-bool yield_map_tile_sd_bus_between_chunks(const char* path,
-                                          std::size_t bytes_read,
-                                          std::size_t total_bytes)
-{
-    // Worker-domain SD tile reads voluntarily release the shared bus between
-    // chunks. This is the current ESP adapter's hold-budget enforcement point:
-    // display flush can make progress even while a large tile payload is read.
-    ::platform::esp::common::shared_spi_unlock();
-    vTaskDelay(kMapTileSdChunkYieldTicks);
-
-    if (::platform::esp::common::shared_spi_lock_with_owner(kMapTileSdChunkReacquireTicks,
-                                                            "map_tile_sd"))
-    {
-        return true;
-    }
-
-    const uint32_t now_ms = sys::millis_now();
-    if (should_log_map_tile_diagnostic(g_map_tile_chunk_yield_log_ms, now_ms))
-    {
-        std::printf("[GPS][MAP][bus] chunk_reacquire_timeout path=%s bytes=%u/%u\n",
-                    path ? path : "",
-                    static_cast<unsigned>(bytes_read),
-                    static_cast<unsigned>(total_bytes));
-        std::fflush(stdout);
-    }
-
-    while (!::platform::esp::common::shared_spi_lock_with_owner(pdMS_TO_TICKS(100),
-                                                                "map_tile_sd"))
-    {
-        vTaskDelay(kMapTileSdChunkYieldTicks);
-    }
-    return true;
 }
 
 const char* map_tile_format_name(ui::map_tiles::MapTileFormat format)
@@ -378,7 +293,7 @@ const char* map_tile_event_kind_name(ui::map_tiles::MapTileAsyncEventKind kind)
         return "ready";
     case ui::map_tiles::MapTileAsyncEventKind::Failed:
         return "failed";
-    case ui::map_tiles::MapTileAsyncEventKind::ResourceBusy:
+    case ui::map_tiles::MapTileAsyncEventKind::RetryLater:
         return "busy";
     case ui::map_tiles::MapTileAsyncEventKind::Cancelled:
         return "cancelled";
@@ -908,6 +823,22 @@ class MapTileEventQueue final : public ui::map_tiles::IMapTileEventSink
         return ok;
     }
 
+    void clear()
+    {
+        if (!ensureMutex() ||
+            xSemaphoreTake(mutex_, pdMS_TO_TICKS(20)) != pdTRUE)
+        {
+            return;
+        }
+        ui::map_tiles::MapTileAsyncEvent event{};
+        while (queue_.pop(event))
+        {
+            release_tile_payload(event);
+            event = {};
+        }
+        xSemaphoreGive(mutex_);
+    }
+
   private:
     bool ensureMutex()
     {
@@ -924,164 +855,6 @@ class MapTileEventQueue final : public ui::map_tiles::IMapTileEventSink
         queue_{};
 };
 
-class EspMapTileBusArbiter final : public sys::runtime::IBusArbiter
-{
-  public:
-    sys::runtime::BusAcquireResult acquire(
-        const sys::runtime::BusAcquireRequest& request) override
-    {
-        const uint32_t start_ms = sys::millis_now();
-        // Display lock timeout is treated as pressure from the frame-critical
-        // domain. Map tile IO backs off instead of competing with wake/input
-        // rendering for the same physical SPI bus.
-        if (::platform::esp::common::display_spi_recently_timed_out(
-                start_ms,
-                kMapTileDisplayPressureCooldownMs))
-        {
-            sys::runtime::BusAcquireResult result{};
-            result.status = sys::runtime::BusAcquireStatus::Busy;
-            result.diagnostics.resource = request.resource;
-            result.diagnostics.command_id = request.command_id;
-            result.diagnostics.policy = sys::runtime::BusAccessPolicy::DisplayFrameCritical;
-            updateHealth(result.status, start_ms);
-            return result;
-        }
-
-        if (static_cast<int32_t>(cooldown_until_ms_ - start_ms) > 0)
-        {
-            sys::runtime::BusAcquireResult result{};
-            result.status = sys::runtime::BusAcquireStatus::Busy;
-            result.diagnostics.resource = request.resource;
-            result.diagnostics.command_id = request.command_id;
-            result.diagnostics.policy = sys::runtime::BusAccessPolicy::DisplayFrameCritical;
-            updateHealth(result.status, start_ms);
-            return result;
-        }
-
-        const uint32_t timeout_ms = timeoutFor(request.policy);
-        const bool acquired =
-            ::platform::esp::common::shared_spi_lock_with_owner(pdMS_TO_TICKS(timeout_ms),
-                                                                "map_tile_sd");
-        const uint32_t end_ms = sys::millis_now();
-
-        sys::runtime::BusAcquireResult result{};
-        result.status = acquired ? sys::runtime::BusAcquireStatus::Acquired
-                                 : (timeout_ms == 0 ? sys::runtime::BusAcquireStatus::Busy
-                                                    : sys::runtime::BusAcquireStatus::TimedOut);
-        result.token.valid = acquired;
-        result.token.resource = request.resource;
-        result.token.owner = request.command_id;
-        result.token.acquired_ms = acquired ? end_ms : 0;
-        result.diagnostics.resource = request.resource;
-        result.diagnostics.command_id = request.command_id;
-        result.diagnostics.wait_ms = end_ms - start_ms;
-        result.diagnostics.policy = sys::runtime::BusAccessPolicy::DisplayFrameCritical;
-        updateHealth(result.status, end_ms);
-        return result;
-    }
-
-    void release(const sys::runtime::BusAccessToken& token) override
-    {
-        if (!token.valid)
-        {
-            return;
-        }
-        const uint32_t release_ms = sys::millis_now();
-        const uint32_t hold_ms = release_ms - token.acquired_ms;
-        ::platform::esp::common::shared_spi_unlock();
-        const bool display_pressure =
-            ::platform::esp::common::display_spi_recently_timed_out(
-                release_ms,
-                kMapTileDisplayPressureCooldownMs);
-        const bool slow_hold = display_pressure && hold_ms >= kMapTileDisplaySpiSlowHoldMs;
-        const uint32_t cooldown_ms = slow_hold ? kMapTileDisplaySpiSlowCooldownMs
-                                               : kMapTileDisplaySpiNormalCooldownMs;
-        cooldown_until_ms_ = release_ms + cooldown_ms;
-        if (slow_hold && should_log_map_tile_diagnostic(last_slow_hold_log_ms_, release_ms))
-        {
-            std::printf("[GPS][MAP][bus] display_shared_slow_hold hold_ms=%lu cooldown_ms=%lu display_pressure=1\n",
-                        static_cast<unsigned long>(hold_ms),
-                        static_cast<unsigned long>(cooldown_ms));
-            std::fflush(stdout);
-        }
-        consecutive_timeouts_ = 0;
-        if (health_.status == sys::runtime::StorageHealthStatus::Slow ||
-            health_.status == sys::runtime::StorageHealthStatus::Recovering)
-        {
-            health_.status = sys::runtime::StorageHealthStatus::Healthy;
-            health_.last_error = 0;
-            health_.last_transition_ms = sys::millis_now();
-        }
-    }
-
-    sys::runtime::StorageHealthState health() const override
-    {
-        return health_;
-    }
-
-  private:
-    static uint32_t timeoutFor(sys::runtime::BusAccessPolicy policy)
-    {
-        if (policy == sys::runtime::BusAccessPolicy::InteractiveWorkerBounded)
-        {
-            return 1;
-        }
-        if (policy == sys::runtime::BusAccessPolicy::BackgroundWorkerBounded)
-        {
-            return 4;
-        }
-        return 0;
-    }
-
-    void updateHealth(sys::runtime::BusAcquireStatus status, uint32_t now_ms)
-    {
-        if (status == sys::runtime::BusAcquireStatus::Acquired)
-        {
-            return;
-        }
-        health_.last_transition_ms = now_ms;
-        ++consecutive_timeouts_;
-        health_.last_error = status == sys::runtime::BusAcquireStatus::TimedOut ? -2 : -1;
-        health_.status = consecutive_timeouts_ >= 3 ? sys::runtime::StorageHealthStatus::Degraded
-                                                    : sys::runtime::StorageHealthStatus::Slow;
-    }
-
-    sys::runtime::StorageHealthState health_{};
-    uint8_t consecutive_timeouts_ = 0;
-    uint32_t cooldown_until_ms_ = 0;
-    uint32_t last_slow_hold_log_ms_ = 0;
-};
-
-class EspMapTilePolicyStrategy final : public sys::runtime::RuntimePolicyStrategy
-{
-  public:
-    sys::runtime::RuntimePriority selectPriority(
-        const sys::runtime::RuntimeIntent& intent) const override
-    {
-        return intent.priority_hint;
-    }
-
-    sys::runtime::BusAccessPolicy selectBusPolicy(
-        const sys::runtime::RuntimeCommand& command) const override
-    {
-        if (command.priority == sys::runtime::RuntimePriority::Interactive ||
-            command.priority == sys::runtime::RuntimePriority::Realtime)
-        {
-            return sys::runtime::BusAccessPolicy::InteractiveWorkerBounded;
-        }
-        return sys::runtime::BusAccessPolicy::BackgroundWorkerBounded;
-    }
-
-    sys::runtime::RuntimeRetryDecision selectRetry(
-        const sys::runtime::RuntimeCommand& command,
-        const sys::runtime::PlatformStorageResult& result) const override
-    {
-        (void)command;
-        (void)result;
-        return {};
-    }
-};
-
 class EspMapTileWorkerBackend final : public ui::map_tiles::IMapTileWorkerBackend
 {
   public:
@@ -1096,31 +869,44 @@ class EspMapTileWorkerBackend final : public ui::map_tiles::IMapTileWorkerBacken
         return source_.lookup(ref);
     }
 
-    bool read(const ui::map_tiles::MapTileRef& ref,
-              uint8_t* buffer,
-              std::size_t capacity,
-              std::size_t& out_size,
-              ui::map_tiles::MapTileFormat& out_format) override
+    ui::map_tiles::MapTileReadResult read(
+        const ui::map_tiles::MapTileRef& ref,
+        uint8_t* buffer,
+        std::size_t capacity) override
     {
+        ui::map_tiles::MapTileReadResult result{};
+        result.format = ui::map_tiles::mapTileFormatForLayer(ref.layer);
         if (map_tile_availability_memory().knownMissing(ref))
         {
-            out_size = 0;
-            out_format = ui::map_tiles::mapTileFormatForLayer(ref.layer);
-            return false;
+            result.error = -1;
+            return result;
         }
 
-        if (source_.read(ref, buffer, capacity, out_size, out_format))
+        const ui::map_tiles::MapTileReadResult storage_result =
+            source_.read(ref, buffer, capacity);
+        result.format = storage_result.format;
+        result.size = storage_result.size;
+        result.error = storage_result.error;
+        switch (storage_result.status)
         {
+        case ui::map_tiles::MapTileReadStatus::Ready:
             map_tile_availability_memory().markAvailable(ref);
-            return true;
-        }
-
-        const ui::map_tiles::MapTileLookupResult lookup = source_.lookup(ref);
-        if (lookup.status == ui::map_tiles::MapTileStatus::Missing)
-        {
+            result.status = ui::map_tiles::MapTileReadStatus::Ready;
+            result.error = 0;
+            return result;
+        case ui::map_tiles::MapTileReadStatus::RetryLater:
+            result.status = ui::map_tiles::MapTileReadStatus::RetryLater;
+            return result;
+        case ui::map_tiles::MapTileReadStatus::Missing:
             map_tile_availability_memory().markMissing(ref);
+            result.status = ui::map_tiles::MapTileReadStatus::Error;
+            return result;
+        case ui::map_tiles::MapTileReadStatus::Invalid:
+        case ui::map_tiles::MapTileReadStatus::Error:
+        default:
+            result.status = ui::map_tiles::MapTileReadStatus::Error;
+            return result;
         }
-        return false;
     }
 
   private:
@@ -1333,6 +1119,25 @@ ui::map_tiles::FilesystemMapTileSource& worker_tile_source()
 class MapTileAsyncHost final
 {
   public:
+    MapTileAsyncHost() = default;
+
+    void acquire()
+    {
+        portENTER_CRITICAL(&lock_);
+        ++lease_count_;
+        portEXIT_CRITICAL(&lock_);
+    }
+
+    void release()
+    {
+        portENTER_CRITICAL(&lock_);
+        if (lease_count_ > 0)
+        {
+            --lease_count_;
+        }
+        portEXIT_CRITICAL(&lock_);
+    }
+
     bool request(const ui::map_tiles::MapTileRef& ref,
                  uint32_t generation,
                  ui::map_tiles::MapTileInteractionMode mode)
@@ -1381,7 +1186,6 @@ class MapTileAsyncHost final
             ui::map_tiles::LoadTileCommand command{};
             if (commands_.pop(sys::millis_now(), command))
             {
-                command.runtime.origin = kMapTileBusResource;
                 if (worker_ != nullptr)
                 {
                     (void)worker_->execute(command, sys::millis_now());
@@ -1389,15 +1193,50 @@ class MapTileAsyncHost final
                 vTaskDelay(kMapTileWorkerPostCommandYieldTicks);
                 continue;
             }
+            bool idle = false;
+            portENTER_CRITICAL(&lock_);
+            if (lease_count_ == 0)
+            {
+                stopping_ = true;
+                idle = true;
+            }
+            portEXIT_CRITICAL(&lock_);
+            if (idle)
+            {
+                events_.clear();
+                delete worker_;
+                worker_ = nullptr;
+                if (scratch_ != nullptr)
+                {
+                    heap_caps_free(scratch_);
+                    scratch_ = nullptr;
+                }
+                portENTER_CRITICAL(&lock_);
+                task_ = nullptr;
+                started_ = false;
+                stopping_ = false;
+                portEXIT_CRITICAL(&lock_);
+                std::printf("[GPS][MAP][worker] stopped reason=no_viewports\n");
+                vTaskDelete(nullptr);
+                return;
+            }
             vTaskDelay(pdMS_TO_TICKS(5));
         }
     }
 
     bool ensureStarted()
     {
-        if (started_)
+        portENTER_CRITICAL(&lock_);
+        const bool started = started_;
+        const bool stopping = stopping_;
+        portEXIT_CRITICAL(&lock_);
+        if (started)
         {
             return true;
+        }
+        if (stopping)
+        {
+            return false;
         }
 
         if (scratch_ == nullptr)
@@ -1419,11 +1258,9 @@ class MapTileAsyncHost final
         {
             worker_ = new (std::nothrow)
                 ui::map_tiles::MapTileWorker(backend_,
-                                             bus_,
                                              events_,
                                              scratch_,
-                                             kMapTileWorkerScratchBytes,
-                                             &policy_);
+                                             kMapTileWorkerScratchBytes);
             if (worker_ == nullptr)
             {
                 if (!task_start_failed_logged_)
@@ -1435,30 +1272,39 @@ class MapTileAsyncHost final
             }
         }
 
-        const BaseType_t ok = xTaskCreate(taskThunk,
-                                          "map_tile_worker",
-                                          4 * 1024,
-                                          this,
-                                          1,
-                                          &task_);
+        task_ = xTaskCreateStatic(taskThunk,
+                                  "map_tile_worker",
+                                  kMapTileWorkerTaskStackBytes,
+                                  this,
+                                  1,
+                                  s_map_tile_worker_task_stack,
+                                  &s_map_tile_worker_task_tcb);
+        const BaseType_t ok = task_ != nullptr ? pdPASS : errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY;
         if (ok != pdPASS)
         {
             if (!task_start_failed_logged_)
             {
-                std::printf("[GPS][MAP][worker] task_start_failed rc=%ld\n",
-                            static_cast<long>(ok));
+                std::printf("[GPS][MAP][worker] task_start_failed rc=%ld "
+                            "stack=static_internal bytes=%u internal_free=%u "
+                            "internal_largest=%u\n",
+                            static_cast<long>(ok),
+                            static_cast<unsigned>(kMapTileWorkerTaskStackBytes),
+                            static_cast<unsigned>(
+                                heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                            static_cast<unsigned>(heap_caps_get_largest_free_block(
+                                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
                 task_start_failed_logged_ = true;
             }
             return false;
         }
+        portENTER_CRITICAL(&lock_);
         started_ = true;
+        portEXIT_CRITICAL(&lock_);
         return true;
     }
 
     MapTileCommandQueue commands_{};
     MapTileEventQueue events_{};
-    EspMapTileBusArbiter bus_{};
-    EspMapTilePolicyStrategy policy_{};
     EspMapTileWorkerBackend backend_{worker_tile_source()};
     uint8_t* scratch_ = nullptr;
     ui::map_tiles::MapTileWorker* worker_ = nullptr;
@@ -1467,8 +1313,11 @@ class MapTileAsyncHost final
     ui::map_tiles::MapTileRuntime runtime_{async_runtime_, state_machine_};
     TaskHandle_t task_ = nullptr;
     bool started_ = false;
+    bool stopping_ = false;
     bool scratch_alloc_failed_logged_ = false;
     bool task_start_failed_logged_ = false;
+    std::size_t lease_count_ = 0;
+    portMUX_TYPE lock_ = portMUX_INITIALIZER_UNLOCKED;
 };
 
 MapTileAsyncHost& map_tile_async_host()
@@ -1836,15 +1685,7 @@ static bool cache_matches_ref(const DecodedTileCache& cache,
  */
 void normalize_tile(int z, int& x, int& y)
 {
-    int n = 1 << z; // z<=18 OK, n = 2^z
-    if (n <= 0) return;
-
-    // Wrap x coordinate (longitude wraps around)
-    x = ((x % n) + n) % n;
-
-    // Clamp y coordinate (latitude is bounded)
-    if (y < 0) y = 0;
-    if (y >= n) y = n - 1;
+    ::ui::map_tiles::normalizeTile(z, x, y);
 }
 
 /**
@@ -1853,22 +1694,7 @@ void normalize_tile(int z, int& x, int& y)
  */
 void latLngToTile(double lat, double lng, int zoom, int& tile_x, int& tile_y)
 {
-    // Clamp latitude to WebMercator valid range to avoid pole issues
-    const double MAX_LAT = 85.05112878;
-    if (lat > MAX_LAT) lat = MAX_LAT;
-    if (lat < -MAX_LAT) lat = -MAX_LAT;
-
-    // Wrap longitude to [-180, 180) to handle GPS errors and date line crossing
-    while (lng < -180.0) lng += 360.0;
-    while (lng >= 180.0) lng -= 360.0;
-
-    double n = pow(2.0, zoom);
-    double lat_rad = lat * M_PI / 180.0;
-    tile_x = (int)((lng + 180.0) / 360.0 * n);
-    tile_y = (int)((1.0 - log(tan(lat_rad) + 1.0 / cos(lat_rad)) / M_PI) / 2.0 * n);
-
-    // Use normalize_tile for consistency
-    normalize_tile(zoom, tile_x, tile_y);
+    ::ui::map_tiles::latLngToTile(lat, lng, zoom, tile_x, tile_y);
 }
 
 /**
@@ -2557,13 +2383,6 @@ static bool request_base_tile_async(MapTile& tile)
     }
 
     const ui::map_tiles::MapTileRef ref = base_tile_ref_for_tile(tile);
-    if (map_tile_display_under_pressure(now_ms))
-    {
-        log_map_tile_display_pressure_pause(now_ms, "base_request");
-        tile.base_retry_not_before_ms = now_ms + kMapTileDisplayPressureTileBackoffMs;
-        return false;
-    }
-
     if (map_tile_availability_memory().knownMissing(ref))
     {
         tile.base_missing = true;
@@ -2603,13 +2422,6 @@ static bool request_contour_tile_async(MapTile& tile)
     {
         tile.contour_checked = true;
         tile.contour_loaded = false;
-        return false;
-    }
-
-    if (map_tile_display_under_pressure(now_ms))
-    {
-        log_map_tile_display_pressure_pause(now_ms, "contour_request");
-        tile.contour_retry_not_before_ms = now_ms + kMapTileDisplayPressureTileBackoffMs;
         return false;
     }
 
@@ -2682,7 +2494,7 @@ static bool apply_map_tile_event(TileContext& ctx, ui::map_tiles::MapTileAsyncEv
     pending = false;
 
     const uint32_t now_ms = sys::millis_now();
-    if (event.kind == ui::map_tiles::MapTileAsyncEventKind::ResourceBusy)
+    if (event.kind == ui::map_tiles::MapTileAsyncEventKind::RetryLater)
     {
         retry_not_before = now_ms + kMapTileLayerBusyBackoffMs;
         log_map_tile_event_failure("resource_busy", event, event.error);
@@ -3296,12 +3108,6 @@ void tile_loader_step(TileContext& ctx)
     {
         return;
     }
-    if (map_tile_display_under_pressure(sys::millis_now()))
-    {
-        log_map_tile_display_pressure_pause(sys::millis_now(), "loader");
-        return;
-    }
-
     const int max_tiles_per_step = kMapTileRequestsPerUiStep;
     MapTile* attempted[max_tiles_per_step] = {NULL};
     int attempted_count = 0;
@@ -3521,6 +3327,11 @@ void init_tile_context(TileContext& ctx, lv_obj_t* map_container, MapAnchor* anc
                        ui::map_tiles::MapTileRenderQueue* render_queue,
                        bool* has_map_data, bool* has_visible_map_data)
 {
+    if (!ctx.runtime_acquired)
+    {
+        map_tile_async_host().acquire();
+        ctx.runtime_acquired = true;
+    }
     ctx.map_container = map_container;
     ctx.anchor = anchor;
     ctx.tiles = tiles;
@@ -3580,4 +3391,14 @@ void cleanup_tiles(TileContext& ctx)
     {
         ctx.render_queue->clear();
     }
+}
+
+void release_tile_context(TileContext& ctx)
+{
+    if (!ctx.runtime_acquired)
+    {
+        return;
+    }
+    ctx.runtime_acquired = false;
+    map_tile_async_host().release();
 }

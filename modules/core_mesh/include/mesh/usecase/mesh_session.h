@@ -32,6 +32,7 @@ class MeshSession
     ReceivePacketService& receive_;
     IClock& clock_;
     MeshSessionState state_ = MeshSessionState::Stopped;
+    RadioRxPacket rx_packet_scratch_{};
 };
 
 } // namespace mesh

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mesh/protocol/mesh_protocol_strategy.h"
+#include "meshtastic/mesh.pb.h"
 
 namespace mesh
 {
@@ -17,6 +18,9 @@ class MeshtasticProtocolStrategy final : public MeshProtocolStrategy
                                       EncodedPacket& out) override;
     ProtocolResult parseRadioPacket(const RadioRxPacket& packet,
                                     MeshProtocolEvent& out) override;
+
+  private:
+    meshtastic_Data data_scratch_ = meshtastic_Data_init_default;
 };
 
 } // namespace meshtastic

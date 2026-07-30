@@ -36,6 +36,39 @@ to LVGL compressed bitmap format (`bitmap_format = 2`):
 
 The tool validates each glyph via encode/decode round-trip before writing.
 
+## Built-In Emoji Catalogue
+
+The reviewed 324-item Emoji catalogue is not an external pack. Its source of
+truth is `tools/emoji_candidates_trailmate.json`; the generated C++ table and
+16px/2bpp binfont are compiled into the firmware. The catalogue is grouped for
+Pager use into Common, Radio, Nav, Weather, Survive, Rescue, Camp, People, and
+Animals.
+
+After changing the manifest, regenerate both the charset and the embedded font
+from the repository root:
+
+```bash
+python tools/generate_builtin_emoji_data.py \
+  --manifest tools/emoji_candidates_trailmate.json \
+  --font tools/fonts/NotoEmoji-Regular.ttf \
+  --charset-output <temporary charset.txt>
+
+python tools/generate_binfont_with_lv_font_conv.py \
+  --font tools/fonts/NotoEmoji-Regular.ttf \
+  --charset-file <temporary charset.txt> \
+  --output <temporary emoji.bin> \
+  --size 16 --bpp 2
+
+python tools/generate_builtin_emoji_data.py \
+  --manifest tools/emoji_candidates_trailmate.json \
+  --font tools/fonts/NotoEmoji-Regular.ttf \
+  --binfont <temporary emoji.bin> \
+  --output modules/ui_shared/src/ui/widgets/text_candidate_builtin_emoji_data.h
+```
+
+The generator rejects duplicate candidates, category count mismatches, an
+unexpected total, and codepoints unavailable in `NotoEmoji-Regular.ttf`.
+
 ## External Pack Workflow
 
 Simplified Chinese no longer ships as a compiled-in UI font. The repository now

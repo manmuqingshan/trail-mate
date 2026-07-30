@@ -1,0 +1,281 @@
+{
+  "metadata": {
+    "reference_name": "Trail Mate supported-subset fixture generator",
+    "reference_repo": "local Trail Mate worktree",
+    "reference_commit": "649d852ae33c75981216d238e3ab68fd24239b5b",
+    "reference_file": "tests/reticulum_conformance/test_reticulum_supported_subset_vectors.cpp",
+    "generated_at": "2026-07-06",
+    "generation_command": "independent fixed-input Python encoder printed deterministic SHA-256, Reticulum packet, LXMF msgpack, resource, link, and propagation vectors; values copied into the supported-subset C++ smoke test",
+    "canonicality": "exploratory",
+    "inputs": [
+      "hash input: ASCII trailmate",
+      "name inputs: lxmf.delivery and lxmf.propagation",
+      "identity input: combined public key bytes 0x01..0x40",
+      "packet destination hash bytes 0x10..0x1f and transport id bytes 0x30..0x3f",
+      "payload bytes: a0a1a2",
+      "LXMF text: timestamp 1234.5, title Trail, content hello reticulum, empty fields",
+      "Trail Mate app-data: port 0x1234, packet id 0xaabbccdd, request id 0x01020304, payload deadbeef",
+      "link request path hashes derived from /offer and /get",
+      "resource hashes: resource 0x40..0x5f, original 0x60..0x7f",
+      "propagation messages use fixed destination-hash prefixes and small payload suffixes"
+    ],
+    "expected_fields": [
+      "full hash and truncated hash",
+      "name hash, identity hash, destination hash, plain destination hash, projected node id",
+      "header-1 and header-2 packet bytes, parsed header fields, packet hashes, proof packet bytes",
+      "LXMF packed text payload, app-data payload, message hash, signed part, packed envelope",
+      "link request and response msgpack payload bytes",
+      "resource advertisement and hashmap-update payload bytes",
+      "propagation offer, get, id-list, message-list, and batch payload bytes",
+      "negative parser rejection for short packet and truncated msgpack"
+    ],
+    "notes": [
+      "This fixture set is a Trail Mate product baseline for the Reticulum/LXMF subset currently implemented by the branch.",
+      "It is not a complete Reticulum conformance claim.",
+      "It is exploratory until the same fixed inputs are cross-checked against Python Reticulum and an interoperable LXMF reference."
+    ]
+  },
+  "vectors": [
+    {
+      "name": "full_hash_trailmate",
+      "fixture_type": "hash-vector",
+      "raw_hex": "747261696c6d617465",
+      "expected": {
+        "full_hash": "a313970d0f81a10c7d842c64938c43ac5a76372541b91104c8fd364d09c0af95",
+        "truncated_hash": "a313970d0f81a10c7d842c64938c43ac"
+      }
+    },
+    {
+      "name": "lxmf_name_hashes",
+      "fixture_type": "hash-vector",
+      "raw_hex": "6c786d662e64656c69766572796c786d662e70726f7061676174696f6e",
+      "expected": {
+        "delivery_name_hash": "6ec60bc318e2c0f0d908",
+        "propagation_name_hash": "e03a09b77ac21b22258e"
+      }
+    },
+    {
+      "name": "identity_and_destination_hashes",
+      "fixture_type": "destination-vector",
+      "raw_hex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+      "expected": {
+        "identity_hash": "20a7ec84684f7fe124cb3727d049734a",
+        "delivery_destination_hash": "c48232d0130fd6a336fb574f90f4bfcb",
+        "propagation_destination_hash": "025ce3c73c4780881210b492df17d70d",
+        "plain_delivery_destination_hash": "9497d16c52ac5faec04c36db5c301e8e",
+        "delivery_node_id": 2431958987
+      }
+    },
+    {
+      "name": "header1_data_packet",
+      "fixture_type": "packet-vector",
+      "raw_hex": "0002101112131415161718191a1b1c1d1e1f00a0a1a2",
+      "expected": {
+        "header_type": 0,
+        "hops": 2,
+        "packet_type": "data",
+        "destination_type": "single",
+        "context": "none",
+        "payload_hex": "a0a1a2",
+        "packet_hash": "f75d624dffe88286698bc382578ea71ff622f07d03da3eaaa463dbe89c9a95a3",
+        "truncated_packet_hash": "f75d624dffe88286698bc382578ea71f"
+      }
+    },
+    {
+      "name": "header2_resource_packet",
+      "fixture_type": "packet-vector",
+      "raw_hex": "7005303132333435363738393a3b3c3d3e3f101112131415161718191a1b1c1d1e1f01a0a1a2",
+      "expected": {
+        "header_type": 1,
+        "hops": 5,
+        "context_flag": true,
+        "transport_id": "303132333435363738393a3b3c3d3e3f",
+        "destination_hash": "101112131415161718191a1b1c1d1e1f",
+        "payload_hex": "a0a1a2",
+        "packet_hash": "8e5eef8ca7293a02b93deb627ba24571cf207cd2509b5852e05cf7b40a4f3ba9"
+      }
+    },
+    {
+      "name": "proof_packet_for_header1_data",
+      "fixture_type": "proof-vector",
+      "raw_hex": "0300f75d624dffe88286698bc382578ea71f0055667788",
+      "expected": {
+        "packet_type": "proof",
+        "destination_hash": "f75d624dffe88286698bc382578ea71f",
+        "payload_hex": "55667788"
+      }
+    },
+    {
+      "name": "lxmf_text_payload",
+      "fixture_type": "lxmf-vector",
+      "raw_hex": "94cb40934a0000000000c405547261696cc40f68656c6c6f207265746963756c756d80",
+      "expected": {
+        "timestamp": 1234.5,
+        "title": "Trail",
+        "content": "hello reticulum",
+        "fields_empty": true
+      }
+    },
+    {
+      "name": "trailmate_app_data_payload",
+      "fixture_type": "lxmf-vector",
+      "raw_hex": "544d4150010100001234aabbccdd01020304deadbeef",
+      "expected": {
+        "magic": "544d4150",
+        "version": 1,
+        "want_response": true,
+        "portnum": 4660,
+        "packet_id": 2864434397,
+        "request_id": 16909060,
+        "payload_hex": "deadbeef"
+      }
+    },
+    {
+      "name": "lxmf_signed_part",
+      "fixture_type": "lxmf-vector",
+      "raw_hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f94cb40934a0000000000c405547261696cc40f68656c6c6f207265746963756c756d809fcc23615dea51d98d2eb601661d050b665628e62720d604ca7abc345db68b1f",
+      "expected": {
+        "destination_hash": "101112131415161718191a1b1c1d1e1f",
+        "source_hash": "202122232425262728292a2b2c2d2e2f",
+        "message_hash": "9fcc23615dea51d98d2eb601661d050b665628e62720d604ca7abc345db68b1f"
+      }
+    },
+    {
+      "name": "lxmf_packed_message",
+      "fixture_type": "lxmf-vector",
+      "raw_hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf94cb40934a0000000000c405547261696cc40f68656c6c6f207265746963756c756d80",
+      "expected": {
+        "destination_hash": "101112131415161718191a1b1c1d1e1f",
+        "source_hash": "202122232425262728292a2b2c2d2e2f",
+        "signature_prefix": "8081828384858687",
+        "payload_hex": "94cb40934a0000000000c405547261696cc40f68656c6c6f207265746963756c756d80"
+      }
+    },
+    {
+      "name": "link_request_nil",
+      "fixture_type": "link-service-vector",
+      "raw_hex": "93cb4045200000000000c41094fd9fd7b04a5caae5882616446bb9efc0",
+      "expected": {
+        "requested_at": 42.25,
+        "path_hash": "94fd9fd7b04a5caae5882616446bb9ef",
+        "data_is_nil": true
+      }
+    },
+    {
+      "name": "link_request_bool",
+      "fixture_type": "link-service-vector",
+      "raw_hex": "93cb4045c00000000000c4109dc1a72883468f57fed571e796e9ce98c3",
+      "expected": {
+        "requested_at": 43.5,
+        "path_hash": "9dc1a72883468f57fed571e796e9ce98",
+        "packed_data": "c3"
+      }
+    },
+    {
+      "name": "link_response_bool",
+      "fixture_type": "link-service-vector",
+      "raw_hex": "92c40472657131c3",
+      "expected": {
+        "request_id": "72657131",
+        "packed_data": "c3"
+      }
+    },
+    {
+      "name": "link_response_nil",
+      "fixture_type": "link-service-vector",
+      "raw_hex": "92c40472657132c0",
+      "expected": {
+        "request_id": "72657132",
+        "data_is_nil": true
+      }
+    },
+    {
+      "name": "resource_advertisement",
+      "fixture_type": "resource-vector",
+      "raw_hex": "8bc40174cd0102c40164ccf0c4016e03c40168c420404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5fc40172c40401020304c4016fc420606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7fc4016901c4016c02c40171c4025251c4016605c4016dc402f00f",
+      "expected": {
+        "transfer_size": 258,
+        "data_size": 240,
+        "part_count": 3,
+        "resource_hash": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+        "original_hash": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+        "request_id": "5251",
+        "flags": 5,
+        "hashmap": "f00f"
+      }
+    },
+    {
+      "name": "resource_hashmap_update",
+      "fixture_type": "resource-vector",
+      "raw_hex": "9202c403aabbcc",
+      "expected": {
+        "segment": 2,
+        "hashmap": "aabbcc"
+      }
+    },
+    {
+      "name": "propagation_offer",
+      "fixture_type": "propagation-vector",
+      "raw_hex": "92c4014b92c420d0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeefc420e0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+      "expected": {
+        "peering_key": "4b",
+        "transient_id_count": 2
+      }
+    },
+    {
+      "name": "propagation_get",
+      "fixture_type": "propagation-vector",
+      "raw_hex": "9391c420d0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeefc040",
+      "expected": {
+        "wants_count": 1,
+        "haves_is_nil": true,
+        "transfer_limit_kb": 64
+      }
+    },
+    {
+      "name": "propagation_id_list",
+      "fixture_type": "propagation-vector",
+      "raw_hex": "91c420d0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeef",
+      "expected": {
+        "id_count": 1
+      }
+    },
+    {
+      "name": "propagation_message_list",
+      "fixture_type": "propagation-vector",
+      "raw_hex": "91c412101112131415161718191a1b1c1d1e1f0102",
+      "expected": {
+        "message_count": 1,
+        "message_hex": "101112131415161718191a1b1c1d1e1f0102"
+      }
+    },
+    {
+      "name": "propagation_batch",
+      "fixture_type": "propagation-vector",
+      "raw_hex": "92cb409452000000000092c412101112131415161718191a1b1c1d1e1f0102c411202122232425262728292a2b2c2d2e2f03",
+      "expected": {
+        "remote_timebase": 1300.5,
+        "message_count": 2
+      }
+    },
+    {
+      "name": "negative_short_packet",
+      "fixture_type": "negative-vector",
+      "raw_hex": "0001",
+      "expected": {
+        "parse_packet": false
+      }
+    },
+    {
+      "name": "negative_invalid_msgpack",
+      "fixture_type": "negative-vector",
+      "raw_hex": "91c4",
+      "expected": {
+        "unpack_text_payload": false,
+        "decode_propagation_offer": false,
+        "decode_propagation_get": false,
+        "decode_propagation_batch": false
+      }
+    }
+  ]
+}

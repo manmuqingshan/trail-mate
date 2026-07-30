@@ -44,11 +44,18 @@ EspCodec::EspCodec(uint8_t i2s_channel)
 {
     _i2s_num = i2s_channel;
     _pa_num = -1;
+    _pa_voltage = 0.0F;
     _mck_io_num = -1;
     _bck_io_num = -1;
     _ws_io_num = -1;
     _data_out_num = -1;
     _data_in_num = -1;
+    gpio_if = nullptr;
+    i2c_ctrl_if = nullptr;
+    codec_if = nullptr;
+    i2s_data_if = nullptr;
+    codec_dev = nullptr;
+    wire = nullptr;
     paPinCb = nullptr;
     paPinUserData = nullptr;
 }

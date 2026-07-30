@@ -13,6 +13,7 @@
 #include "chat_message_list_input.h"
 #include "lvgl.h"
 #include "ui/components/air_status_footer.h"
+#include "ui/components/floating_search_box.h"
 #include "ui/widgets/top_bar.h"
 #include <string>
 #include <vector>
@@ -28,6 +29,9 @@ class ChatMessageListScreen
     enum class ActionIntent
     {
         SelectConversation,
+        ShowInfo,
+        PingDestination,
+        DeleteConversation,
         Back
     };
 
@@ -35,6 +39,9 @@ class ChatMessageListScreen
     ~ChatMessageListScreen();
 
     void setConversations(const std::vector<chat::ConversationMeta>& convs);
+    // A false-ready chat snapshot is not an empty inbox. Keep that transient
+    // projection distinct from a successfully loaded list with zero rows.
+    void setDataLoading(bool loading);
     void updateBatteryFromBoard();
 
     void setSelected(int index);
@@ -58,6 +65,8 @@ class ChatMessageListScreen
     size_t getItemCount() const { return items_.size(); }
     lv_obj_t* getItemButton(size_t index) const;
     int getSelectedIndex() const { return selected_index_; }
+    bool isFilterPanelVisible() const { return filter_panel_visible_; }
+    bool openSelectedActionMenu();
 
   private:
     enum class TimerDomain
@@ -97,6 +106,21 @@ class ChatMessageListScreen
         Team
     };
 
+    enum class ModalCommand
+    {
+        Chat,
+        Info,
+        PingDestination,
+        Delete,
+        Cancel
+    };
+
+    struct ModalButtonContext
+    {
+        ChatMessageListScreen* screen = nullptr;
+        ModalCommand command = ModalCommand::Cancel;
+    };
+
     lv_obj_t* container_ = nullptr;
     ::ui::widgets::TopBar top_bar_{};
     lv_obj_t* filter_panel_ = nullptr;
@@ -105,10 +129,20 @@ class ChatMessageListScreen
     lv_obj_t* broadcast_btn_ = nullptr;
     lv_obj_t* team_btn_ = nullptr;
     lv_obj_t* list_back_btn_ = nullptr;
+    lv_obj_t* action_menu_modal_ = nullptr;
+    lv_obj_t* delete_confirm_modal_ = nullptr;
+    lv_group_t* modal_group_ = nullptr;
+    lv_group_t* modal_prev_group_ = nullptr;
+    chat::ConversationId modal_conv_{};
+    ModalButtonContext modal_button_contexts_[5]{};
     ::ui::components::air_status_footer::Footer air_status_footer_{};
 
     int selected_index_ = -1;
     FilterMode filter_mode_ = FilterMode::Direct;
+    bool filter_panel_visible_ = true;
+    bool data_loading_ = false;
+    char search_query_[32] = {};
+    ::ui::components::floating_search_box::State search_box_{};
 
     void (*action_cb_)(ActionIntent intent,
                        const chat::ConversationId& conv,
@@ -138,18 +172,39 @@ class ChatMessageListScreen
     void updateListItem(size_t index, const chat::ConversationMeta& conv);
     void updateFilterHighlight();
     void setFilterMode(FilterMode mode);
+    bool searchActive() const;
+    bool conversationMatchesSearch(const chat::ConversationMeta& conv) const;
+    void buildFilteredConversations(std::vector<chat::ConversationMeta>& out) const;
+    void openSearchModal();
+    void toggleFilterPanel();
+    void applyFilterPanelVisibility();
 
     static void item_event_cb(lv_event_t* e);
     static void list_back_event_cb(lv_event_t* e);
     static void item_focused_cb(lv_event_t* e);
-    static void filter_focus_cb(lv_event_t* e);
     static void filter_click_cb(lv_event_t* e);
-    static void debug_touch_event_cb(lv_event_t* e);
+    static void page_shortcut_cb(lv_event_t* e);
+    static void search_apply_cb(const char* text, void* user_data);
+    static void search_clear_cb(void* user_data);
+    static void search_cancel_cb(void* user_data);
+    static void action_menu_button_cb(lv_event_t* e);
+    static void action_menu_key_cb(lv_event_t* e);
+    static void delete_confirm_cb(lv_event_t* e);
+    static void delete_cancel_cb(lv_event_t* e);
+    static void modal_bg_key_cb(lv_event_t* e);
     static void async_action_cb(void* user_data);
     static void on_root_deleted(lv_event_t* e);
     static void handle_back(void* user_data);
 
     void handle_root_deleted();
+    void openActionMenu(const chat::ConversationId& conv);
+    void openDeleteConfirm(const chat::ConversationId& conv);
+    void closeActionMenu();
+    void closeDeleteConfirm();
+    void closeModal(lv_obj_t*& modal);
+    void prepareModalGroup();
+    void restoreModalGroup();
+    bool isModalOpen() const;
     void schedule_action_async(ActionIntent intent, const chat::ConversationId& conv);
     lv_timer_t* add_timer(lv_timer_cb_t cb, uint32_t period_ms, void* user_data, TimerDomain domain);
     void clear_timers(TimerDomain domain);

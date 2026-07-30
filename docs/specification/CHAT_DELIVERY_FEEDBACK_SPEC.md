@@ -65,7 +65,9 @@ created or queued an outgoing message. It does not mean final delivery success.
 ### Delivery Result Event
 
 `ChatSendResultEvent` is the current compatibility event for final send
-outcome.
+outcome. New active protocol paths must publish protocol-aware delivery facts
+with failure kind before they reach the feedback controller; they must not add
+another `msg_id + bool` result path.
 
 Semantics:
 
@@ -75,9 +77,10 @@ Semantics:
 - The event must be processed after or together with the corresponding
   `ChatService::handleSendResult(...)` state update.
 
-Future protocol runtimes may publish richer delivery events, but they must
-preserve the same boundary: final user feedback is produced from runtime
-delivery facts, not from page polling.
+Protocol runtimes may publish richer delivery events, but they must preserve
+the same boundary: final user feedback is produced from runtime delivery facts,
+not from page polling. Message identity and deduplication rules follow
+`RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md`.
 
 ### ChatDeliveryFeedbackController
 

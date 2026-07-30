@@ -9,6 +9,7 @@
 #include "platform/ui/time_runtime.h"
 #include "sys/clock.h"
 #include "ui/app_runtime.h"
+#include "ui/components/screen_saver_overlay.h"
 #include "ui/localization.h"
 #include "ui/menu/menu_layout.h"
 #include "ui/menu/menu_runtime.h"
@@ -21,17 +22,16 @@
 
 namespace ui::startup_shell
 {
+
+bool format_menu_time(char* out, size_t out_len);
+
 namespace
 {
 
 ui::menu::MenuModel s_ux_menu_model;
 
 #ifndef TRAIL_MATE_BOOT_UI_SYNC_PRESENT
-#if defined(ARDUINO)
-#define TRAIL_MATE_BOOT_UI_SYNC_PRESENT 0
-#else
 #define TRAIL_MATE_BOOT_UI_SYNC_PRESENT 1
-#endif
 #endif
 
 #if TRAIL_MATE_BOOT_UI_SYNC_PRESENT
@@ -68,6 +68,8 @@ bool resolve_display_time(struct tm* out_tm)
     return true;
 }
 
+bool s_boot_presentation_completed = false;
+
 void present_boot_overlay_now()
 {
 #if TRAIL_MATE_BOOT_UI_SYNC_PRESENT
@@ -84,12 +86,27 @@ void present_boot_overlay_now()
             sys::sleep_ms(kBootPresentFrameDelayMs);
         }
     }
+    s_boot_presentation_completed = true;
 #else
     if (lv_obj_t* top = lv_layer_top())
     {
         lv_obj_invalidate(top);
     }
+    s_boot_presentation_completed = false;
 #endif
+}
+
+void present_screen_saver_now()
+{
+    ui::components::screen_saver_overlay::present_now();
+}
+
+void initScreenSaverOverlay()
+{
+    ui::components::screen_saver_overlay::Hooks overlay_hooks{};
+    overlay_hooks.format_time = format_menu_time;
+    overlay_hooks.read_unread_count = ui::status::get_total_unread;
+    ui::components::screen_saver_overlay::init(overlay_hooks);
 }
 
 } // namespace
@@ -165,7 +182,10 @@ platform::ui::screen::Hooks buildScreenSleepHooks(const Hooks& hooks)
     runtime_hooks.format_time = format_menu_time;
     runtime_hooks.read_unread_count = ui::status::get_total_unread;
     runtime_hooks.show_main_menu = hooks.show_main_menu;
-    runtime_hooks.on_wake_from_sleep = ui::menu_runtime::onWakeFromSleep;
+    runtime_hooks.on_wake_from_sleep = ui::components::screen_saver_overlay::show;
+    runtime_hooks.show_screen_saver = ui::components::screen_saver_overlay::show;
+    runtime_hooks.hide_screen_saver = ui::components::screen_saver_overlay::hide;
+    runtime_hooks.present_screen_saver = present_screen_saver_now;
     return runtime_hooks;
 }
 
@@ -213,6 +233,7 @@ void initializeShell(const Hooks& hooks)
 
     ui::menu_runtime::init(
         lv_screen_active(), main_screen, ui::menu_layout::menuPanel(), buildMenuRuntimeHooks(hooks));
+    initScreenSaverOverlay();
 
     if (hooks.set_max_brightness)
     {
@@ -225,11 +246,20 @@ void initializeShell(const Hooks& hooks)
 
 void finalizeStartup(bool waking_from_sleep)
 {
+    if (!waking_from_sleep && !s_boot_presentation_completed)
+    {
+        std::printf("[BOOT][UI] first_frame_retry reason=no_display_transaction\n");
+        std::fflush(stdout);
+        present_boot_overlay_now();
+    }
     std::printf("[BOOT][UI] ready waking=%d\n", waking_from_sleep ? 1 : 0);
+    std::fflush(stdout);
+    std::printf("[BOOT][UI] presentation_completed=%d\n",
+                s_boot_presentation_completed ? 1 : 0);
     std::fflush(stdout);
     if (waking_from_sleep)
     {
-        platform::ui::screen::update_user_activity();
+        platform::ui::screen::record_activity();
     }
 
     ui::boot::mark_ready();

@@ -7,8 +7,8 @@ namespace trailmate::uconsole::gtk
 GtkWidget* launchDataLayout(GtkUConsoleAppState& state)
 {
     return buildDetailsWorkspace(
-        "Data",
-        "Local SQLite state, message/contact counts, and map cache.",
+        "Data & offline maps",
+        "Local SQLite state, automatic map downloads, cache health, and offline storage.",
         &state.data_page_box);
 }
 

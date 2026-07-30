@@ -15,6 +15,32 @@
 namespace chat::lxmf
 {
 
+constexpr uint32_t kFieldTelemetry = 0x02;
+constexpr uint32_t kFieldTelemetryStream = 0x03;
+constexpr uint32_t kFieldCommands = 0x09;
+
+struct DecodedField
+{
+    uint32_t key = 0;
+    std::vector<uint8_t> encoded_value;
+};
+
+struct ByteSpan
+{
+    const uint8_t* data = nullptr;
+    size_t size = 0;
+};
+
+struct ByteSpanList
+{
+    const ByteSpan* items = nullptr;
+    size_t size = 0;
+};
+
+using BinItemCallback = bool (*)(const uint8_t* data,
+                                 size_t len,
+                                 void* context);
+
 struct DecodedEnvelope
 {
     uint8_t destination_hash[reticulum::kTruncatedHashSize] = {};
@@ -31,6 +57,7 @@ struct DecodedTextPayload
     bool has_stamp = false;
     std::vector<uint8_t> stamp;
     bool fields_empty = true;
+    std::vector<DecodedField> fields;
 };
 
 struct DecodedMessage : public DecodedEnvelope
@@ -41,6 +68,24 @@ struct DecodedMessage : public DecodedEnvelope
     bool has_stamp = false;
     std::vector<uint8_t> stamp;
     bool fields_empty = true;
+    std::vector<DecodedField> fields;
+};
+
+struct SidebandTelemetryLocation
+{
+    bool valid = false;
+    int32_t latitude_e6 = 0;
+    int32_t longitude_e6 = 0;
+    int32_t altitude_cm = 0;
+    uint32_t accuracy_cm = 0;
+    uint32_t timestamp = 0;
+};
+
+struct SidebandTelemetryRequest
+{
+    bool valid = false;
+    uint32_t timebase = 0;
+    bool collector_request = false;
 };
 
 struct DecodedAppData
@@ -95,11 +140,25 @@ struct DecodedPropagationBatch
     std::vector<std::vector<uint8_t>> messages;
 };
 
+struct DecodedPropagationOfferHeader
+{
+    bool peering_key_is_nil = true;
+    ByteSpan peering_key;
+};
+
 struct DecodedPropagationOffer
 {
     bool peering_key_is_nil = true;
     std::vector<uint8_t> peering_key;
     std::vector<std::vector<uint8_t>> transient_ids;
+};
+
+struct DecodedPropagationGetRequestHeader
+{
+    bool wants_is_nil = true;
+    bool haves_is_nil = true;
+    bool has_transfer_limit = false;
+    uint32_t transfer_limit_kb = 0;
 };
 
 struct DecodedPropagationGetRequest
@@ -110,6 +169,20 @@ struct DecodedPropagationGetRequest
     std::vector<std::vector<uint8_t>> haves;
     bool has_transfer_limit = false;
     uint32_t transfer_limit_kb = 0;
+};
+
+struct DecodedPropagationAnnounce
+{
+    bool valid = false;
+    bool legacy_support = false;
+    uint32_t timebase_s = 0;
+    bool node_active = false;
+    uint32_t transfer_limit_kb = 0;
+    uint32_t sync_limit_kb = 0;
+    uint8_t stamp_cost = 0;
+    uint8_t stamp_cost_flexibility = 0;
+    uint8_t peering_cost = 0;
+    std::string display_name;
 };
 
 bool packPeerAnnounceAppData(const char* display_name,
@@ -198,21 +271,92 @@ bool encodePropagationBatch(double remote_timebase,
                             const std::vector<std::vector<uint8_t>>& messages,
                             uint8_t* out_payload,
                             size_t* inout_len);
+bool encodePropagationBatch(double remote_timebase,
+                            const std::vector<ByteSpan>& messages,
+                            uint8_t* out_payload,
+                            size_t* inout_len);
+bool encodePropagationBatch(double remote_timebase,
+                            ByteSpanList messages,
+                            uint8_t* out_payload,
+                            size_t* inout_len);
 
 bool decodePropagationBatch(const uint8_t* data, size_t len,
                             DecodedPropagationBatch* out_batch);
+bool decodePropagationBatch(const uint8_t* data,
+                            size_t len,
+                            BinItemCallback on_message,
+                            void* callback_context,
+                            double* out_remote_timebase);
 
 bool decodePropagationOfferPayload(const uint8_t* data, size_t len,
                                    DecodedPropagationOffer* out_offer);
+bool decodePropagationOfferPayload(const uint8_t* data,
+                                   size_t len,
+                                   BinItemCallback on_transient_id,
+                                   void* callback_context,
+                                   DecodedPropagationOfferHeader* out_offer);
 
 bool decodePropagationGetRequestPayload(const uint8_t* data, size_t len,
                                         DecodedPropagationGetRequest* out_request);
+bool decodePropagationGetRequestPayload(
+    const uint8_t* data,
+    size_t len,
+    BinItemCallback on_want,
+    void* want_context,
+    BinItemCallback on_have,
+    void* have_context,
+    DecodedPropagationGetRequestHeader* out_request);
+
+bool encodePropagationGetRequestPayload(
+    const std::vector<std::vector<uint8_t>>* wants,
+    const std::vector<std::vector<uint8_t>>* haves,
+    bool include_transfer_limit,
+    uint32_t transfer_limit_kb,
+    uint8_t* out_payload,
+    size_t* inout_len);
+bool encodePropagationGetRequestPayloadSpans(const ByteSpanList* wants,
+                                             const ByteSpanList* haves,
+                                             bool include_transfer_limit,
+                                             uint32_t transfer_limit_kb,
+                                             uint8_t* out_payload,
+                                             size_t* inout_len);
+
+bool decodePropagationIdListPayload(const uint8_t* data,
+                                    size_t len,
+                                    std::vector<std::vector<uint8_t>>* out_ids);
+bool decodePropagationIdListPayload(const uint8_t* data,
+                                    size_t len,
+                                    BinItemCallback on_item,
+                                    void* callback_context);
+
+bool decodePropagationMessageListPayload(
+    const uint8_t* data,
+    size_t len,
+    std::vector<std::vector<uint8_t>>* out_messages);
+bool decodePropagationMessageListPayload(const uint8_t* data,
+                                         size_t len,
+                                         BinItemCallback on_message,
+                                         void* callback_context);
+
+bool decodePropagationAnnounceAppData(
+    const uint8_t* data,
+    size_t len,
+    DecodedPropagationAnnounce* out_announce);
 
 bool encodePropagationIdListPayload(const std::vector<std::vector<uint8_t>>& ids,
                                     uint8_t* out_payload,
                                     size_t* inout_len);
+bool encodePropagationIdListPayload(ByteSpanList ids,
+                                    uint8_t* out_payload,
+                                    size_t* inout_len);
 
 bool encodePropagationMessageListPayload(const std::vector<std::vector<uint8_t>>& messages,
+                                         uint8_t* out_payload,
+                                         size_t* inout_len);
+bool encodePropagationMessageListPayload(const std::vector<ByteSpan>& messages,
+                                         uint8_t* out_payload,
+                                         size_t* inout_len);
+bool encodePropagationMessageListPayload(ByteSpanList messages,
                                          uint8_t* out_payload,
                                          size_t* inout_len);
 
@@ -240,6 +384,16 @@ bool packMessage(const uint8_t destination_hash[reticulum::kTruncatedHashSize],
 
 bool unpackMessageEnvelope(const uint8_t* data, size_t len, DecodedEnvelope* out_envelope);
 bool unpackTextPayload(const uint8_t* data, size_t len, DecodedTextPayload* out_payload);
+bool encodeSidebandTelemetryLocationPayload(
+    double message_timestamp,
+    const SidebandTelemetryLocation& location,
+    uint8_t* out_payload,
+    size_t* inout_len);
+const DecodedField* findField(const DecodedTextPayload& payload, uint32_t key);
+bool decodeSidebandTelemetryLocation(const DecodedTextPayload& payload,
+                                     SidebandTelemetryLocation* out_location);
+bool decodeSidebandTelemetryRequest(const DecodedTextPayload& payload,
+                                    SidebandTelemetryRequest* out_request);
 bool decodeAppDataPayload(const uint8_t* data, size_t len, DecodedAppData* out_payload);
 bool unpackMessage(const uint8_t* data, size_t len, DecodedMessage* out_message);
 

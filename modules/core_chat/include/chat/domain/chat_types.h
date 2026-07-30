@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "chat/domain/reticulum_identity.h"
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -16,8 +17,13 @@ namespace chat
 {
 
 constexpr std::size_t kMeshCoreChannelKeyLen = 16;
+constexpr std::size_t kPrimarySecondaryChannelMaxCount = 2;
+constexpr std::size_t kMeshCoreChannelMaxCount = 8;
+constexpr std::size_t kMeshCoreChannelNameMaxLen = 32;
 constexpr std::size_t kMeshtasticChannelKeyDefaultLen = 16;
 constexpr std::size_t kMeshtasticChannelKeyMaxLen = 32;
+constexpr std::size_t kReticulumGroupNameMaxLen = 32;
+constexpr std::size_t kReticulumGroupDestinationMaxCount = 4;
 
 inline bool isAllZeroKeyBytes(const uint8_t* key, std::size_t len)
 {
@@ -76,7 +82,33 @@ enum class ChannelId : uint8_t
 {
     PRIMARY = 0,   // Public channel (default broadcast)
     SECONDARY = 1, // Squad channel (encrypted)
-    MAX_CHANNELS = 3
+    TEAM = 250,    // UI-only team pseudo-channel; never goes on the mesh.
+    MAX_CHANNELS = 255
+};
+
+inline uint8_t normalizeMeshCoreChannelSlot(uint8_t slot)
+{
+    return (slot < kMeshCoreChannelMaxCount) ? slot : 0;
+}
+
+inline ChannelId meshCoreChannelIdFromSlot(uint8_t slot)
+{
+    return static_cast<ChannelId>(normalizeMeshCoreChannelSlot(slot));
+}
+
+inline uint8_t meshCoreChannelSlotFromId(ChannelId channel)
+{
+    const uint8_t slot = static_cast<uint8_t>(channel);
+    return normalizeMeshCoreChannelSlot(slot);
+}
+
+struct MeshCoreChannelConfig
+{
+    bool enabled;
+    char name[kMeshCoreChannelNameMaxLen];
+    uint8_t key[kMeshCoreChannelKeyLen];
+
+    MeshCoreChannelConfig() : enabled(false), name{}, key{} {}
 };
 
 /**
@@ -96,8 +128,15 @@ enum class MeshProtocol : uint8_t
 {
     Meshtastic = 1,
     MeshCore = 2,
+    // Legacy value 3 now normalizes to the Reticulum runtime. It is retained
+    // only so old settings do not fail to load while RNode is removed from the
+    // user-facing protocol selector.
     RNode = 3,
-    LXMF = 4
+    // Legacy raw value 4 from the earlier LXMF-named runtime.
+    LXMF = 4,
+    // Product and runtime protocol name. It intentionally keeps raw value 4 so
+    // existing persisted LXMF settings load as Reticulum.
+    Reticulum = LXMF
 };
 
 /**
@@ -159,6 +198,7 @@ struct MeshSendResult
     MessageId msg_id = 0;
     MeshOperationFailure failure = MeshOperationFailure::None;
     int detail = 0;
+    ReticulumPeerIdentity reticulum_identity{};
 
     static MeshSendResult success(MessageId id)
     {
@@ -197,8 +237,10 @@ enum class RxTimeSource : uint8_t
 enum class RxOrigin : uint8_t
 {
     Unknown = 0,
-    Mesh = 1,
-    External = 2
+    Mesh = 1,     // Legacy LoRa/radio-origin value.
+    External = 2, // Legacy internet/MQTT-origin value.
+    LoRa = 3,
+    WiFi = 4
 };
 
 /**
@@ -257,6 +299,7 @@ struct ConversationId
     MeshProtocol protocol;
     ChannelId channel;
     NodeId peer; // 0 for broadcast/channel thread
+    ReticulumPeerIdentity reticulum_identity{};
 
     ConversationId(ChannelId ch = ChannelId::PRIMARY,
                    NodeId p = 0,
@@ -273,13 +316,46 @@ struct ConversationId
         {
             return static_cast<uint8_t>(channel) < static_cast<uint8_t>(other.channel);
         }
-        return peer < other.peer;
+        const bool lhs_reticulum = protocol == MeshProtocol::Reticulum &&
+                                   hasReticulumDestinationIdentity(reticulum_identity);
+        const bool rhs_reticulum = other.protocol == MeshProtocol::Reticulum &&
+                                   hasReticulumDestinationIdentity(other.reticulum_identity);
+        if (lhs_reticulum && rhs_reticulum)
+        {
+            return compareReticulumDestinationHash(reticulum_identity,
+                                                   other.reticulum_identity) < 0;
+        }
+        if (peer != other.peer)
+        {
+            return peer < other.peer;
+        }
+        if (lhs_reticulum != rhs_reticulum)
+        {
+            return !lhs_reticulum && rhs_reticulum;
+        }
+        return false;
     }
     bool operator==(const ConversationId& other) const
     {
-        return protocol == other.protocol &&
-               channel == other.channel &&
-               peer == other.peer;
+        if (protocol != other.protocol || channel != other.channel)
+        {
+            return false;
+        }
+
+        const bool lhs_reticulum = protocol == MeshProtocol::Reticulum &&
+                                   hasReticulumDestinationIdentity(reticulum_identity);
+        const bool rhs_reticulum = other.protocol == MeshProtocol::Reticulum &&
+                                   hasReticulumDestinationIdentity(other.reticulum_identity);
+        if (lhs_reticulum && rhs_reticulum)
+        {
+            return sameReticulumDestinationHash(reticulum_identity,
+                                                other.reticulum_identity);
+        }
+        if (lhs_reticulum != rhs_reticulum)
+        {
+            return false;
+        }
+        return peer == other.peer;
     }
 };
 
@@ -291,7 +367,8 @@ enum class MessageStatus
     Incoming, // Received message
     Queued,   // Queued for sending
     Sent,     // Successfully sent
-    Failed    // Failed to send
+    Failed,   // Failed to send
+    Delivered // Confirmed by a remote receipt or proof
 };
 
 /**
@@ -310,6 +387,11 @@ struct ChatMessage
     bool has_geo;
     int32_t geo_lat_e7;
     int32_t geo_lon_e7;
+    ReticulumPeerIdentity reticulum_identity{};
+    bool has_reticulum_lxmf_hash;
+    uint8_t reticulum_lxmf_hash[kReticulumLxmfHashSize] = {};
+    bool source_unverified;
+    RxOrigin rx_origin;
     MessageStatus status;
 
     ChatMessage() : protocol(MeshProtocol::Meshtastic),
@@ -319,8 +401,30 @@ struct ChatMessage
                     has_geo(false),
                     geo_lat_e7(0),
                     geo_lon_e7(0),
+                    has_reticulum_lxmf_hash(false),
+                    source_unverified(false),
+                    rx_origin(RxOrigin::Unknown),
                     status(MessageStatus::Incoming) {}
 };
+
+inline bool hasReticulumLxmfMessageHash(const ChatMessage& msg)
+{
+    return msg.protocol == MeshProtocol::Reticulum &&
+           msg.has_reticulum_lxmf_hash &&
+           !isAllZeroKeyBytes(msg.reticulum_lxmf_hash,
+                              kReticulumLxmfHashSize);
+}
+
+inline ConversationId conversationIdForMessage(const ChatMessage& msg)
+{
+    ConversationId id(msg.channel, msg.peer, msg.protocol);
+    if (msg.protocol == MeshProtocol::Reticulum &&
+        hasReticulumDestinationIdentity(msg.reticulum_identity))
+    {
+        id.reticulum_identity = msg.reticulum_identity;
+    }
+    return id;
+}
 
 /**
  * @brief Conversation metadata for UI
@@ -332,6 +436,7 @@ struct ConversationMeta
     std::string preview;
     uint32_t last_timestamp;
     int unread;
+    ReticulumPeerIdentity reticulum_identity{};
 
     ConversationMeta() : id(), last_timestamp(0), unread(0) {}
 };
@@ -349,8 +454,19 @@ struct MeshIncomingText
     std::string text;
     uint8_t hop_limit; // Remaining hops
     bool encrypted;    // Whether message was encrypted
+    ReticulumPeerIdentity reticulum_identity{};
+    bool has_reticulum_lxmf_hash = false;
+    uint8_t reticulum_lxmf_hash[kReticulumLxmfHashSize] = {};
+    bool source_unverified = false;
     RxMeta rx_meta;
 };
+
+inline bool hasReticulumLxmfMessageHash(const MeshIncomingText& msg)
+{
+    return msg.has_reticulum_lxmf_hash &&
+           !isAllZeroKeyBytes(msg.reticulum_lxmf_hash,
+                              kReticulumLxmfHashSize);
+}
 
 /**
  * @brief Incoming non-text mesh payload
@@ -389,6 +505,32 @@ enum class MeshCoreForwardProfile : uint8_t
 {
     Any = 0,
     MultibyteOnly = 1,
+};
+
+struct ReticulumGroupDestinationConfig
+{
+    bool enabled = false;
+    char name[kReticulumGroupNameMaxLen] = {};
+    ReticulumPeerIdentity identity{};
+};
+
+constexpr std::size_t kReticulumGatewayHostMaxLen = 63;
+constexpr std::size_t kMeshCoreMqttHostMaxLen = 63;
+constexpr std::size_t kMeshCoreMqttRootMaxLen = 63;
+constexpr std::size_t kMeshCoreMqttUsernameMaxLen = 63;
+constexpr std::size_t kMeshCoreMqttPasswordMaxLen = 63;
+
+enum class ReticulumInterfacePolicy : uint8_t
+{
+    All = 0,
+    LoRaOnly = 1,
+    WifiGatewayOnly = 2,
+};
+
+enum class ReticulumCallWireProfile : uint8_t
+{
+    SidebandLxst = 0,
+    MeshChatCallAudio = 1,
 };
 
 struct MeshConfig
@@ -435,7 +577,28 @@ struct MeshConfig
     MeshCorePayloadSendProfile meshcore_send_profile;
     MeshCoreForwardProfile meshcore_forward_profile;
     uint8_t meshcore_channel_slot;
-    char meshcore_channel_name[32];
+    MeshCoreChannelConfig meshcore_channels[kMeshCoreChannelMaxCount];
+    char meshcore_channel_name[32]; // Legacy mirror of the active MeshCore channel name.
+    bool meshcore_mqtt_enabled;
+    bool meshcore_mqtt_uplink_enabled;
+    bool meshcore_mqtt_downlink_enabled;
+    char meshcore_mqtt_host[kMeshCoreMqttHostMaxLen + 1];
+    uint16_t meshcore_mqtt_port;
+    char meshcore_mqtt_root[kMeshCoreMqttRootMaxLen + 1];
+    char meshcore_mqtt_username[kMeshCoreMqttUsernameMaxLen + 1];
+    char meshcore_mqtt_password[kMeshCoreMqttPasswordMaxLen + 1];
+
+    // Reticulum bearer strategy. The user-facing protocol remains Reticulum;
+    // legacy booleans are the persisted projection of reticulum_interface_policy.
+    bool reticulum_lora_enabled;
+    bool reticulum_wifi_gateway_enabled;
+    bool reticulum_wifi_auto_connect;
+    bool reticulum_anonymous_peer;
+    char reticulum_wifi_gateway_host[kReticulumGatewayHostMaxLen + 1];
+    uint16_t reticulum_wifi_gateway_port;
+    ReticulumInterfacePolicy reticulum_interface_policy;
+    bool reticulum_allow_location_requests;
+    ReticulumGroupDestinationConfig reticulum_groups[kReticulumGroupDestinationMaxCount];
 
     MeshConfig()
         : region(0),
@@ -470,7 +633,18 @@ struct MeshConfig
           meshcore_multi_acks(false),
           meshcore_send_profile(MeshCorePayloadSendProfile::AutoPreferV2),
           meshcore_forward_profile(MeshCoreForwardProfile::MultibyteOnly),
-          meshcore_channel_slot(0)
+          meshcore_channel_slot(0),
+          meshcore_mqtt_enabled(false),
+          meshcore_mqtt_uplink_enabled(true),
+          meshcore_mqtt_downlink_enabled(true),
+          meshcore_mqtt_port(1883),
+          reticulum_lora_enabled(true),
+          reticulum_wifi_gateway_enabled(true),
+          reticulum_wifi_auto_connect(true),
+          reticulum_anonymous_peer(false),
+          reticulum_wifi_gateway_port(4242),
+          reticulum_interface_policy(ReticulumInterfacePolicy::All),
+          reticulum_allow_location_requests(false)
     {
         strncpy(primary_channel_name, "LongFast", sizeof(primary_channel_name) - 1);
         primary_channel_name[sizeof(primary_channel_name) - 1] = '\0';
@@ -478,7 +652,81 @@ struct MeshConfig
         secondary_channel_name[sizeof(secondary_channel_name) - 1] = '\0';
         memset(primary_key, 0, sizeof(primary_key));
         memset(secondary_key, 0, sizeof(secondary_key));
-        meshcore_channel_name[0] = '\0';
+        resetMeshCoreChannels();
+        meshcore_mqtt_host[0] = '\0';
+        strncpy(meshcore_mqtt_root, "meshcore", sizeof(meshcore_mqtt_root) - 1);
+        meshcore_mqtt_root[sizeof(meshcore_mqtt_root) - 1] = '\0';
+        meshcore_mqtt_username[0] = '\0';
+        meshcore_mqtt_password[0] = '\0';
+        reticulum_wifi_gateway_host[0] = '\0';
+    }
+
+    MeshCoreChannelConfig& meshCoreChannel(uint8_t slot)
+    {
+        return meshcore_channels[normalizeMeshCoreChannelSlot(slot)];
+    }
+
+    const MeshCoreChannelConfig& meshCoreChannel(uint8_t slot) const
+    {
+        return meshcore_channels[normalizeMeshCoreChannelSlot(slot)];
+    }
+
+    MeshCoreChannelConfig& activeMeshCoreChannel()
+    {
+        return meshCoreChannel(meshcore_channel_slot);
+    }
+
+    const MeshCoreChannelConfig& activeMeshCoreChannel() const
+    {
+        return meshCoreChannel(meshcore_channel_slot);
+    }
+
+    void syncMeshCoreLegacyChannelMirror()
+    {
+        meshcore_channel_slot = normalizeMeshCoreChannelSlot(meshcore_channel_slot);
+        const MeshCoreChannelConfig& active = activeMeshCoreChannel();
+        std::memcpy(meshcore_channel_name, active.name, sizeof(meshcore_channel_name));
+        meshcore_channel_name[sizeof(meshcore_channel_name) - 1] = '\0';
+        std::memset(secondary_key, 0, sizeof(secondary_key));
+        std::memcpy(secondary_key, active.key, kMeshCoreChannelKeyLen);
+    }
+
+    void importMeshCoreLegacyChannelMirror()
+    {
+        meshcore_channel_slot = normalizeMeshCoreChannelSlot(meshcore_channel_slot);
+        MeshCoreChannelConfig& active = activeMeshCoreChannel();
+        if (meshcore_channel_name[0] != '\0')
+        {
+            std::memcpy(active.name, meshcore_channel_name, sizeof(active.name));
+            active.name[sizeof(active.name) - 1] = '\0';
+        }
+        if (!isAllZeroKeyBytes(secondary_key, kMeshCoreChannelKeyLen))
+        {
+            std::memcpy(active.key, secondary_key, kMeshCoreChannelKeyLen);
+        }
+        if (meshcore_channel_slot == 0)
+        {
+            active.enabled = true;
+        }
+        else if (active.name[0] != '\0' ||
+                 !isAllZeroKeyBytes(active.key, kMeshCoreChannelKeyLen))
+        {
+            active.enabled = true;
+        }
+        syncMeshCoreLegacyChannelMirror();
+    }
+
+    void resetMeshCoreChannels()
+    {
+        meshcore_channel_slot = 0;
+        for (std::size_t index = 0; index < kMeshCoreChannelMaxCount; ++index)
+        {
+            meshcore_channels[index] = MeshCoreChannelConfig();
+        }
+        meshcore_channels[0].enabled = true;
+        std::strncpy(meshcore_channels[0].name, "Public", sizeof(meshcore_channels[0].name) - 1);
+        meshcore_channels[0].name[sizeof(meshcore_channels[0].name) - 1] = '\0';
+        syncMeshCoreLegacyChannelMirror();
     }
 };
 

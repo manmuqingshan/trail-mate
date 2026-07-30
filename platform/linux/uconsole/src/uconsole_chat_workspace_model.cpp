@@ -12,6 +12,7 @@
 
 #include "app/linux_app_services.h"
 #include "chat/domain/contact_types.h"
+#include "chat/infra/mesh_protocol_utils.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/runtime/mesh_adapter_protocol_effect_executor.h"
 #include "chat/runtime/meshtastic_runtime.h"
@@ -28,18 +29,7 @@ namespace
 
 [[nodiscard]] const char* protocolLabel(::chat::MeshProtocol protocol) noexcept
 {
-    switch (protocol)
-    {
-    case ::chat::MeshProtocol::Meshtastic:
-        return "Meshtastic";
-    case ::chat::MeshProtocol::MeshCore:
-        return "MeshCore";
-    case ::chat::MeshProtocol::RNode:
-        return "RNode";
-    case ::chat::MeshProtocol::LXMF:
-        return "LXMF";
-    }
-    return "Unknown";
+    return ::chat::infra::meshProtocolName(protocol);
 }
 
 [[nodiscard]] const char* statusLabel(::chat::MessageStatus status) noexcept
@@ -54,6 +44,8 @@ namespace
         return "sent";
     case ::chat::MessageStatus::Failed:
         return "failed";
+    case ::chat::MessageStatus::Delivered:
+        return "delivered";
     }
     return "unknown";
 }
@@ -79,7 +71,7 @@ namespace
     {
         return {};
     }
-    if (const auto* node = contacts.getNodeInfo(node_id))
+    if (const auto* node = contacts.getPeerByNodeId(node_id))
     {
         if (!node->display_name.empty())
         {
@@ -214,44 +206,18 @@ namespace
 [[nodiscard]] const char* contactProtocolLabel(
     ::chat::contacts::NodeProtocolType protocol) noexcept
 {
-    switch (protocol)
-    {
-    case ::chat::contacts::NodeProtocolType::Meshtastic:
-        return "Meshtastic";
-    case ::chat::contacts::NodeProtocolType::MeshCore:
-        return "MeshCore";
-    case ::chat::contacts::NodeProtocolType::RNode:
-        return "RNode";
-    case ::chat::contacts::NodeProtocolType::LXMF:
-        return "LXMF";
-    case ::chat::contacts::NodeProtocolType::Unknown:
-    default:
-        return "Unknown";
-    }
+    return ::chat::infra::nodeProtocolName(protocol);
 }
 
 [[nodiscard]] ::chat::MeshProtocol meshProtocolForNode(
     ::chat::contacts::NodeProtocolType protocol,
     ::chat::MeshProtocol fallback) noexcept
 {
-    switch (protocol)
-    {
-    case ::chat::contacts::NodeProtocolType::Meshtastic:
-        return ::chat::MeshProtocol::Meshtastic;
-    case ::chat::contacts::NodeProtocolType::MeshCore:
-        return ::chat::MeshProtocol::MeshCore;
-    case ::chat::contacts::NodeProtocolType::RNode:
-        return ::chat::MeshProtocol::RNode;
-    case ::chat::contacts::NodeProtocolType::LXMF:
-        return ::chat::MeshProtocol::LXMF;
-    case ::chat::contacts::NodeProtocolType::Unknown:
-    default:
-        return fallback;
-    }
+    return ::chat::infra::meshProtocolFromNodeProtocol(protocol, fallback);
 }
 
 [[nodiscard]] ::chat::ChannelId channelForNode(
-    const ::chat::contacts::NodeInfo& node) noexcept
+    const ::chat::contacts::PeerDirectoryItem& node) noexcept
 {
     return node.channel == 1U ? ::chat::ChannelId::SECONDARY
                               : ::chat::ChannelId::PRIMARY;
@@ -391,7 +357,7 @@ void appendDetailSection(ChatNodeDetailSnapshot& out,
 }
 
 [[nodiscard]] ChatNodeInfoItem makeNodeInfoItem(
-    const ::chat::contacts::NodeInfo& node)
+    const ::chat::contacts::PeerDirectoryItem& node)
 {
     ChatNodeInfoItem item{};
     item.node_id = node.node_id;
@@ -521,7 +487,7 @@ void appendDetailSection(ChatNodeDetailSnapshot& out,
     {
         meta += " / ";
         meta += formatNodeLabel(conversation.id.peer);
-        if (const auto* node = contacts.getNodeInfo(conversation.id.peer))
+        if (const auto* node = contacts.getPeerByNodeId(conversation.id.peer))
         {
             meta += node->via_mqtt ? " / MQTT" : " / LoRa";
         }
@@ -538,7 +504,7 @@ void appendDetailSection(ChatNodeDetailSnapshot& out,
     return meta;
 }
 
-[[nodiscard]] const ::chat::contacts::NodeInfo* nodeForConversation(
+[[nodiscard]] const ::chat::contacts::PeerDirectoryItem* nodeForConversation(
     const ::chat::ConversationId& id,
     const ::chat::contacts::ContactService& contacts)
 {
@@ -546,12 +512,12 @@ void appendDetailSection(ChatNodeDetailSnapshot& out,
     {
         return nullptr;
     }
-    return contacts.getNodeInfo(id.peer);
+    return contacts.getPeerByNodeId(id.peer);
 }
 
 [[nodiscard]] std::string groupForConversation(
     const ::chat::ConversationMeta& conversation,
-    const ::chat::contacts::NodeInfo* node)
+    const ::chat::contacts::PeerDirectoryItem* node)
 {
     if (conversation.id.peer == 0)
     {
@@ -571,7 +537,7 @@ void appendDetailSection(ChatNodeDetailSnapshot& out,
 
 [[nodiscard]] std::string factsForConversation(
     const ::chat::ConversationMeta& conversation,
-    const ::chat::contacts::NodeInfo* node,
+    const ::chat::contacts::PeerDirectoryItem* node,
     bool has_local_gps,
     double local_lat,
     double local_lon)
@@ -769,6 +735,22 @@ void sortConversations(std::vector<::chat::ConversationMeta>& conversations,
     return out;
 }
 
+[[nodiscard]] const char* ingressTransportLabel(::chat::RxOrigin origin)
+{
+    switch (origin)
+    {
+    case ::chat::RxOrigin::Mesh:
+    case ::chat::RxOrigin::LoRa:
+        return "LoRa";
+    case ::chat::RxOrigin::External:
+    case ::chat::RxOrigin::WiFi:
+        return "Wi-Fi";
+    case ::chat::RxOrigin::Unknown:
+        break;
+    }
+    return nullptr;
+}
+
 [[nodiscard]] ChatMessageItem makeMessageItem(
     const ::chat::ChatMessage& message,
     ::chat::NodeId self_node,
@@ -783,6 +765,13 @@ void sortConversations(std::vector<::chat::ConversationMeta>& conversations,
     item.meta = statusLabel(message.status);
     item.meta += " / ";
     item.meta += formatAge(message.timestamp);
+    const char* ingress_label =
+        !item.outgoing ? ingressTransportLabel(message.rx_origin) : nullptr;
+    if (ingress_label && ingress_label[0] != '\0')
+    {
+        item.meta += " / ";
+        item.meta += ingress_label;
+    }
     if (message.msg_id != 0)
     {
         char buffer[32] = {};
@@ -824,7 +813,7 @@ void sortConversations(std::vector<::chat::ConversationMeta>& conversations,
 
 void appendNodeConversationIfMissing(
     std::vector<::chat::ConversationMeta>& conversations,
-    const ::chat::contacts::NodeInfo& node,
+    const ::chat::contacts::PeerDirectoryItem& node,
     ::chat::MeshProtocol fallback_protocol)
 {
     if (node.node_id == 0 ||
@@ -973,7 +962,7 @@ ChatWorkspaceSnapshot UConsoleChatWorkspaceModel::snapshot(
                         });
         if (!already_listed && out.nodes.size() < 5U)
         {
-            if (const auto* node = contacts.getNodeInfo(sender))
+            if (const auto* node = contacts.getPeerByNodeId(sender))
             {
                 out.nodes.push_back(makeNodeInfoItem(*node));
             }
@@ -988,7 +977,7 @@ ChatWorkspaceSnapshot UConsoleChatWorkspaceModel::snapshot(
                          return node.node_id == active_conversation_.peer;
                      }))
     {
-        if (const auto* node = contacts.getNodeInfo(active_conversation_.peer))
+        if (const auto* node = contacts.getPeerByNodeId(active_conversation_.peer))
         {
             out.nodes.insert(out.nodes.begin(), makeNodeInfoItem(*node));
         }
@@ -1010,7 +999,7 @@ ChatNodeDetailSnapshot UConsoleChatWorkspaceModel::nodeDetails(
         return out;
     }
 
-    const auto* node = services_.contacts().getNodeInfo(node_id);
+    const auto* node = services_.contacts().getPeerByNodeId(node_id);
     if (node == nullptr)
     {
         out.subtitle = "No NodeInfo record is stored locally yet.";
@@ -1030,7 +1019,7 @@ ChatNodeDetailSnapshot UConsoleChatWorkspaceModel::nodeDetails(
         out.lon = static_cast<double>(node->position.longitude_i) / 10000000.0;
 
         if (const auto* self_info =
-                services_.contacts().getNodeInfo(services_.selfNodeId());
+                services_.contacts().getPeerByNodeId(services_.selfNodeId());
             self_info != nullptr && self_info->position.valid)
         {
             out.has_self_position = true;
@@ -1262,8 +1251,9 @@ bool UConsoleChatWorkspaceModel::selectConversation(
 {
     active_conversation_ = conversation;
     active_initialized_ = true;
-    services_.chat().markConversationRead(active_conversation_);
-    action_status_ = "Conversation selected.";
+    action_status_ = services_.chat().markConversationRead(active_conversation_)
+                         ? "Conversation selected."
+                         : "Conversation selected. Read state not saved.";
     return true;
 }
 
@@ -1572,7 +1562,7 @@ bool UConsoleChatWorkspaceModel::toggleNodeIgnored(::chat::NodeId node_id)
         action_status_ = "Node is unavailable.";
         return false;
     }
-    const auto* node = services_.contacts().getNodeInfo(node_id);
+    const auto* node = services_.contacts().getPeerByNodeId(node_id);
     if (node == nullptr)
     {
         action_status_ = "Node record is not stored yet.";
@@ -1644,6 +1634,12 @@ bool UConsoleChatWorkspaceModel::canSendActiveConversation() const
     }
 
     const ::chat::MeshCapabilities capabilities = adapter->getCapabilities();
+    if (active_conversation_.protocol == ::chat::MeshProtocol::Reticulum &&
+        active_conversation_.peer == 0 &&
+        ::chat::hasReticulumDestinationIdentity(active_conversation_.reticulum_identity))
+    {
+        return capabilities.supports_reticulum_destination_text;
+    }
     return capabilities.supports_unicast_text;
 }
 

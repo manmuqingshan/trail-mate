@@ -26,6 +26,11 @@ class MeshAdapterRouterCore : public IMeshAdapter
     MeshSendResult sendTextDetailed(ChannelId channel, const std::string& text,
                                     MessageId forced_msg_id = 0,
                                     NodeId peer = 0) override;
+    MeshSendResult sendTextToReticulumDestination(
+        ChannelId channel,
+        const std::string& text,
+        MessageId forced_msg_id,
+        const ReticulumPeerIdentity& destination) override;
     bool pollIncomingText(MeshIncomingText* out) override;
     bool sendAppData(ChannelId channel, uint32_t portnum,
                      const uint8_t* payload, size_t len,
@@ -34,17 +39,27 @@ class MeshAdapterRouterCore : public IMeshAdapter
                      bool want_response = false) override;
     bool pollIncomingData(MeshIncomingData* out) override;
     bool requestNodeInfo(NodeId dest, bool want_response) override;
+    bool broadcastSelfIdentity() override;
     bool startKeyVerification(NodeId dest) override;
     bool submitKeyVerificationNumber(NodeId dest, uint64_t nonce, uint32_t number) override;
     NodeId getNodeId() const override;
     bool isPkiReady() const override;
+    bool getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const override;
     bool hasPkiKey(NodeId dest) const override;
     bool triggerDiscoveryAction(MeshDiscoveryAction action) override;
     MeshActionResult triggerDiscoveryActionDetailed(MeshDiscoveryAction action) override;
+    MeshActionResult startReticulumAudioCall(
+        const ReticulumPeerIdentity& destination) override;
+    MeshActionResult pingReticulumDestination(
+        const ReticulumPeerIdentity& destination) override;
+    MeshActionResult persistReticulumPeer(
+        const ReticulumPeerIdentity& destination,
+        bool favorite) override;
     void applyConfig(const MeshConfig& config) override;
     void setUserInfo(const char* long_name, const char* short_name) override;
     void setNetworkLimits(bool duty_cycle_enabled, uint8_t util_percent) override;
     void setPrivacyConfig(uint8_t encrypt_mode) override;
+    bool setWifiTransportEnabled(bool enabled) override;
     bool isReady() const override;
     bool pollIncomingRawPacket(uint8_t* out_data, size_t& out_len, size_t max_len) override;
     void handleRawPacket(const uint8_t* data, size_t size) override;
@@ -57,6 +72,7 @@ class MeshAdapterRouterCore : public IMeshAdapter
 
     std::unique_ptr<IMeshAdapter> meshtastic_backend_;
     std::unique_ptr<IMeshAdapter> meshcore_backend_;
+    std::unique_ptr<IMeshAdapter> reticulum_backend_;
     MeshProtocol active_protocol_ = MeshProtocol::Meshtastic;
 };
 

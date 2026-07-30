@@ -13,6 +13,18 @@ inline void initializeBoard(bool waking_from_sleep)
     ::boards::tdeck_pro::instance.begin(NO_HW_SD);
 }
 
+// T-LoRa uses the staged display-first contract. Keep the existing T-Deck Pro
+// bootstrap intact until its board class exposes the same split entry points.
+inline void initializeBoardDisplayHardware(bool waking_from_sleep)
+{
+    initializeBoard(waking_from_sleep);
+}
+
+inline void initializeBoardServices(bool waking_from_sleep)
+{
+    (void)waking_from_sleep;
+}
+
 inline void initializeDisplay()
 {
     beginLvglHelper(static_cast<LilyGo_Display&>(::boards::tdeck_pro::instance));

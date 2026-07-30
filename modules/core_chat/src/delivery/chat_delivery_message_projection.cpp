@@ -17,6 +17,8 @@ DeliveryState mapStatus(chat::MessageStatus status)
         return DeliveryState::Sent;
     case chat::MessageStatus::Failed:
         return DeliveryState::Failed;
+    case chat::MessageStatus::Delivered:
+        return DeliveryState::Delivered;
     }
     return DeliveryState::Unknown;
 }
@@ -33,7 +35,11 @@ DeliveryFailureKind mapFailure(chat::MessageStatus status)
 ChatDeliveryRef toDeliveryRef(const chat::ChatMessage& message)
 {
     ChatDeliveryRef ref{};
-    ref.protocol_id = message.msg_id;
+    if (message.msg_id != 0)
+    {
+        ref.protocol_id = message.msg_id;
+        ref.protocol = static_cast<uint8_t>(message.protocol);
+    }
     return ref;
 }
 

@@ -31,14 +31,18 @@ idf_component_register(
     INCLUDE_DIRS
         ${TRAILMATE_ESP_IDF_FINAL_INCLUDE_DIRS}
     REQUIRES
+        app_update
         driver
         esp_app_format
+        esp_codec_dev
         esp_lcd
         esp_lvgl_port
         esp_serial_slave_link
+        esp_tinyusb
         esp_timer
         espcoredump
         fatfs
+        json
         m5stack_tab5
         mbedtls
         nvs_flash
@@ -47,7 +51,13 @@ idf_component_register(
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
-    TRAIL_MATE_LORA_TX_POWER_MAX_DBM=22)
+    TRAIL_MATE_LORA_TX_POWER_MAX_DBM=22
+    SDFAT_FILE_TYPE=3
+    USE_BLOCK_DEVICE_INTERFACE=1
+    ENABLE_ARDUINO_FEATURES=0
+    ENABLE_ARDUINO_SERIAL=0
+    ENABLE_ARDUINO_STRING=0
+    USE_FCNTL_H=1)
 
 if(TRAIL_MATE_IDF_TARGET STREQUAL "tab5")
     target_compile_definitions(${COMPONENT_LIB} PRIVATE TRAIL_MATE_ESP_BOARD_TAB5=1)

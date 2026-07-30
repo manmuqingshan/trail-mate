@@ -7,11 +7,13 @@
 
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
+#include "chat/infra/mesh_protocol_utils.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/ui/gps_runtime.h"
 #include "sys/clock.h"
 #include "ui/app_runtime.h"
 #include "ui/assets/fonts/font_utils.h"
+#include "ui/components/shortcut_help_modal.h"
 #include "ui/localization.h"
 #include "ui/menu/dashboard/dashboard_style.h"
 #include "ui/page/page_profile.h"
@@ -51,12 +53,15 @@ namespace map_viewport = ::ui::widgets::map;
 
 NodeInfoWidgets s_widgets;
 ::ui::widgets::TopBar s_top_bar;
+::ui::components::shortcut_help_modal::State s_help_modal;
+lv_group_t* s_input_group = nullptr;
+InputCallbacks s_input_callbacks{};
 
 struct NodeInfoRuntimeState
 {
     bool has_node = false;
     bool map_ready = false;
-    chat::contacts::NodeInfo node{};
+    chat::contacts::PeerDirectoryItem node{};
     map_viewport::GeoPoint self_point{};
     int zoom = map_viewport::kDefaultZoom;
     int pan_x = 0;
@@ -68,6 +73,95 @@ struct NodeInfoRuntimeState
 };
 
 NodeInfoRuntimeState s_state;
+
+void consume_key_event(lv_event_t* event)
+{
+    if (!event)
+    {
+        return;
+    }
+    lv_event_stop_bubbling(event);
+    lv_event_stop_processing(event);
+}
+
+void toggle_shortcut_help()
+{
+    using namespace ::ui::components::shortcut_help_modal;
+    if (is_open(s_help_modal))
+    {
+        close(s_help_modal);
+        return;
+    }
+    static constexpr Row kRows[] = {
+        {"Rotary", nullptr, "Move focus"},
+        {"Enter", nullptr, "Use focused control"},
+        {"-", nullptr, "Zoom out"},
+        {"+", "=", "Zoom in"},
+        {"L", nullptr, "Change offline map layer"},
+        {"Touch", "Drag", "Pan the map"},
+        {"Back", nullptr, "Return to Contacts"},
+        {"H", nullptr, "Close help"},
+    };
+    Config config{};
+    config.title = "Node Map Help";
+    config.rows = kRows;
+    config.row_count = sizeof(kRows) / sizeof(kRows[0]);
+    config.restore_group = s_input_group;
+    (void)open(s_help_modal, s_widgets.root, config);
+}
+
+void request_back()
+{
+    if (s_input_callbacks.back_requested)
+    {
+        s_input_callbacks.back_requested(s_input_callbacks.user_data);
+    }
+}
+
+void send_control_click(lv_obj_t* control)
+{
+    if (control && lv_obj_is_valid(control) &&
+        !lv_obj_has_state(control, LV_STATE_DISABLED))
+    {
+        lv_obj_send_event(control, LV_EVENT_CLICKED, nullptr);
+    }
+}
+
+void on_node_info_input_key(lv_event_t* event)
+{
+    if (!event || lv_event_get_code(event) != LV_EVENT_KEY)
+    {
+        return;
+    }
+
+    const uint32_t key = lv_event_get_key(event);
+    if (key == 'h' || key == 'H')
+    {
+        toggle_shortcut_help();
+    }
+    else if (key == LV_KEY_ESC || key == LV_KEY_BACKSPACE)
+    {
+        request_back();
+    }
+    else if (key == '-' || key == '_')
+    {
+        send_control_click(s_widgets.zoom_out_btn);
+    }
+    else if (key == '+' || key == '=')
+    {
+        send_control_click(s_widgets.zoom_in_btn);
+    }
+    else if (key == 'l' || key == 'L')
+    {
+        send_control_click(s_widgets.layer_btn);
+    }
+    else
+    {
+        return;
+    }
+
+    consume_key_event(event);
+}
 
 struct LayerPopupState
 {
@@ -245,7 +339,7 @@ void log_scene_widgets(const char* stage)
                   viewport_status.has_visible_map_data ? 1 : 0);
 }
 
-void log_node_summary(const char* stage, const chat::contacts::NodeInfo& node)
+void log_node_summary(const char* stage, const chat::contacts::PeerDirectoryItem& node)
 {
     NODE_INFO_LOG(
         "%s node id=%08" PRIX32 " protocol=%d channel=%u last_seen=%" PRIu32 " rssi=%.1f snr=%.1f hops=%u next_hop=%u via_mqtt=%d ignored=%d display='%s' short='%s' long='%s'\n",
@@ -986,14 +1080,14 @@ map_viewport::Model build_map_model(const map_viewport::GeoPoint& node_point,
     model.pan_x = pan_x + static_cast<int>(metrics.focus_x) - (metrics.width / 2);
     model.pan_y = pan_y + static_cast<int>(metrics.focus_y) - (metrics.height / 2);
 
-    const auto& cfg = app::configFacade().getConfig();
+    const auto& cfg = app::configFacade().readConfig();
     model.map_source = cfg.map_source;
     model.contour_enabled = cfg.map_contour_enabled;
     model.coord_system = cfg.map_coord_system;
     return model;
 }
 
-map_viewport::GeoPoint node_point_from_info(const chat::contacts::NodeInfo& node)
+map_viewport::GeoPoint node_point_from_info(const chat::contacts::PeerDirectoryItem& node)
 {
     map_viewport::GeoPoint point{};
     if (!node.position.valid)
@@ -1016,7 +1110,7 @@ map_viewport::GeoPoint resolve_self_position()
         const chat::NodeId self_node_id = app::messagingFacade().getSelfNodeId();
         if (self_node_id != 0)
         {
-            const auto* self_info = app::messagingFacade().getContactService().getNodeInfo(self_node_id);
+            const auto* self_info = app::messagingFacade().getContactService().getPeerByNodeId(self_node_id);
             if (self_info && self_info->position.valid)
             {
                 point.valid = true;
@@ -1213,22 +1307,10 @@ void format_age_short(uint32_t ts, char* out, size_t out_len)
 
 [[maybe_unused]] const char* protocol_name(chat::contacts::NodeProtocolType protocol)
 {
-    switch (protocol)
-    {
-    case chat::contacts::NodeProtocolType::Meshtastic:
-        return "Meshtastic";
-    case chat::contacts::NodeProtocolType::MeshCore:
-        return "MeshCore";
-    case chat::contacts::NodeProtocolType::RNode:
-        return "RNode";
-    case chat::contacts::NodeProtocolType::LXMF:
-        return "LXMF";
-    default:
-        return "Unknown";
-    }
+    return chat::infra::nodeProtocolName(protocol);
 }
 
-std::string preferred_node_title(const chat::contacts::NodeInfo& node)
+std::string preferred_node_title(const chat::contacts::PeerDirectoryItem& node)
 {
     if (!node.display_name.empty())
     {
@@ -1245,7 +1327,7 @@ std::string preferred_node_title(const chat::contacts::NodeInfo& node)
     return ::ui::i18n::tr("NODE INFO");
 }
 
-void set_top_bar_title(const chat::contacts::NodeInfo& node)
+void set_top_bar_title(const chat::contacts::PeerDirectoryItem& node)
 {
     if (!valid_obj(s_top_bar.container))
     {
@@ -1299,12 +1381,12 @@ void hide_unused_info_lines(std::size_t visible_count)
     }
 }
 
-void build_protocol_line(const chat::contacts::NodeInfo& node, char* out, size_t out_len)
+void build_protocol_line(const chat::contacts::PeerDirectoryItem& node, char* out, size_t out_len)
 {
     std::snprintf(out, out_len, "%s", protocol_name(node.protocol));
 }
 
-bool build_rssi_line(const chat::contacts::NodeInfo& node, char* out, size_t out_len)
+bool build_rssi_line(const chat::contacts::PeerDirectoryItem& node, char* out, size_t out_len)
 {
     if (std::isnan(node.rssi))
     {
@@ -1314,7 +1396,7 @@ bool build_rssi_line(const chat::contacts::NodeInfo& node, char* out, size_t out
     return true;
 }
 
-bool build_snr_line(const chat::contacts::NodeInfo& node, char* out, size_t out_len)
+bool build_snr_line(const chat::contacts::PeerDirectoryItem& node, char* out, size_t out_len)
 {
     if (std::isnan(node.snr))
     {
@@ -1324,7 +1406,7 @@ bool build_snr_line(const chat::contacts::NodeInfo& node, char* out, size_t out_
     return true;
 }
 
-bool build_seen_line(const chat::contacts::NodeInfo& node, char* out, size_t out_len)
+bool build_seen_line(const chat::contacts::PeerDirectoryItem& node, char* out, size_t out_len)
 {
     if (node.last_seen == 0)
     {
@@ -2130,6 +2212,9 @@ void destroy()
                   s_widgets.root,
                   (s_widgets.root && lv_obj_is_valid(s_widgets.root)) ? 1 : 0);
     close_layer_popup();
+    ::ui::components::shortcut_help_modal::close(s_help_modal);
+    s_input_group = nullptr;
+    s_input_callbacks = InputCallbacks{};
     if (s_layer_popup.group)
     {
         lv_group_del(s_layer_popup.group);
@@ -2154,7 +2239,43 @@ const NodeInfoWidgets& widgets()
     return s_widgets;
 }
 
-void set_node_info(const chat::contacts::NodeInfo& node)
+void bind_input_group(lv_group_t* group, const InputCallbacks& callbacks)
+{
+    s_input_group = group;
+    s_input_callbacks = callbacks;
+    ::ui::widgets::top_bar_set_back_callback(s_top_bar,
+                                             callbacks.back_requested,
+                                             callbacks.user_data);
+    if (!group)
+    {
+        return;
+    }
+    lv_group_remove_all_objs(group);
+    lv_obj_t* controls[] = {
+        s_widgets.back_btn,
+        s_widgets.zoom_out_btn,
+        s_widgets.zoom_in_btn,
+        s_widgets.layer_btn,
+    };
+    for (lv_obj_t* control : controls)
+    {
+        if (control && lv_obj_is_valid(control))
+        {
+            lv_group_add_obj(group, control);
+            lv_obj_add_event_cb(control,
+                                on_node_info_input_key,
+                                LV_EVENT_KEY,
+                                nullptr);
+        }
+    }
+    lv_group_set_editing(group, false);
+    if (s_widgets.back_btn && lv_obj_is_valid(s_widgets.back_btn))
+    {
+        lv_group_focus_obj(s_widgets.back_btn);
+    }
+}
+
+void set_node_info(const chat::contacts::PeerDirectoryItem& node)
 {
     NODE_INFO_LOG("set_node_info begin\n");
     log_node_summary("set_node_info", node);

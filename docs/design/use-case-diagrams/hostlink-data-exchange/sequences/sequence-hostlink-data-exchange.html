@@ -1,0 +1,13 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Sequence：HostLink</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed"><h1>Host、Session 与 Handler</h1><pre class="mermaid">sequenceDiagram
+actor H as Host
+participant S as Session
+participant C as Codec/Router
+participant V as Service
+H->>S: hello
+S-->>H: ready
+H->>S: command
+S->>C: decode/route
+C->>V: validated operation
+V-->>C: result
+C->>S: response/error
+S-->>H: ordered TX</pre></main></body></html>

@@ -6,32 +6,33 @@
 
 #if (defined(ARDUINO_T_LORA_PAGER) &&                                                 \
      (defined(ARDUINO_LILYGO_LORA_SX1262) || defined(ARDUINO_LILYGO_LORA_LR1121))) || \
-    defined(TRAIL_MATE_ESP_BOARD_TAB5)
+    defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
 
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-#include <cerrno>
-#include <cstdio>
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
 #include <string>
-#include <sys/stat.h>
-#include <sys/types.h>
 
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "platform/esp/common/shared_spi_lock.h"
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
 #include "platform/esp/idf_common/tab5_codec_compat.h"
-#include "sys/clock.h"
+#else
+#include "platform/esp/idf_common/t_display_p4_codec_compat.h"
+#endif
 #else
 #include "boards/tlora_pager/tlora_pager_board.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_lock.h"
 #endif
+
+#include "sys/clock.h"
 
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <new>
 
 #include "sstv/decode_sstv.h"
 #include "sstv/sstv_config.h"
@@ -39,25 +40,27 @@
 
 namespace
 {
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
 class File
 {
   public:
     File() = default;
-    explicit File(FILE* handle) : handle_(handle) {}
     File(const File&) = delete;
     File& operator=(const File&) = delete;
-    File(File&& other) noexcept : handle_(other.handle_)
+    File(File&& other) noexcept : file_(other.file_), open_(other.open_)
     {
-        other.handle_ = nullptr;
+        other.file_ = nullptr;
+        other.open_ = false;
     }
     File& operator=(File&& other) noexcept
     {
         if (this != &other)
         {
             close();
-            handle_ = other.handle_;
-            other.handle_ = nullptr;
+            file_ = other.file_;
+            open_ = other.open_;
+            other.file_ = nullptr;
+            other.open_ = false;
         }
         return *this;
     }
@@ -68,72 +71,96 @@ class File
 
     explicit operator bool() const
     {
-        return handle_ != nullptr;
+        return file_ != nullptr && open_;
     }
 
     size_t write(const void* data, size_t size)
     {
-        return handle_ ? std::fwrite(data, 1, size, handle_) : 0;
+        return file_ && open_ ? file_->write(data, size) : 0;
     }
 
     void flush()
     {
-        if (handle_)
+        if (file_ && open_)
         {
-            std::fflush(handle_);
+            (void)file_->flush();
         }
     }
 
     void close()
     {
-        if (handle_)
+        if (file_)
         {
-            std::fclose(handle_);
-            handle_ = nullptr;
+            file_->close();
+            delete file_;
+            file_ = nullptr;
+            open_ = false;
         }
     }
 
+    bool open(const char* path, const char* mode)
+    {
+        close();
+        file_ = new (std::nothrow)::platform::esp::arduino_common::storage::SdRuntimeFile();
+        if (!file_)
+        {
+            return false;
+        }
+        open_ = file_->open(path, mode);
+        if (!open_)
+        {
+            close();
+        }
+        return open_;
+    }
+
   private:
-    FILE* handle_ = nullptr;
+    ::platform::esp::arduino_common::storage::SdRuntimeFile* file_ = nullptr;
+    bool open_ = false;
 };
 
 std::string resolve_sd_path(const char* path)
 {
-    const std::string mount = platform::esp::idf_common::bsp_runtime::sdcard_mount_point();
     if (!path || path[0] == '\0')
     {
-        return mount;
+        return "/";
     }
-    if (std::strncmp(path, mount.c_str(), mount.size()) == 0)
+    std::string logical = path;
+    if (logical.size() >= 2 && (logical[0] == 'A' || logical[0] == 'a') && logical[1] == ':')
     {
-        return std::string(path);
+        logical.erase(0, 2);
     }
-    if (path[0] == '/')
+    if (logical.empty())
     {
-        return mount + path;
+        return "/";
     }
-    return mount + "/" + path;
+    if (logical.front() != '/')
+    {
+        logical.insert(logical.begin(), '/');
+    }
+    return logical;
 }
 
 struct StorageFacade
 {
     bool exists(const char* path) const
     {
-        struct stat st
-        {
-        };
-        return ::stat(resolve_sd_path(path).c_str(), &st) == 0;
+        const std::string resolved = resolve_sd_path(path);
+        return ::platform::esp::arduino_common::storage::sd_exists(resolved.c_str());
     }
 
     bool mkdir(const char* path) const
     {
         const std::string resolved = resolve_sd_path(path);
-        return ::mkdir(resolved.c_str(), 0775) == 0 || errno == EEXIST;
+        return ::platform::esp::arduino_common::storage::sd_mkdir(resolved.c_str());
     }
 
     int cardType() const
     {
-        return platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready() ? 1 : 0;
+        return platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready() &&
+                       ::platform::esp::arduino_common::storage::sd_card_ready()
+                   ? 1
+                   : 0;
     }
 
     File open(const char* path, int mode) const
@@ -143,7 +170,9 @@ struct StorageFacade
             return File{};
         }
         const char* open_mode = mode == 1 ? "wb" : "rb";
-        return File{std::fopen(resolve_sd_path(path).c_str(), open_mode)};
+        File file;
+        (void)file.open(resolve_sd_path(path).c_str(), open_mode);
+        return file;
     }
 };
 
@@ -166,7 +195,12 @@ class TLoRaPagerBoard
     {
     }
 
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     platform::esp::idf_common::Tab5CodecCompat codec;
+#else
+    platform::esp::idf_common::TDisplayP4CodecCompat codec{
+        TRAIL_MATE_T_DISPLAY_P4_AUDIO_OWNER_SSTV};
+#endif
 
     struct Io
     {
@@ -182,6 +216,13 @@ uint32_t millis()
     return sys::millis_now();
 }
 #endif
+
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+using SstvBoard = TLoRaPagerBoard;
+#else
+using SstvBoard = boards::tlora_pager::TLoRaPagerBoard;
+#endif
+
 constexpr uint32_t kTaskStack = 12288;
 constexpr uint32_t kTaskDelayMs = 2;
 constexpr uint32_t kCompleteHoldMs = 2000;
@@ -190,6 +231,7 @@ constexpr bool kEnableSlantCorrection = true;
 constexpr bool kStretch = true;
 constexpr int kSamplesPerBlock = 1024;
 constexpr int kResampleMaxOut = 4096;
+constexpr uint32_t kSstvSaveRowsPerChunk = 8;
 
 struct LinearResampler
 {
@@ -301,6 +343,7 @@ sstv::Status s_status;
 char s_last_error[96] = {0};
 char s_saved_path[64] = {0};
 bool s_pending_save = false;
+bool s_save_error = false;
 char s_mode_name[24] = "Auto";
 
 uint16_t* s_frame = nullptr;
@@ -337,7 +380,7 @@ const char* get_saved_path()
 
 bool ensure_sstv_dir()
 {
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     if (!s_tab5_storage.exists("/sstv"))
     {
         if (!s_tab5_storage.mkdir("/sstv"))
@@ -385,7 +428,7 @@ bool build_save_path(char* out_path, size_t out_len)
             snprintf(out_path, out_len, "/sstv/%lu_%03d.bmp",
                      static_cast<unsigned long>(millis()), i);
         }
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
         if (!s_tab5_storage.exists(out_path))
 #else
         if (!::platform::esp::arduino_common::storage::sd_exists(out_path))
@@ -396,6 +439,51 @@ bool build_save_path(char* out_path, size_t out_len)
     }
 
     return false;
+}
+
+template <typename FileT>
+bool write_exact(FileT& file, const void* data, size_t size)
+{
+    return file.write(data, size) == size;
+}
+
+template <typename FileT>
+bool flush_save_file(FileT& file)
+{
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    file.flush();
+    return true;
+#else
+    return file.flush();
+#endif
+}
+
+template <typename FileT>
+void close_save_file(FileT& file)
+{
+    file.close();
+}
+
+void fill_bmp_row(uint8_t* rowbuf, uint32_t row24, const uint16_t* row, uint32_t width)
+{
+    uint32_t idx = 0;
+    for (uint32_t x = 0; x < width; ++x)
+    {
+        uint16_t px = row[x];
+        uint8_t r5 = (px >> 11) & 0x1F;
+        uint8_t g6 = (px >> 5) & 0x3F;
+        uint8_t b5 = px & 0x1F;
+        uint8_t r = static_cast<uint8_t>((r5 << 3) | (r5 >> 2));
+        uint8_t g = static_cast<uint8_t>((g6 << 2) | (g6 >> 4));
+        uint8_t b = static_cast<uint8_t>((b5 << 3) | (b5 >> 2));
+        rowbuf[idx++] = b;
+        rowbuf[idx++] = g;
+        rowbuf[idx++] = r;
+    }
+    if (row24 > idx)
+    {
+        memset(rowbuf + idx, 0, row24 - idx);
+    }
 }
 
 uint16_t rgb_to_565(uint8_t r, uint8_t g, uint8_t b)
@@ -475,13 +563,16 @@ bool save_frame_to_sd()
         set_error("No frame");
         return false;
     }
-    ::platform::esp::common::SharedSpiLockGuard guard(pdMS_TO_TICKS(200));
-    if (!guard.locked())
-    {
-        set_error("SD busy");
-        return false;
-    }
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+
+    char path[64];
+
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    File f;
+#else
+    ::platform::esp::arduino_common::storage::SdRuntimeFile f;
+#endif
+
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     if (s_tab5_storage.cardType() == CARD_NONE)
 #else
     if (!::platform::esp::arduino_common::storage::sd_card_ready())
@@ -496,12 +587,33 @@ bool save_frame_to_sd()
         return false;
     }
 
-    char path[64];
     if (!build_save_path(path, sizeof(path)))
     {
         set_error("SD path failed");
         return false;
     }
+
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    f = s_tab5_storage.open(path, FILE_WRITE);
+    if (!f)
+#else
+    if (!f.open(path, "w"))
+#endif
+    {
+        set_error("SD open failed");
+        return false;
+    }
+
+    auto fail_after_open = [&](uint8_t* buffer, const char* message) -> bool
+    {
+        if (buffer != nullptr)
+        {
+            free(buffer);
+        }
+        close_save_file(f);
+        set_error(message);
+        return false;
+    };
 
     const uint32_t w = kOutWidth;
     const uint32_t h = kOutHeight;
@@ -509,18 +621,6 @@ bool save_frame_to_sd()
     const uint32_t pixel_bytes = row24 * h;
     const uint32_t file_size = 14 + 40 + pixel_bytes;
     const uint32_t data_offset = 14 + 40;
-
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-    File f = s_tab5_storage.open(path, FILE_WRITE);
-    if (!f)
-#else
-    ::platform::esp::arduino_common::storage::SdRuntimeFile f;
-    if (!f.open(path, "w"))
-#endif
-    {
-        set_error("SD open failed");
-        return false;
-    }
 
     uint8_t file_hdr[14] = {
         'B', 'M',
@@ -533,7 +633,6 @@ bool save_frame_to_sd()
         static_cast<uint8_t>((data_offset >> 8) & 0xFF),
         static_cast<uint8_t>((data_offset >> 16) & 0xFF),
         static_cast<uint8_t>((data_offset >> 24) & 0xFF)};
-    f.write(file_hdr, sizeof(file_hdr));
 
     uint8_t info_hdr[40] = {0};
     info_hdr[0] = 40;
@@ -552,43 +651,52 @@ bool save_frame_to_sd()
     info_hdr[21] = static_cast<uint8_t>((pixel_bytes >> 8) & 0xFF);
     info_hdr[22] = static_cast<uint8_t>((pixel_bytes >> 16) & 0xFF);
     info_hdr[23] = static_cast<uint8_t>((pixel_bytes >> 24) & 0xFF);
-    f.write(info_hdr, sizeof(info_hdr));
+
+    if (!write_exact(f, file_hdr, sizeof(file_hdr)) ||
+        !write_exact(f, info_hdr, sizeof(info_hdr)))
+    {
+        return fail_after_open(nullptr, "SD write failed");
+    }
 
     uint8_t* rowbuf = static_cast<uint8_t*>(malloc(row24));
     if (!rowbuf)
     {
-        f.close();
+        close_save_file(f);
         set_error("SD buffer fail");
         return false;
     }
     memset(rowbuf, 0, row24);
 
-    for (uint32_t y = 0; y < h; ++y)
+    uint32_t y = 0;
+    while (y < h)
     {
-        const uint16_t* row = s_frame + (h - 1 - y) * w;
-        uint32_t idx = 0;
-        for (uint32_t x = 0; x < w; ++x)
+        uint32_t chunk_end = y + kSstvSaveRowsPerChunk;
+        if (chunk_end > h)
         {
-            uint16_t px = row[x];
-            uint8_t r5 = (px >> 11) & 0x1F;
-            uint8_t g6 = (px >> 5) & 0x3F;
-            uint8_t b5 = px & 0x1F;
-            uint8_t r = static_cast<uint8_t>((r5 << 3) | (r5 >> 2));
-            uint8_t g = static_cast<uint8_t>((g6 << 2) | (g6 >> 4));
-            uint8_t b = static_cast<uint8_t>((b5 << 3) | (b5 >> 2));
-            rowbuf[idx++] = b;
-            rowbuf[idx++] = g;
-            rowbuf[idx++] = r;
+            chunk_end = h;
         }
-        if (row24 > idx)
+        for (; y < chunk_end; ++y)
         {
-            memset(rowbuf + idx, 0, row24 - idx);
+            const uint16_t* row = s_frame + (h - 1 - y) * w;
+            fill_bmp_row(rowbuf, row24, row, w);
+            if (!write_exact(f, rowbuf, row24))
+            {
+                return fail_after_open(rowbuf, "SD write failed");
+            }
         }
-        f.write(rowbuf, row24);
+
+        if (y < h)
+        {
+            vTaskDelay(1);
+        }
     }
 
-    f.flush();
-    f.close();
+    if (!flush_save_file(f))
+    {
+        return fail_after_open(rowbuf, "SD flush failed");
+    }
+
+    close_save_file(f);
     free(rowbuf);
 
     snprintf(s_saved_path, sizeof(s_saved_path), "%s", path);
@@ -811,17 +919,71 @@ void render_line_from_buffer(uint8_t line_rgb[320][4], e_mode mode, uint16_t lin
     s_has_image = true;
 }
 
+bool open_sstv_audio(SstvBoard* board)
+{
+    if (!board)
+    {
+        return false;
+    }
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    if (board->codec.open(kBitsPerSample, kChannels, kCodecSampleRate) != 0)
+    {
+        return false;
+    }
+    board->codec.setGain(kMicGainDb);
+    board->codec.setMute(false);
+    board->codec.setOutMute(true);
+    board->codec.setVolume(0);
+    board->powerControl(POWER_SPEAK, false);
+    return true;
+#else
+    constexpr auto kOwner = boards::tlora_pager::PagerAudioOwner::Sstv;
+    if (board->openAudioSession(
+            kOwner, kBitsPerSample, kChannels, kCodecSampleRate, false) != 0)
+    {
+        return false;
+    }
+    if (!board->audioSetGain(kOwner, kMicGainDb) ||
+        !board->audioSetMute(kOwner, false) ||
+        !board->audioSetOutMute(kOwner, true) ||
+        !board->audioSetVolume(kOwner, 0))
+    {
+        board->closeAudioSession(kOwner);
+        return false;
+    }
+    return true;
+#endif
+}
+
+int read_sstv_audio(SstvBoard* board, uint8_t* buffer, size_t size)
+{
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    return board ? board->codec.read(buffer, size) : -1;
+#else
+    return board ? board->audioRead(
+                       boards::tlora_pager::PagerAudioOwner::Sstv,
+                       buffer,
+                       size)
+                 : -1;
+#endif
+}
+
+void close_sstv_audio(SstvBoard* board)
+{
+    if (!board)
+    {
+        return;
+    }
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    board->codec.close();
+#else
+    board->closeAudioSession(boards::tlora_pager::PagerAudioOwner::Sstv);
+#endif
+}
+
 void sstv_task(void*)
 {
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-    TLoRaPagerBoard* board = TLoRaPagerBoard::getInstance();
-#else
-    boards::tlora_pager::TLoRaPagerBoard* board = boards::tlora_pager::TLoRaPagerBoard::getInstance();
-#endif
-    int prev_volume = -1;
-    bool prev_out_mute = false;
-    bool restore_amp = false;
-    bool prev_amp = true;
+    SstvBoard* board = SstvBoard::getInstance();
     if (!board)
     {
         set_error("Board not ready");
@@ -831,7 +993,7 @@ void sstv_task(void*)
         return;
     }
 
-    if (board->codec.open(kBitsPerSample, kChannels, kCodecSampleRate) != 0)
+    if (!open_sstv_audio(board))
     {
         set_error("Codec open failed");
         set_status(sstv::State::Error, 0, 0.0f, 0.0f, false);
@@ -841,18 +1003,6 @@ void sstv_task(void*)
     }
 
     s_codec_open = true;
-    board->codec.setGain(kMicGainDb);
-    board->codec.setMute(false);
-    prev_volume = board->codec.getVolume();
-    prev_out_mute = board->codec.getOutMute();
-    board->codec.setOutMute(true);
-    board->codec.setVolume(0);
-#ifdef USING_XL9555_EXPANDS
-    prev_amp = board->io.digitalRead(EXPANDS_AMP_EN);
-    restore_amp = true;
-#endif
-    // Disable speaker amplifier during RX to avoid feedback/noise.
-    board->powerControl(POWER_SPEAK, false);
     SSTV_LOG("[SSTV] codec open ok (rate=%lu, decode=%lu, bits=%u, ch=%u)\n",
              static_cast<unsigned long>(kCodecSampleRate),
              static_cast<unsigned long>(kSampleRate),
@@ -868,7 +1018,7 @@ void sstv_task(void*)
         set_error("No audio buffer");
         set_status(sstv::State::Error, 0, 0.0f, 0.0f, false);
         s_codec_open = false;
-        board->codec.close();
+        close_sstv_audio(board);
         s_active = false;
         vTaskDelete(nullptr);
         return;
@@ -885,7 +1035,7 @@ void sstv_task(void*)
         set_error("No decode buffers");
         set_status(sstv::State::Error, 0, 0.0f, 0.0f, false);
         s_codec_open = false;
-        board->codec.close();
+        close_sstv_audio(board);
         s_active = false;
         vTaskDelete(nullptr);
         return;
@@ -908,7 +1058,7 @@ void sstv_task(void*)
         set_error("No framebuffer");
         set_status(sstv::State::Error, 0, 0.0f, 0.0f, false);
         s_codec_open = false;
-        board->codec.close();
+        close_sstv_audio(board);
         s_active = false;
         vTaskDelete(nullptr);
         return;
@@ -968,8 +1118,9 @@ void sstv_task(void*)
 
     while (!s_stop)
     {
-        int read_state = board->codec.read(reinterpret_cast<uint8_t*>(buffer),
-                                           samples_per_read * sizeof(int16_t));
+        int read_state = read_sstv_audio(board,
+                                         reinterpret_cast<uint8_t*>(buffer),
+                                         samples_per_read * sizeof(int16_t));
         if (read_state != 0)
         {
             set_error("Audio read failed");
@@ -1124,6 +1275,7 @@ void sstv_task(void*)
                         SSTV_LOG("[SSTV] image complete (line=%u, mode=%s)\n",
                                  static_cast<unsigned>(s_last_line), s_mode_name);
                         s_pending_save = true;
+                        s_save_error = false;
                         s_complete_hold_samples = static_cast<int64_t>(
                             kCompleteHoldMs * (static_cast<float>(kSampleRate) / 1000.0f));
                         image_complete_reported = true;
@@ -1163,6 +1315,12 @@ void sstv_task(void*)
 
         if (had_pixel)
         {
+            if (!s_image_in_progress)
+            {
+                s_save_error = false;
+                set_error(nullptr);
+                clear_saved_path();
+            }
             s_image_in_progress = true;
             s_no_pixel_samples = 0;
         }
@@ -1195,7 +1353,11 @@ void sstv_task(void*)
         }
 
         sstv::State state = sstv::State::Waiting;
-        if (s_image_in_progress)
+        if (s_save_error)
+        {
+            state = sstv::State::Error;
+        }
+        else if (s_image_in_progress)
         {
             state = sstv::State::Receiving;
         }
@@ -1304,10 +1466,12 @@ void sstv_task(void*)
             if (save_frame_to_sd())
             {
                 s_pending_save = false;
+                s_save_error = false;
             }
             else
             {
                 s_pending_save = false;
+                s_save_error = true;
             }
         }
 
@@ -1321,16 +1485,7 @@ void sstv_task(void*)
 
     if (s_codec_open)
     {
-        if (prev_volume >= 0)
-        {
-            board->codec.setVolume(static_cast<uint8_t>(prev_volume));
-        }
-        board->codec.setOutMute(prev_out_mute);
-        if (restore_amp)
-        {
-            board->powerControl(POWER_SPEAK, prev_amp);
-        }
-        board->codec.close();
+        close_sstv_audio(board);
         s_codec_open = false;
     }
 
@@ -1354,6 +1509,7 @@ bool start()
     set_error(nullptr);
     clear_saved_path();
     s_pending_save = false;
+    s_save_error = false;
 
     s_stop = false;
     s_active = true;

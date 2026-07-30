@@ -112,6 +112,12 @@ class IncomingTextQueue
         slot.timestamp = metadata.timestamp;
         slot.hop_limit = metadata.hop_limit;
         slot.encrypted = metadata.encrypted;
+        slot.reticulum_identity = metadata.reticulum_identity;
+        slot.has_reticulum_lxmf_hash = metadata.has_reticulum_lxmf_hash;
+        std::memcpy(slot.reticulum_lxmf_hash,
+                    metadata.reticulum_lxmf_hash,
+                    sizeof(slot.reticulum_lxmf_hash));
+        slot.source_unverified = metadata.source_unverified;
         slot.rx_meta = metadata.rx_meta;
         slot.text_len = text_len;
         if (text_len > 0)
@@ -138,6 +144,12 @@ class IncomingTextQueue
         out->timestamp = slot.timestamp;
         out->hop_limit = slot.hop_limit;
         out->encrypted = slot.encrypted;
+        out->reticulum_identity = slot.reticulum_identity;
+        out->has_reticulum_lxmf_hash = slot.has_reticulum_lxmf_hash;
+        std::memcpy(out->reticulum_lxmf_hash,
+                    slot.reticulum_lxmf_hash,
+                    sizeof(out->reticulum_lxmf_hash));
+        out->source_unverified = slot.source_unverified;
         out->rx_meta = slot.rx_meta;
         out->text.assign(slot.text.data(), slot.text_len);
 
@@ -160,6 +172,10 @@ class IncomingTextQueue
         uint32_t timestamp = 0;
         uint8_t hop_limit = 0xFF;
         bool encrypted = false;
+        ReticulumPeerIdentity reticulum_identity{};
+        bool has_reticulum_lxmf_hash = false;
+        uint8_t reticulum_lxmf_hash[kReticulumLxmfHashSize] = {};
+        bool source_unverified = false;
         RxMeta rx_meta{};
         std::array<char, MaxTextLen + 1> text{};
         std::size_t text_len = 0;

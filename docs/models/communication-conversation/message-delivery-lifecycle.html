@@ -1,0 +1,8 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>MessageStatus 与 Ledger 持久化</title></head><body><main data-praxis-anchor="diagram:message-delivery-lifecycle" data-praxis-kind="uml_diagram"><h1>MessageStatus 与 Ledger 持久化</h1><pre class="mermaid">stateDiagram-v2
+[*] --&gt; Incoming: recordIncoming
+[*] --&gt; Queued: recordOutbound
+Queued --&gt; Sent: applyOutboundStatus
+Queued --&gt; Failed: applyOutboundStatus
+Sent --&gt; Delivered: remote receipt or proof
+Sent --&gt; Failed: terminal failure
+Failed --&gt; Queued: markRetryQueued</pre><h2>独立的持久化结果</h2><p><code>Durable</code> 表示已持久化；<code>Deferred</code> 表示进入固定深度 pending write；<code>Rejected</code> 表示未被账本接受。它们不是 MessageStatus。</p></main></body></html>

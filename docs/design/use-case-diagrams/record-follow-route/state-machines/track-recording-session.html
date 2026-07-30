@@ -1,0 +1,10 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>State：轨迹记录会话</title></head><body><main data-praxis-kind="design_state_machine_diagram" data-praxis-status="confirmed"><h1>轨迹记录会话</h1><pre class="mermaid">stateDiagram-v2
+[*] --> Idle
+Idle --> Starting
+Starting --> Recording
+Starting --> Error
+Recording --> Stopping
+Recording --> Error
+Stopping --> Idle
+Stopping --> Error
+Error --> Idle</pre></main></body></html>

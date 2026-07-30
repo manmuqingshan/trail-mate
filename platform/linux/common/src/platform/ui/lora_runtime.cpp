@@ -46,6 +46,8 @@ Clock::time_point s_started_at = Clock::now();
 float s_freq_mhz = 0.0f;
 ReceiveConfig s_config{};
 bool s_real_driver = false;
+bool s_restore_config_valid = false;
+::platform::linux_runtime::Sx126xLoRaConfig s_restore_config{};
 std::string s_capability_message{};
 
 bool env_flag_or_default(const char* name, bool fallback)
@@ -177,6 +179,11 @@ bool acquire()
     std::lock_guard<std::mutex> lock(s_mutex);
     auto& radio = ::platform::linux_runtime::Sx126xRadio::instance();
     s_real_driver = radio.acquire();
+    s_restore_config_valid = s_real_driver;
+    if (s_restore_config_valid)
+    {
+        s_restore_config = radio.appliedLoRaConfig();
+    }
     s_acquired = s_real_driver || simulated_lora_enabled();
     s_started_at = Clock::now();
     return s_acquired;
@@ -234,9 +241,15 @@ void release()
     s_configured = false;
     if (s_real_driver)
     {
+        if (s_restore_config_valid)
+        {
+            (void)::platform::linux_runtime::Sx126xRadio::instance()
+                .configureLoRa(s_restore_config);
+        }
         ::platform::linux_runtime::Sx126xRadio::instance().release();
     }
     s_real_driver = false;
+    s_restore_config_valid = false;
     s_freq_mhz = 0.0f;
 }
 

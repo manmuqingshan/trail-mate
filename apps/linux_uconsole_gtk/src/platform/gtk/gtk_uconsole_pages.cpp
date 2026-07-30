@@ -7,7 +7,13 @@ std::vector<GtkUConsolePageLifecycle> buildGtkUConsolePageRegistry()
 {
     return {makeOverviewPageLifecycle(),
             makeChatPageLifecycle(),
+            makeContactsPageLifecycle(),
             makeMapPageLifecycle(),
+            makeGpsPageLifecycle(),
+            makeTeamPageLifecycle(),
+            makeTrackerPageLifecycle(),
+            makeRadioToolsPageLifecycle(),
+            makeExtensionsPageLifecycle(),
             makeHardwarePageLifecycle(),
             makeDataPageLifecycle(),
             makeLogsPageLifecycle(),

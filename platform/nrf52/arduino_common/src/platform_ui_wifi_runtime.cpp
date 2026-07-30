@@ -22,6 +22,13 @@ bool save_config(const Config& config)
     return false;
 }
 
+bool find_saved_config(const char* ssid, Config& out)
+{
+    (void)ssid;
+    out = Config{};
+    return false;
+}
+
 bool apply_enabled(bool enabled)
 {
     (void)enabled;
@@ -38,9 +45,11 @@ void disconnect()
 {
 }
 
-bool scan(std::vector<ScanResult>& out_results)
+bool scan(ScanResult* out_results, std::size_t capacity, std::size_t& out_count)
 {
-    out_results.clear();
+    (void)out_results;
+    (void)capacity;
+    out_count = 0;
     return false;
 }
 

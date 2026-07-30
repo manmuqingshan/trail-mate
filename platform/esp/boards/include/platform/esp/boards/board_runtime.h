@@ -37,7 +37,27 @@ struct BoardIdentity
     const char* ble_name = "trail-mate";
 };
 
+enum class StorageBusTopology : uint8_t
+{
+    None = 0,
+    DedicatedSpi,
+    SharedDisplaySpi,
+    Sdmmc,
+};
+
+struct BoardStorageCapabilities
+{
+    StorageBusTopology topology = StorageBusTopology::None;
+
+    constexpr bool requiresDisplayTransactionGate() const
+    {
+        return topology == StorageBusTopology::SharedDisplaySpi;
+    }
+};
+
 void initializeBoard(bool waking_from_sleep);
+void initializeBoardDisplayHardware(bool waking_from_sleep);
+void initializeBoardServices(bool waking_from_sleep);
 void initializeDisplay();
 bool initializeStorage();
 bool tryResolveAppContextInitHandles(AppContextInitHandles* out_handles);
@@ -47,5 +67,7 @@ void unlockDisplay();
 bool syncSystemTimeFromBoardRtc();
 bool applySystemTimeAndSyncBoardRtc(std::time_t epoch_seconds, const char* source);
 BoardIdentity defaultIdentity();
+BoardStorageCapabilities storageCapabilities();
+bool storageStartupGateSatisfied();
 
 } // namespace platform::esp::boards

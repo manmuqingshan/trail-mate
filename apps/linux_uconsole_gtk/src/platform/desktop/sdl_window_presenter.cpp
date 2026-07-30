@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -13,6 +16,9 @@
 
 #include "app/input_event.h"
 #include "core/canvas.h"
+
+#define LODEPNG_NO_COMPILE_CPP
+#include "src/libs/lodepng/lodepng.h"
 
 namespace trailmate::uconsole::desktop
 {
@@ -142,6 +148,75 @@ void handleTextInput(std::vector<app::InputEvent>& queue,
     }
 }
 
+void saveRendererPng(SDL_Renderer* renderer,
+                     const std::filesystem::path& path)
+{
+    SDL_Surface* captured =
+        requireSdl(SDL_RenderReadPixels(renderer, nullptr),
+                   "SDL_RenderReadPixels");
+    SDL_Surface* rgba =
+        requireSdl(SDL_ConvertSurface(captured, SDL_PIXELFORMAT_RGBA32),
+                   "SDL_ConvertSurface");
+    SDL_DestroySurface(captured);
+
+    std::vector<unsigned char> pixels;
+    pixels.resize(static_cast<std::size_t>(rgba->w) *
+                  static_cast<std::size_t>(rgba->h) * 4U);
+    const auto* source = static_cast<const unsigned char*>(rgba->pixels);
+    for (int y = 0; y < rgba->h; ++y)
+    {
+        const auto* source_row =
+            source + (static_cast<std::size_t>(y) *
+                      static_cast<std::size_t>(rgba->pitch));
+        auto* destination_row =
+            pixels.data() + (static_cast<std::size_t>(y) *
+                             static_cast<std::size_t>(rgba->w) * 4U);
+        std::copy_n(source_row,
+                    static_cast<std::size_t>(rgba->w) * 4U,
+                    destination_row);
+    }
+
+    const int width = rgba->w;
+    const int height = rgba->h;
+    SDL_DestroySurface(rgba);
+
+    if (!path.parent_path().empty())
+    {
+        std::filesystem::create_directories(path.parent_path());
+    }
+
+    unsigned char* encoded = nullptr;
+    std::size_t encoded_size = 0;
+    const unsigned error =
+        lodepng_encode32(&encoded,
+                         &encoded_size,
+                         pixels.data(),
+                         static_cast<unsigned>(width),
+                         static_cast<unsigned>(height));
+    if (error != 0U)
+    {
+        throw std::runtime_error("failed to encode SDL screenshot " +
+                                 path.string() + ": " +
+                                 lodepng_error_text(error));
+    }
+
+    std::ofstream output(path, std::ios::binary);
+    if (!output)
+    {
+        std::free(encoded);
+        throw std::runtime_error("failed to open SDL screenshot " +
+                                 path.string());
+    }
+    output.write(reinterpret_cast<const char*>(encoded),
+                 static_cast<std::streamsize>(encoded_size));
+    std::free(encoded);
+    if (!output)
+    {
+        throw std::runtime_error("failed to write SDL screenshot " +
+                                 path.string());
+    }
+}
+
 } // namespace
 
 struct SdlWindowPresenter::Impl
@@ -155,6 +230,10 @@ struct SdlWindowPresenter::Impl
     int texture_height = 0;
     int window_width = 0;
     int window_height = 0;
+    int presented_frames = 0;
+    cardputer_zero::platform::SurfacePresenter::PointerState pointer{};
+    bool startup_inputs_queued = false;
+    bool startup_shortcut_queued = false;
     std::vector<std::uint32_t> staging{};
     std::vector<app::InputEvent> input_queue{};
 };
@@ -171,8 +250,15 @@ SdlWindowPresenter::SdlWindowPresenter(SdlWindowOptions options)
 
     requireSdl(SDL_Init(SDL_INIT_VIDEO), "SDL_Init");
 
-    const SDL_WindowFlags flags =
-        impl_->options.fullscreen ? SDL_WINDOW_FULLSCREEN : 0;
+    SDL_WindowFlags flags = 0;
+    if (impl_->options.fullscreen)
+    {
+        flags |= SDL_WINDOW_FULLSCREEN;
+    }
+    if (impl_->options.hidden)
+    {
+        flags |= SDL_WINDOW_HIDDEN;
+    }
     impl_->window =
         requireSdl(SDL_CreateWindow(impl_->options.title.c_str(),
                                     impl_->window_width,
@@ -204,6 +290,28 @@ SdlWindowPresenter::~SdlWindowPresenter()
 
 bool SdlWindowPresenter::pump()
 {
+    if (!impl_->startup_inputs_queued)
+    {
+        for (int step = 0; step < impl_->options.initial_nav_steps; ++step)
+        {
+            enqueueSpecial(impl_->input_queue, app::InputKey::Tab, "TAB");
+        }
+        if (impl_->options.initial_nav_steps > 0)
+        {
+            enqueueSpecial(impl_->input_queue, app::InputKey::Enter, "OK");
+        }
+        impl_->startup_inputs_queued = true;
+    }
+    else if (!impl_->startup_shortcut_queued && impl_->presented_frames >= 5)
+    {
+        if (impl_->options.initial_shortcut != '\0')
+        {
+            impl_->input_queue.push_back(
+                app::makeCharacterInput(impl_->options.initial_shortcut));
+        }
+        impl_->startup_shortcut_queued = true;
+    }
+
     SDL_Event event{};
     while (SDL_PollEvent(&event))
     {
@@ -222,6 +330,28 @@ bool SdlWindowPresenter::pump()
             handleTextInput(impl_->input_queue, event.text);
             continue;
         }
+        if (event.type == SDL_EVENT_MOUSE_MOTION)
+        {
+            impl_->pointer.x = static_cast<int>(event.motion.x);
+            impl_->pointer.y = static_cast<int>(event.motion.y);
+            continue;
+        }
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+            event.button.button == SDL_BUTTON_LEFT)
+        {
+            impl_->pointer.x = static_cast<int>(event.button.x);
+            impl_->pointer.y = static_cast<int>(event.button.y);
+            impl_->pointer.pressed = true;
+            continue;
+        }
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
+            event.button.button == SDL_BUTTON_LEFT)
+        {
+            impl_->pointer.x = static_cast<int>(event.button.x);
+            impl_->pointer.y = static_cast<int>(event.button.y);
+            impl_->pointer.pressed = false;
+            continue;
+        }
         if (event.type == SDL_EVENT_WINDOW_RESIZED)
         {
             impl_->window_width = event.window.data1;
@@ -237,6 +367,17 @@ std::vector<cardputer_zero::app::InputEvent> SdlWindowPresenter::drainInput()
     auto drained = std::move(impl_->input_queue);
     impl_->input_queue.clear();
     return drained;
+}
+
+bool SdlWindowPresenter::supportsPointer() const noexcept
+{
+    return true;
+}
+
+cardputer_zero::platform::SurfacePresenter::PointerState
+SdlWindowPresenter::pointerState() const noexcept
+{
+    return impl_->pointer;
 }
 
 void SdlWindowPresenter::present(const core::Canvas& canvas)
@@ -306,6 +447,15 @@ void SdlWindowPresenter::present(const core::Canvas& canvas)
                                  &destination),
                "SDL_RenderTexture");
     requireSdl(SDL_RenderPresent(impl_->renderer), "SDL_RenderPresent");
+
+    ++impl_->presented_frames;
+    if (!impl_->options.screenshot_path.empty() &&
+        impl_->presented_frames >=
+            std::max(1, impl_->options.screenshot_after_frames))
+    {
+        saveRendererPng(impl_->renderer, impl_->options.screenshot_path);
+        impl_->running = false;
+    }
 }
 
 } // namespace trailmate::uconsole::desktop

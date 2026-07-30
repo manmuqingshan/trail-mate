@@ -10,6 +10,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "platform/esp/arduino_common/battery_guard.h"
+#include "platform/esp/arduino_common/notification_runtime.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/common/build_info.h"
 #if defined(ARDUINO_T_LORA_PAGER)
@@ -23,6 +24,7 @@ namespace
 {
 
 constexpr uint32_t kRestartBlackoutDelayUs = 50000;
+constexpr uint8_t kKeyboardBacklightMax = 127;
 
 void prepare_for_restart()
 {
@@ -124,9 +126,16 @@ uint8_t screen_brightness()
     return board.getBrightness();
 }
 
+uint8_t screen_brightness_max()
+{
+    return DEVICE_MAX_BRIGHTNESS_LEVEL;
+}
+
 void set_screen_brightness(uint8_t level)
 {
-    board.setBrightness(level);
+    const uint8_t max_level = screen_brightness_max();
+    const uint8_t clamped = level > max_level ? max_level : level;
+    board.setBrightness(clamped);
 }
 
 uint8_t keyboard_backlight()
@@ -136,7 +145,7 @@ uint8_t keyboard_backlight()
 
 uint8_t keyboard_backlight_max()
 {
-    return DEVICE_MAX_BRIGHTNESS_LEVEL;
+    return board.hasKeyboard() ? kKeyboardBacklightMax : 0;
 }
 
 void set_keyboard_backlight(uint8_t level)
@@ -145,7 +154,8 @@ void set_keyboard_backlight(uint8_t level)
     {
         return;
     }
-    const uint8_t clamped = level > DEVICE_MAX_BRIGHTNESS_LEVEL ? DEVICE_MAX_BRIGHTNESS_LEVEL : level;
+    const uint8_t max_level = keyboard_backlight_max();
+    const uint8_t clamped = level > max_level ? max_level : level;
     board.keyboardSetBrightness(clamped);
 }
 
@@ -166,7 +176,9 @@ void set_message_tone_volume(uint8_t volume_percent)
 
 void play_message_tone()
 {
-    board.playMessageTone();
+    (void)::platform::esp::arduino_common::notification::play_alert(
+        board,
+        ::platform::esp::arduino_common::notification::AlertKind::Preview);
 }
 
 bool sd_ready()

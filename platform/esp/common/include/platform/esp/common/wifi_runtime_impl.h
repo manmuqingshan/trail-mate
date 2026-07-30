@@ -1,23 +1,33 @@
 #pragma once
 
 #include "app/app_facade_access.h"
+#include "platform/esp/boards/board_runtime.h"
+#include "platform/esp/common/memory_budget.h"
 #include "platform/ui/settings_store.h"
+#include "platform/ui/wifi_access_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
-#include <vector>
+#include <ctime>
+#include <sys/time.h>
 
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_heap_caps.h"
 #include "esp_netif.h"
+#include "esp_sntp.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#if __has_include("ble/ble_manager.h")
+#ifndef TRAIL_MATE_ENABLE_BLE
+#define TRAIL_MATE_ENABLE_BLE 0
+#endif
+
+#if TRAIL_MATE_ENABLE_BLE && __has_include("ble/ble_manager.h")
 #include "ble/ble_manager.h"
 #define TRAIL_MATE_WIFI_HAS_BLE_MANAGER 1
 #else
@@ -37,6 +47,9 @@ constexpr const char* kSettingsNs = "settings";
 constexpr const char* kWifiEnabledKey = "wifi_enabled";
 constexpr const char* kWifiSsidKey = "wifi_ssid";
 constexpr const char* kWifiPasswordKey = "wifi_password";
+constexpr const char* kWifiProfileCountKey = "wifi_prof_count";
+constexpr std::size_t kWifiProfileCapacity = 10;
+constexpr uint16_t kWifiAutoScanMaxRecords = 16;
 constexpr uint32_t kBleRetryDelayMs = 180;
 constexpr int kWifiTxBufferTypeStatic = 0;
 constexpr int kWifiTxBufferTypeDynamic = 1;
@@ -51,6 +64,13 @@ constexpr int kWifiRetryDynamicTxBufNum = 8;
 constexpr int kWifiRetryCacheTxBufNum = 4;
 constexpr int kWifiRetryMgmtSbufNum = 6;
 constexpr int kWifiRetryRxMgmtBufNum = 5;
+constexpr std::size_t kWifiConnectMinInternalFreeBytes = 32U * 1024U;
+constexpr std::size_t kWifiConnectMinInternalLargestBlockBytes = 8U * 1024U;
+constexpr std::size_t kWifiReconnectReserveBytes = 32U * 1024U;
+constexpr const char* kNetworkTimeSyncServer = "pool.ntp.org";
+constexpr std::time_t kNetworkTimeMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
+constexpr uint32_t kNetworkTimeSyncTimeoutMs = 15000;
+constexpr uint32_t kNetworkTimeApplyTaskStackBytes = 3072;
 
 enum class WifiInitProfile : uint8_t
 {
@@ -65,18 +85,31 @@ struct RuntimeState
     bool wifi_started = false;
     bool wifi_initialized = false;
     bool ble_paused_for_wifi = false;
+    bool network_time_sync_in_progress = false;
+    bool network_time_sync_attempted = false;
+    std::time_t network_time_sync_epoch = 0;
     bool config_cached = false;
+    bool profiles_cached = false;
     bool connected = false;
     bool connecting = false;
+    bool connect_deferred_for_resources = false;
+    bool intentional_disconnect_pending = false;
     bool scanning = false;
     int rssi = -127;
     Config config{};
+    Config profiles[kWifiProfileCapacity] = {};
+    wifi_ap_record_t auto_scan_records[kWifiAutoScanMaxRecords] = {};
+    std::size_t profile_count = 0;
+    std::size_t next_profile_index = 0;
     char ssid[kMaxSsidLength + 1] = {};
     char ip[kMaxIpLength + 1] = {};
     char message[kMaxStatusMessageLength + 1] = {};
     esp_netif_t* sta_netif = nullptr;
     esp_event_handler_instance_t wifi_event_handler = nullptr;
     esp_event_handler_instance_t ip_event_handler = nullptr;
+    esp_timer_handle_t network_time_sync_timeout_timer = nullptr;
+    TaskHandle_t network_time_apply_task = nullptr;
+    void* reconnect_memory_reserve = nullptr;
 };
 
 RuntimeState s_runtime{};
@@ -103,12 +136,70 @@ std::size_t psram_largest_block_bytes()
 
 void log_heap_snapshot(const char* stage)
 {
-    std::printf("[WiFi][MEM] stage=%s ram_free=%u ram_largest=%u psram_free=%u psram_largest=%u\n",
+    const auto snapshot = ::platform::esp::common::memory::capture();
+    std::printf("[WiFi][MEM] stage=%s ram_free=%u ram_largest=%u dma_free=%u dma_largest=%u "
+                "psram_free=%u psram_largest=%u min_ram=%u min_dma=%u min_psram=%u\n",
                 stage ? stage : "state",
-                static_cast<unsigned>(internal_free_bytes()),
-                static_cast<unsigned>(internal_largest_block_bytes()),
-                static_cast<unsigned>(psram_free_bytes()),
-                static_cast<unsigned>(psram_largest_block_bytes()));
+                static_cast<unsigned>(snapshot.internal_free),
+                static_cast<unsigned>(snapshot.internal_largest),
+                static_cast<unsigned>(snapshot.dma_free),
+                static_cast<unsigned>(snapshot.dma_largest),
+                static_cast<unsigned>(snapshot.psram_free),
+                static_cast<unsigned>(snapshot.psram_largest),
+                static_cast<unsigned>(snapshot.minimum_internal_free),
+                static_cast<unsigned>(snapshot.minimum_dma_free),
+                static_cast<unsigned>(snapshot.minimum_psram_free));
+}
+
+void set_status_message(const char* message);
+void cancel_network_time_sync();
+
+void release_reconnect_memory_reserve()
+{
+    if (!s_runtime.reconnect_memory_reserve)
+    {
+        return;
+    }
+    heap_caps_free(s_runtime.reconnect_memory_reserve);
+    s_runtime.reconnect_memory_reserve = nullptr;
+    log_heap_snapshot("released reconnect reserve");
+}
+
+void ensure_reconnect_memory_reserve()
+{
+    if (s_runtime.reconnect_memory_reserve)
+    {
+        return;
+    }
+    s_runtime.reconnect_memory_reserve =
+        heap_caps_malloc(kWifiReconnectReserveBytes,
+                         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    std::printf("[WiFi][MEM] reconnect reserve bytes=%u acquired=%u\n",
+                static_cast<unsigned>(kWifiReconnectReserveBytes),
+                s_runtime.reconnect_memory_reserve ? 1U : 0U);
+}
+
+bool internal_memory_ready_for_wifi_connect(const char* stage)
+{
+    release_reconnect_memory_reserve();
+    const std::size_t ram_free = internal_free_bytes();
+    const std::size_t ram_largest = internal_largest_block_bytes();
+    if (ram_free >= kWifiConnectMinInternalFreeBytes &&
+        ram_largest >= kWifiConnectMinInternalLargestBlockBytes)
+    {
+        s_runtime.connect_deferred_for_resources = false;
+        return true;
+    }
+
+    std::printf("[WiFi][MEM] connect deferred stage=%s ram_free=%u ram_largest=%u min_free=%u min_largest=%u\n",
+                stage ? stage : "connect",
+                static_cast<unsigned>(ram_free),
+                static_cast<unsigned>(ram_largest),
+                static_cast<unsigned>(kWifiConnectMinInternalFreeBytes),
+                static_cast<unsigned>(kWifiConnectMinInternalLargestBlockBytes));
+    s_runtime.connect_deferred_for_resources = true;
+    set_status_message("Wi-Fi waiting for memory");
+    return false;
 }
 
 const char* wifi_profile_name(WifiInitProfile profile)
@@ -185,6 +276,43 @@ void copy_bounded(char* out, std::size_t out_len, const char* text)
     std::snprintf(out, out_len, "%s", source);
 }
 
+void insert_scan_result_sorted(ScanResult* out_results,
+                               std::size_t capacity,
+                               std::size_t& out_count,
+                               const wifi_ap_record_t& record)
+{
+    if (out_results == nullptr || capacity == 0 || record.ssid[0] == 0)
+    {
+        return;
+    }
+
+    ScanResult result{};
+    copy_bounded(result.ssid, sizeof(result.ssid), reinterpret_cast<const char*>(record.ssid));
+    result.rssi = record.rssi;
+    result.requires_password = record.authmode != WIFI_AUTH_OPEN;
+
+    std::size_t insert_at = out_count;
+    if (out_count < capacity)
+    {
+        ++out_count;
+    }
+    else if (result.rssi <= out_results[capacity - 1U].rssi)
+    {
+        return;
+    }
+    else
+    {
+        insert_at = capacity - 1U;
+    }
+
+    while (insert_at > 0 && out_results[insert_at - 1U].rssi < result.rssi)
+    {
+        out_results[insert_at] = out_results[insert_at - 1U];
+        --insert_at;
+    }
+    out_results[insert_at] = result;
+}
+
 void set_status_message(const char* message)
 {
     copy_bounded(s_runtime.message, sizeof(s_runtime.message), message);
@@ -194,6 +322,195 @@ void cache_config(const Config& config)
 {
     s_runtime.config = config;
     s_runtime.config_cached = true;
+}
+
+bool has_saved_credentials(const Config& config);
+
+void profile_key(char* out, std::size_t out_len, const char* field, std::size_t index)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    std::snprintf(out, out_len, "wifi_%s_%u", field ? field : "profile", static_cast<unsigned>(index));
+}
+
+bool same_ssid(const Config& lhs, const Config& rhs)
+{
+    return std::strncmp(lhs.ssid, rhs.ssid, sizeof(lhs.ssid)) == 0;
+}
+
+int profile_index_for_ssid(const char* ssid)
+{
+    if (!ssid || ssid[0] == '\0')
+    {
+        return -1;
+    }
+    for (std::size_t i = 0; i < s_runtime.profile_count; ++i)
+    {
+        if (std::strncmp(s_runtime.profiles[i].ssid, ssid, sizeof(s_runtime.profiles[i].ssid)) == 0)
+        {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+void clear_profiles()
+{
+    for (Config& profile : s_runtime.profiles)
+    {
+        profile = Config{};
+    }
+    s_runtime.profile_count = 0;
+    s_runtime.profiles_cached = true;
+}
+
+void clamp_next_profile_index()
+{
+    if (s_runtime.profile_count == 0)
+    {
+        s_runtime.next_profile_index = 0;
+        return;
+    }
+    s_runtime.next_profile_index %= s_runtime.profile_count;
+}
+
+void append_profile_unique(const Config& profile)
+{
+    if (!has_saved_credentials(profile))
+    {
+        return;
+    }
+    for (std::size_t i = 0; i < s_runtime.profile_count; ++i)
+    {
+        if (same_ssid(s_runtime.profiles[i], profile))
+        {
+            return;
+        }
+    }
+    if (s_runtime.profile_count >= kWifiProfileCapacity)
+    {
+        return;
+    }
+    s_runtime.profiles[s_runtime.profile_count] = profile;
+    s_runtime.profiles[s_runtime.profile_count].enabled = true;
+    ++s_runtime.profile_count;
+}
+
+void upsert_profile_front(const Config& profile)
+{
+    if (!has_saved_credentials(profile))
+    {
+        return;
+    }
+
+    std::size_t existing = s_runtime.profile_count;
+    for (std::size_t i = 0; i < s_runtime.profile_count; ++i)
+    {
+        if (same_ssid(s_runtime.profiles[i], profile))
+        {
+            existing = i;
+            break;
+        }
+    }
+
+    std::size_t last = s_runtime.profile_count;
+    if (existing < s_runtime.profile_count)
+    {
+        last = existing;
+    }
+    else if (s_runtime.profile_count < kWifiProfileCapacity)
+    {
+        last = s_runtime.profile_count;
+        ++s_runtime.profile_count;
+    }
+    else
+    {
+        last = kWifiProfileCapacity - 1U;
+    }
+
+    for (std::size_t i = last; i > 0; --i)
+    {
+        s_runtime.profiles[i] = s_runtime.profiles[i - 1U];
+    }
+    s_runtime.profiles[0] = profile;
+    s_runtime.profiles[0].enabled = true;
+    s_runtime.next_profile_index = 0;
+    s_runtime.profiles_cached = true;
+}
+
+bool persist_profiles()
+{
+    ::platform::ui::settings_store::put_int(kSettingsNs,
+                                            kWifiProfileCountKey,
+                                            static_cast<int>(s_runtime.profile_count));
+    bool ok = true;
+    for (std::size_t i = 0; i < kWifiProfileCapacity; ++i)
+    {
+        char ssid_key[24] = {};
+        char password_key[24] = {};
+        profile_key(ssid_key, sizeof(ssid_key), "ssid", i);
+        profile_key(password_key, sizeof(password_key), "password", i);
+        const Config& profile = s_runtime.profiles[i];
+        ok = ::platform::ui::settings_store::put_string(
+                 kSettingsNs,
+                 ssid_key,
+                 i < s_runtime.profile_count ? profile.ssid : "") &&
+             ok;
+        ok = ::platform::ui::settings_store::put_string(
+                 kSettingsNs,
+                 password_key,
+                 i < s_runtime.profile_count ? profile.password : "") &&
+             ok;
+    }
+    return ok;
+}
+
+bool read_profile_from_store(std::size_t index, Config& profile)
+{
+    profile = Config{};
+    profile.enabled = true;
+
+    char ssid_key[24] = {};
+    char password_key[24] = {};
+    profile_key(ssid_key, sizeof(ssid_key), "ssid", index);
+    profile_key(password_key, sizeof(password_key), "password", index);
+
+    std::string value;
+    if (!::platform::ui::settings_store::get_string(kSettingsNs, ssid_key, value))
+    {
+        return false;
+    }
+    copy_bounded(profile.ssid, sizeof(profile.ssid), value.c_str());
+    if (!has_saved_credentials(profile))
+    {
+        return false;
+    }
+
+    value.clear();
+    if (::platform::ui::settings_store::get_string(kSettingsNs, password_key, value))
+    {
+        copy_bounded(profile.password, sizeof(profile.password), value.c_str());
+    }
+    else
+    {
+        char legacy_password_key[24] = {};
+        profile_key(legacy_password_key, sizeof(legacy_password_key), "pass", index);
+        value.clear();
+        if (::platform::ui::settings_store::get_string(kSettingsNs, legacy_password_key, value))
+        {
+            copy_bounded(profile.password, sizeof(profile.password), value.c_str());
+            (void)::platform::ui::settings_store::put_string(
+                kSettingsNs,
+                password_key,
+                profile.password);
+            const char* legacy_keys[] = {legacy_password_key};
+            ::platform::ui::settings_store::remove_keys(kSettingsNs, legacy_keys, 1);
+        }
+    }
+
+    return true;
 }
 
 bool read_config_from_store(Config& out)
@@ -211,6 +528,40 @@ bool read_config_from_store(Config& out)
     if (::platform::ui::settings_store::get_string(kSettingsNs, kWifiPasswordKey, value))
     {
         copy_bounded(out.password, sizeof(out.password), value.c_str());
+    }
+    const bool has_primary_credentials = has_saved_credentials(out);
+
+    const std::size_t next_profile_index = s_runtime.next_profile_index;
+    clear_profiles();
+    s_runtime.next_profile_index = next_profile_index;
+    const int stored_count = std::clamp(
+        ::platform::ui::settings_store::get_int(kSettingsNs, kWifiProfileCountKey, 0),
+        0,
+        static_cast<int>(kWifiProfileCapacity));
+    const int profile_read_count =
+        stored_count > 0 ? stored_count : static_cast<int>(kWifiProfileCapacity);
+    std::size_t loaded_profile_count = 0;
+    for (int i = 0; i < profile_read_count; ++i)
+    {
+        Config profile{};
+        if (read_profile_from_store(static_cast<std::size_t>(i), profile))
+        {
+            append_profile_unique(profile);
+            ++loaded_profile_count;
+        }
+    }
+    append_profile_unique(out);
+    if (stored_count == 0 && loaded_profile_count > 0)
+    {
+        std::printf("[WiFi] recovered saved profile count=%u from profile keys\n",
+                    static_cast<unsigned>(s_runtime.profile_count));
+        (void)persist_profiles();
+    }
+    clamp_next_profile_index();
+    if (!has_primary_credentials && s_runtime.profile_count > 0)
+    {
+        copy_bounded(out.ssid, sizeof(out.ssid), s_runtime.profiles[0].ssid);
+        copy_bounded(out.password, sizeof(out.password), s_runtime.profiles[0].password);
     }
 
     cache_config(out);
@@ -243,8 +594,10 @@ ConnectionState disconnected_state(bool enabled, bool has_credentials)
 
 void clear_connection_details()
 {
+    cancel_network_time_sync();
     s_runtime.connected = false;
     s_runtime.connecting = false;
+    s_runtime.network_time_sync_attempted = false;
     s_runtime.rssi = -127;
     s_runtime.ssid[0] = '\0';
     s_runtime.ip[0] = '\0';
@@ -301,6 +654,7 @@ void refresh_runtime_status_message()
 
 bool runtime_ble_is_enabled()
 {
+#if TRAIL_MATE_ENABLE_BLE
     if (!app::hasAppFacade())
     {
         return false;
@@ -314,10 +668,177 @@ bool runtime_ble_is_enabled()
 #endif
 
     return app::appFacade().isBleEnabled();
+#else
+    return false;
+#endif
+}
+
+bool is_valid_network_epoch(std::time_t epoch_seconds)
+{
+    return epoch_seconds >= kNetworkTimeMinValidEpochSeconds;
+}
+
+void stop_sntp_once()
+{
+    if (esp_sntp_enabled())
+    {
+        esp_sntp_stop();
+    }
+    esp_sntp_set_time_sync_notification_cb(nullptr);
+}
+
+void cancel_network_time_sync()
+{
+    if (s_runtime.network_time_sync_timeout_timer != nullptr)
+    {
+        (void)esp_timer_stop(s_runtime.network_time_sync_timeout_timer);
+    }
+    stop_sntp_once();
+    s_runtime.network_time_sync_in_progress = false;
+}
+
+void network_time_apply_task(void*)
+{
+    const std::time_t epoch_seconds = s_runtime.network_time_sync_epoch;
+    stop_sntp_once();
+
+    if (is_valid_network_epoch(epoch_seconds))
+    {
+        const bool applied =
+            ::platform::esp::boards::applySystemTimeAndSyncBoardRtc(epoch_seconds, "wifi_sntp");
+        std::printf("[WiFi][Time] SNTP synced epoch=%lld rtc=%s\n",
+                    static_cast<long long>(epoch_seconds),
+                    applied ? "updated" : "update_failed");
+    }
+    else
+    {
+        std::printf("[WiFi][Time] SNTP completed with invalid epoch=%lld\n",
+                    static_cast<long long>(epoch_seconds));
+    }
+
+    s_runtime.network_time_sync_in_progress = false;
+    s_runtime.network_time_apply_task = nullptr;
+    vTaskDelete(nullptr);
+}
+
+void network_time_sync_notification_cb(timeval* tv)
+{
+    if (!s_runtime.network_time_sync_in_progress)
+    {
+        return;
+    }
+
+    if (s_runtime.network_time_sync_timeout_timer != nullptr)
+    {
+        (void)esp_timer_stop(s_runtime.network_time_sync_timeout_timer);
+    }
+    s_runtime.network_time_sync_epoch = tv != nullptr ? tv->tv_sec : std::time(nullptr);
+
+    if (s_runtime.network_time_apply_task != nullptr)
+    {
+        return;
+    }
+
+    const BaseType_t created = xTaskCreate(network_time_apply_task,
+                                           "wifi_time_apply",
+                                           kNetworkTimeApplyTaskStackBytes,
+                                           nullptr,
+                                           tskIDLE_PRIORITY + 1,
+                                           &s_runtime.network_time_apply_task);
+    if (created != pdPASS)
+    {
+        stop_sntp_once();
+        s_runtime.network_time_sync_in_progress = false;
+        s_runtime.network_time_apply_task = nullptr;
+        std::printf("[WiFi][Time] failed to start SNTP apply task\n");
+    }
+}
+
+void network_time_sync_timeout_cb(void*)
+{
+    if (!s_runtime.network_time_sync_in_progress)
+    {
+        return;
+    }
+
+    std::printf("[WiFi][Time] SNTP sync timed out server=%s\n", kNetworkTimeSyncServer);
+    stop_sntp_once();
+    s_runtime.network_time_sync_in_progress = false;
+}
+
+bool ensure_network_time_sync_timer()
+{
+    if (s_runtime.network_time_sync_timeout_timer != nullptr)
+    {
+        return true;
+    }
+
+    esp_timer_create_args_t args{};
+    args.callback = &network_time_sync_timeout_cb;
+    args.name = "wifi_time";
+    const esp_err_t err = esp_timer_create(&args, &s_runtime.network_time_sync_timeout_timer);
+    if (err != ESP_OK)
+    {
+        std::printf("[WiFi][Time] failed to create SNTP timeout timer err=0x%x\n",
+                    static_cast<unsigned>(err));
+        return false;
+    }
+    return true;
+}
+
+void start_or_restart_sntp()
+{
+    esp_sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
+    esp_sntp_set_time_sync_notification_cb(&network_time_sync_notification_cb);
+    esp_sntp_setservername(0, kNetworkTimeSyncServer);
+
+    if (!esp_sntp_enabled())
+    {
+        esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
+        esp_sntp_set_sync_status(SNTP_SYNC_STATUS_RESET);
+        esp_sntp_init();
+        std::printf("[WiFi][Time] SNTP started server=%s\n", kNetworkTimeSyncServer);
+        return;
+    }
+
+    esp_sntp_set_sync_status(SNTP_SYNC_STATUS_RESET);
+    if (esp_sntp_restart())
+    {
+        std::printf("[WiFi][Time] SNTP restarted server=%s\n", kNetworkTimeSyncServer);
+    }
+}
+
+void request_network_time_sync()
+{
+    if (s_runtime.network_time_sync_attempted || s_runtime.network_time_sync_in_progress)
+    {
+        return;
+    }
+
+    s_runtime.network_time_sync_attempted = true;
+    if (!ensure_network_time_sync_timer())
+    {
+        return;
+    }
+
+    s_runtime.network_time_sync_in_progress = true;
+    const esp_err_t timer_err =
+        esp_timer_start_once(s_runtime.network_time_sync_timeout_timer,
+                             static_cast<uint64_t>(kNetworkTimeSyncTimeoutMs) * 1000ULL);
+    if (timer_err != ESP_OK)
+    {
+        s_runtime.network_time_sync_in_progress = false;
+        std::printf("[WiFi][Time] failed to start SNTP timeout timer err=0x%x\n",
+                    static_cast<unsigned>(timer_err));
+        return;
+    }
+
+    start_or_restart_sntp();
 }
 
 bool pause_runtime_ble_for_wifi()
 {
+#if TRAIL_MATE_ENABLE_BLE
     if (s_runtime.ble_paused_for_wifi || !app::hasAppFacade())
     {
         return false;
@@ -346,10 +867,15 @@ bool pause_runtime_ble_for_wifi()
     app::appFacade().setBleEnabled(false);
     s_runtime.ble_paused_for_wifi = true;
     return true;
+#else
+    s_runtime.ble_paused_for_wifi = false;
+    return false;
+#endif
 }
 
 void restore_runtime_ble_after_wifi(const char* reason)
 {
+#if TRAIL_MATE_ENABLE_BLE
     if (!s_runtime.ble_paused_for_wifi || !app::hasAppFacade())
     {
         return;
@@ -368,6 +894,10 @@ void restore_runtime_ble_after_wifi(const char* reason)
     std::printf("[WiFi][BLE] restoring BLE runtime facade (%s)\n", reason ? reason : "after Wi-Fi");
     app::appFacade().setBleEnabled(true);
     s_runtime.ble_paused_for_wifi = false;
+#else
+    (void)reason;
+    s_runtime.ble_paused_for_wifi = false;
+#endif
 }
 
 bool ensure_stack_ready()
@@ -419,12 +949,69 @@ void wifi_event_handler(void*,
         switch (event_id)
         {
         case WIFI_EVENT_STA_CONNECTED:
-            s_runtime.connecting = false;
+        {
+            const auto* connected = static_cast<wifi_event_sta_connected_t*>(event_data);
+            char ssid[kMaxSsidLength + 1]{};
+            if (connected)
+            {
+                const std::size_t ssid_len =
+                    std::min<std::size_t>(connected->ssid_len, sizeof(ssid) - 1);
+                std::memcpy(ssid, connected->ssid, ssid_len);
+                ssid[ssid_len] = '\0';
+                std::printf("[WiFi] sta connected ssid=%s channel=%u auth=%u\n",
+                            ssid[0] ? ssid : "<hidden>",
+                            static_cast<unsigned>(connected->channel),
+                            static_cast<unsigned>(connected->authmode));
+            }
+            else
+            {
+                std::printf("[WiFi] sta connected\n");
+            }
+            // Association is only an intermediate state. Keep the attempt
+            // active until DHCP produces GOT_IP or a disconnect event
+            // terminates it.
             break;
+        }
         case WIFI_EVENT_STA_DISCONNECTED:
+        {
+            const auto* disconnected = static_cast<wifi_event_sta_disconnected_t*>(event_data);
+            char ssid[kMaxSsidLength + 1]{};
+            if (disconnected)
+            {
+                const std::size_t ssid_len =
+                    std::min<std::size_t>(disconnected->ssid_len, sizeof(ssid) - 1);
+                std::memcpy(ssid, disconnected->ssid, ssid_len);
+                ssid[ssid_len] = '\0';
+                std::printf("[WiFi] sta disconnected reason=%u ssid=%s\n",
+                            static_cast<unsigned>(disconnected->reason),
+                            ssid[0] ? ssid : current_config().ssid);
+            }
+            else
+            {
+                std::printf("[WiFi] sta disconnected ssid=%s\n",
+                            current_config().ssid[0] ? current_config().ssid : "<unset>");
+            }
+            if (s_runtime.intentional_disconnect_pending)
+            {
+                s_runtime.intentional_disconnect_pending = false;
+                std::printf("[WiFi] intentional disconnect completed\n");
+                break;
+            }
+
+            const bool attempt_failed = s_runtime.connecting;
             clear_connection_details();
+            if (attempt_failed && s_runtime.profile_count > 1)
+            {
+                s_runtime.next_profile_index =
+                    (s_runtime.next_profile_index + 1U) %
+                    s_runtime.profile_count;
+                std::printf("[WiFi] connect event failed; next profile=%u/%u\n",
+                            static_cast<unsigned>(s_runtime.next_profile_index + 1U),
+                            static_cast<unsigned>(s_runtime.profile_count));
+            }
             refresh_runtime_status_message();
             break;
+        }
         case WIFI_EVENT_SCAN_DONE:
             s_runtime.scanning = false;
             refresh_runtime_status_message();
@@ -454,6 +1041,12 @@ void wifi_event_handler(void*,
                          reinterpret_cast<const char*>(ap_info.ssid));
         }
         refresh_runtime_status_message();
+        std::printf("[WiFi] got ip=%s ssid=%s rssi=%d\n",
+                    s_runtime.ip[0] ? s_runtime.ip : "<none>",
+                    s_runtime.ssid[0] ? s_runtime.ssid : current_config().ssid,
+                    s_runtime.rssi);
+        request_network_time_sync();
+        ensure_reconnect_memory_reserve();
     }
 }
 
@@ -632,6 +1225,13 @@ bool load_config(Config& out)
 
 bool save_config(const Config& config)
 {
+    if (!s_runtime.profiles_cached)
+    {
+        Config ignored{};
+        (void)read_config_from_store(ignored);
+    }
+    upsert_profile_front(config);
+    const bool profiles_ok = persist_profiles();
     const bool ssid_ok =
         ::platform::ui::settings_store::put_string(kSettingsNs, kWifiSsidKey, config.ssid);
     const bool password_ok =
@@ -639,7 +1239,31 @@ bool save_config(const Config& config)
     ::platform::ui::settings_store::put_bool(kSettingsNs, kWifiEnabledKey, config.enabled);
     cache_config(config);
     refresh_runtime_status_message();
-    return ssid_ok && password_ok;
+    return profiles_ok && ssid_ok && password_ok;
+}
+
+bool find_saved_config(const char* ssid, Config& out)
+{
+    out = Config{};
+    if (!ssid || ssid[0] == '\0')
+    {
+        return false;
+    }
+    if (!s_runtime.profiles_cached)
+    {
+        Config ignored{};
+        (void)read_config_from_store(ignored);
+    }
+    for (std::size_t i = 0; i < s_runtime.profile_count; ++i)
+    {
+        if (std::strncmp(s_runtime.profiles[i].ssid, ssid, sizeof(s_runtime.profiles[i].ssid)) == 0)
+        {
+            out = s_runtime.profiles[i];
+            out.enabled = s_runtime.config_cached ? s_runtime.config.enabled : out.enabled;
+            return true;
+        }
+    }
+    return false;
 }
 
 bool apply_enabled(bool enabled)
@@ -651,6 +1275,12 @@ bool apply_enabled(bool enabled)
 
     if (!enabled)
     {
+        if (!::platform::ui::wifi_access::set_transport_enabled(false))
+        {
+            std::printf("[WiFi] transport clients failed to quiesce; keeping driver active\n");
+            set_status_message("Wi-Fi clients busy");
+            return false;
+        }
         if (s_runtime.wifi_started)
         {
             (void)esp_wifi_disconnect();
@@ -674,6 +1304,7 @@ bool apply_enabled(bool enabled)
 #endif
         s_runtime.wifi_started = false;
         s_runtime.wifi_initialized = false;
+        release_reconnect_memory_reserve();
         clear_connection_details();
         restore_runtime_ble_after_wifi("Wi-Fi disabled");
         set_status_message("Wi-Fi disabled");
@@ -684,39 +1315,46 @@ bool apply_enabled(bool enabled)
     {
         return false;
     }
+    if (!::platform::ui::wifi_access::set_transport_enabled(true))
+    {
+        set_status_message("Wi-Fi clients unavailable");
+        return false;
+    }
 
     clear_connection_details();
     refresh_runtime_status_message();
     return true;
 }
 
-bool connect(const Config* override_config)
+enum class ConnectStartResult : uint8_t
 {
-    Config config{};
-    if (override_config)
-    {
-        config = *override_config;
-    }
-    else
-    {
-        (void)load_config(config);
-    }
+    Started,
+    DeferredForResources,
+    Failed,
+};
 
+static ConnectStartResult connect_single_profile(const Config& config)
+{
     if (!config.enabled)
     {
         set_status_message("Enable Wi-Fi first");
-        return false;
+        return ConnectStartResult::Failed;
     }
 
     if (!has_saved_credentials(config))
     {
         set_status_message("SSID is not set");
-        return false;
+        return ConnectStartResult::Failed;
     }
 
     if (!ensure_wifi_started())
     {
-        return false;
+        return ConnectStartResult::Failed;
+    }
+
+    if (!internal_memory_ready_for_wifi_connect("before esp_wifi_connect"))
+    {
+        return ConnectStartResult::DeferredForResources;
     }
 
     wifi_config_t wifi_config{};
@@ -734,40 +1372,87 @@ bool connect(const Config* override_config)
     if (esp_wifi_set_config(WIFI_IF_STA, &wifi_config) != ESP_OK)
     {
         set_status_message("Set Wi-Fi config failed");
-        return false;
+        return ConnectStartResult::Failed;
     }
 
-    clear_connection_details();
-    s_runtime.connecting = true;
-    refresh_runtime_status_message();
-
-    if (esp_wifi_disconnect() != ESP_OK)
+    const bool replacing_active_attempt =
+        s_runtime.connected || s_runtime.connecting;
+    const esp_err_t disconnect_err =
+        replacing_active_attempt ? esp_wifi_disconnect() : ESP_ERR_WIFI_NOT_CONNECT;
+    s_runtime.intentional_disconnect_pending =
+        replacing_active_attempt && disconnect_err == ESP_OK;
+    if (disconnect_err != ESP_OK)
     {
         // Ignore disconnect failures before a fresh connect attempt.
     }
+    cache_config(config);
+    clear_connection_details();
+    s_runtime.connect_deferred_for_resources = false;
+    s_runtime.connecting = true;
+    refresh_runtime_status_message();
     if (esp_wifi_connect() != ESP_OK)
     {
         s_runtime.connecting = false;
         set_status_message("Wi-Fi connect failed");
+        return ConnectStartResult::Failed;
+    }
+    return ConnectStartResult::Started;
+}
+
+bool connect(const Config* override_config)
+{
+    if (override_config)
+    {
+        return connect_single_profile(*override_config) ==
+               ConnectStartResult::Started;
+    }
+
+    Config config{};
+    (void)load_config(config);
+    if (!config.enabled)
+    {
+        set_status_message("Enable Wi-Fi first");
+        return false;
+    }
+    if (s_runtime.profile_count == 0)
+    {
+        set_status_message("SSID is not set");
         return false;
     }
 
-    constexpr int kConnectTimeoutMs = 15000;
-    constexpr int kPollMs = 100;
-    int waited_ms = 0;
-    while (waited_ms < kConnectTimeoutMs)
+    if (s_runtime.connected || s_runtime.connecting)
     {
-        if (s_runtime.connected)
-        {
-            refresh_runtime_status_message();
-            return true;
-        }
-        vTaskDelay(pdMS_TO_TICKS(kPollMs));
-        waited_ms += kPollMs;
+        return true;
     }
 
-    s_runtime.connecting = false;
-    set_status_message("Wi-Fi connect timeout");
+    // Automatic connection is event-driven. The old blocking scan and
+    // 15-second wait ran in the LVGL owner and made resource deferral look
+    // like a bad profile.
+    const std::size_t index =
+        s_runtime.next_profile_index % s_runtime.profile_count;
+    Config candidate = s_runtime.profiles[index];
+    candidate.enabled = config.enabled;
+    std::printf("[WiFi] auto connect profile index=%u/%u ssid=%s\n",
+                static_cast<unsigned>(index + 1U),
+                static_cast<unsigned>(s_runtime.profile_count),
+                candidate.ssid);
+    const ConnectStartResult result = connect_single_profile(candidate);
+    if (result == ConnectStartResult::Started)
+    {
+        return true;
+    }
+    if (result == ConnectStartResult::DeferredForResources)
+    {
+        std::printf("[WiFi] auto connect deferred profile index=%u/%u reason=resources\n",
+                    static_cast<unsigned>(index + 1U),
+                    static_cast<unsigned>(s_runtime.profile_count));
+        return false;
+    }
+    s_runtime.next_profile_index = (index + 1U) % s_runtime.profile_count;
+    std::printf("[WiFi] auto connect profile failed index=%u/%u next=%u\n",
+                static_cast<unsigned>(index + 1U),
+                static_cast<unsigned>(s_runtime.profile_count),
+                static_cast<unsigned>(s_runtime.next_profile_index + 1U));
     return false;
 }
 
@@ -781,9 +1466,9 @@ void disconnect()
     refresh_runtime_status_message();
 }
 
-bool scan(std::vector<ScanResult>& out_results)
+bool scan(ScanResult* out_results, std::size_t capacity, std::size_t& out_count)
 {
-    out_results.clear();
+    out_count = 0;
 
     Config config{};
     (void)load_config(config);
@@ -817,42 +1502,27 @@ bool scan(std::vector<ScanResult>& out_results)
         return true;
     }
 
-    std::vector<wifi_ap_record_t> records(ap_count);
-    if (esp_wifi_scan_get_ap_records(&ap_count, records.data()) != ESP_OK)
+    uint16_t record_count = std::min<uint16_t>(ap_count, kWifiAutoScanMaxRecords);
+    for (wifi_ap_record_t& record : s_runtime.auto_scan_records)
+    {
+        record = wifi_ap_record_t{};
+    }
+    if (esp_wifi_scan_get_ap_records(&record_count, s_runtime.auto_scan_records) != ESP_OK)
     {
         set_status_message("Read scan results failed");
         return false;
     }
 
-    out_results.reserve(ap_count);
-    for (const wifi_ap_record_t& record : records)
+    for (uint16_t i = 0; i < record_count; ++i)
     {
-        if (record.ssid[0] == 0)
-        {
-            continue;
-        }
-
-        ScanResult result{};
-        copy_bounded(result.ssid,
-                     sizeof(result.ssid),
-                     reinterpret_cast<const char*>(record.ssid));
-        result.rssi = record.rssi;
-        result.requires_password = record.authmode != WIFI_AUTH_OPEN;
-        out_results.push_back(result);
+        insert_scan_result_sorted(out_results, capacity, out_count, s_runtime.auto_scan_records[i]);
     }
-
-    std::sort(out_results.begin(),
-              out_results.end(),
-              [](const ScanResult& lhs, const ScanResult& rhs)
-              {
-                  return lhs.rssi > rhs.rssi;
-              });
 
     char buffer[kMaxStatusMessageLength + 1];
     std::snprintf(buffer,
                   sizeof(buffer),
                   "Found %u networks",
-                  static_cast<unsigned>(out_results.size()));
+                  static_cast<unsigned>(out_count));
     set_status_message(buffer);
     return true;
 }
@@ -897,6 +1567,15 @@ Status status()
     {
         out.state = ConnectionState::Connecting;
         copy_bounded(out.message, sizeof(out.message), "Connecting...");
+        return out;
+    }
+
+    if (s_runtime.connect_deferred_for_resources)
+    {
+        out.state = ConnectionState::ResourceDeferred;
+        copy_bounded(out.message,
+                     sizeof(out.message),
+                     "Wi-Fi waiting for memory");
         return out;
     }
 

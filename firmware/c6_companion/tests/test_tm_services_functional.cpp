@@ -193,6 +193,17 @@ int main()
     assert(g_last_frame.frame_type == TM_C6_FRAME_WIFI_EVENT);
     assert(g_last_frame.channel == TM_C6_CH_WIFI_MGMT);
 
+    reset_capture();
+    tm_c6_wifi_time_sync_t time_sync{};
+    time_sync.epoch_seconds = 1700000000;
+    time_sync.error_code = TM_C6_OK;
+    std::memcpy(time_sync.source, "c6_wifi_sntp", 12);
+    assert(tm_services_send_wifi_time_sync(&time_sync));
+    assert(g_send_count == 1);
+    assert(g_last_frame.frame_type == TM_C6_FRAME_WIFI_TIME_SYNC);
+    assert(g_last_frame.channel == TM_C6_CH_WIFI_MGMT);
+    assert(g_last_frame.payload_len == sizeof(tm_c6_wifi_time_sync_t));
+
     tm_c6_diag_report_t diag{};
     tm_services_note_ble_downlink();
     tm_services_note_espnow_tx();

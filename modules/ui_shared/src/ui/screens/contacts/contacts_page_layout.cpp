@@ -15,6 +15,7 @@
 #include "ui/components/two_pane_layout.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
+#include "ui/screens/contacts/contacts_filter_profile.h"
 
 using namespace contacts::ui;
 
@@ -29,19 +30,76 @@ namespace layout
 static constexpr int kButtonSpacing = 3;
 static constexpr int kPanelGap = 3; // Gap between filter and list columns
 
+static lv_obj_t* create_filter_button(lv_obj_t* parent, const char* label)
+{
+    const auto& profile = ::ui::page_profile::current();
+    lv_obj_t* btn = lv_btn_create(parent);
+    lv_obj_set_size(btn, LV_PCT(100), profile.filter_button_height);
+    ::ui::components::two_pane_layout::make_non_scrollable(btn);
+    style::apply_btn_filter(btn);
+
+    lv_obj_t* text = lv_label_create(btn);
+    ::ui::i18n::set_label_text(text, label);
+    style::apply_label_primary(text);
+    lv_obj_center(text);
+    return btn;
+}
+
 bool is_dense_profile()
 {
     return ::ui::page_profile::current().filter_button_height <= 24;
 }
 
-lv_coord_t dense_protocol_width()
-{
-    return 28;
-}
-
 lv_coord_t dense_status_width()
 {
     return 52;
+}
+
+static bool same_text(const std::string& lhs, const char* rhs)
+{
+    return rhs && lhs == rhs;
+}
+
+std::string preferred_node_display_name(const chat::contacts::PeerDirectoryItem& node)
+{
+    const bool reticulum_node =
+        node.protocol == chat::contacts::NodeProtocolType::Reticulum ||
+        chat::hasReticulumDestinationIdentity(node.reticulum_identity);
+    if (reticulum_node)
+    {
+        if (node.long_name[0] != '\0' && !same_text(node.long_name, node.short_name))
+        {
+            return node.long_name;
+        }
+        if (!node.display_name.empty() && !same_text(node.display_name, node.short_name))
+        {
+            return node.display_name;
+        }
+    }
+
+    if (node.is_contact && !node.display_name.empty())
+    {
+        return node.display_name;
+    }
+
+    const bool display_is_short = same_text(node.display_name, node.short_name);
+    if (!node.display_name.empty() && !display_is_short)
+    {
+        return node.display_name;
+    }
+    if (node.long_name[0] != '\0')
+    {
+        return node.long_name;
+    }
+    if (!node.display_name.empty())
+    {
+        return node.display_name;
+    }
+    if (node.short_name[0] != '\0')
+    {
+        return node.short_name;
+    }
+    return "--";
 }
 
 void apply_single_line(lv_obj_t* label)
@@ -52,35 +110,6 @@ void apply_single_line(lv_obj_t* label)
     }
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_font(label, ::ui::page_profile::resolve_body_font(), 0);
-}
-
-const char* node_protocol_short_label(chat::contacts::NodeProtocolType protocol)
-{
-    switch (protocol)
-    {
-    case chat::contacts::NodeProtocolType::LXMF:
-        return "LX";
-    case chat::contacts::NodeProtocolType::RNode:
-        return "RN";
-    case chat::contacts::NodeProtocolType::MeshCore:
-        return "MC";
-    case chat::contacts::NodeProtocolType::Meshtastic:
-        return "MT";
-    default:
-        return "";
-    }
-}
-
-bool should_prefix_node_protocol(ContactsMode mode,
-                                 chat::contacts::NodeProtocolType protocol)
-{
-    if (protocol == chat::contacts::NodeProtocolType::Unknown)
-    {
-        return false;
-    }
-    return mode == ContactsMode::Contacts ||
-           mode == ContactsMode::Nearby ||
-           mode == ContactsMode::Ignored;
 }
 
 lv_obj_t* create_root(lv_obj_t* parent)
@@ -130,6 +159,7 @@ lv_obj_t* create_content(lv_obj_t* root)
 void create_filter_panel(lv_obj_t* parent)
 {
     const auto& profile = ::ui::page_profile::current();
+    const bool reticulum_profile = uses_reticulum_filter_profile();
     ::ui::components::two_pane_layout::SidePanelSpec panel_spec;
     panel_spec.width = profile.filter_panel_width;
     panel_spec.pad_row = profile.filter_panel_pad_row > 0 ? profile.filter_panel_pad_row : kButtonSpacing;
@@ -139,62 +169,31 @@ void create_filter_panel(lv_obj_t* parent)
 
     style::apply_panel_side(g_contacts_state.filter_panel);
 
-    g_contacts_state.contacts_btn = lv_btn_create(g_contacts_state.filter_panel);
-    lv_obj_set_size(g_contacts_state.contacts_btn, LV_PCT(100), profile.filter_button_height);
-    ::ui::components::two_pane_layout::make_non_scrollable(g_contacts_state.contacts_btn);
-    style::apply_btn_filter(g_contacts_state.contacts_btn);
-    lv_obj_t* contacts_label = lv_label_create(g_contacts_state.contacts_btn);
-    ::ui::i18n::set_label_text(contacts_label, "Contacts");
-    style::apply_label_primary(contacts_label);
-    lv_obj_center(contacts_label);
+    g_contacts_state.contacts_btn = create_filter_button(g_contacts_state.filter_panel, "Contacts");
+    g_contacts_state.nearby_btn = create_filter_button(
+        g_contacts_state.filter_panel,
+        reticulum_profile ? "Announced" : "Nearby");
 
-    g_contacts_state.nearby_btn = lv_btn_create(g_contacts_state.filter_panel);
-    lv_obj_set_size(g_contacts_state.nearby_btn, LV_PCT(100), profile.filter_button_height);
-    ::ui::components::two_pane_layout::make_non_scrollable(g_contacts_state.nearby_btn);
-    style::apply_btn_filter(g_contacts_state.nearby_btn);
-    lv_obj_t* nearby_label = lv_label_create(g_contacts_state.nearby_btn);
-    ::ui::i18n::set_label_text(nearby_label, "Nearby");
-    style::apply_label_primary(nearby_label);
-    lv_obj_center(nearby_label);
+    if (reticulum_profile)
+    {
+        g_contacts_state.groups_btn = create_filter_button(g_contacts_state.filter_panel, "Groups");
+        g_contacts_state.ignored_btn = create_filter_button(g_contacts_state.filter_panel, "Ignored");
+        g_contacts_state.broadcast_btn = nullptr;
+        g_contacts_state.discover_btn = nullptr;
 
-    g_contacts_state.ignored_btn = lv_btn_create(g_contacts_state.filter_panel);
-    lv_obj_set_size(g_contacts_state.ignored_btn, LV_PCT(100), profile.filter_button_height);
-    ::ui::components::two_pane_layout::make_non_scrollable(g_contacts_state.ignored_btn);
-    style::apply_btn_filter(g_contacts_state.ignored_btn);
-    lv_obj_t* ignored_label = lv_label_create(g_contacts_state.ignored_btn);
-    ::ui::i18n::set_label_text(ignored_label, "Ignored");
-    style::apply_label_primary(ignored_label);
-    lv_obj_center(ignored_label);
+        g_contacts_state.team_btn = create_filter_button(g_contacts_state.filter_panel, "Team");
+        lv_obj_add_flag(g_contacts_state.team_btn, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
 
-    g_contacts_state.broadcast_btn = lv_btn_create(g_contacts_state.filter_panel);
-    lv_obj_set_size(g_contacts_state.broadcast_btn, LV_PCT(100), profile.filter_button_height);
-    ::ui::components::two_pane_layout::make_non_scrollable(g_contacts_state.broadcast_btn);
-    style::apply_btn_filter(g_contacts_state.broadcast_btn);
-    lv_obj_t* broadcast_label = lv_label_create(g_contacts_state.broadcast_btn);
-    ::ui::i18n::set_label_text(broadcast_label, "Broadcast");
-    style::apply_label_primary(broadcast_label);
-    lv_obj_center(broadcast_label);
-
-    g_contacts_state.team_btn = lv_btn_create(g_contacts_state.filter_panel);
-    lv_obj_set_size(g_contacts_state.team_btn, LV_PCT(100), profile.filter_button_height);
-    ::ui::components::two_pane_layout::make_non_scrollable(g_contacts_state.team_btn);
-    style::apply_btn_filter(g_contacts_state.team_btn);
-    lv_obj_t* team_label = lv_label_create(g_contacts_state.team_btn);
-    ::ui::i18n::set_label_text(team_label, "Team");
-    style::apply_label_primary(team_label);
-    lv_obj_center(team_label);
+    g_contacts_state.groups_btn = nullptr;
+    g_contacts_state.ignored_btn = create_filter_button(g_contacts_state.filter_panel, "Ignored");
+    g_contacts_state.broadcast_btn = create_filter_button(g_contacts_state.filter_panel, "Broadcast");
+    g_contacts_state.team_btn = create_filter_button(g_contacts_state.filter_panel, "Team");
     lv_obj_add_flag(g_contacts_state.team_btn, LV_OBJ_FLAG_HIDDEN);
 
-    g_contacts_state.discover_btn = lv_btn_create(g_contacts_state.filter_panel);
-    lv_obj_set_size(g_contacts_state.discover_btn, LV_PCT(100), profile.filter_button_height);
-    ::ui::components::two_pane_layout::make_non_scrollable(g_contacts_state.discover_btn);
-    style::apply_btn_filter(g_contacts_state.discover_btn);
-    lv_obj_t* discover_label = lv_label_create(g_contacts_state.discover_btn);
-    ::ui::i18n::set_label_text(discover_label, "Discover");
-    style::apply_label_primary(discover_label);
-    lv_obj_center(discover_label);
-
-    if (app::appFacade().getConfig().mesh_protocol != chat::MeshProtocol::MeshCore)
+    g_contacts_state.discover_btn = create_filter_button(g_contacts_state.filter_panel, "Discover");
+    if (!uses_meshcore_filter_profile())
     {
         lv_obj_add_flag(g_contacts_state.discover_btn, LV_OBJ_FLAG_HIDDEN);
     }
@@ -252,8 +251,8 @@ void ensure_list_subcontainers()
 }
 
 lv_obj_t* create_list_item(lv_obj_t* parent,
-                           const chat::contacts::NodeInfo& node,
-                           ContactsMode mode,
+                           const chat::contacts::PeerDirectoryItem& node,
+                           ContactsMode,
                            const char* status_text)
 {
     const auto& profile = ::ui::page_profile::current();
@@ -271,21 +270,7 @@ lv_obj_t* create_list_item(lv_obj_t* parent,
 
     style::apply_list_item(item);
 
-    std::string display_name;
-    if (node.long_name[0] != '\0')
-    {
-        display_name = node.long_name;
-    }
-    else if (!node.display_name.empty())
-    {
-        display_name = node.display_name;
-    }
-    else
-    {
-        display_name = node.short_name;
-    }
-    const bool show_protocol = should_prefix_node_protocol(mode, node.protocol);
-    const char* proto = show_protocol ? node_protocol_short_label(node.protocol) : "";
+    std::string display_name = preferred_node_display_name(node);
 
     if (::ui::components::info_card::use_tdeck_layout())
     {
@@ -309,17 +294,6 @@ lv_obj_t* create_list_item(lv_obj_t* parent,
             lv_obj_set_style_pad_right(item, 4, LV_PART_MAIN);
             lv_obj_set_style_pad_column(item, 3, LV_PART_MAIN);
 
-            if (proto[0] != '\0')
-            {
-                lv_obj_t* proto_label = lv_label_create(item);
-                std::string proto_text = "[" + std::string(proto) + "]";
-                ::ui::i18n::set_label_text_raw(proto_label, proto_text.c_str());
-                style::apply_label_muted(proto_label);
-                lv_obj_set_width(proto_label, dense_protocol_width());
-                lv_obj_set_style_text_align(proto_label, LV_TEXT_ALIGN_LEFT, 0);
-                lv_obj_set_style_text_font(proto_label, ::ui::page_profile::resolve_caption_font(), 0);
-            }
-
             lv_obj_t* name_label = lv_label_create(item);
             ::ui::i18n::set_content_label_text_raw(name_label, display_name.c_str());
             lv_obj_set_width(name_label, 0);
@@ -336,11 +310,6 @@ lv_obj_t* create_list_item(lv_obj_t* parent,
         }
         else
         {
-            if (proto[0] != '\0')
-            {
-                display_name = "[" + std::string(proto) + "] " + display_name;
-            }
-
             lv_obj_t* name_label = lv_label_create(item);
             ::ui::i18n::set_content_label_text_raw(name_label, display_name.c_str());
             lv_obj_align(name_label, LV_ALIGN_LEFT_MID, 10, 0);

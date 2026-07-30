@@ -524,6 +524,38 @@ bool MeshCoreRadioAdapter::executeProtocolEffect(const ::chat::runtime::Protocol
             else if constexpr (std::is_same_v<Effect, ::chat::runtime::UpdatePeerRouteEffect>)
             {
                 ok = item.protocol == ::chat::MeshProtocol::MeshCore;
+                if (ok && contact_service_ &&
+                    item.public_key.size() ==
+                        ::chat::kMeshPeerMeshCorePublicKeyLen)
+                {
+                    peer_record_scratch_ = {};
+                    peer_record_scratch_.valid = true;
+                    if (::chat::makeMeshPeerPublicKeyIdentity(
+                            ::chat::MeshProtocol::MeshCore,
+                            item.public_key.data(),
+                            item.public_key.size(),
+                            peer_record_scratch_.identity))
+                    {
+                        peer_record_scratch_.source =
+                            ::chat::MeshPeerSource::RuntimeRx;
+                        peer_record_scratch_.last_seen_s =
+                            ::chat::now_epoch_seconds();
+                        peer_record_scratch_.meshcore.has_public_key = true;
+                        std::memcpy(
+                            peer_record_scratch_.meshcore.public_key,
+                            item.public_key.data(),
+                            ::chat::kMeshPeerMeshCorePublicKeyLen);
+                        peer_record_scratch_.meshcore.public_key_verified =
+                            item.public_key_verified;
+                        peer_record_scratch_.meshcore.node_id_hint = item.peer;
+                        peer_record_scratch_.meshcore.has_peer_hash = true;
+                        peer_record_scratch_.meshcore.peer_hash = item.peer_hash;
+                        peer_record_scratch_.meshcore.has_next_hop = true;
+                        peer_record_scratch_.meshcore.next_hop = item.next_hop;
+                        ok = contact_service_->recordPeer(
+                            peer_record_scratch_);
+                    }
+                }
             }
             else if constexpr (std::is_same_v<Effect, ::chat::runtime::EmitActionResultEffect>)
             {
@@ -542,7 +574,10 @@ bool MeshCoreRadioAdapter::executeProtocolEffect(const ::chat::runtime::Protocol
                                       static_cast<long>(item.detail));
                         forgetLocalTextAck(item.request_id);
                         sys::EventBus::publish(
-                            new sys::ChatSendResultEvent(item.message_id, true),
+                            new sys::ChatSendResultEvent(
+                                item.message_id,
+                                ::chat::MessageStatus::Delivered,
+                                ::chat::MeshProtocol::MeshCore),
                             0);
                     }
                     else if (is_text_ack &&
@@ -557,7 +592,11 @@ bool MeshCoreRadioAdapter::executeProtocolEffect(const ::chat::runtime::Protocol
                                       static_cast<long>(item.detail));
                         forgetLocalTextAck(item.request_id);
                         sys::EventBus::publish(
-                            new sys::ChatSendResultEvent(item.message_id, false),
+                            new sys::ChatSendResultEvent(
+                                item.message_id,
+                                ::chat::MessageStatus::Failed,
+                                ::chat::MeshProtocol::MeshCore,
+                                ::chat::delivery::SendFailureKind::AckTimeout),
                             0);
                     }
                     ok = item.state != ::chat::runtime::ProtocolActionState::Failed &&
@@ -968,6 +1007,25 @@ void MeshCoreRadioAdapter::handleRawPacket(const uint8_t* data, size_t size)
                                                          ::chat::meshcore::kMeshCorePubKeySize);
             if (advert_node != 0 && advert_node != node_id_ && contact_service_)
             {
+                peer_record_scratch_ = {};
+                peer_record_scratch_.valid = true;
+                if (::chat::makeMeshPeerPublicKeyIdentity(
+                        ::chat::MeshProtocol::MeshCore,
+                        pubkey,
+                        ::chat::meshcore::kMeshCorePubKeySize,
+                        peer_record_scratch_.identity))
+                {
+                    peer_record_scratch_.source =
+                        ::chat::MeshPeerSource::RuntimeRx;
+                    peer_record_scratch_.last_seen_s =
+                        ::chat::now_epoch_seconds();
+                    peer_record_scratch_.meshcore.has_public_key = true;
+                    std::memcpy(peer_record_scratch_.meshcore.public_key,
+                                pubkey,
+                                ::chat::meshcore::kMeshCorePubKeySize);
+                    peer_record_scratch_.meshcore.node_id_hint = advert_node;
+                    (void)contact_service_->recordPeer(peer_record_scratch_);
+                }
                 ::chat::contacts::NodeUpdate update{};
                 if (advert.has_name)
                 {

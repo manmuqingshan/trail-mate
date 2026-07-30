@@ -8,6 +8,8 @@
 #include "platform/esp/arduino_common/memory_diag.h"
 #include "ui/ui_boot.h"
 
+#include <cstdio>
+
 namespace platform::esp::arduino_common
 {
 
@@ -32,9 +34,9 @@ bool bootstrapAppContext(app::AppContext& app_context,
 
     memory_diag::logHeapSnapshot("bootstrap.after_app_context_init");
     app::bindAppFacade(app_context);
-    ui::boot::set_log_line("Starting BLE...");
+    ui::boot::set_log_line("Preparing mesh services...");
     app_context.attachBleManager(platform::esp::arduino_common::createBleManager(app_context));
-    memory_diag::logHeapSnapshot("bootstrap.after_ble_manager");
+    memory_diag::logHeapSnapshot("bootstrap.after_mesh_services");
     app_context.attachEventRuntimeHooks(platform::esp::arduino_common::makeAppEventRuntimeHooks());
     memory_diag::logHeapSnapshot("bootstrap.after_event_hooks");
     result.app_context_bound = true;
@@ -43,6 +45,11 @@ bool bootstrapAppContext(app::AppContext& app_context,
                                                                                   app_context.getMeshAdapter());
     memory_diag::logHeapSnapshot("bootstrap.after_background_tasks");
     memory_diag::logTaskSnapshot("bootstrap.after_background_tasks");
+    if (result.background_tasks == BackgroundTaskStartResult::Started)
+    {
+        std::printf("[APP] Startup self identity broadcast requested\n");
+        app_context.broadcastNodeInfo();
+    }
 
     if (out_result)
     {

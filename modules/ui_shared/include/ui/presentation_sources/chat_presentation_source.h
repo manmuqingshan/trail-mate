@@ -28,7 +28,8 @@ class ChatPresentationSource final : public ui::chat::IChatPresentationSource
     ChatPresentationSource(::chat::ChatService& chat_service,
                            ::chat::contacts::ContactService* contact_service = nullptr,
                            const ::chat::delivery::ChatDeliveryReadModel*
-                               delivery_read_model = nullptr);
+                               delivery_read_model = nullptr,
+                           const ::chat::IMeshAdapter* mesh_adapter = nullptr);
 
     bool buildChatWorkspaceSnapshot(
         const ui::chat::ChatWorkspaceRequest& request,
@@ -38,6 +39,7 @@ class ChatPresentationSource final : public ui::chat::IChatPresentationSource
     ::chat::ChatService& chat_service_;
     ::chat::contacts::ContactService* contact_service_ = nullptr;
     const ::chat::delivery::ChatDeliveryReadModel* delivery_read_model_ = nullptr;
+    const ::chat::IMeshAdapter* mesh_adapter_ = nullptr;
 };
 
 } // namespace ui::presentation_sources

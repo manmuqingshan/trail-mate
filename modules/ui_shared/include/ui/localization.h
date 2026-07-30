@@ -44,6 +44,7 @@ const lv_font_t* active_ui_font_fallback();
 const lv_font_t* active_content_font_fallback();
 const lv_font_t* locale_preview_font(const char* locale_id, const lv_font_t* ascii_font = nullptr);
 bool ensure_content_font_for_text(const char* text);
+bool prepare_content_font_for_text(const char* text, bool force_overlay = true);
 void log_direct_text_route(const char* owner, const void* label, const char* text);
 std::size_t ime_count();
 const ImeInfo* ime_at(std::size_t index);

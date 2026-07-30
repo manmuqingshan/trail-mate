@@ -8,6 +8,7 @@
 #include "chat/domain/contact_types.h"
 #include "lvgl.h"
 #include "ui/components/air_status_footer.h"
+#include "ui/components/floating_search_box.h"
 #include "ui/widgets/top_bar.h"
 #include <vector>
 
@@ -43,10 +44,12 @@ enum class ContactsMode
 {
     Contacts,  // Show contacts (nodes with nicknames)
     Nearby,    // Show nearby nodes (nodes without nicknames)
+    Groups,    // Show Reticulum group destinations
     Ignored,   // Show ignored nodes so they can be managed/unignored
     Broadcast, // Show broadcast channels
     Team,      // Show team (if joined)
-    Discover   // Show MeshCore discover actions
+    Discover,  // Show MeshCore discover actions
+    Public     // Show Reticulum plain/public destinations
 };
 
 struct ContactsPageState
@@ -61,6 +64,7 @@ struct ContactsPageState
     lv_obj_t* filter_panel = nullptr;
     lv_obj_t* contacts_btn = nullptr;
     lv_obj_t* nearby_btn = nullptr;
+    lv_obj_t* groups_btn = nullptr;
     lv_obj_t* ignored_btn = nullptr;
     lv_obj_t* broadcast_btn = nullptr;
     lv_obj_t* team_btn = nullptr;
@@ -71,6 +75,7 @@ struct ContactsPageState
     lv_obj_t* sub_container = nullptr;    // Scrollable list content container
     lv_obj_t* bottom_container = nullptr; // Auxiliary bottom row for non-scroll modes
     std::vector<lv_obj_t*> list_items;    // Currently visible list rows
+    lv_obj_t* empty_label = nullptr;      // Non-focusable empty/search result hint
     lv_obj_t* prev_btn = nullptr;         // Optional pager button
     lv_obj_t* next_btn = nullptr;         // Optional pager button
     lv_obj_t* back_btn = nullptr;         // Bottom-row back button for non-scroll modes
@@ -81,19 +86,41 @@ struct ContactsPageState
     int selected_index = -1; // Selected item in list
     int current_page = 0;    // Current page (0-based)
     size_t total_items = 0;  // Total items in current mode
+    bool rendered_mode_valid = false;
+    ContactsMode rendered_mode = ContactsMode::Contacts;
+    char rendered_search_query[32] = {};
+    bool filter_panel_visible = true;
+    uint32_t contacts_data_signature = 0;
+    uint32_t contacts_data_revision = 0;
+    uint32_t rendered_data_revision = 0;
+    bool contacts_data_signature_valid = false;
+    // True until the platform finishes the initial durable peer-directory hydration.
+    // This keeps an empty startup cache distinct from a real empty contacts list.
+    bool contacts_data_hydration_pending = false;
+    ContactsMode focused_filter_mode = ContactsMode::Contacts;
+    bool focused_filter_mode_valid = false;
 
     // Data (using forward declaration, full type in .cpp)
-    std::vector<chat::contacts::NodeInfo> contacts_list;
-    std::vector<chat::contacts::NodeInfo> nearby_list;
-    std::vector<chat::contacts::NodeInfo> ignored_list;
+    std::vector<chat::contacts::PeerDirectoryItem> contacts_list;
+    std::vector<chat::contacts::PeerDirectoryItem> nearby_list;
+    std::vector<chat::contacts::PeerDirectoryItem> reticulum_group_list;
+    std::vector<chat::contacts::PeerDirectoryItem> ignored_list;
+    std::vector<chat::contacts::PeerDirectoryItem> display_list;
+    char search_query[32] = {};
 
     // Timers
     lv_timer_t* refresh_timer = nullptr;
 
     // Modal windows
+    ::ui::components::floating_search_box::State search_box;
+    ::ui::components::floating_search_box::State lxmf_address_box;
     lv_obj_t* add_edit_modal = nullptr;
     lv_obj_t* add_edit_textarea = nullptr;
     lv_obj_t* add_edit_error_label = nullptr;
+    lv_obj_t* reticulum_group_modal = nullptr;
+    lv_obj_t* reticulum_group_name_textarea = nullptr;
+    lv_obj_t* reticulum_group_destination_textarea = nullptr;
+    lv_obj_t* reticulum_group_error_label = nullptr;
     lv_obj_t* del_confirm_modal = nullptr;
     lv_obj_t* action_menu_modal = nullptr;
     lv_obj_t* discover_modal = nullptr;
@@ -101,6 +128,11 @@ struct ContactsPageState
     lv_group_t* prev_group = nullptr;
     uint32_t modal_node_id = 0;
     bool modal_is_edit = false;
+    bool reticulum_group_storage_supported = false;
+    bool reticulum_group_storage_ready = false;
+    bool reticulum_group_storage_loaded = false;
+    char reticulum_group_storage_message[96] = {};
+    char reticulum_group_storage_detail[128] = {};
     lv_timer_t* discover_scan_timer = nullptr;
     size_t discover_scan_start_nearby = 0;
 
@@ -114,6 +146,7 @@ struct ContactsPageState
     lv_obj_t* node_info_root = nullptr;
     lv_group_t* node_info_group = nullptr;
     lv_group_t* node_info_prev_group = nullptr;
+    bool reticulum_node_info_active = false;
 
     // Services (owned by AppContext)
     chat::contacts::ContactService* contact_service = nullptr;

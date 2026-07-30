@@ -6,6 +6,9 @@
 #pragma once
 
 #include "../domain/chat_types.h"
+
+#include <algorithm>
+#include <cstddef>
 #include <vector>
 
 namespace chat
@@ -21,10 +24,46 @@ class IChatStore
     virtual ~IChatStore() = default;
 
     /**
+     * Report whether the store's authoritative in-memory view is available.
+     *
+     * This is a logical data-availability contract. It does not expose a
+     * device session, bus ownership, or a lock state to callers.
+     *
+     * Volatile stores are ready by default. Persistent stores return false
+     * until their maintenance-owned hydration has completed.
+     */
+    virtual bool isReady() const { return true; }
+
+    /**
      * @brief Append message to storage
      * @param msg Message to append
      */
     virtual void append(const ChatMessage& msg) = 0;
+
+    /**
+     * Append a message and report whether its authoritative record is durable.
+     *
+     * In-memory stores cannot fail independently and may inherit this default.
+     * Persistent stores override it so the message ledger can defer transient
+     * storage failures without inventing a second UI or protocol path.
+     */
+    virtual bool appendDurably(const ChatMessage& msg)
+    {
+        append(msg);
+        return true;
+    }
+
+    /**
+     * Persist an incoming message and any durable delivery identity it owns.
+     *
+     * Stores that cannot fail independently may inherit this implementation.
+     * Persistent stores should override it and return false unless both the
+     * message and its deduplication identity are durable.
+     */
+    virtual bool appendIncomingDurably(const ChatMessage& msg)
+    {
+        return appendDurably(msg);
+    }
 
     /**
      * @brief Load recent messages for a conversation
@@ -33,6 +72,45 @@ class IChatStore
      * @return Vector of messages (oldest first)
      */
     virtual std::vector<ChatMessage> loadRecent(const ConversationId& conv, size_t n) = 0;
+
+    /**
+     * @brief Load one message page counted backwards from the newest message
+     * @param conv Conversation ID
+     * @param offset_from_latest Number of newer messages to skip (0 means newest page)
+     * @param limit Max messages to return
+     * @param total Optional total message count for the conversation
+     * @return Vector of messages in chronological order (oldest first)
+     */
+    virtual std::vector<ChatMessage> loadPageFromLatest(const ConversationId& conv,
+                                                        size_t offset_from_latest,
+                                                        size_t limit,
+                                                        size_t* total)
+    {
+        if (limit == 0)
+        {
+            if (total)
+            {
+                *total = 0;
+            }
+            return {};
+        }
+
+        const size_t window_limit = offset_from_latest + limit;
+        std::vector<ChatMessage> window = loadRecent(conv, window_limit);
+        if (total)
+        {
+            *total = window.size();
+        }
+        if (offset_from_latest >= window.size())
+        {
+            return {};
+        }
+
+        const size_t end = window.size() - offset_from_latest;
+        const size_t start = (end > limit) ? (end - limit) : 0;
+        return std::vector<ChatMessage>(window.begin() + static_cast<long>(start),
+                                        window.begin() + static_cast<long>(end));
+    }
 
     /**
      * @brief Load conversation list metadata
@@ -46,11 +124,58 @@ class IChatStore
                                                                size_t* total) = 0;
 
     /**
+     * Load conversations owned by one product protocol partition.
+     *
+     * Stores with physical protocol partitions override this method. The
+     * default keeps non-persistent stores source-compatible while ensuring the
+     * application query, rather than the UI, owns protocol filtering.
+     */
+    virtual std::vector<ConversationMeta> loadConversationPageForProtocol(
+        MeshProtocol protocol,
+        size_t offset,
+        size_t limit,
+        size_t* total)
+    {
+        const MeshProtocol normalized =
+            protocol == MeshProtocol::RNode ? MeshProtocol::Reticulum : protocol;
+        size_t all_total = 0;
+        std::vector<ConversationMeta> all =
+            loadConversationPage(0, 0, &all_total);
+        std::vector<ConversationMeta> filtered;
+        filtered.reserve(all.size());
+        for (const ConversationMeta& meta : all)
+        {
+            const MeshProtocol item_protocol =
+                meta.id.protocol == MeshProtocol::RNode
+                    ? MeshProtocol::Reticulum
+                    : meta.id.protocol;
+            if (item_protocol == normalized)
+            {
+                filtered.push_back(meta);
+            }
+        }
+        if (total)
+        {
+            *total = filtered.size();
+        }
+        if (offset >= filtered.size())
+        {
+            return {};
+        }
+        const size_t end =
+            limit == 0 ? filtered.size()
+                       : std::min(filtered.size(), offset + limit);
+        return std::vector<ConversationMeta>(
+            filtered.begin() + static_cast<std::ptrdiff_t>(offset),
+            filtered.begin() + static_cast<std::ptrdiff_t>(end));
+    }
+
+    /**
      * @brief Set unread count for conversation
      * @param conv Conversation ID
      * @param unread Unread count
      */
-    virtual void setUnread(const ConversationId& conv, int unread) = 0;
+    virtual bool setUnread(const ConversationId& conv, int unread) = 0;
 
     /**
      * @brief Get unread count for conversation
@@ -77,6 +202,15 @@ class IChatStore
      * @return true if updated
      */
     virtual bool updateMessageStatus(MessageId msg_id, MessageStatus status) = 0;
+    virtual bool updateMessageStatusForProtocol(MessageId msg_id,
+                                                MeshProtocol protocol,
+                                                MessageStatus status)
+    {
+        (void)msg_id;
+        (void)protocol;
+        (void)status;
+        return false;
+    }
 
     /**
      * @brief Look up a stored message by message ID
@@ -85,6 +219,27 @@ class IChatStore
      * @return true if found
      */
     virtual bool getMessage(MessageId msg_id, ChatMessage* out) const = 0;
+    virtual bool getMessageForProtocol(MessageId msg_id,
+                                       MeshProtocol protocol,
+                                       ChatMessage* out) const
+    {
+        (void)msg_id;
+        (void)protocol;
+        (void)out;
+        return false;
+    }
+
+    /**
+     * @brief Check whether an LXMF message hash has already been stored.
+     *
+     * The default implementation returns false for stores that do not maintain
+     * Reticulum/LXMF durable identity state.
+     */
+    virtual bool hasReticulumLxmfMessageHash(const uint8_t* lxmf_hash) const
+    {
+        (void)lxmf_hash;
+        return false;
+    }
 
     /**
      * @brief Flush pending buffered writes to persistent storage

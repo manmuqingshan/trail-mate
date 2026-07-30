@@ -21,6 +21,30 @@ inline void initializeBoard(bool waking_from_sleep)
     }
 }
 
+inline void initializeBoardDisplayHardware(bool waking_from_sleep)
+{
+#if HAS_GPS
+    ::boards::tlora_pager::instance.beginDisplayHardware(NO_HW_SD);
+#else
+    ::boards::tlora_pager::instance.beginDisplayHardware(NO_HW_GPS | NO_HW_SD);
+#endif
+
+    if (waking_from_sleep)
+    {
+        ::boards::tlora_pager::instance.wakeUp();
+    }
+}
+
+inline void initializeBoardServices(bool waking_from_sleep)
+{
+    (void)waking_from_sleep;
+#if HAS_GPS
+    ::boards::tlora_pager::instance.beginServices(NO_HW_SD);
+#else
+    ::boards::tlora_pager::instance.beginServices(NO_HW_GPS | NO_HW_SD);
+#endif
+}
+
 inline void initializeDisplay()
 {
     beginLvglHelper(static_cast<LilyGo_Display&>(::boards::tlora_pager::instance));

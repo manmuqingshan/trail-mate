@@ -76,7 +76,7 @@ int main(int argc, char** argv)
     assert(contains(cardputer_ux, "ScreenId::SkyPlot"));
     assert(contains(cardputer_ux, "\"Sky Plot\""));
     assert(contains(cardputer_ux, "ScreenId::Extensions"));
-    assert(not_contains(cardputer_ux, "ScreenId::PcLink"));
+    assert(not_contains(cardputer_ux, "pc_link"));
     assert(not_contains(cardputer_ux, "ScreenId::EnergySweep"));
     assert(not_contains(cardputer_ux, "ScreenId::Sstv"));
     assert(not_contains(cardputer_ux, "ScreenId::Gps"));
@@ -158,6 +158,23 @@ int main(int argc, char** argv)
     assert(contains(linux_sources_cmake, "TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/ble_topbar.c"));
     assert(not_contains(linux_sources_cmake, "TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/ui/ui_status.cpp"));
 
+    const std::string menu_runtime = read_file(
+        repo_root / "modules/ui_shared/src/ui/menu/menu_runtime.cpp");
+    assert(contains(menu_runtime, "config.title = \"Main Menu Help\""));
+    assert(contains(menu_runtime, "::ui::components::shortcut_help_modal::open("));
+    assert(contains(menu_runtime, "screenshotShortcutHelpEnabled"));
+    assert(contains(menu_runtime, "defined(ARDUINO_T_LORA_PAGER)"));
+    assert(contains(menu_runtime, "defined(ARDUINO_T_DECK)"));
+    assert(contains(menu_runtime, "defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)"));
+    assert(contains(menu_runtime, "{\"ALT\", \"ALT\", \"Save screenshot\"}"));
+    assert(contains(menu_runtime,
+                    "if (isMenuHelpKey(key))\n    {\n        openMenuHelpModal();\n        return true;\n    }"));
+
+    const std::string t_display_p4_runtime = read_file(
+        repo_root / "platform/esp/idf_components/t_display_p4/trail_mate_t_display_p4_runtime.cpp");
+    assert(contains(t_display_p4_runtime, "kAltDoublePressMs"));
+    assert(contains(t_display_p4_runtime, "ui_take_screenshot_to_sd();"));
+
     const std::string gps_runtime = read_file(
         repo_root / "modules/ui_shared/src/ui/screens/gps/gps_page_runtime.cpp");
     assert(contains(gps_runtime, "runtime_gps_status_source"));
@@ -230,9 +247,12 @@ int main(int argc, char** argv)
     assert(contains(gps_runtime, "lv_label_set_text(title, \"Map Help\")"));
     assert(contains(gps_runtime, "add_help_row(\"WASD\", nullptr, \"Move map\")"));
     assert(contains(gps_runtime, "add_help_row(\"Q\", \"E\", \"Zoom map\")"));
-    assert(contains(gps_runtime, "add_help_row(\"P\", \"Pos\", \"Center current position\")"));
+    assert(contains(gps_runtime, "add_help_row(\"C\", \"Pos\", \"Center current position\")"));
+    assert(contains(gps_runtime, "add_help_row(\"P\", nullptr, \"Show/hide route photos\")"));
     assert(contains(gps_runtime, "add_help_row(\"L\", nullptr, \"Change base layer\")"));
     assert(contains(gps_runtime, "add_help_row(\"T\", \"Track\", \"Select track file\")"));
+    assert(contains(gps_runtime, "add_help_row(\"V\", nullptr, \"Show/hide elevation profile\")"));
+    assert(contains(gps_runtime, "add_help_row(\"I\", nullptr, \"Hide info, keep route\")"));
     assert(contains(gps_runtime, "add_help_row(\"O\", \"Contour\", \"Toggle contour overlay\")"));
     assert(contains(gps_runtime, "add_help_row(\"Route\", nullptr, \"Shown when route active\")"));
     assert(contains(gps_runtime, "add_help_row(\"Members\", nullptr, \"Shown when team active\")"));

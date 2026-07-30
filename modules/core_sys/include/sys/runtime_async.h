@@ -84,33 +84,6 @@ struct RuntimeIntent
     RuntimePriority priority_hint = RuntimePriority::Normal;
 };
 
-enum class BusAccessPolicy : uint8_t
-{
-    UiNeverBlock,
-    DisplayFrameCritical,
-    InteractiveWorkerBounded,
-    BackgroundWorkerBounded,
-    DurableCommit,
-    RecoveryExclusive,
-};
-
-enum class BusAcquireStatus : uint8_t
-{
-    Acquired,
-    Busy,
-    TimedOut,
-    Unavailable,
-};
-
-enum class StorageHealthStatus : uint8_t
-{
-    Healthy,
-    Slow,
-    Degraded,
-    Unavailable,
-    Recovering,
-};
-
 struct RuntimeCommand
 {
     uint32_t command_id = 0;
@@ -141,47 +114,6 @@ struct RuntimeState
     uint32_t active_command_id = 0;
     uint32_t last_event_id = 0;
     int32_t last_error = 0;
-};
-
-struct BusAcquireRequest
-{
-    uint32_t resource = 0;
-    BusAccessPolicy policy = BusAccessPolicy::BackgroundWorkerBounded;
-    uint32_t command_id = 0;
-    uint32_t deadline_ms = 0;
-    uint32_t origin = 0;
-};
-
-struct BusAccessToken
-{
-    uint32_t resource = 0;
-    uint32_t owner = 0;
-    uint32_t acquired_ms = 0;
-    bool valid = false;
-};
-
-struct BusDiagnostics
-{
-    uint32_t resource = 0;
-    uint32_t owner = 0;
-    uint32_t command_id = 0;
-    uint32_t wait_ms = 0;
-    uint32_t hold_ms = 0;
-    BusAccessPolicy policy = BusAccessPolicy::BackgroundWorkerBounded;
-};
-
-struct BusAcquireResult
-{
-    BusAcquireStatus status = BusAcquireStatus::Unavailable;
-    BusAccessToken token{};
-    BusDiagnostics diagnostics{};
-};
-
-struct StorageHealthState
-{
-    StorageHealthStatus status = StorageHealthStatus::Healthy;
-    int32_t last_error = 0;
-    uint32_t last_transition_ms = 0;
 };
 
 struct RuntimeRetryDecision
@@ -261,179 +193,6 @@ class IActiveWorker
     virtual bool submit(const RuntimeCommand& command) = 0;
 };
 
-class IBusArbiter
-{
-  public:
-    virtual ~IBusArbiter() = default;
-
-    virtual BusAcquireResult acquire(const BusAcquireRequest& request) = 0;
-    virtual void release(const BusAccessToken& token) = 0;
-    virtual StorageHealthState health() const = 0;
-};
-
-class IBusAdapter
-{
-  public:
-    virtual ~IBusAdapter() = default;
-
-    virtual bool tryAcquire(uint32_t timeout_ms) = 0;
-    virtual void release() = 0;
-    virtual uint32_t nowMs() const = 0;
-    virtual uint32_t owner() const = 0;
-};
-
-class BusPolicyStrategy
-{
-  public:
-    virtual ~BusPolicyStrategy() = default;
-
-    virtual BusAccessPolicy select(const RuntimeCommand& command) const = 0;
-    virtual uint32_t timeoutFor(BusAccessPolicy policy) const = 0;
-};
-
-class DefaultBusPolicyStrategy : public BusPolicyStrategy
-{
-  public:
-    BusAccessPolicy select(const RuntimeCommand& command) const override
-    {
-        if (command.kind == RuntimeCommandKind::MapTileLoad)
-        {
-            return BusAccessPolicy::DisplayFrameCritical;
-        }
-        if (command.priority == RuntimePriority::Realtime ||
-            command.priority == RuntimePriority::Interactive)
-        {
-            return BusAccessPolicy::InteractiveWorkerBounded;
-        }
-        if (command.kind == RuntimeCommandKind::TrackStop ||
-            command.kind == RuntimeCommandKind::TrackFlush)
-        {
-            return BusAccessPolicy::DurableCommit;
-        }
-        return BusAccessPolicy::BackgroundWorkerBounded;
-    }
-
-    uint32_t timeoutFor(BusAccessPolicy policy) const override
-    {
-        switch (policy)
-        {
-        case BusAccessPolicy::UiNeverBlock:
-        case BusAccessPolicy::DisplayFrameCritical:
-            return 0;
-        case BusAccessPolicy::InteractiveWorkerBounded:
-            return 2;
-        case BusAccessPolicy::BackgroundWorkerBounded:
-            return 25;
-        case BusAccessPolicy::DurableCommit:
-            return 150;
-        case BusAccessPolicy::RecoveryExclusive:
-            return 500;
-        default:
-            return 0;
-        }
-    }
-};
-
-class StorageBusArbiter : public IBusArbiter
-{
-  public:
-    StorageBusArbiter(IBusAdapter& adapter, BusPolicyStrategy& policy)
-        : adapter_(adapter), policy_(policy)
-    {
-    }
-
-    BusAcquireResult acquire(const BusAcquireRequest& request) override
-    {
-        const uint32_t start_ms = adapter_.nowMs();
-        uint32_t timeout_ms = policy_.timeoutFor(request.policy);
-        if (request.deadline_ms != 0)
-        {
-            const uint32_t remaining =
-                static_cast<int32_t>(request.deadline_ms - start_ms) > 0
-                    ? request.deadline_ms - start_ms
-                    : 0;
-            if (remaining < timeout_ms)
-            {
-                timeout_ms = remaining;
-            }
-        }
-
-        const bool acquired = adapter_.tryAcquire(timeout_ms);
-        const uint32_t end_ms = adapter_.nowMs();
-
-        BusAcquireResult result{};
-        result.status = acquired ? BusAcquireStatus::Acquired
-                                 : (timeout_ms == 0 ? BusAcquireStatus::Busy
-                                                    : BusAcquireStatus::TimedOut);
-        result.token.resource = request.resource;
-        result.token.owner = request.command_id;
-        result.token.acquired_ms = acquired ? end_ms : 0;
-        result.token.valid = acquired;
-        result.diagnostics.resource = request.resource;
-        result.diagnostics.owner = adapter_.owner();
-        result.diagnostics.command_id = request.command_id;
-        result.diagnostics.wait_ms = end_ms - start_ms;
-        result.diagnostics.policy = request.policy;
-
-        updateHealth(result.status, end_ms);
-        return result;
-    }
-
-    void release(const BusAccessToken& token) override
-    {
-        if (!token.valid)
-        {
-            return;
-        }
-        adapter_.release();
-        consecutive_timeouts_ = 0;
-        if (health_.status == StorageHealthStatus::Slow ||
-            health_.status == StorageHealthStatus::Recovering)
-        {
-            health_.status = StorageHealthStatus::Healthy;
-            health_.last_error = 0;
-            health_.last_transition_ms = adapter_.nowMs();
-        }
-    }
-
-    StorageHealthState health() const override
-    {
-        return health_;
-    }
-
-    BusAccessPolicy selectPolicy(const RuntimeCommand& command) const
-    {
-        return policy_.select(command);
-    }
-
-  private:
-    void updateHealth(BusAcquireStatus status, uint32_t now_ms)
-    {
-        if (status == BusAcquireStatus::Acquired)
-        {
-            return;
-        }
-
-        health_.last_transition_ms = now_ms;
-        if (status == BusAcquireStatus::Unavailable)
-        {
-            health_.status = StorageHealthStatus::Unavailable;
-            health_.last_error = -3;
-            return;
-        }
-
-        ++consecutive_timeouts_;
-        health_.last_error = status == BusAcquireStatus::TimedOut ? -2 : -1;
-        health_.status = consecutive_timeouts_ >= 3 ? StorageHealthStatus::Degraded
-                                                    : StorageHealthStatus::Slow;
-    }
-
-    IBusAdapter& adapter_;
-    BusPolicyStrategy& policy_;
-    StorageHealthState health_{};
-    uint8_t consecutive_timeouts_ = 0;
-};
-
 class IPlatformStorageAdapter
 {
   public:
@@ -468,7 +227,6 @@ class RuntimePolicyStrategy
     virtual ~RuntimePolicyStrategy() = default;
 
     virtual RuntimePriority selectPriority(const RuntimeIntent& intent) const = 0;
-    virtual BusAccessPolicy selectBusPolicy(const RuntimeCommand& command) const = 0;
     virtual RuntimeRetryDecision selectRetry(const RuntimeCommand& command,
                                              const PlatformStorageResult& result) const = 0;
 };
@@ -479,25 +237,6 @@ class DefaultRuntimePolicyStrategy : public RuntimePolicyStrategy
     RuntimePriority selectPriority(const RuntimeIntent& intent) const override
     {
         return intent.priority_hint;
-    }
-
-    BusAccessPolicy selectBusPolicy(const RuntimeCommand& command) const override
-    {
-        if (command.kind == RuntimeCommandKind::MapTileLoad)
-        {
-            return BusAccessPolicy::DisplayFrameCritical;
-        }
-        if (command.priority == RuntimePriority::Realtime ||
-            command.priority == RuntimePriority::Interactive)
-        {
-            return BusAccessPolicy::InteractiveWorkerBounded;
-        }
-        if (command.priority == RuntimePriority::Idle ||
-            command.priority == RuntimePriority::Background)
-        {
-            return BusAccessPolicy::BackgroundWorkerBounded;
-        }
-        return BusAccessPolicy::BackgroundWorkerBounded;
     }
 
     RuntimeRetryDecision selectRetry(const RuntimeCommand& command,

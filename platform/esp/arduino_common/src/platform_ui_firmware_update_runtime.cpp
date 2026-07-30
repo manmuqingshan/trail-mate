@@ -9,24 +9,28 @@
 #include <string>
 
 #include "app/app_facade_access.h"
-#include "ble/ble_manager.h"
 #include "cJSON.h"
 #include "esp_err.h"
-#include "esp_heap_caps.h"
-#include "esp_http_client.h"
 #include "esp_ota_ops.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "mbedtls/platform.h"
 #include "mbedtls/sha256.h"
 #include "platform/ui/device_runtime.h"
+#include "platform/ui/http_client_runtime.h"
+#include "platform/ui/wifi_access_runtime.h"
 #include "platform/ui/wifi_runtime.h"
+
+#ifndef TRAIL_MATE_ENABLE_BLE
+#define TRAIL_MATE_ENABLE_BLE 0
+#endif
+
+#if TRAIL_MATE_ENABLE_BLE
+#include "ble/ble_manager.h"
+#endif
 
 #ifdef INADDR_NONE
 #undef INADDR_NONE
 #endif
-
-extern "C" esp_err_t esp_crt_bundle_attach(void* conf);
 
 namespace platform::ui::firmware_update
 {
@@ -39,7 +43,6 @@ constexpr int kHttpBufferSize = 2048;
 constexpr int kHttpTxBufferSize = 512;
 constexpr std::size_t kMetadataLogSnippetBytes = 160;
 constexpr std::size_t kOtaProgressLogStepBytes = 128 * 1024;
-constexpr std::size_t kTlsLargeAllocThresholdBytes = 4096;
 constexpr uint32_t kWorkerStackBytes = 12 * 1024;
 constexpr UBaseType_t kWorkerPriority = 4;
 constexpr int kMinBatteryPercentForInstall = 20;
@@ -151,6 +154,8 @@ const char* wifi_state_name(::platform::ui::wifi::ConnectionState state)
         return "scanning";
     case ::platform::ui::wifi::ConnectionState::Connecting:
         return "connecting";
+    case ::platform::ui::wifi::ConnectionState::ResourceDeferred:
+        return "resource_deferred";
     case ::platform::ui::wifi::ConnectionState::Connected:
         return "connected";
     case ::platform::ui::wifi::ConnectionState::Error:
@@ -340,6 +345,10 @@ const char* firmware_target_id()
     return "tlora-pager-lr1121";
 #elif defined(ARDUINO_T_WATCH_S3)
     return "lilygo-twatch-s3";
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4_AMOLED)
+    return "t-display-p4-amoled";
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    return "t-display-p4-tft";
 #else
     return nullptr;
 #endif
@@ -491,171 +500,26 @@ void worker_finished()
     portEXIT_CRITICAL(&s_lock);
 }
 
-void log_memory_snapshot(const char* stage)
-{
-    ota_log("[MEM] %s ram_free=%u ram_largest=%u psram_free=%u psram_largest=%u",
-            stage ? stage : "state",
-            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-            static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
-            static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
-}
-
-void* mbedtls_calloc_prefer_psram(std::size_t count, std::size_t size)
-{
-    if (count == 0 || size == 0)
-    {
-        return nullptr;
-    }
-    if (count > (static_cast<std::size_t>(-1) / size))
-    {
-        return nullptr;
-    }
-
-    const std::size_t bytes = count * size;
-    const bool prefer_psram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0 &&
-                              bytes >= kTlsLargeAllocThresholdBytes;
-
-    const uint32_t primary_caps = prefer_psram ? (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
-                                               : (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    const uint32_t secondary_caps = prefer_psram ? (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
-                                                 : (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    return heap_caps_calloc_prefer(count, size, 2, primary_caps, secondary_caps);
-}
-
-void mbedtls_free_prefer_psram(void* ptr)
-{
-    heap_caps_free(ptr);
-}
-
-bool ensure_tls_allocator_configured()
-{
-    static bool attempted = false;
-    static bool configured = false;
-    if (attempted)
-    {
-        return configured;
-    }
-
-    attempted = true;
-    log_memory_snapshot("before tls alloc config");
-    configured = mbedtls_platform_set_calloc_free(&mbedtls_calloc_prefer_psram,
-                                                  &mbedtls_free_prefer_psram) == 0;
-    ota_log("[TLS] allocator configured=%s threshold=%lu",
-            bool_text(configured),
-            static_cast<unsigned long>(kTlsLargeAllocThresholdBytes));
-    log_memory_snapshot("after tls alloc config");
-    return configured;
-}
-
-void configure_http_client(esp_http_client_config_t& config, const std::string& url)
-{
-    (void)ensure_tls_allocator_configured();
-    config = esp_http_client_config_t{};
-    config.url = url.c_str();
-    config.method = HTTP_METHOD_GET;
-    config.timeout_ms = 30000;
-    config.disable_auto_redirect = false;
-    config.buffer_size = kHttpBufferSize;
-    config.buffer_size_tx = kHttpTxBufferSize;
-    config.crt_bundle_attach = esp_crt_bundle_attach;
-}
-
-bool http_get_text(const std::string& url, std::string& out, std::string& out_error)
+bool fetch_release_metadata_text(const std::string& url, std::string& out, std::string& out_error)
 {
     out.clear();
     out_error.clear();
 
     ota_log("metadata http start url=%s", url.c_str());
+    platform::ui::http_client::Request request{};
+    request.url = url.c_str();
+    request.client = platform::ui::wifi_access::Client::FirmwareUpdate;
+    request.access_kind = platform::ui::wifi_access::AccessKind::HttpMetadata;
+    request.priority = platform::ui::wifi_access::Priority::UserForeground;
+    request.reason = "firmware_metadata";
+    request.buffer_size = kHttpBufferSize;
+    request.tx_buffer_size = kHttpTxBufferSize;
 
-    esp_http_client_config_t config{};
-    configure_http_client(config, url);
-
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == nullptr)
-    {
-        out_error = "Create HTTP client failed";
-        ota_log("metadata http init failed");
-        return false;
-    }
-
-    bool ok = false;
-    const esp_err_t open_err = esp_http_client_open(client, 0);
-    if (open_err == ESP_OK)
-    {
-        ota_log("metadata http open ok");
-        const int64_t fetch_result = esp_http_client_fetch_headers(client);
-        if (fetch_result >= 0)
-        {
-            const int status_code = esp_http_client_get_status_code(client);
-            const long long content_length = esp_http_client_get_content_length(client);
-            ota_log("metadata http headers status=%d fetch_result=%lld content_length=%lld",
-                    status_code,
-                    static_cast<long long>(fetch_result),
-                    content_length);
-            if (status_code < 200 || status_code >= 300)
-            {
-                char buffer[64];
-                std::snprintf(buffer, sizeof(buffer), "Metadata HTTP %d", status_code);
-                out_error = buffer;
-                ota_log("metadata http rejected status=%d", status_code);
-            }
-            else
-            {
-                char buffer[kHttpBufferSize];
-                while (true)
-                {
-                    const int read = esp_http_client_read(client, buffer, sizeof(buffer));
-                    if (read < 0)
-                    {
-                        out_error = "Read metadata failed";
-                        ota_log("metadata http read failed read=%d bytes_so_far=%u",
-                                read,
-                                static_cast<unsigned>(out.size()));
-                        break;
-                    }
-                    if (read == 0)
-                    {
-                        ok = true;
-                        break;
-                    }
-                    out.append(buffer, static_cast<std::size_t>(read));
-                }
-            }
-        }
-        else
-        {
-            out_error = "Fetch metadata headers failed";
-            ota_log("metadata http fetch headers failed result=%lld status=%d",
-                    static_cast<long long>(fetch_result),
-                    esp_http_client_get_status_code(client));
-        }
-    }
-    else
-    {
-        set_esp_error(out_error, "Open metadata request failed", open_err);
-        ota_log("metadata http open failed err=%s (0x%x)",
-                esp_err_name_safe(open_err),
-                static_cast<unsigned>(open_err));
-    }
-
-    const esp_err_t close_err = esp_http_client_close(client);
-    if (close_err != ESP_OK)
-    {
-        ota_log("metadata http close err=%s (0x%x)",
-                esp_err_name_safe(close_err),
-                static_cast<unsigned>(close_err));
-    }
-    const esp_err_t cleanup_err = esp_http_client_cleanup(client);
-    if (cleanup_err != ESP_OK)
-    {
-        ota_log("metadata http cleanup err=%s (0x%x)",
-                esp_err_name_safe(cleanup_err),
-                static_cast<unsigned>(cleanup_err));
-    }
+    platform::ui::http_client::TransferStats stats{};
+    const bool ok = platform::ui::http_client::get_text(request, out, out_error, &stats);
     ota_log("metadata http finish ok=%s bytes=%u error=%s snippet=\"%s\"",
             bool_text(ok),
-            static_cast<unsigned>(out.size()),
+            static_cast<unsigned>(stats.bytes),
             out_error.empty() ? "(none)" : out_error.c_str(),
             ok ? compact_log_snippet(out).c_str() : "");
     return ok;
@@ -739,7 +603,7 @@ bool fetch_release_metadata(ReleaseMetadata& out_metadata, std::string& out_erro
     }
 
     std::string text;
-    if (!http_get_text(kReleaseMetadataUrl, text, out_error))
+    if (!fetch_release_metadata_text(kReleaseMetadataUrl, text, out_error))
     {
         return false;
     }
@@ -860,6 +724,7 @@ bool battery_allows_install(std::string& out_error)
 
 void restore_ble_after_failure(bool restore_ble)
 {
+#if TRAIL_MATE_ENABLE_BLE
     if (!restore_ble || !app::hasAppFacade())
     {
         return;
@@ -868,6 +733,87 @@ void restore_ble_after_failure(bool restore_ble)
     {
         ble_manager->setEnabled(true);
     }
+#else
+    (void)restore_ble;
+#endif
+}
+
+struct OtaDownloadContext
+{
+    esp_ota_handle_t ota_handle = 0;
+    mbedtls_sha256_context* sha_ctx = nullptr;
+    const ReleaseMetadata* metadata = nullptr;
+    std::size_t bytes_written = 0;
+    std::size_t next_progress_log = kOtaProgressLogStepBytes;
+    int last_progress = -1;
+    std::string error{};
+};
+
+class ScopedNonPreemptibleActivity
+{
+  public:
+    explicit ScopedNonPreemptibleActivity(const char* reason)
+    {
+        platform::ui::wifi_access::set_non_preemptible_activity(true, reason);
+    }
+
+    ~ScopedNonPreemptibleActivity()
+    {
+        platform::ui::wifi_access::set_non_preemptible_activity(false);
+    }
+
+    ScopedNonPreemptibleActivity(const ScopedNonPreemptibleActivity&) = delete;
+    ScopedNonPreemptibleActivity& operator=(const ScopedNonPreemptibleActivity&) = delete;
+};
+
+bool write_ota_chunk(const std::uint8_t* data, std::size_t len, void* context)
+{
+    auto* ota = static_cast<OtaDownloadContext*>(context);
+    if (!ota || !data || len == 0 || !ota->sha_ctx || !ota->metadata)
+    {
+        return false;
+    }
+
+    ScopedNonPreemptibleActivity non_preemptible("firmware_ota_write");
+    const esp_err_t write_err = esp_ota_write(ota->ota_handle, data, len);
+    if (write_err != ESP_OK)
+    {
+        set_esp_error(ota->error, "Write OTA image failed", write_err);
+        ota_log("ota write failed err=%s (0x%x) offset=%u read=%u",
+                esp_err_name_safe(write_err),
+                static_cast<unsigned>(write_err),
+                static_cast<unsigned>(ota->bytes_written),
+                static_cast<unsigned>(len));
+        return false;
+    }
+
+    mbedtls_sha256_update(ota->sha_ctx, data, len);
+    ota->bytes_written += len;
+
+    const std::size_t progress_total = ota->metadata->ota_size_bytes;
+    if (progress_total > 0)
+    {
+        int progress = static_cast<int>((ota->bytes_written * 100U) / progress_total);
+        if (progress > 100)
+        {
+            progress = 100;
+        }
+        if (progress != ota->last_progress)
+        {
+            ota->last_progress = progress;
+            char detail[32];
+            std::snprintf(detail, sizeof(detail), "%d%%", progress);
+            set_progress_status(Phase::Downloading, "Downloading update...", detail, progress);
+        }
+    }
+    if (ota->bytes_written >= ota->next_progress_log)
+    {
+        ota_log("ota progress bytes=%u total=%u",
+                static_cast<unsigned>(ota->bytes_written),
+                static_cast<unsigned>(progress_total));
+        ota->next_progress_log += kOtaProgressLogStepBytes;
+    }
+    return true;
 }
 
 bool begin_ota_download(const ReleaseMetadata& metadata, std::string& out_error)
@@ -879,21 +825,10 @@ bool begin_ota_download(const ReleaseMetadata& metadata, std::string& out_error)
             url.c_str(),
             static_cast<unsigned>(metadata.ota_size_bytes),
             safe_text(metadata.ota_sha256.c_str()));
-    esp_http_client_config_t config{};
-    configure_http_client(config, url);
-
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == nullptr)
-    {
-        out_error = "Create OTA client failed";
-        ota_log("ota http init failed");
-        return false;
-    }
 
     const esp_partition_t* update_partition = esp_ota_get_next_update_partition(nullptr);
     if (!update_partition)
     {
-        esp_http_client_cleanup(client);
         out_error = "No OTA partition available";
         ota_log("ota rejected: %s", out_error.c_str());
         return false;
@@ -906,7 +841,6 @@ bool begin_ota_download(const ReleaseMetadata& metadata, std::string& out_error)
 
     if (metadata.ota_size_bytes > 0 && metadata.ota_size_bytes > update_partition->size)
     {
-        esp_http_client_cleanup(client);
         out_error = "Firmware image is too large";
         ota_log("ota rejected: %s image_size=%u partition_size=%u",
                 out_error.c_str(),
@@ -918,69 +852,14 @@ bool begin_ota_download(const ReleaseMetadata& metadata, std::string& out_error)
     esp_ota_handle_t ota_handle = 0;
     bool ota_started = false;
     bool ok = false;
-    bool client_opened = false;
-    std::size_t bytes_written = 0;
-    std::size_t next_progress_log = kOtaProgressLogStepBytes;
-    int last_progress = -1;
-    std::uint8_t buffer[kHttpBufferSize];
+    OtaDownloadContext ota_context{};
+    platform::ui::http_client::Request request{};
+    platform::ui::http_client::TransferStats stats{};
 
     mbedtls_sha256_context sha_ctx;
     unsigned char hash[32];
     mbedtls_sha256_init(&sha_ctx);
     mbedtls_sha256_starts(&sha_ctx, 0);
-
-    const esp_err_t open_err = esp_http_client_open(client, 0);
-    if (open_err != ESP_OK)
-    {
-        set_esp_error(out_error, "Open OTA request failed", open_err);
-        ota_log("ota http open failed err=%s (0x%x)",
-                esp_err_name_safe(open_err),
-                static_cast<unsigned>(open_err));
-        goto cleanup;
-    }
-    client_opened = true;
-    ota_log("ota http open ok");
-
-    {
-        const int64_t fetch_result = esp_http_client_fetch_headers(client);
-        if (fetch_result < 0)
-        {
-            out_error = "Fetch OTA headers failed";
-            ota_log("ota http fetch headers failed result=%lld status=%d",
-                    static_cast<long long>(fetch_result),
-                    esp_http_client_get_status_code(client));
-            goto cleanup;
-        }
-        ota_log("ota http headers fetch_result=%lld status=%d content_length=%lld",
-                static_cast<long long>(fetch_result),
-                esp_http_client_get_status_code(client),
-                esp_http_client_get_content_length(client));
-    }
-
-    {
-        const int http_status_code = esp_http_client_get_status_code(client);
-        if (http_status_code < 200 || http_status_code >= 300)
-        {
-            char buffer[64];
-            std::snprintf(buffer, sizeof(buffer), "OTA HTTP %d", http_status_code);
-            out_error = buffer;
-            ota_log("ota http rejected status=%d", http_status_code);
-            goto cleanup;
-        }
-    }
-
-    {
-        const long long content_length = esp_http_client_get_content_length(client);
-        if (content_length > 0 && static_cast<std::size_t>(content_length) > update_partition->size)
-        {
-            out_error = "OTA image exceeds partition size";
-            ota_log("ota rejected: %s content_length=%lld partition_size=%u",
-                    out_error.c_str(),
-                    content_length,
-                    static_cast<unsigned>(update_partition->size));
-            goto cleanup;
-        }
-    }
 
     {
         const esp_err_t begin_err = esp_ota_begin(update_partition, OTA_WITH_SEQUENTIAL_WRITES, &ota_handle);
@@ -998,88 +877,53 @@ bool begin_ota_download(const ReleaseMetadata& metadata, std::string& out_error)
 
     set_progress_status(Phase::Downloading, "Downloading update...", "0%", 0);
 
-    while (true)
+    ota_context.ota_handle = ota_handle;
+    ota_context.sha_ctx = &sha_ctx;
+    ota_context.metadata = &metadata;
+
+    request.url = url.c_str();
+    request.client = platform::ui::wifi_access::Client::FirmwareUpdate;
+    request.access_kind = platform::ui::wifi_access::AccessKind::OtaDownload;
+    request.priority = platform::ui::wifi_access::Priority::UserForeground;
+    request.reason = "firmware_ota";
+    request.buffer_size = kHttpBufferSize;
+    request.tx_buffer_size = kHttpTxBufferSize;
+    request.max_bytes = update_partition->size;
+
+    if (!platform::ui::http_client::download(request,
+                                             &write_ota_chunk,
+                                             &ota_context,
+                                             out_error,
+                                             &stats))
     {
-        const int read = esp_http_client_read(client,
-                                              reinterpret_cast<char*>(buffer),
-                                              sizeof(buffer));
-        if (read < 0)
+        if (!ota_context.error.empty())
         {
-            out_error = "Read OTA image failed";
-            ota_log("ota read failed read=%d bytes_written=%u", read, static_cast<unsigned>(bytes_written));
-            goto cleanup;
+            out_error = ota_context.error;
         }
-        if (read == 0)
-        {
-            break;
-        }
-        const esp_err_t write_err = esp_ota_write(ota_handle, buffer, static_cast<std::size_t>(read));
-        if (write_err != ESP_OK)
-        {
-            set_esp_error(out_error, "Write OTA image failed", write_err);
-            ota_log("ota write failed err=%s (0x%x) offset=%u read=%d",
-                    esp_err_name_safe(write_err),
-                    static_cast<unsigned>(write_err),
-                    static_cast<unsigned>(bytes_written),
-                    read);
-            goto cleanup;
-        }
-
-        mbedtls_sha256_update(&sha_ctx, buffer, static_cast<std::size_t>(read));
-        bytes_written += static_cast<std::size_t>(read);
-
-        std::size_t progress_total = 0;
-        if (metadata.ota_size_bytes > 0)
-        {
-            progress_total = metadata.ota_size_bytes;
-        }
-        else
-        {
-            const long long content_length = esp_http_client_get_content_length(client);
-            if (content_length > 0)
-            {
-                progress_total = static_cast<std::size_t>(content_length);
-            }
-        }
-        if (progress_total > 0)
-        {
-            int progress = static_cast<int>((bytes_written * 100U) / progress_total);
-            if (progress > 100)
-            {
-                progress = 100;
-            }
-            if (progress != last_progress)
-            {
-                last_progress = progress;
-                char detail[32];
-                std::snprintf(detail, sizeof(detail), "%d%%", progress);
-                set_progress_status(Phase::Downloading, "Downloading update...", detail, progress);
-            }
-        }
-        if (bytes_written >= next_progress_log)
-        {
-            ota_log("ota progress bytes=%u total=%u",
-                    static_cast<unsigned>(bytes_written),
-                    static_cast<unsigned>(progress_total));
-            next_progress_log += kOtaProgressLogStepBytes;
-        }
+        ota_log("ota http download failed status=%d bytes=%u error=%s",
+                stats.http_status,
+                static_cast<unsigned>(ota_context.bytes_written),
+                out_error.empty() ? "(none)" : out_error.c_str());
+        goto cleanup;
     }
 
-    ota_log("ota download complete bytes=%u", static_cast<unsigned>(bytes_written));
+    ota_log("ota download complete bytes=%u http_status=%d",
+            static_cast<unsigned>(ota_context.bytes_written),
+            stats.http_status);
 
-    if (bytes_written == 0)
+    if (ota_context.bytes_written == 0)
     {
         out_error = "OTA image download was empty";
         ota_log("ota rejected: %s", out_error.c_str());
         goto cleanup;
     }
-    if (metadata.ota_size_bytes > 0 && bytes_written != metadata.ota_size_bytes)
+    if (metadata.ota_size_bytes > 0 && ota_context.bytes_written != metadata.ota_size_bytes)
     {
         out_error = "OTA image size mismatch";
         ota_log("ota rejected: %s expected=%u actual=%u",
                 out_error.c_str(),
                 static_cast<unsigned>(metadata.ota_size_bytes),
-                static_cast<unsigned>(bytes_written));
+                static_cast<unsigned>(ota_context.bytes_written));
         goto cleanup;
     }
 
@@ -1104,6 +948,7 @@ bool begin_ota_download(const ReleaseMetadata& metadata, std::string& out_error)
 
     set_progress_status(Phase::Installing, "Verifying update...", "Finalizing image", 100);
     {
+        ScopedNonPreemptibleActivity non_preemptible("firmware_ota_finalize");
         const esp_err_t end_err = esp_ota_end(ota_handle);
         if (end_err != ESP_OK)
         {
@@ -1118,6 +963,7 @@ bool begin_ota_download(const ReleaseMetadata& metadata, std::string& out_error)
     ota_started = false;
 
     {
+        ScopedNonPreemptibleActivity non_preemptible("firmware_ota_activate");
         const esp_err_t boot_err = esp_ota_set_boot_partition(update_partition);
         if (boot_err != ESP_OK)
         {
@@ -1140,29 +986,10 @@ cleanup:
                 esp_err_name_safe(abort_err),
                 static_cast<unsigned>(abort_err));
     }
-    if (client_opened)
-    {
-        const esp_err_t close_err = esp_http_client_close(client);
-        if (close_err != ESP_OK)
-        {
-            ota_log("ota http close err=%s (0x%x)",
-                    esp_err_name_safe(close_err),
-                    static_cast<unsigned>(close_err));
-        }
-    }
-    {
-        const esp_err_t cleanup_err = esp_http_client_cleanup(client);
-        if (cleanup_err != ESP_OK)
-        {
-            ota_log("ota http cleanup err=%s (0x%x)",
-                    esp_err_name_safe(cleanup_err),
-                    static_cast<unsigned>(cleanup_err));
-        }
-    }
     mbedtls_sha256_free(&sha_ctx);
     ota_log("ota download finish ok=%s bytes=%u error=%s",
             bool_text(ok),
-            static_cast<unsigned>(bytes_written),
+            static_cast<unsigned>(ota_context.bytes_written),
             out_error.empty() ? "(none)" : out_error.c_str());
     return ok;
 }
@@ -1231,6 +1058,7 @@ bool perform_install(std::string& out_error)
     }
 
     bool restore_ble = false;
+#if TRAIL_MATE_ENABLE_BLE
     if (app::hasAppFacade())
     {
         if (ble::BleManager* ble_manager = app::appFacade().getBleManager())
@@ -1244,6 +1072,7 @@ bool perform_install(std::string& out_error)
             }
         }
     }
+#endif
 
     const bool ok = begin_ota_download(metadata, out_error);
     if (!ok)

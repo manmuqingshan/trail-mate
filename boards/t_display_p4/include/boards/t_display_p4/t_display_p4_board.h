@@ -23,6 +23,7 @@
  */
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
@@ -34,6 +35,7 @@
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "sdkconfig.h"
 #include "sdmmc_cmd.h"
 
@@ -131,6 +133,8 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
     void keyboardSetBrightness(uint8_t level) override;
     uint8_t keyboardGetBrightness() override;
     bool ensureExternal3v3Power();
+    bool configureBatteryGaugeCapacity(uint16_t design_capacity_mah,
+                                       uint16_t full_charge_capacity_mah);
     void setKeyboardReady(bool ready);
 
     bool isRTCReady() const override;
@@ -150,7 +154,10 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
     void setMessageToneVolume(uint8_t volume_percent) override;
     uint8_t getMessageToneVolume() const override;
 
-    bool lockSystemI2c(uint32_t timeout_ms = 1000);
+    bool lockSystemI2c(uint32_t timeout_ms = 1000,
+                       const char* owner = nullptr,
+                       const char* source_file = nullptr,
+                       int source_line = 0);
     void unlockSystemI2c();
     i2c_master_bus_handle_t systemI2cHandle() const;
     i2c_master_bus_handle_t externalI2cHandle() const;
@@ -174,6 +181,7 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
     void teardownGpsRuntime();
 
     bool mountSdCard(const char* mount_point, size_t max_files);
+    bool unmountSdCard();
     bool sdCardMounted() const;
     sdmmc_card_t* sdCard() const;
 
@@ -200,6 +208,7 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
     struct ManagedI2cSlot
     {
         bool active = false;
+        bool creating = false;
         uint16_t address = 0;
         uint32_t speed_hz = 0;
         i2c_master_dev_handle_t handle = nullptr;
@@ -225,6 +234,16 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
 
     mutable std::mutex resource_mutex_;
     SemaphoreHandle_t system_i2c_mutex_ = nullptr;
+    std::atomic<TaskHandle_t> system_i2c_owner_task_{nullptr};
+    std::atomic<TickType_t> system_i2c_owner_since_ticks_{0};
+    std::atomic<const char*> system_i2c_owner_label_{nullptr};
+    std::atomic<TaskHandle_t> system_i2c_waiter_task_{nullptr};
+    std::atomic<TickType_t> system_i2c_waiter_since_ticks_{0};
+    std::atomic<uint32_t> system_i2c_waiter_timeout_ms_{0};
+    std::atomic<const char*> system_i2c_waiter_label_{nullptr};
+    std::atomic<const char*> system_i2c_waiter_file_{nullptr};
+    std::atomic<int> system_i2c_waiter_line_{0};
+    std::atomic<TickType_t> system_i2c_last_timeout_log_ticks_{0};
     i2c_master_bus_handle_t system_i2c_handle_ = nullptr;
     i2c_master_bus_handle_t external_i2c_handle_ = nullptr;
     std::array<ManagedI2cSlot, 8> managed_system_i2c_{};
@@ -239,6 +258,11 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
     bool sd_enabled_ = false;
     bool battery_charging_ = false;
     bool keyboard_ready_ = false;
+    bool power_button_initialized_ = false;
+    bool power_button_pressed_ = false;
+    bool power_button_long_press_handled_ = false;
+    TickType_t power_button_last_change_ticks_ = 0;
+    TickType_t power_button_press_start_ticks_ = 0;
     int last_battery_level_ = -1;
     uint8_t brightness_level_ = DEVICE_MAX_BRIGHTNESS_LEVEL;
     uint8_t keyboard_brightness_ = 0;

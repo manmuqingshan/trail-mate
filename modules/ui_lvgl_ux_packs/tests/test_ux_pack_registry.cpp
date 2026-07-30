@@ -3,6 +3,25 @@
 #include <cassert>
 #include <cstring>
 
+namespace
+{
+
+bool contains(const ui_lvgl_ux::ScreenRegistry& registry,
+              ui_lvgl_ux::ScreenId screen_id)
+{
+    const auto* items = registry.items();
+    for (std::size_t index = 0; index < registry.size(); ++index)
+    {
+        if (items[index].id == screen_id && items[index].enabled)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
 int main()
 {
     const ui_lvgl_ux::IUxPack* compatibility =
@@ -35,9 +54,28 @@ int main()
 
     ui_lvgl_ux::ScreenRegistry screens;
     uconsole->buildScreens(screens);
-    assert(screens.size() == 7);
+    assert(screens.size() == 12);
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Dashboard));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Chat));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Contacts));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Map));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Gps));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Team));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Tracker));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::EnergySweep));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::WalkieTalkie));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Sstv));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Extensions));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Settings));
 
     t_display_p4->buildScreens(screens);
-    assert(screens.size() == 14);
+    assert(screens.size() == 13);
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Dashboard));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Chat));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Contacts));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Map));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Team));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Tracker));
+    assert(contains(screens, ui_lvgl_ux::ScreenId::Settings));
     return 0;
 }

@@ -13,6 +13,8 @@
 #include "platform/esp/common/build_info.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/esp/idf_common/gps_runtime.h"
+#include "platform/esp/idf_common/reticulum_call_runtime_support.h"
+#include "platform/ui/settings_store.h"
 
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
 #include "bsp/m5stack_tab5.h"
@@ -24,7 +26,8 @@ namespace platform::ui::device
 namespace
 {
 
-uint8_t s_brightness_level = DEVICE_MAX_BRIGHTNESS_LEVEL;
+constexpr uint8_t kIdfMaxBrightnessLevel = 16U;
+uint8_t s_brightness_level = kIdfMaxBrightnessLevel;
 constexpr ::time_t kMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
 
 bool is_valid_epoch(::time_t value)
@@ -107,23 +110,52 @@ bool supports_keyboard_backlight()
 
 bool supports_configurable_battery_gauge()
 {
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    return true;
+#else
     return false;
+#endif
 }
 
-void reload_configurable_battery_gauge() {}
+void reload_configurable_battery_gauge()
+{
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    constexpr uint16_t kDefaultCapacityMah = 1500;
+    const uint32_t configured_design = settings_store::get_uint(
+        "power", "gauge_design_mah", kDefaultCapacityMah);
+    const uint32_t configured_full = settings_store::get_uint(
+        "power", "gauge_full_mah", kDefaultCapacityMah);
+    const uint16_t design = configured_design > 0 && configured_design <= 10000
+                                ? static_cast<uint16_t>(configured_design)
+                                : kDefaultCapacityMah;
+    const uint16_t full = configured_full > 0 && configured_full <= 10000
+                              ? static_cast<uint16_t>(configured_full)
+                              : kDefaultCapacityMah;
+    (void)::boards::t_display_p4::TDisplayP4Board::instance()
+        .configureBatteryGaugeCapacity(design, full);
+#endif
+}
 
 uint8_t screen_brightness()
 {
     return s_brightness_level;
 }
 
+uint8_t screen_brightness_max()
+{
+    return kIdfMaxBrightnessLevel;
+}
+
 void set_screen_brightness(uint8_t level)
 {
-    s_brightness_level = level;
-    const int percent = (DEVICE_MAX_BRIGHTNESS_LEVEL <= 0)
+    const uint8_t max_level = screen_brightness_max();
+    const uint8_t clamped = level > max_level ? max_level : level;
+    s_brightness_level = clamped;
+    const int percent = (kIdfMaxBrightnessLevel == 0U)
                             ? 100
-                            : static_cast<int>((static_cast<uint32_t>(level) * 100U) /
-                                               static_cast<uint32_t>(DEVICE_MAX_BRIGHTNESS_LEVEL));
+                            : static_cast<int>((static_cast<uint32_t>(clamped) * 100U) /
+                                               static_cast<uint32_t>(
+                                                   kIdfMaxBrightnessLevel));
     (void)platform::esp::idf_common::bsp_runtime::set_display_brightness(percent);
 }
 
@@ -139,7 +171,7 @@ uint8_t keyboard_backlight()
 
 uint8_t keyboard_backlight_max()
 {
-    return DEVICE_MAX_BRIGHTNESS_LEVEL;
+    return kIdfMaxBrightnessLevel;
 }
 
 void set_keyboard_backlight(uint8_t level)
@@ -150,14 +182,20 @@ void set_keyboard_backlight(uint8_t level)
     {
         return;
     }
-    const uint8_t clamped = level > DEVICE_MAX_BRIGHTNESS_LEVEL ? DEVICE_MAX_BRIGHTNESS_LEVEL : level;
+    const uint8_t clamped =
+        level > kIdfMaxBrightnessLevel ? kIdfMaxBrightnessLevel : level;
     board.keyboardSetBrightness(clamped);
 #else
     (void)level;
 #endif
 }
 
-void trigger_haptic() {}
+void trigger_haptic()
+{
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    ::boards::t_display_p4::TDisplayP4Board::instance().vibrator();
+#endif
+}
 
 uint8_t default_message_tone_volume()
 {
@@ -166,10 +204,17 @@ uint8_t default_message_tone_volume()
 
 void set_message_tone_volume(uint8_t volume_percent)
 {
-    (void)volume_percent;
+    const uint8_t volume = volume_percent > 100U ? 100U : volume_percent;
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    ::boards::t_display_p4::TDisplayP4Board::instance().setMessageToneVolume(volume);
+#endif
+    ::platform::esp::idf_common::reticulum_call_support::set_speaker_volume(volume);
 }
 
-void play_message_tone() {}
+void play_message_tone()
+{
+    (void)::platform::esp::idf_common::reticulum_call_support::play_message_notification();
+}
 
 bool sd_ready()
 {

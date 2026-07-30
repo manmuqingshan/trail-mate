@@ -372,30 +372,33 @@ bool makeEncryptedPacketFromWire(const uint8_t* wire_data, size_t wire_size,
         return false;
     }
 
+    *out_packet = meshtastic_MeshPacket_init_zero;
     PacketHeaderWire header{};
-    uint8_t payload[256];
-    size_t payload_size = sizeof(payload);
-    if (!parseWirePacket(wire_data, wire_size, &header, payload, &payload_size))
+    size_t payload_size = sizeof(out_packet->encrypted.bytes);
+    if (!parseWirePacket(wire_data,
+                         wire_size,
+                         &header,
+                         out_packet->encrypted.bytes,
+                         &payload_size))
     {
         return false;
     }
 
-    meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
-    packet.from = header.from;
-    packet.to = header.to;
-    packet.channel = header.channel;
-    packet.id = header.id;
-    packet.hop_limit = header.flags & PACKET_FLAGS_HOP_LIMIT_MASK;
-    packet.want_ack = (header.flags & PACKET_FLAGS_WANT_ACK_MASK) != 0;
-    packet.via_mqtt = (header.flags & PACKET_FLAGS_VIA_MQTT_MASK) != 0;
-    packet.hop_start = (header.flags & PACKET_FLAGS_HOP_START_MASK) >> PACKET_FLAGS_HOP_START_SHIFT;
-    packet.next_hop = header.next_hop;
-    packet.relay_node = header.relay_node;
-    packet.pki_encrypted = (header.channel == 0);
-    packet.which_payload_variant = meshtastic_MeshPacket_encrypted_tag;
-    packet.encrypted.size = static_cast<pb_size_t>(std::min(payload_size, sizeof(packet.encrypted.bytes)));
-    memcpy(packet.encrypted.bytes, payload, packet.encrypted.size);
-    *out_packet = packet;
+    out_packet->from = header.from;
+    out_packet->to = header.to;
+    out_packet->channel = header.channel;
+    out_packet->id = header.id;
+    out_packet->hop_limit = header.flags & PACKET_FLAGS_HOP_LIMIT_MASK;
+    out_packet->want_ack = (header.flags & PACKET_FLAGS_WANT_ACK_MASK) != 0;
+    out_packet->via_mqtt = (header.flags & PACKET_FLAGS_VIA_MQTT_MASK) != 0;
+    out_packet->hop_start =
+        (header.flags & PACKET_FLAGS_HOP_START_MASK) >> PACKET_FLAGS_HOP_START_SHIFT;
+    out_packet->next_hop = header.next_hop;
+    out_packet->relay_node = header.relay_node;
+    out_packet->pki_encrypted = (header.channel == 0);
+    out_packet->which_payload_variant = meshtastic_MeshPacket_encrypted_tag;
+    out_packet->encrypted.size =
+        static_cast<pb_size_t>(std::min(payload_size, sizeof(out_packet->encrypted.bytes)));
     return true;
 }
 
@@ -420,14 +423,6 @@ void fillDecodedPacketCommon(meshtastic_MeshPacket* packet,
     packet->relay_node = header.relay_node;
     packet->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     packet->decoded = decoded;
-}
-
-bool allowPkiForPortnum(uint32_t portnum)
-{
-    return portnum != meshtastic_PortNum_NODEINFO_APP &&
-           portnum != meshtastic_PortNum_ROUTING_APP &&
-           portnum != meshtastic_PortNum_POSITION_APP &&
-           portnum != meshtastic_PortNum_TRACEROUTE_APP;
 }
 
 uint32_t djb2HashText(const char* text)

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "platform/ui/setting_sensitivity.h"
 #include "platform/ui/settings_store.h"
 
 #include <cstdarg>
@@ -28,8 +29,11 @@ constexpr StorageKeyAlias kStorageKeyAliases[] = {
     {"vibration_enabled", "vibe_enabled"},
     {"chat_message_alerts", "chat_msg_alert"},
     {"chat_contact_alerts", "chat_ct_alert"},
+    {"chat_auto_reply_enabled", "chat_auto_reply"},
+    {"chat_auto_reply_text", "chat_auto_txt"},
     {"timezone_profile", "timezone_prof"},
     {"gauge_design_mah", "gauge_dsgn"},
+    {"wifi_profile_count", "wifi_prof_count"},
 };
 
 inline const char* safe_label(const char* value)
@@ -317,7 +321,7 @@ bool put_string(const char* ns, const char* key, const char* value)
          safe_label(key),
          safe_label(storage_key),
          static_cast<unsigned long>(std::strlen(value)),
-         safe_label(value),
+         ::platform::ui::settings::diagnostic_value(key, value),
          bool_label(ok));
     return ok;
 }
@@ -556,7 +560,7 @@ bool get_string(const char* ns, const char* key, std::string& out)
          safe_label(key),
          safe_label(storage_key),
          static_cast<unsigned long>(out.size()),
-         safe_label(out.c_str()));
+         ::platform::ui::settings::diagnostic_value(key, out.c_str()));
     return true;
 }
 

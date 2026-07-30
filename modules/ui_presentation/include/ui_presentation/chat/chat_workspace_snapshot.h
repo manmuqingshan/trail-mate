@@ -87,6 +87,8 @@ struct MessageRow
     bool outgoing = false;
     MessageDeliveryState delivery = MessageDeliveryState::Unknown;
     MessageFailureKind failure = MessageFailureKind::None;
+    MessageIngressTransport ingress_transport = MessageIngressTransport::Unknown;
+    bool source_unverified = false;
 
     uint32_t sender_node_id = 0;
     ui::FixedText<160> text;
@@ -97,15 +99,37 @@ struct MessageRow
     TeamMessageRichPayload team_rich_payload;
 };
 
+struct ConversationLocationParticipant
+{
+    uint32_t node_id = 0;
+    ui::FixedText<32> label;
+    double lat = 0.0;
+    double lon = 0.0;
+    uint32_t timestamp = 0;
+    bool valid = false;
+    bool self = false;
+};
+
 struct ChatWorkspaceSnapshot
 {
     ui::SnapshotHeader header;
 
+    static constexpr size_t kMaxLocationParticipants = 16;
+    static constexpr size_t kMaxMessages = 10;
+
     ConversationRow conversations[16]{};
     size_t conversation_count = 0;
 
-    MessageRow messages[24]{};
+    MessageRow messages[kMaxMessages]{};
     size_t message_count = 0;
+    uint16_t message_offset = 0;
+    uint16_t message_total_count = 0;
+    bool has_older_messages = false;
+    bool has_newer_messages = false;
+
+    ConversationLocationParticipant location_participants[kMaxLocationParticipants]{};
+    size_t location_participant_count = 0;
+    bool location_participants_truncated = false;
 
     ConversationId selected_conversation;
 
@@ -144,12 +168,25 @@ inline void resetMessageRow(MessageRow& row)
     row.outgoing = false;
     row.delivery = MessageDeliveryState::Unknown;
     row.failure = MessageFailureKind::None;
+    row.ingress_transport = MessageIngressTransport::Unknown;
     row.sender_node_id = 0;
     row.text.clear();
     row.time_label.clear();
     row.sender_label.clear();
     row.has_team_rich_payload = false;
     row.team_rich_payload = TeamMessageRichPayload{};
+}
+
+inline void resetConversationLocationParticipant(
+    ConversationLocationParticipant& participant)
+{
+    participant.node_id = 0;
+    participant.label.clear();
+    participant.lat = 0.0;
+    participant.lon = 0.0;
+    participant.timestamp = 0;
+    participant.valid = false;
+    participant.self = false;
 }
 
 inline void resetChatWorkspaceSnapshot(ChatWorkspaceSnapshot& out)
@@ -162,11 +199,22 @@ inline void resetChatWorkspaceSnapshot(ChatWorkspaceSnapshot& out)
     }
     out.conversation_count = 0;
 
-    for (size_t i = 0; i < 24; ++i)
+    for (size_t i = 0; i < ChatWorkspaceSnapshot::kMaxMessages; ++i)
     {
         resetMessageRow(out.messages[i]);
     }
     out.message_count = 0;
+    out.message_offset = 0;
+    out.message_total_count = 0;
+    out.has_older_messages = false;
+    out.has_newer_messages = false;
+
+    for (size_t i = 0; i < ChatWorkspaceSnapshot::kMaxLocationParticipants; ++i)
+    {
+        resetConversationLocationParticipant(out.location_participants[i]);
+    }
+    out.location_participant_count = 0;
+    out.location_participants_truncated = false;
 
     out.selected_conversation = ConversationId{};
     out.can_send = false;

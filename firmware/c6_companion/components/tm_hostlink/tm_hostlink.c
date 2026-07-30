@@ -7,11 +7,13 @@
 #include "tm_espnow.h"
 #include "tm_services.h"
 #include "tm_wifi.h"
+#include "tm_wifi_tcp.h"
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #include "tm_c6_companion_config.h"
@@ -33,6 +35,8 @@ static tm_hostlink_state_t s_state = TM_HOSTLINK_WAIT_P4_HELLO;
 static uint16_t s_selected_proto = 0;
 static uint32_t s_supported_features = 0;
 static uint16_t s_next_seq = 1;
+static SemaphoreHandle_t s_tx_mutex;
+static uint8_t s_tx_frame[TM_C6_FRAME_HEADER_LEN + TM_C6_MAX_PAYLOAD];
 
 static uint32_t uptime_ms(void)
 {
@@ -92,7 +96,16 @@ static bool send_frame(uint8_t frame_type,
                        const uint8_t* payload,
                        size_t payload_len)
 {
-    uint8_t out[TM_C6_FRAME_HEADER_LEN + TM_C6_MAX_PAYLOAD] = {};
+    if (s_tx_mutex == NULL || xSemaphoreTake(s_tx_mutex, pdMS_TO_TICKS(100)) != pdTRUE)
+    {
+        ESP_LOGW(TAG,
+                 "hostlink tx owner timeout frame type=%u channel=%u payload_len=%u",
+                 frame_type,
+                 channel,
+                 (unsigned)payload_len);
+        return false;
+    }
+
     size_t out_len = 0;
     tm_c6_encode_request_t request = {
         .frame_type = frame_type,
@@ -104,13 +117,16 @@ static bool send_frame(uint8_t frame_type,
         .payload_len = payload_len,
     };
 
-    if (!tm_c6_encode_frame(&request, out, sizeof(out), &out_len, TM_C6_MAX_PAYLOAD))
+    if (!tm_c6_encode_frame(
+            &request, s_tx_frame, sizeof(s_tx_frame), &out_len, TM_C6_MAX_PAYLOAD))
     {
+        xSemaphoreGive(s_tx_mutex);
         ESP_LOGE(TAG, "failed to encode frame type=%u payload_len=%u", frame_type, (unsigned)payload_len);
         return false;
     }
 
-    const esp_err_t err = tm_hostlink_sdio_send(out, out_len, 100);
+    const esp_err_t err = tm_hostlink_sdio_send(s_tx_frame, out_len, 100);
+    xSemaphoreGive(s_tx_mutex);
     if (err != ESP_OK)
     {
         ESP_LOGW(TAG,
@@ -388,6 +404,26 @@ static bool handle_wifi_control(const tm_c6_frame_view_t* frame)
     return true;
 }
 
+static bool handle_wifi_data(const tm_c6_frame_view_t* frame)
+{
+    if (s_state != TM_HOSTLINK_READY ||
+        frame->channel != TM_C6_CH_WIFI_DATA ||
+        frame->payload_len < sizeof(tm_c6_wifi_tcp_header_t))
+    {
+        return send_error_frame(frame, TM_C6_ERROR_UNSUPPORTED_FRAME, "bad_wifi_data");
+    }
+    const esp_err_t err = tm_wifi_tcp_handle_frame(frame->payload, frame->payload_len);
+    if (err == ESP_ERR_NO_MEM)
+    {
+        return send_error_frame(frame, TM_C6_ERROR_QUEUE_FULL, "wifi_tcp_queue_full");
+    }
+    if (err != ESP_OK)
+    {
+        return send_error_frame(frame, TM_C6_ERROR_UNSUPPORTED_FRAME, "wifi_tcp_frame_invalid");
+    }
+    return true;
+}
+
 static bool handle_diag_request(const tm_c6_frame_view_t* frame)
 {
     tm_c6_diag_report_t report = {};
@@ -473,6 +509,9 @@ static void hostlink_task(void* arg)
         case TM_C6_FRAME_WIFI_CONTROL:
             (void)handle_wifi_control(&decoded.frame);
             break;
+        case TM_C6_FRAME_WIFI_DATA:
+            (void)handle_wifi_data(&decoded.frame);
+            break;
         case TM_C6_FRAME_DIAG_REQUEST:
             (void)handle_diag_request(&decoded.frame);
             break;
@@ -485,6 +524,16 @@ static void hostlink_task(void* arg)
 
 esp_err_t tm_hostlink_init(void)
 {
+    if (s_tx_mutex == NULL)
+    {
+        s_tx_mutex = xSemaphoreCreateMutex();
+        if (s_tx_mutex == NULL)
+        {
+            ESP_LOGE(TAG, "HostLink TX owner mutex allocation failed");
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
     ESP_LOGI(TAG,
              "HostLink Phase 1 core initialized magic=0x%08lx header=%u max_payload=%u features=0x%08lx",
              (unsigned long)TM_C6_MAGIC,

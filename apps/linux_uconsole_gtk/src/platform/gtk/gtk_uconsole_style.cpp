@@ -10,24 +10,86 @@ window {
   background: #e8ebe5;
   color: #1b211e;
 }
-.menu-bar {
+.uconsole-titlebar {
   background: #1d2221;
   color: #f6f8f4;
-  padding: 3px 8px;
-  min-height: 28px;
-  border-bottom: 1px solid #111514;
+  min-height: 30px;
+  padding: 0 5px;
+  border-bottom: 1px solid #39413e;
+}
+.titlebar-title {
+  color: #f6f8f4;
+  font-size: 12px;
+  font-weight: 700;
+}
+.titlebar-button {
+  min-width: 32px;
+  min-height: 26px;
+  padding: 0 7px;
+  margin: 2px 0 2px 2px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #dce3de;
+  font-size: 15px;
+}
+.titlebar-button:hover,
+.titlebar-button:focus-visible {
+  background: #2a312f;
+  border-color: #52615a;
+}
+.titlebar-close:hover,
+.titlebar-close:focus-visible {
+  background: #a84635;
+  border-color: #d56e5b;
+  color: #ffffff;
+}
+.navigation-rail {
+  background: #1d2221;
+  color: #f6f8f4;
+  padding: 10px 9px 9px 9px;
+  border-right: 1px solid #111514;
+}
+.navigation-brand {
+  padding: 2px 7px 8px 7px;
+}
+.navigation-subtitle {
+  color: #9da9a3;
+  font-size: 11px;
+}
+.navigation-section-label {
+  color: #7f8e87;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 7px 7px 2px 7px;
+}
+.navigation-footer {
+  border-top: 1px solid #39413e;
+  padding: 7px 7px 2px 7px;
+}
+.navigation-footer-title {
+  color: #d5ddd8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
 }
 .menu-title {
   color: #f8faf7;
   font-weight: 700;
-  padding: 0 6px;
+  font-size: 16px;
 }
 .menu-button {
   background: transparent;
   color: #dce3de;
   border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 3px 8px;
+  border-radius: 5px;
+  padding: 5px 9px;
+  min-height: 18px;
+}
+.menu-button:hover {
+  background: #2a312f;
+  border-color: #3d4844;
 }
 .menu-badge {
   background: #dfeee7;
@@ -63,9 +125,9 @@ window {
   padding: 4px 9px;
 }
 .nav-button-active {
-  background: #dfeee7;
-  color: #12241e;
-  border-color: #6f9f8d;
+  background: #d9e8df;
+  color: #10271f;
+  border-color: #7ca18f;
   font-weight: 700;
 }
 .workbench {
@@ -903,6 +965,137 @@ window {
   color: #9b2f22;
   font-family: monospace;
   font-weight: 700;
+}
+/* uConsole embedded visual language: warm paper surfaces and amber focus. */
+window,
+.body,
+.workbench,
+.chat-root {
+  background: #fff3df;
+  color: #3a2a1a;
+}
+.uconsole-titlebar {
+  background: #f0d3a4;
+  color: #2a1a05;
+  border-bottom-color: #d9b06a;
+}
+.titlebar-title,
+.titlebar-button {
+  color: #2a1a05;
+}
+.titlebar-button:hover,
+.titlebar-button:focus-visible {
+  background: #e8b45f;
+  border-color: #c98118;
+}
+.titlebar-close:hover,
+.titlebar-close:focus-visible {
+  background: #c94c2c;
+  border-color: #a53b24;
+}
+.navigation-rail {
+  background: #fff0d3;
+  color: #3a2a1a;
+  border-right-color: #d9b06a;
+}
+.navigation-subtitle,
+.navigation-section-label {
+  color: #8a6a3a;
+}
+.menu-title {
+  color: #2a1a05;
+}
+.menu-button {
+  color: #3a2a1a;
+  background: #fff7e9;
+  border-color: #f0d3a4;
+}
+.menu-button:hover {
+  background: #f3d39c;
+  border-color: #d9b06a;
+}
+.panel,
+.pane,
+.overview-summary-panel,
+.overview-recent-panel,
+.row,
+.recent-contact-row,
+.chat-main,
+.chat-titlebar,
+.log-entry,
+.settings-section {
+  background: #fff7e9;
+  border-color: #d9b06a;
+  color: #3a2a1a;
+}
+.pane-primary,
+.overview-location-panel,
+.overview-messages-panel {
+  background: #fffaf1;
+}
+.pane-heading,
+.overview-panel-title,
+.row-title,
+.summary-title,
+.chat-title-line {
+  color: #2a1a05;
+}
+.pane-caption,
+.row-meta,
+.summary-detail,
+.navigation-footer-title,
+.log-time,
+.settings-status {
+  color: #6a5646;
+}
+.nav-button-active,
+.source-button-active {
+  background: #eba341;
+  color: #2a1a05;
+  border-color: #c98118;
+}
+.statusbar {
+  background: #f0d3a4;
+  color: #3a2a1a;
+  border-top: 1px solid #d9b06a;
+}
+.status-chip {
+  background: #f3d39c;
+  color: #3a2a1a;
+}
+.status-ok {
+  background: #dcefd8;
+  color: #245c2b;
+}
+.status-alert {
+  background: #f5d9d1;
+  color: #8b2e1d;
+}
+.map-side-panel,
+.map-tools-panel,
+.rail-pane,
+.inspector-pane,
+.settings-sidebar,
+.log-toolbar {
+  background: #faf0d8;
+  border-color: #d9b06a;
+}
+.map-canvas,
+.map-grid,
+.location-map,
+.gnss-skyplot {
+  background: #f6e7c8;
+  border-color: #d9b06a;
+}
+.metric-strip {
+  background: #f0d3a4;
+  border-color: #d9b06a;
+}
+.metric-card,
+.hardware-card,
+.settings-row {
+  background: #fff7e9;
+  border-color: #e8d2ab;
 }
 button.send {
   border-radius: 6px;

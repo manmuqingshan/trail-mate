@@ -60,6 +60,12 @@ struct NodeInfoWidgets
     ::ui::widgets::map::Widgets map_viewport{};
 };
 
+struct InputCallbacks
+{
+    void (*back_requested)(void* user_data) = nullptr;
+    void* user_data = nullptr;
+};
+
 /**
  * @brief Create the Node Info page widgets.
  */
@@ -76,9 +82,17 @@ void destroy();
 const NodeInfoWidgets& widgets();
 
 /**
+ * Register the complete NodeInfo interaction surface in navigation order.
+ * NodeInfo owns focus registration, page shortcuts, help, and the top-bar
+ * back action. The host only supplies the navigation callback.
+ */
+void bind_input_group(lv_group_t* group,
+                      const InputCallbacks& callbacks = InputCallbacks{});
+
+/**
  * @brief Update UI widgets with NodeInfo data.
  */
-void set_node_info(const chat::contacts::NodeInfo& node);
+void set_node_info(const chat::contacts::PeerDirectoryItem& node);
 
 } // namespace ui
 } // namespace node_info

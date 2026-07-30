@@ -738,17 +738,21 @@
     #define LV_FS_STDIO_CACHE_SIZE 0    /*>0 to cache this number of bytes in lv_fs_read()*/
 #endif
 
-/* TrailMate registers its own nonblocking shared-SPI SD driver on A:.
- * Do not also enable LVGL's built-in POSIX A: driver; duplicate A: drivers
- * make SD routing ambiguous and can bypass the shared-SPI backpressure path.
- */
-#define TRAIL_MATE_LVGL_SD_FS_LETTER 'A'
-#define TRAIL_MATE_LVGL_SD_FS_PATH "/sd"
-
-/*API for open, read, etc*/
-#define LV_USE_FS_POSIX 0
-#if LV_USE_FS_POSIX
-    #error "TrailMate ESP builds must use the custom A: SD driver, not LVGL POSIX."
+#if defined(ARDUINO)
+    /* Arduino targets register their own nonblocking shared-SPI SD driver on A:.
+     * A second POSIX A: driver would bypass the shared-SPI backpressure path.
+     */
+    #define TRAIL_MATE_LVGL_SD_FS_LETTER 'A'
+    #define TRAIL_MATE_LVGL_SD_FS_PATH "/sd"
+    #define LV_USE_FS_POSIX 0
+#else
+    /* ESP-IDF targets expose the internal FFat partition through POSIX. This
+     * gives resource packs a stable F: mapping without depending on an SD card.
+     */
+    #define LV_USE_FS_POSIX 1
+    #define LV_FS_POSIX_LETTER 'F'
+    #define LV_FS_POSIX_PATH "/fs"
+    #define LV_FS_POSIX_CACHE_SIZE 0
 #endif
 
 /*API for CreateFile, ReadFile, etc*/

@@ -1,0 +1,13 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>State：通话会话</title></head><body><main data-praxis-kind="design_state_machine_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/realtime-audio-call/state-machines/call-session.md"><h1>Call State 与 RealtimePhase</h1><pre class="mermaid">stateDiagram-v2
+[*] --> Idle
+Idle --> Incoming
+Idle --> Outgoing
+Incoming --> Active: accept + ready
+Outgoing --> Active: ready
+Incoming --> Ended: reject
+Active --> Ended: hangup/close
+Incoming --> Failed
+Outgoing --> Failed
+Active --> Failed
+Ended --> Idle
+Failed --> Idle</pre></main></body></html>

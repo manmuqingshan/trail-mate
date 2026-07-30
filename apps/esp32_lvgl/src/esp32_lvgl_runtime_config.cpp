@@ -29,7 +29,7 @@ const Esp32LvglRuntimeConfig& esp32LvglRuntimeConfig()
         "T-Display-P4 AMOLED",
         "t_display_p4_amoled_app_loop",
         10,
-        4096,
+        12288,
         5,
     };
 #else
@@ -39,7 +39,7 @@ const Esp32LvglRuntimeConfig& esp32LvglRuntimeConfig()
         "T-Display-P4 TFT",
         "t_display_p4_tft_app_loop",
         10,
-        4096,
+        12288,
         5,
     };
 #endif

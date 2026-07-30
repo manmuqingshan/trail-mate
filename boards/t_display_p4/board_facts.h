@@ -35,8 +35,8 @@ struct TDisplayP4BoardFacts
     int keyboard_interrupt_pin = 48;
     int keyboard_backlight_pin = 47;
     std::uint16_t keyboard_tca8418_address = 0x34;
-    int gps_uart_tx_pin = 22;
-    int gps_uart_rx_pin = 23;
+    int gps_uart_tx_pin = 23;
+    int gps_uart_rx_pin = 22;
     std::uint16_t hi8561_touch_address = 0x68;
     std::uint16_t rm69a10_touch_address = 0x5D;
 };

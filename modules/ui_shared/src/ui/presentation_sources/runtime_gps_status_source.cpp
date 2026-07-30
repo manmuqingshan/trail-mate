@@ -64,7 +64,8 @@ bool RuntimeGpsStatusSource::buildGpsStatusSnapshot(ui::gps::GpsStatusSnapshot& 
     out.fix_valid = state.valid || diagnostics.has_fix;
     out.latitude = state.lat;
     out.longitude = state.lng;
-    out.altitude_m = state.has_alt ? static_cast<float>(state.alt_m) : 0.0f;
+    out.has_altitude = state.valid && state.has_alt;
+    out.altitude_m = out.has_altitude ? static_cast<float>(state.alt_m) : 0.0f;
     out.speed_mps = state.has_speed ? static_cast<float>(state.speed_mps) : 0.0f;
     out.course_deg = state.has_course ? static_cast<float>(state.course_deg) : 0.0f;
     platform::ui::gps::GnssStatus gnss_status{};

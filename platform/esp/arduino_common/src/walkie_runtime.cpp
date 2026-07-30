@@ -71,7 +71,11 @@ bool tryAcquire(Session* out_session)
     out_session->impl = handles.board;
     if (!app::AppTasks::areRadioTasksPaused())
     {
-        app::AppTasks::pauseRadioTasks();
+        if (!app::AppTasks::pauseRadioTasks())
+        {
+            *out_session = {};
+            return false;
+        }
         out_session->paused_radio_tasks = true;
     }
 
@@ -163,9 +167,16 @@ int codecOpen(Session* session, uint8_t bits_per_sample, uint8_t channels, uint3
     {
         return -1;
     }
-    int state = board->codec.open(bits_per_sample, channels, sample_rate);
+    constexpr auto kOwner = ::boards::tlora_pager::PagerAudioOwner::Walkie;
+    int state = board->openAudioSession(
+        kOwner, bits_per_sample, channels, sample_rate, true);
     if (state == 0)
     {
+        if (!board->audioSetOutMute(kOwner, false))
+        {
+            board->closeAudioSession(kOwner);
+            return -1;
+        }
         session->codec_open = true;
     }
     return state;
@@ -178,20 +189,28 @@ void codecClose(Session* session)
     {
         return;
     }
-    board->codec.close();
+    board->closeAudioSession(::boards::tlora_pager::PagerAudioOwner::Walkie);
     session->codec_open = false;
 }
 
 int codecRead(Session* session, uint8_t* buffer, size_t size)
 {
     ::boards::tlora_pager::TLoRaPagerBoard* board = resolveBoard(session);
-    return board ? board->codec.read(buffer, size) : -1;
+    return board ? board->audioRead(
+                       ::boards::tlora_pager::PagerAudioOwner::Walkie,
+                       buffer,
+                       size)
+                 : -1;
 }
 
 int codecWrite(Session* session, uint8_t* buffer, size_t size)
 {
     ::boards::tlora_pager::TLoRaPagerBoard* board = resolveBoard(session);
-    return board ? board->codec.write(buffer, size) : -1;
+    return board ? board->audioWrite(
+                       ::boards::tlora_pager::PagerAudioOwner::Walkie,
+                       buffer,
+                       size)
+                 : -1;
 }
 
 void codecSetVolume(Session* session, uint8_t level)
@@ -199,7 +218,8 @@ void codecSetVolume(Session* session, uint8_t level)
     ::boards::tlora_pager::TLoRaPagerBoard* board = resolveBoard(session);
     if (board)
     {
-        board->codec.setVolume(level);
+        (void)board->audioSetVolume(
+            ::boards::tlora_pager::PagerAudioOwner::Walkie, level);
     }
 }
 
@@ -208,7 +228,8 @@ void codecSetGain(Session* session, float db_value)
     ::boards::tlora_pager::TLoRaPagerBoard* board = resolveBoard(session);
     if (board)
     {
-        board->codec.setGain(db_value);
+        (void)board->audioSetGain(
+            ::boards::tlora_pager::PagerAudioOwner::Walkie, db_value);
     }
 }
 
@@ -217,7 +238,9 @@ void codecSetMute(Session* session, bool enabled)
     ::boards::tlora_pager::TLoRaPagerBoard* board = resolveBoard(session);
     if (board)
     {
-        board->codec.setMute(enabled);
+        constexpr auto kOwner = ::boards::tlora_pager::PagerAudioOwner::Walkie;
+        (void)board->audioSetMute(kOwner, enabled);
+        (void)board->audioSetOutMute(kOwner, enabled);
     }
 }
 

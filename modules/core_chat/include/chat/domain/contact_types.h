@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "chat/domain/reticulum_identity.h"
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -13,6 +15,9 @@ namespace chat
 {
 namespace contacts
 {
+
+using ::chat::kReticulumPeerHashSize;
+using ::chat::ReticulumPeerIdentity;
 
 /**
  * @brief Node protocol type
@@ -23,7 +28,8 @@ enum class NodeProtocolType : uint8_t
     Meshtastic = 1,
     MeshCore = 2,
     RNode = 3,
-    LXMF = 4
+    LXMF = 4,
+    Reticulum = LXMF
 };
 
 /**
@@ -126,6 +132,8 @@ struct NodeUpdate
     bool has_key_manually_verified = false;
     bool key_manually_verified = false;
 
+    ReticulumPeerIdentity reticulum_identity{};
+
     bool has_device_metrics = false;
     NodeDeviceMetrics device_metrics{};
 
@@ -134,9 +142,9 @@ struct NodeUpdate
 };
 
 /**
- * @brief Base node information
+ * @brief UI-facing projection of one unified peer-directory record.
  */
-struct NodeInfoBase
+struct PeerDirectoryItem
 {
     uint32_t node_id;
     char short_name[10];
@@ -147,7 +155,7 @@ struct NodeInfoBase
     uint8_t hops_away = 0xFF; // 0xFF = unknown
     uint8_t channel = 0xFF;   // Meshtastic channel index, 0xFF = unknown
     bool is_contact;          // true if user has assigned a nickname
-    std::string display_name; // nickname if contact, short_name otherwise
+    std::string display_name; // nickname, announce/long name, then short_name fallback
     NodeProtocolType protocol;
     NodeRoleType role;
     uint8_t hw_model = 0;
@@ -158,29 +166,13 @@ struct NodeInfoBase
     bool is_ignored = false;
     bool has_public_key = false;
     bool key_manually_verified = false;
+    ReticulumPeerIdentity reticulum_identity{};
     bool has_device_metrics = false;
     NodeDeviceMetrics device_metrics;
     NodePosition position;
 };
 
-/**
- * @brief Meshtastic-specific node info (reserved for future extensions)
- */
-struct MeshtasticNodeInfo : public NodeInfoBase
-{
-};
-
-/**
- * @brief MeshCore-specific node info (reserved for future extensions)
- */
-struct MeshCoreNodeInfo : public NodeInfoBase
-{
-};
-
-/**
- * @brief Node information (from mesh network)
- */
-using NodeInfo = NodeInfoBase;
+static constexpr uint8_t kNodeRoleUnknown = 0xFF;
 
 } // namespace contacts
 } // namespace chat

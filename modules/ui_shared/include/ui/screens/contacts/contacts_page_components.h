@@ -15,4 +15,5 @@ void create_filter_panel(lv_obj_t* parent);
 
 void refresh_contacts_data();
 void refresh_ui();
+bool activate_contacts_filter(lv_obj_t* filter_button);
 void cleanup_modals();

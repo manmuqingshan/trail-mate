@@ -1,5 +1,7 @@
 idf_component_register(
-    SRCS "tm_wifi.c"
+    SRCS
+        "tm_wifi.c"
+        "tm_wifi_tcp.c"
     INCLUDE_DIRS
         "include"
         "../../../../modules/core_hostlink/include"
@@ -8,4 +10,6 @@ idf_component_register(
         esp_wifi
         esp_netif
         esp_event
+        esp_timer
+        lwip
 )

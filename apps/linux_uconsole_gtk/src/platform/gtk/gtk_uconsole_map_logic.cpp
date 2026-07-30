@@ -1243,9 +1243,6 @@ GtkWidget* buildContourTileCell(const MapWorkspaceSnapshot& snapshot,
 void refreshMap(GtkUConsoleAppState& state,
                 const MapWorkspaceSnapshot& snapshot)
 {
-    pollContourFill(state);
-    maybeStartMapFetch(state, snapshot);
-
     setActiveMapSourceButton(
         state.map_source_osm,
         ::platform::linux_runtime::MapBaseSource::Osm,
@@ -1437,6 +1434,13 @@ void refreshMap(GtkUConsoleAppState& state,
         gtk_widget_set_tooltip_text(state.map_cache_status,
                                     snapshot.cache_stats.root.string().c_str());
     }
+}
+
+void serviceMapDownloads(GtkUConsoleAppState& state,
+                         const MapWorkspaceSnapshot& snapshot)
+{
+    pollContourFill(state);
+    maybeStartMapFetch(state, snapshot);
 }
 
 void refreshMap(GtkUConsoleAppState& state)

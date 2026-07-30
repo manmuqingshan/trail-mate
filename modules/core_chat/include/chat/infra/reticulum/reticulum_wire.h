@@ -17,6 +17,7 @@ constexpr size_t kNameHashSize = 10;
 constexpr size_t kEncryptionPublicKeySize = 32;
 constexpr size_t kSigningPublicKeySize = 32;
 constexpr size_t kCombinedPublicKeySize = kEncryptionPublicKeySize + kSigningPublicKeySize;
+constexpr size_t kRatchetSize = 32;
 constexpr size_t kSignatureSize = 64;
 constexpr size_t kPacketHeader1Size = 2 + kTruncatedHashSize + 1;
 constexpr size_t kPacketHeader2Size = 2 + kTruncatedHashSize + kTruncatedHashSize + 1;
@@ -119,6 +120,7 @@ void computeIdentityHash(const uint8_t public_key[kCombinedPublicKeySize],
                          uint8_t out_hash[kTruncatedHashSize]);
 void computePlainDestinationHash(const uint8_t name_hash[kNameHashSize],
                                  uint8_t out_hash[kTruncatedHashSize]);
+void computePathRequestDestinationHash(uint8_t out_hash[kTruncatedHashSize]);
 void computeDestinationHash(const uint8_t name_hash[kNameHashSize],
                             const uint8_t identity_hash[kTruncatedHashSize],
                             uint8_t out_hash[kTruncatedHashSize]);

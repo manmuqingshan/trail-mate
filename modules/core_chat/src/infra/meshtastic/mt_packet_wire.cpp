@@ -7,6 +7,15 @@
 
 #include <cstring>
 
+#if defined(ESP_PLATFORM) && __has_include("mbedtls/aes.h")
+#include "mbedtls/aes.h"
+#define TRAILMATE_MESHTASTIC_WIRE_HAS_MBEDTLS_AES_CTR 1
+#endif
+
+#ifndef TRAILMATE_MESHTASTIC_WIRE_HAS_MBEDTLS_AES_CTR
+#define TRAILMATE_MESHTASTIC_WIRE_HAS_MBEDTLS_AES_CTR 0
+#endif
+
 #if __has_include(<AES.h>) && __has_include(<CTR.h>)
 #include <AES.h>
 #include <CTR.h>
@@ -17,12 +26,18 @@
 #define TRAILMATE_MESHTASTIC_WIRE_HAS_ARDUINO_CRYPTO 0
 #endif
 
+#if TRAILMATE_MESHTASTIC_WIRE_HAS_MBEDTLS_AES_CTR || TRAILMATE_MESHTASTIC_WIRE_HAS_ARDUINO_CRYPTO
+#define TRAILMATE_MESHTASTIC_WIRE_HAS_CRYPTO 1
+#else
+#define TRAILMATE_MESHTASTIC_WIRE_HAS_CRYPTO 0
+#endif
+
 namespace chat
 {
 namespace meshtastic
 {
 
-#if TRAILMATE_MESHTASTIC_WIRE_HAS_ARDUINO_CRYPTO
+#if TRAILMATE_MESHTASTIC_WIRE_HAS_CRYPTO
 namespace
 {
 
@@ -44,6 +59,20 @@ void aesCtrCrypt(const uint8_t* key, size_t key_len, uint8_t* nonce,
     memcpy(scratch, buffer, len);
     memset(scratch + len, 0, sizeof(scratch) - len);
 
+#if TRAILMATE_MESHTASTIC_WIRE_HAS_MBEDTLS_AES_CTR
+    uint8_t counter[16];
+    uint8_t stream_block[16] = {};
+    size_t nc_off = 0;
+    memcpy(counter, nonce, sizeof(counter));
+
+    mbedtls_aes_context ctx;
+    mbedtls_aes_init(&ctx);
+    if (mbedtls_aes_setkey_enc(&ctx, key, static_cast<unsigned>(key_len * 8U)) == 0)
+    {
+        (void)mbedtls_aes_crypt_ctr(&ctx, len, &nc_off, counter, stream_block, scratch, buffer);
+    }
+    mbedtls_aes_free(&ctx);
+#else
     if (key_len == 16)
     {
         CTR<AES128> ctr;
@@ -60,6 +89,7 @@ void aesCtrCrypt(const uint8_t* key, size_t key_len, uint8_t* nonce,
         ctr.setCounterSize(4);
         ctr.encrypt(buffer, scratch, len);
     }
+#endif
 }
 
 } // namespace
@@ -75,24 +105,6 @@ bool buildWirePacket(const uint8_t* data_payload, size_t data_len,
     if (!data_payload || !out_buffer || !out_size || data_len == 0)
     {
         return false;
-    }
-
-    uint8_t payload[256];
-    const size_t payload_len = data_len;
-    memcpy(payload, data_payload, data_len);
-
-    if (psk && psk_len > 0)
-    {
-#if TRAILMATE_MESHTASTIC_WIRE_HAS_ARDUINO_CRYPTO
-        uint8_t nonce[16];
-        memset(nonce, 0, sizeof(nonce));
-        const uint64_t packet_id64 = static_cast<uint64_t>(packet_id);
-        memcpy(nonce, &packet_id64, sizeof(uint64_t));
-        memcpy(nonce + sizeof(uint64_t), &from_node, sizeof(uint32_t));
-        aesCtrCrypt(psk, psk_len, nonce, payload, payload_len);
-#else
-        return false;
-#endif
     }
 
     PacketHeaderWire hdr{};
@@ -112,15 +124,32 @@ bool buildWirePacket(const uint8_t* data_payload, size_t data_len,
     hdr.next_hop = 0;
     hdr.relay_node = static_cast<uint8_t>(from_node & 0xFF);
 
-    const size_t required_size = sizeof(hdr) + payload_len;
+    const size_t required_size = sizeof(hdr) + data_len;
     if (*out_size < required_size)
     {
         *out_size = required_size;
         return false;
     }
 
+    // The caller may intentionally use the same buffer for the source and
+    // destination. Move the payload behind the header before encrypting it
+    // in place so no protocol-sized automatic scratch buffer is needed.
+    memmove(out_buffer + sizeof(hdr), data_payload, data_len);
     memcpy(out_buffer, &hdr, sizeof(hdr));
-    memcpy(out_buffer + sizeof(hdr), payload, payload_len);
+
+    if (psk && psk_len > 0)
+    {
+#if TRAILMATE_MESHTASTIC_WIRE_HAS_CRYPTO
+        uint8_t nonce[16];
+        memset(nonce, 0, sizeof(nonce));
+        const uint64_t packet_id64 = static_cast<uint64_t>(packet_id);
+        memcpy(nonce, &packet_id64, sizeof(uint64_t));
+        memcpy(nonce + sizeof(uint64_t), &from_node, sizeof(uint32_t));
+        aesCtrCrypt(psk, psk_len, nonce, out_buffer + sizeof(hdr), data_len);
+#else
+        return false;
+#endif
+    }
 
     *out_size = required_size;
     return true;
@@ -166,7 +195,7 @@ bool decryptPayload(const PacketHeaderWire& header,
     }
 
     memcpy(out_plaintext, cipher, cipher_len);
-#if TRAILMATE_MESHTASTIC_WIRE_HAS_ARDUINO_CRYPTO
+#if TRAILMATE_MESHTASTIC_WIRE_HAS_CRYPTO
     uint8_t nonce[16];
     memset(nonce, 0, sizeof(nonce));
     const uint64_t packet_id64 = static_cast<uint64_t>(header.id);

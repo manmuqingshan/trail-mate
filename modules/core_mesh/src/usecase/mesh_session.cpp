@@ -44,11 +44,10 @@ void MeshSession::tick()
         return;
     }
 
-    RadioRxPacket packet{};
-    while (radio_.poll(packet))
+    while (radio_.poll(rx_packet_scratch_))
     {
-        receive_.onRadioPacket(packet);
-        packet = RadioRxPacket{};
+        receive_.onRadioPacket(rx_packet_scratch_);
+        rx_packet_scratch_ = RadioRxPacket{};
     }
 }
 

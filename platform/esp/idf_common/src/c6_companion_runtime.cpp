@@ -3,13 +3,16 @@
 #include "hostlink/c6/c6_frame_codec.h"
 #include "hostlink/c6/c6_protocol.h"
 #include "platform/ui/settings_store.h"
+#include "platform/ui/wifi_runtime.h"
 
 #include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -23,6 +26,8 @@
 #include "esp_serial_slave_link/essl_sdio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "platform/esp/boards/board_runtime.h"
+#include "platform/esp/idf_common/sdmmc_host_runtime.h"
 #include "sdmmc_cmd.h"
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
 #include "boards/tab5/tab5_board.h"
@@ -45,21 +50,22 @@ constexpr uint32_t kReceivePollTimeoutMs = 20;
 constexpr uint32_t kSdioCardInitRetryDelayMs = 100;
 constexpr uint32_t kSdioCardInitMaxAttempts = 30;
 constexpr size_t kSdioBufferSize = 1152;
-constexpr uint32_t kRequestedFeatures = TM_C6_FEATURE_BLE_MESHTASTIC |
-                                        TM_C6_FEATURE_BLE_MESHCORE |
-                                        TM_C6_FEATURE_BLE_TRAILMATE |
-                                        TM_C6_FEATURE_ESPNOW_TEAM |
+constexpr size_t kC6MaxFrameSize = TM_C6_FRAME_HEADER_LEN + TM_C6_MAX_PAYLOAD;
+constexpr size_t kC6RxStreamCapacity = kSdioBufferSize + kC6MaxFrameSize;
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+constexpr size_t kWifiTcpRxBufferSize = 16384;
+#else
+constexpr size_t kWifiTcpRxBufferSize = 4096;
+#endif
+constexpr uint32_t kRequestedFeatures = TM_C6_FEATURE_ESPNOW_TEAM |
                                         TM_C6_FEATURE_WIFI_STA |
                                         TM_C6_FEATURE_WIFI_AP |
                                         TM_C6_FEATURE_DIAG_LOG |
-                                        TM_C6_FEATURE_HOSTLINK_PING;
+                                        TM_C6_FEATURE_HOSTLINK_PING |
+                                        TM_C6_FEATURE_WIFI_TCP_PROXY;
 constexpr uint32_t kDefaultConfigSequence = 1;
 constexpr const char* kSettingsNamespace = "c6_companion";
-constexpr const char* kSharedSettingsNamespace = "settings";
-constexpr const char* kWifiEnabledKey = "wifi_enabled";
-constexpr const char* kWifiSsidKey = "wifi_ssid";
-constexpr const char* kWifiPasswordKey = "wifi_password";
-
+constexpr uint32_t kNetworkTimeMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
 bool board_has_c6_companion()
 {
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
@@ -195,13 +201,64 @@ uint8_t bool_byte(bool value)
 template <size_t N>
 void copy_text(char (&out)[N], const char* text)
 {
-    std::snprintf(out, N, "%s", text ? text : "");
+    out[0] = '\0';
+    if (!text)
+    {
+        return;
+    }
+    const size_t max_copy_len = N - 1U;
+    const auto* terminator = static_cast<const char*>(std::memchr(text, '\0', max_copy_len));
+    const size_t copy_len =
+        terminator ? static_cast<size_t>(terminator - text) : max_copy_len;
+    std::memcpy(out, text, copy_len);
+    out[copy_len] = '\0';
 }
 
 template <size_t N>
 void copy_text(char (&out)[N], const std::string& text)
 {
     copy_text(out, text.c_str());
+}
+
+void apply_c6_wifi_time_sync(const tm_c6_wifi_time_sync_t& event)
+{
+#if defined(ESP_PLATFORM)
+    char source[TM_C6_WIFI_TIME_SOURCE_LEN + 1] = {};
+    const auto* source_end =
+        static_cast<const char*>(std::memchr(event.source, '\0', TM_C6_WIFI_TIME_SOURCE_LEN));
+    const std::size_t source_len =
+        source_end ? static_cast<std::size_t>(source_end - event.source) : TM_C6_WIFI_TIME_SOURCE_LEN;
+    std::memcpy(source, event.source, source_len);
+    source[source_len] = '\0';
+    const char* label = source[0] != '\0' ? source : "c6_wifi_sntp";
+
+    if (event.error_code != TM_C6_OK)
+    {
+        ESP_LOGW(kTag,
+                 "C6 Wi-Fi time sync failed source=%s err=%u",
+                 label,
+                 static_cast<unsigned>(event.error_code));
+        return;
+    }
+    if (event.epoch_seconds < kNetworkTimeMinValidEpochSeconds)
+    {
+        ESP_LOGW(kTag,
+                 "C6 Wi-Fi time sync invalid epoch=%lu source=%s",
+                 static_cast<unsigned long>(event.epoch_seconds),
+                 label);
+        return;
+    }
+
+    const bool applied =
+        ::platform::esp::boards::applySystemTimeAndSyncBoardRtc(static_cast<std::time_t>(event.epoch_seconds), label);
+    ESP_LOGI(kTag,
+             "C6 Wi-Fi time sync epoch=%lu source=%s rtc=%s",
+             static_cast<unsigned long>(event.epoch_seconds),
+             label,
+             applied ? "updated" : "update_failed");
+#else
+    (void)event;
+#endif
 }
 
 void set_detail(C6CompanionStatus& status, CompanionState state, const char* detail)
@@ -213,49 +270,10 @@ void set_detail(C6CompanionStatus& status, CompanionState state, const char* det
 
 BleCompanionConfig load_ble_config_from_p4_settings()
 {
-    BleCompanionConfig config{};
-#if defined(ESP_PLATFORM)
-    config.enabled = ::platform::ui::settings_store::get_bool(kSettingsNamespace, "ble_enabled", config.enabled);
-    config.meshtastic_enabled =
-        ::platform::ui::settings_store::get_bool(kSettingsNamespace, "ble_meshtastic", config.meshtastic_enabled);
-    config.meshcore_enabled =
-        ::platform::ui::settings_store::get_bool(kSettingsNamespace, "ble_meshcore", config.meshcore_enabled);
-    config.trailmate_enabled =
-        ::platform::ui::settings_store::get_bool(kSettingsNamespace, "ble_trailmate", config.trailmate_enabled);
-    config.fixed_pin_enabled =
-        ::platform::ui::settings_store::get_bool(kSettingsNamespace, "ble_fixed_pin_enabled", config.fixed_pin_enabled);
-
-    const int pairing_mode = ::platform::ui::settings_store::get_int(
-        kSettingsNamespace,
-        "ble_pairing_mode",
-        static_cast<int>(config.pairing_mode));
-    if (pairing_mode >= static_cast<int>(PairingMode::Disabled) &&
-        pairing_mode <= static_cast<int>(PairingMode::NoPinDebugOnly))
-    {
-        config.pairing_mode = static_cast<PairingMode>(pairing_mode);
-    }
-
-    const int mtu = ::platform::ui::settings_store::get_int(
-        kSettingsNamespace,
-        "ble_preferred_mtu",
-        static_cast<int>(config.preferred_mtu));
-    if (mtu > 0 && mtu <= static_cast<int>(TM_C6_MAX_PAYLOAD))
-    {
-        config.preferred_mtu = static_cast<uint16_t>(mtu);
-    }
-
-    std::string value;
-    if (::platform::ui::settings_store::get_string(kSettingsNamespace, "ble_fixed_pin", value))
-    {
-        copy_text(config.fixed_pin, value);
-    }
-    value.clear();
-    if (::platform::ui::settings_store::get_string(kSettingsNamespace, "ble_device_name", value))
-    {
-        copy_text(config.device_name, value);
-    }
-#endif
-    return config;
+    // BLE application bridges are deliberately outside the supported P4/C6
+    // product surface. Ignore stale persisted BLE settings so an older NVS
+    // image cannot silently re-enable Meshtastic or MeshCore advertising.
+    return {};
 }
 
 EspNowCompanionConfig load_espnow_config_from_p4_settings()
@@ -288,8 +306,12 @@ WifiCompanionConfig load_wifi_config_from_p4_settings()
 {
     WifiCompanionConfig config{};
 #if defined(ESP_PLATFORM)
+    ::platform::ui::wifi::Config shared_wifi{};
+    (void)::platform::ui::wifi::load_config(shared_wifi);
     config.enabled =
-        ::platform::ui::settings_store::get_bool(kSettingsNamespace, "wifi_enabled", config.enabled);
+        ::platform::ui::settings_store::get_bool(kSettingsNamespace,
+                                                 "wifi_enabled",
+                                                 shared_wifi.enabled);
     config.sta_enabled =
         ::platform::ui::settings_store::get_bool(kSettingsNamespace, "wifi_sta_enabled", config.enabled);
     config.ap_enabled =
@@ -298,16 +320,26 @@ WifiCompanionConfig load_wifi_config_from_p4_settings()
         ::platform::ui::settings_store::get_bool(kSettingsNamespace, "wifi_persist_credentials", false);
 
     std::string value;
-    if (::platform::ui::settings_store::get_string(kSettingsNamespace, "wifi_sta_ssid", value) ||
-        ::platform::ui::settings_store::get_string(kSharedSettingsNamespace, kWifiSsidKey, value))
+    if (::platform::ui::settings_store::get_string(kSettingsNamespace,
+                                                   "wifi_sta_ssid",
+                                                   value))
     {
         copy_text(config.sta_ssid, value);
     }
+    else
+    {
+        copy_text(config.sta_ssid, shared_wifi.ssid);
+    }
     value.clear();
-    if (::platform::ui::settings_store::get_string(kSettingsNamespace, "wifi_sta_password", value) ||
-        ::platform::ui::settings_store::get_string(kSharedSettingsNamespace, kWifiPasswordKey, value))
+    if (::platform::ui::settings_store::get_string(kSettingsNamespace,
+                                                   "wifi_sta_password",
+                                                   value))
     {
         copy_text(config.sta_password, value);
+    }
+    else
+    {
+        copy_text(config.sta_password, shared_wifi.password);
     }
     value.clear();
     if (::platform::ui::settings_store::get_string(kSettingsNamespace, "wifi_ap_ssid", value))
@@ -320,9 +352,7 @@ WifiCompanionConfig load_wifi_config_from_p4_settings()
         copy_text(config.ap_password, value);
     }
 
-    const bool shared_wifi_enabled =
-        ::platform::ui::settings_store::get_bool(kSharedSettingsNamespace, kWifiEnabledKey, false);
-    if (shared_wifi_enabled && config.sta_ssid[0] != '\0')
+    if (shared_wifi.enabled && config.sta_ssid[0] != '\0')
     {
         config.enabled = true;
         config.sta_enabled = true;
@@ -370,7 +400,7 @@ uint32_t requested_features_for(const BleCompanionConfig& ble,
     {
         if (wifi.sta_enabled)
         {
-            features |= TM_C6_FEATURE_WIFI_STA;
+            features |= TM_C6_FEATURE_WIFI_STA | TM_C6_FEATURE_WIFI_TCP_PROXY;
         }
         if (wifi.ap_enabled)
         {
@@ -414,8 +444,14 @@ class C6Transport
 class SdioC6Transport final : public C6Transport
 {
   public:
+    ~SdioC6Transport() override
+    {
+        reset();
+    }
+
     bool begin() override
     {
+        std::lock_guard<std::mutex> lock(io_mutex_);
         if (ready_)
         {
             return true;
@@ -437,21 +473,13 @@ class SdioC6Transport final : public C6Transport
         apply_board_pins(slot_config);
         slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
-        esp_err_t err = sdmmc_host_init();
-        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
-        {
-            set_error("sdmmc_host_init_failed");
-            ESP_LOGW(kTag, "SDIO host init failed: %s", esp_err_to_name(err));
-            return false;
-        }
-        host_initialized_ = true;
-
-        err = sdmmc_host_init_slot(host.slot, &slot_config);
-        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+        esp_err_t err = sdmmc_host_runtime::initialize_slot(
+            sdmmc_host_runtime::SlotOwner::C6Companion, host, slot_config);
+        if (err != ESP_OK)
         {
             set_error("sdmmc_slot_init_failed");
             ESP_LOGW(kTag, "SDIO slot init failed: %s", esp_err_to_name(err));
-            deinit();
+            deinit_locked();
             return false;
         }
         slot_initialized_ = true;
@@ -460,7 +488,7 @@ class SdioC6Transport final : public C6Transport
         if (card_ == nullptr)
         {
             set_error("sdio_card_alloc_failed");
-            deinit();
+            deinit_locked();
             return false;
         }
 
@@ -486,7 +514,7 @@ class SdioC6Transport final : public C6Transport
         {
             set_error("sdio_card_init_failed");
             ESP_LOGW(kTag, "SDIO card init failed: %s", esp_err_to_name(err));
-            deinit();
+            deinit_locked();
             return false;
         }
         ESP_LOGI(kTag,
@@ -508,7 +536,7 @@ class SdioC6Transport final : public C6Transport
         {
             set_error("essl_sdio_init_failed");
             ESP_LOGW(kTag, "ESSL SDIO init failed: %s", esp_err_to_name(err));
-            deinit();
+            deinit_locked();
             return false;
         }
 
@@ -519,7 +547,7 @@ class SdioC6Transport final : public C6Transport
             ESP_LOGW(kTag,
                      "ESSL init failed stage=function_ready_or_cccr err=%s",
                      esp_err_to_name(err));
-            deinit();
+            deinit_locked();
             return false;
         }
         log_cccr_state("post_essl");
@@ -539,13 +567,16 @@ class SdioC6Transport final : public C6Transport
 
     bool send(const uint8_t* data, size_t len, uint32_t timeout_ms) override
     {
-        if (!ready_ || handle_ == nullptr || data == nullptr || len == 0)
+        std::lock_guard<std::mutex> lock(io_mutex_);
+        if (!ready_ || handle_ == nullptr || data == nullptr || len == 0 ||
+            len > tx_dma_scratch_.size())
         {
             set_error("sdio_send_invalid_state");
             return false;
         }
 
-        const esp_err_t err = essl_send_packet(handle_, data, len, timeout_ms);
+        std::memcpy(tx_dma_scratch_.data(), data, len);
+        const esp_err_t err = essl_send_packet(handle_, tx_dma_scratch_.data(), len, timeout_ms);
         if (err != ESP_OK)
         {
             set_error("sdio_send_failed");
@@ -557,6 +588,7 @@ class SdioC6Transport final : public C6Transport
 
     bool recv(uint8_t* data, size_t max_len, size_t& out_len, uint32_t timeout_ms) override
     {
+        std::lock_guard<std::mutex> lock(io_mutex_);
         out_len = 0;
         if (!ready_ || handle_ == nullptr || data == nullptr || max_len == 0)
         {
@@ -567,59 +599,11 @@ class SdioC6Transport final : public C6Transport
             return false;
         }
 
-        esp_err_t err = essl_wait_int(handle_, timeout_ms);
-        last_rx_err_ = err;
+        esp_err_t err = ESP_OK;
         last_rx_size_ = 0;
         last_size_read_ = 0;
-        if (err == ESP_ERR_TIMEOUT)
-        {
-            set_error("sdio_rx_empty");
-            return false;
-        }
-        if (err != ESP_OK)
-        {
-            set_error("sdio_wait_int_failed");
-            ESP_LOGW(kTag,
-                     "SDIO wait interrupt failed timeout_ms=%lu err=%s",
-                     static_cast<unsigned long>(timeout_ms),
-                     esp_err_to_name(err));
-            return false;
-        }
-
-        uint32_t intr_raw = 0;
-        uint32_t intr_st = 0;
-        err = essl_get_intr(handle_, &intr_raw, &intr_st, kShortIoTimeoutMs);
-        last_rx_err_ = err;
-        if (err != ESP_OK)
-        {
-            set_error("sdio_get_intr_failed");
-            ESP_LOGW(kTag, "SDIO get intr failed err=%s", esp_err_to_name(err));
-            return false;
-        }
-
-        if (intr_raw != 0)
-        {
-            const esp_err_t clear_err = essl_clear_intr(handle_, intr_raw, kShortIoTimeoutMs);
-            if (clear_err != ESP_OK)
-            {
-                set_error("sdio_clear_intr_failed");
-                last_rx_err_ = clear_err;
-                ESP_LOGW(kTag,
-                         "SDIO clear intr failed raw=0x%08lX err=%s",
-                         static_cast<unsigned long>(intr_raw),
-                         esp_err_to_name(clear_err));
-                return false;
-            }
-        }
-
-        if ((intr_raw & ESSL_SDIO_DEF_ESP32C6.new_packet_intr_mask) == 0)
-        {
-            set_error("sdio_rx_empty");
-            return false;
-        }
-
         uint32_t rx_size = 0;
-        err = essl_get_rx_data_size(handle_, &rx_size, kShortIoTimeoutMs);
+        err = essl_get_rx_data_size(handle_, &rx_size, 0);
         last_rx_err_ = err;
         last_rx_size_ = rx_size;
         if (err != ESP_OK)
@@ -627,27 +611,91 @@ class SdioC6Transport final : public C6Transport
             set_error("sdio_rx_size_failed");
             ESP_LOGW(kTag,
                      "SDIO rx size failed timeout_ms=%lu err=%s",
-                     static_cast<unsigned long>(timeout_ms),
+                     0UL,
                      esp_err_to_name(err));
             return false;
         }
+
+        if (rx_size == 0)
+        {
+            err = essl_wait_int(handle_, timeout_ms);
+            last_rx_err_ = err;
+            if (err == ESP_ERR_TIMEOUT)
+            {
+                set_error("sdio_rx_empty");
+                return false;
+            }
+            if (err != ESP_OK)
+            {
+                set_error("sdio_wait_int_failed");
+                ESP_LOGW(kTag,
+                         "SDIO wait interrupt failed timeout_ms=%lu err=%s",
+                         static_cast<unsigned long>(timeout_ms),
+                         esp_err_to_name(err));
+                return false;
+            }
+
+            uint32_t intr_raw = 0;
+            uint32_t intr_st = 0;
+            err = essl_get_intr(handle_, &intr_raw, &intr_st, kShortIoTimeoutMs);
+            last_rx_err_ = err;
+            if (err != ESP_OK)
+            {
+                set_error("sdio_get_intr_failed");
+                ESP_LOGW(kTag, "SDIO get intr failed err=%s", esp_err_to_name(err));
+                return false;
+            }
+
+            if (intr_raw != 0)
+            {
+                const esp_err_t clear_err = essl_clear_intr(handle_, intr_raw, kShortIoTimeoutMs);
+                if (clear_err != ESP_OK)
+                {
+                    set_error("sdio_clear_intr_failed");
+                    last_rx_err_ = clear_err;
+                    ESP_LOGW(kTag,
+                             "SDIO clear intr failed raw=0x%08lX err=%s",
+                             static_cast<unsigned long>(intr_raw),
+                             esp_err_to_name(clear_err));
+                    return false;
+                }
+            }
+
+            if ((intr_raw & ESSL_SDIO_DEF_ESP32C6.new_packet_intr_mask) == 0)
+            {
+                set_error("sdio_rx_empty");
+                last_rx_err_ = ESP_ERR_NOT_FOUND;
+                return false;
+            }
+
+            err = essl_get_rx_data_size(handle_, &rx_size, kShortIoTimeoutMs);
+            last_rx_err_ = err;
+            last_rx_size_ = rx_size;
+            if (err != ESP_OK)
+            {
+                set_error("sdio_rx_size_failed");
+                ESP_LOGW(kTag,
+                         "SDIO rx size failed timeout_ms=%lu err=%s",
+                         static_cast<unsigned long>(kShortIoTimeoutMs),
+                         esp_err_to_name(err));
+                return false;
+            }
+        }
+
         if (rx_size == 0)
         {
             set_error("sdio_rx_empty");
-            return false;
-        }
-        if (rx_size > max_len)
-        {
-            set_error("sdio_rx_too_large");
-            ESP_LOGW(kTag,
-                     "SDIO rx too large rx_size=%lu max_len=%u",
-                     static_cast<unsigned long>(rx_size),
-                     static_cast<unsigned>(max_len));
+            last_rx_err_ = ESP_ERR_NOT_FOUND;
             return false;
         }
 
-        size_t size_read = rx_size;
-        err = essl_get_packet(handle_, data, max_len, &size_read, timeout_ms);
+        const size_t read_capacity = std::min(max_len, rx_dma_scratch_.size());
+        size_t size_read = 0;
+        err = essl_get_packet(handle_,
+                              rx_dma_scratch_.data(),
+                              read_capacity,
+                              &size_read,
+                              timeout_ms);
         last_rx_err_ = err;
         last_size_read_ = size_read;
         if (err != ESP_OK && err != ESP_ERR_NOT_FINISHED)
@@ -660,18 +708,36 @@ class SdioC6Transport final : public C6Transport
                      esp_err_to_name(err));
             return false;
         }
+        if (size_read == 0 || size_read > read_capacity)
+        {
+            set_error("sdio_recv_invalid_length");
+            last_rx_err_ = ESP_ERR_INVALID_SIZE;
+            ESP_LOGW(kTag,
+                     "SDIO recv invalid length rx_size=%lu size_read=%u capacity=%u",
+                     static_cast<unsigned long>(rx_size),
+                     static_cast<unsigned>(size_read),
+                     static_cast<unsigned>(read_capacity));
+            return false;
+        }
+        std::memcpy(data, rx_dma_scratch_.data(), size_read);
         out_len = size_read;
-        ESP_LOGI(kTag,
-                 "SDIO recv ok rx_size=%lu size_read=%u err=%s",
-                 static_cast<unsigned long>(rx_size),
-                 static_cast<unsigned>(size_read),
-                 esp_err_to_name(err));
+        ++rx_chunk_count_;
+        if (rx_chunk_count_ <= 8 || (rx_chunk_count_ % 64) == 0)
+        {
+            ESP_LOGI(kTag,
+                     "SDIO recv chunk count=%lu pending_before=%lu size_read=%u more=%u",
+                     static_cast<unsigned long>(rx_chunk_count_),
+                     static_cast<unsigned long>(rx_size),
+                     static_cast<unsigned>(size_read),
+                     err == ESP_ERR_NOT_FINISHED ? 1U : 0U);
+        }
         return true;
     }
 
     void reset() override
     {
-        deinit();
+        std::lock_guard<std::mutex> lock(io_mutex_);
+        deinit_locked();
     }
 
     const char* last_error() const override
@@ -823,7 +889,7 @@ class SdioC6Transport final : public C6Transport
 #endif
     }
 
-    void deinit()
+    void deinit_locked()
     {
         ready_ = false;
         if (handle_ != nullptr)
@@ -838,30 +904,33 @@ class SdioC6Transport final : public C6Transport
         }
         if (slot_initialized_)
         {
-            (void)sdmmc_host_deinit_slot(SDMMC_HOST_SLOT_1);
+            const esp_err_t err = sdmmc_host_runtime::release_slot(
+                sdmmc_host_runtime::SlotOwner::C6Companion, SDMMC_HOST_SLOT_1);
+            if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+            {
+                ESP_LOGW(kTag, "SDIO slot release failed: %s", esp_err_to_name(err));
+            }
             slot_initialized_ = false;
-        }
-        if (host_initialized_)
-        {
-            (void)sdmmc_host_deinit();
-            host_initialized_ = false;
         }
     }
 
     essl_handle_t handle_ = nullptr;
     sdmmc_card_t* card_ = nullptr;
+    std::mutex io_mutex_{};
+    alignas(64) std::array<uint8_t, kSdioBufferSize> tx_dma_scratch_{};
+    alignas(64) std::array<uint8_t, kSdioBufferSize> rx_dma_scratch_{};
     Pins pins_{};
     bool ready_ = false;
-    bool host_initialized_ = false;
     bool slot_initialized_ = false;
     uint32_t last_rx_size_ = 0;
     int last_rx_err_ = ESP_OK;
     size_t last_size_read_ = 0;
+    uint32_t rx_chunk_count_ = 0;
     char error_[64] = {};
 };
 #endif
 
-class C6CompanionRuntime final : public WirelessCompanion
+class C6CompanionRuntime final : public WirelessCompanion, public WifiTcpTransport
 {
   public:
     bool begin() override
@@ -894,6 +963,7 @@ class C6CompanionRuntime final : public WirelessCompanion
         status_.wifi_ipv4_addr = 0;
         status_.wifi_scan_result_count = 0;
         status_.wifi_ssid[0] = '\0';
+        reset_tcp_state(WifiTcpState::Disconnected, "not_connected");
         for (auto& result : status_.wifi_scan_results)
         {
             result = WifiScanResult{};
@@ -1088,17 +1158,129 @@ class C6CompanionRuntime final : public WirelessCompanion
             status_.wifi_scanning = true;
         }
 
-        const bool sent = send_frame(TM_C6_FRAME_WIFI_CONTROL,
-                                     TM_C6_CH_WIFI_MGMT,
-                                     TM_C6_FLAG_ACK_REQUIRED,
-                                     0,
-                                     reinterpret_cast<const uint8_t*>(&wire),
-                                     sizeof(wire));
+        const bool sent = send_retryable_control_frame(
+            "wifi_control",
+            TM_C6_FRAME_WIFI_CONTROL,
+            TM_C6_CH_WIFI_MGMT,
+            TM_C6_FLAG_ACK_REQUIRED,
+            0,
+            reinterpret_cast<const uint8_t*>(&wire),
+            sizeof(wire));
         if (!sent && control.command == WifiCommand::Scan)
         {
             status_.wifi_scanning = false;
         }
         return sent;
+    }
+
+    bool openTcp(const char* host, uint16_t port) override
+    {
+        if (!host || host[0] == '\0' || std::strlen(host) >= TM_C6_WIFI_TCP_HOST_LEN || port == 0)
+        {
+            set_tcp_state(WifiTcpState::Error, TM_C6_ERROR_INTERNAL, "invalid_endpoint");
+            return false;
+        }
+        if (!status_.started)
+        {
+            (void)begin();
+        }
+        if (!status_.present || !status_.wifi_connected ||
+            (status_.supported_features & TM_C6_FEATURE_WIFI_TCP_PROXY) == 0)
+        {
+            set_tcp_state(WifiTcpState::Disconnected, TM_C6_ERROR_NOT_CONNECTED, "wifi_not_ready");
+            return false;
+        }
+
+        reset_tcp_state(WifiTcpState::Disconnected, "opening_reset");
+        tcp_status_.connection_id = next_tcp_connection_id_++;
+        if (next_tcp_connection_id_ == 0)
+        {
+            next_tcp_connection_id_ = 1;
+        }
+
+        tm_c6_wifi_tcp_header_t header{};
+        header.operation = TM_C6_WIFI_TCP_OPEN;
+        header.connection_id = tcp_status_.connection_id;
+        header.port = port;
+        copy_text(header.host, host);
+        if (!send_wifi_tcp_command(header, nullptr, 0))
+        {
+            set_tcp_state(WifiTcpState::Error, TM_C6_ERROR_INTERNAL, "open_send_failed");
+            return false;
+        }
+        set_tcp_state(WifiTcpState::Opening, TM_C6_OK, "opening");
+        return true;
+    }
+
+    bool writeTcp(const uint8_t* data, size_t len) override
+    {
+        if (tcp_status_.state != WifiTcpState::Connected || (data == nullptr && len != 0) ||
+            len == 0)
+        {
+            return false;
+        }
+
+        size_t offset = 0;
+        while (offset < len)
+        {
+            const size_t chunk = std::min<size_t>(TM_C6_WIFI_TCP_PAYLOAD_MAX, len - offset);
+            tm_c6_wifi_tcp_header_t header{};
+            header.operation = TM_C6_WIFI_TCP_WRITE;
+            header.connection_id = tcp_status_.connection_id;
+            header.payload_len = static_cast<uint16_t>(chunk);
+            if (!send_wifi_tcp_command(header, data + offset, chunk))
+            {
+                set_tcp_state(WifiTcpState::Error, TM_C6_ERROR_INTERNAL, "write_send_failed");
+                return false;
+            }
+            offset += chunk;
+        }
+        tcp_status_.transmitted_bytes += static_cast<uint32_t>(len);
+        return true;
+    }
+
+    size_t readTcp(uint8_t* out, size_t max_len) override
+    {
+        if (!out || max_len == 0)
+        {
+            return 0;
+        }
+        poll();
+
+        std::lock_guard<std::mutex> lock(tcp_rx_mutex_);
+        const size_t read_len = std::min(max_len, tcp_rx_size_);
+        for (size_t i = 0; i < read_len; ++i)
+        {
+            out[i] = tcp_rx_buffer_[tcp_rx_tail_];
+            tcp_rx_tail_ = (tcp_rx_tail_ + 1) % tcp_rx_buffer_.size();
+        }
+        tcp_rx_size_ -= read_len;
+        tcp_status_.buffered_bytes = tcp_rx_size_;
+        return read_len;
+    }
+
+    void closeTcp() override
+    {
+        if (tcp_status_.state == WifiTcpState::Disconnected ||
+            tcp_status_.state == WifiTcpState::Unsupported)
+        {
+            return;
+        }
+
+        tm_c6_wifi_tcp_header_t header{};
+        header.operation = TM_C6_WIFI_TCP_CLOSE;
+        header.connection_id = tcp_status_.connection_id;
+        if (status_.present && send_wifi_tcp_command(header, nullptr, 0))
+        {
+            set_tcp_state(WifiTcpState::Closing, TM_C6_OK, "closing");
+            return;
+        }
+        reset_tcp_state(WifiTcpState::Disconnected, "closed_locally");
+    }
+
+    WifiTcpStatus tcpStatus() const override
+    {
+        return tcp_status_;
     }
 
     void poll() override
@@ -1112,9 +1294,18 @@ class C6CompanionRuntime final : public WirelessCompanion
         {
             return;
         }
-        hostlink::c6::Frame frame{};
-        if (receive_frame(frame, 0, false))
+        std::unique_lock<std::recursive_mutex> receive_owner(receive_owner_mutex_, std::try_to_lock);
+        if (!receive_owner.owns_lock())
         {
+            return;
+        }
+        for (size_t i = 0; i < 8; ++i)
+        {
+            hostlink::c6::Frame frame{};
+            if (!receive_frame(frame, 0, false))
+            {
+                break;
+            }
             handle_async_frame(frame);
         }
 #endif
@@ -1150,6 +1341,62 @@ class C6CompanionRuntime final : public WirelessCompanion
         return hostlink::c6::encode_frame(request, out, TM_C6_MAX_PAYLOAD);
     }
 
+    void consume_rx_stream(size_t count)
+    {
+        if (count >= frame_rx_stream_size_)
+        {
+            frame_rx_stream_size_ = 0;
+            return;
+        }
+        std::memmove(frame_rx_stream_.data(),
+                     frame_rx_stream_.data() + count,
+                     frame_rx_stream_size_ - count);
+        frame_rx_stream_size_ -= count;
+    }
+
+    size_t resync_rx_stream()
+    {
+        constexpr std::array<uint8_t, 4> magic = {
+            static_cast<uint8_t>(TM_C6_MAGIC & 0xFFu),
+            static_cast<uint8_t>((TM_C6_MAGIC >> 8) & 0xFFu),
+            static_cast<uint8_t>((TM_C6_MAGIC >> 16) & 0xFFu),
+            static_cast<uint8_t>((TM_C6_MAGIC >> 24) & 0xFFu),
+        };
+
+        for (size_t offset = 1; offset + magic.size() <= frame_rx_stream_size_; ++offset)
+        {
+            if (std::equal(magic.begin(), magic.end(), frame_rx_stream_.begin() + offset))
+            {
+                consume_rx_stream(offset);
+                return offset;
+            }
+        }
+
+        size_t keep = 0;
+        const size_t max_prefix = std::min(magic.size() - 1, frame_rx_stream_size_);
+        for (size_t candidate = max_prefix; candidate > 0; --candidate)
+        {
+            if (std::equal(magic.begin(),
+                           magic.begin() + static_cast<std::ptrdiff_t>(candidate),
+                           frame_rx_stream_.begin() +
+                               static_cast<std::ptrdiff_t>(frame_rx_stream_size_ - candidate)))
+            {
+                keep = candidate;
+                break;
+            }
+        }
+
+        const size_t dropped = frame_rx_stream_size_ - keep;
+        if (keep > 0)
+        {
+            std::memmove(frame_rx_stream_.data(),
+                         frame_rx_stream_.data() + dropped,
+                         keep);
+        }
+        frame_rx_stream_size_ = keep;
+        return dropped;
+    }
+
     bool receive_frame(hostlink::c6::Frame& frame, uint32_t timeout_ms, bool update_status_on_empty = true)
     {
 #if defined(ESP_PLATFORM)
@@ -1157,27 +1404,88 @@ class C6CompanionRuntime final : public WirelessCompanion
         {
             return false;
         }
-        std::array<uint8_t, TM_C6_FRAME_HEADER_LEN + TM_C6_MAX_PAYLOAD> rx{};
-        size_t rx_len = 0;
         const TickType_t start_ticks = xTaskGetTickCount();
         const TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
         uint32_t attempts = 0;
-        bool received = false;
         while (true)
         {
-            ++attempts;
-            rx_len = 0;
-            const uint32_t poll_timeout_ms =
-                (timeout_ms == 0) ? 0 : std::min(timeout_ms, kReceivePollTimeoutMs);
-            if (transport_->recv(rx.data(), rx.size(), rx_len, poll_timeout_ms))
+            if (frame_rx_stream_size_ > 0)
             {
-                received = true;
-                break;
+                const auto decoded = hostlink::c6::decode_frame(
+                    frame_rx_stream_.data(), frame_rx_stream_size_, TM_C6_MAX_PAYLOAD);
+                if (decoded.status == hostlink::c6::DecodeStatus::Ok)
+                {
+                    frame = decoded.frame;
+                    consume_rx_stream(decoded.bytes_consumed);
+                    if (attempts > 1)
+                    {
+                        const uint32_t elapsed_ms = static_cast<uint32_t>(
+                            (xTaskGetTickCount() - start_ticks) * portTICK_PERIOD_MS);
+                        ESP_LOGI(kTag,
+                                 "C6 recv frame after retry attempts=%lu elapsed_ms=%lu buffered=%u",
+                                 static_cast<unsigned long>(attempts),
+                                 static_cast<unsigned long>(elapsed_ms),
+                                 static_cast<unsigned>(frame_rx_stream_size_));
+                    }
+                    return true;
+                }
+                if (decoded.status != hostlink::c6::DecodeStatus::Incomplete)
+                {
+                    const size_t dropped = resync_rx_stream();
+                    ++frame_rx_resync_count_;
+                    if (frame_rx_resync_count_ <= 8 || (frame_rx_resync_count_ % 32) == 0)
+                    {
+                        ESP_LOGW(kTag,
+                                 "C6 RX stream resync count=%lu status=%s dropped=%u buffered=%u",
+                                 static_cast<unsigned long>(frame_rx_resync_count_),
+                                 hostlink::c6::decode_status_name(decoded.status),
+                                 static_cast<unsigned>(dropped),
+                                 static_cast<unsigned>(frame_rx_stream_size_));
+                    }
+                    continue;
+                }
+            }
+
+            if (frame_rx_stream_size_ >= frame_rx_stream_.size())
+            {
+                frame_rx_stream_size_ = 0;
+                set_detail(status_, CompanionState::Error, "c6_rx_stream_overflow");
+                ESP_LOGW(kTag, "C6 RX stream overflow capacity=%u", static_cast<unsigned>(frame_rx_stream_.size()));
+                return false;
+            }
+
+            ++attempts;
+            uint32_t poll_timeout_ms = 0;
+            if (timeout_ms > 0)
+            {
+                const uint32_t elapsed_ms = static_cast<uint32_t>(
+                    (xTaskGetTickCount() - start_ticks) * portTICK_PERIOD_MS);
+                if (elapsed_ms >= timeout_ms)
+                {
+                    if (update_status_on_empty)
+                    {
+                        set_detail(status_, CompanionState::Missing, "sdio_rx_empty");
+                    }
+                    return false;
+                }
+                poll_timeout_ms = std::min(timeout_ms - elapsed_ms, kReceivePollTimeoutMs);
+            }
+
+            size_t rx_len = 0;
+            const size_t stream_capacity = frame_rx_stream_.size() - frame_rx_stream_size_;
+            if (transport_->recv(frame_rx_stream_.data() + frame_rx_stream_size_,
+                                 stream_capacity,
+                                 rx_len,
+                                 poll_timeout_ms))
+            {
+                frame_rx_stream_size_ += rx_len;
+                continue;
             }
 
             const char* detail = transport_->last_error();
+            const int rx_error = transport_->last_rx_error();
             const bool may_retry_empty =
-                detail != nullptr && std::strcmp(detail, "sdio_rx_empty") == 0 && timeout_ms > 0;
+                (rx_error == ESP_ERR_TIMEOUT || rx_error == ESP_ERR_NOT_FOUND) && timeout_ms > 0;
             const TickType_t elapsed_ticks = xTaskGetTickCount() - start_ticks;
             if (!may_retry_empty || elapsed_ticks >= timeout_ticks)
             {
@@ -1185,36 +1493,11 @@ class C6CompanionRuntime final : public WirelessCompanion
                 {
                     set_detail(status_, CompanionState::Missing, detail);
                 }
-                break;
+                return false;
             }
 
             vTaskDelay(pdMS_TO_TICKS(kReceiveRetryDelayMs));
         }
-
-        if (!received)
-        {
-            return false;
-        }
-        if (attempts > 1)
-        {
-            const uint32_t elapsed_ms =
-                static_cast<uint32_t>((xTaskGetTickCount() - start_ticks) * portTICK_PERIOD_MS);
-            ESP_LOGI(kTag,
-                     "C6 recv frame after retry attempts=%lu elapsed_ms=%lu len=%u",
-                     static_cast<unsigned long>(attempts),
-                     static_cast<unsigned long>(elapsed_ms),
-                     static_cast<unsigned>(rx_len));
-        }
-
-        const auto decoded = hostlink::c6::decode_frame(rx.data(), rx_len, TM_C6_MAX_PAYLOAD);
-        if (decoded.status != hostlink::c6::DecodeStatus::Ok)
-        {
-            set_detail(status_, CompanionState::Error, hostlink::c6::decode_status_name(decoded.status));
-            ESP_LOGW(kTag, "C6 decode failed status=%s len=%u", status_.detail, static_cast<unsigned>(rx_len));
-            return false;
-        }
-        frame = decoded.frame;
-        return true;
 #else
         (void)frame;
         (void)timeout_ms;
@@ -1228,6 +1511,27 @@ class C6CompanionRuntime final : public WirelessCompanion
                     uint16_t ack,
                     const uint8_t* payload,
                     size_t payload_len)
+    {
+#if defined(ESP_PLATFORM)
+        std::lock_guard<std::mutex> lock(send_mutex_);
+        return send_frame_locked(frame_type, channel, flags, ack, payload, payload_len);
+#else
+        (void)frame_type;
+        (void)channel;
+        (void)flags;
+        (void)ack;
+        (void)payload;
+        (void)payload_len;
+        return false;
+#endif
+    }
+
+    bool send_frame_locked(uint8_t frame_type,
+                           uint8_t channel,
+                           uint16_t flags,
+                           uint16_t ack,
+                           const uint8_t* payload,
+                           size_t payload_len)
     {
 #if defined(ESP_PLATFORM)
         std::vector<uint8_t> out;
@@ -1251,6 +1555,126 @@ class C6CompanionRuntime final : public WirelessCompanion
         (void)payload_len;
         return false;
 #endif
+    }
+
+    bool send_retryable_control_frame(const char* operation,
+                                      uint8_t frame_type,
+                                      uint8_t channel,
+                                      uint16_t flags,
+                                      uint16_t ack,
+                                      const uint8_t* payload,
+                                      size_t payload_len)
+    {
+        const bool retry_allowed = status_.started && status_.present && transport_ != nullptr;
+        if (send_frame(frame_type, channel, flags, ack, payload, payload_len))
+        {
+            return true;
+        }
+        if (!retry_allowed)
+        {
+            return false;
+        }
+
+#if defined(ESP_PLATFORM)
+        ESP_LOGW(kTag,
+                 "C6 %s send failed detail=%s; draining pending frames before one retry",
+                 operation ? operation : "control",
+                 status_.detail ? status_.detail : "unknown");
+
+        // Long LoRa transmissions can temporarily starve the cooperative C6
+        // pump. Restore the known-present state long enough to drain queued
+        // async frames, then retry only this idempotent control operation.
+        // TCP data deliberately stays on the non-retrying send_frame() path.
+        status_.present = true;
+        status_.state = CompanionState::Present;
+        status_.detail = "control_send_retry";
+        poll();
+        vTaskDelay(pdMS_TO_TICKS(kReceiveRetryDelayMs));
+        poll();
+
+        const bool sent = send_frame(frame_type,
+                                     channel,
+                                     flags,
+                                     ack,
+                                     payload,
+                                     payload_len);
+        if (sent)
+        {
+            ESP_LOGI(kTag,
+                     "C6 %s send recovered after draining pending frames",
+                     operation ? operation : "control");
+        }
+        return sent;
+#else
+        (void)operation;
+        return false;
+#endif
+    }
+
+    bool send_wifi_tcp_command(const tm_c6_wifi_tcp_header_t& header,
+                               const uint8_t* data,
+                               size_t len)
+    {
+        if (len > TM_C6_WIFI_TCP_PAYLOAD_MAX || (data == nullptr && len != 0))
+        {
+            return false;
+        }
+        std::lock_guard<std::mutex> lock(send_mutex_);
+        std::memcpy(wifi_tcp_tx_buffer_.data(), &header, sizeof(header));
+        if (len > 0)
+        {
+            std::memcpy(wifi_tcp_tx_buffer_.data() + sizeof(header), data, len);
+        }
+        return send_frame_locked(TM_C6_FRAME_WIFI_DATA,
+                                 TM_C6_CH_WIFI_DATA,
+                                 TM_C6_FLAG_ACK_REQUIRED,
+                                 0,
+                                 wifi_tcp_tx_buffer_.data(),
+                                 sizeof(header) + len);
+    }
+
+    void reset_tcp_rx()
+    {
+        std::lock_guard<std::mutex> lock(tcp_rx_mutex_);
+        tcp_rx_head_ = 0;
+        tcp_rx_tail_ = 0;
+        tcp_rx_size_ = 0;
+        tcp_status_.buffered_bytes = 0;
+    }
+
+    void set_tcp_state(WifiTcpState state, uint16_t error_code, const char* detail)
+    {
+        tcp_status_.state = state;
+        tcp_status_.error_code = error_code;
+        tcp_status_.detail = detail;
+    }
+
+    void reset_tcp_state(WifiTcpState state, const char* detail)
+    {
+        const uint8_t connection_id = tcp_status_.connection_id;
+        tcp_status_ = WifiTcpStatus{};
+        tcp_status_.state = state;
+        tcp_status_.connection_id = connection_id;
+        tcp_status_.detail = detail;
+        reset_tcp_rx();
+    }
+
+    bool append_tcp_rx(const uint8_t* data, size_t len)
+    {
+        std::lock_guard<std::mutex> lock(tcp_rx_mutex_);
+        if ((!data && len != 0) || len > tcp_rx_buffer_.size() - tcp_rx_size_)
+        {
+            return false;
+        }
+        for (size_t i = 0; i < len; ++i)
+        {
+            tcp_rx_buffer_[tcp_rx_head_] = data[i];
+            tcp_rx_head_ = (tcp_rx_head_ + 1) % tcp_rx_buffer_.size();
+        }
+        tcp_rx_size_ += len;
+        tcp_status_.buffered_bytes = tcp_rx_size_;
+        tcp_status_.received_bytes += static_cast<uint32_t>(len);
+        return true;
     }
 
     bool send_hello()
@@ -1392,16 +1816,19 @@ class C6CompanionRuntime final : public WirelessCompanion
         }
         const tm_c6_companion_config_t config = build_config(config_seq);
         status_.config_seq = config.config_seq;
-        return send_frame(TM_C6_FRAME_CONFIG_SET,
-                          TM_C6_CH_CONTROL,
-                          TM_C6_FLAG_ACK_REQUIRED,
-                          0,
-                          reinterpret_cast<const uint8_t*>(&config),
-                          sizeof(config));
+        return send_retryable_control_frame(
+            "config_set",
+            TM_C6_FRAME_CONFIG_SET,
+            TM_C6_CH_CONTROL,
+            TM_C6_FLAG_ACK_REQUIRED,
+            0,
+            reinterpret_cast<const uint8_t*>(&config),
+            sizeof(config));
     }
 
     bool send_config_if_ready()
     {
+        std::lock_guard<std::recursive_mutex> receive_owner(receive_owner_mutex_);
         if (!status_.started || !status_.present)
         {
             return false;
@@ -1466,6 +1893,11 @@ class C6CompanionRuntime final : public WirelessCompanion
             frame.payload.size() == sizeof(tm_c6_error_t))
         {
             const auto* error = reinterpret_cast<const tm_c6_error_t*>(frame.payload.data());
+            if (error->related_channel == TM_C6_CH_WIFI_DATA)
+            {
+                set_tcp_state(WifiTcpState::Error, error->error_code, "c6_wifi_tcp_error");
+                return;
+            }
             status_.config_error = error->error_code;
             set_detail(status_, CompanionState::Error, "c6_error_frame");
             return;
@@ -1480,7 +1912,7 @@ class C6CompanionRuntime final : public WirelessCompanion
                 ++status_.ble_uplink_count;
 #if defined(ESP_PLATFORM)
                 ESP_LOGI(kTag,
-                         "C6 BLE uplink profile=%u channel=%u len=%u pending_business_router",
+                         "C6 BLE uplink profile=%u channel=%u len=%u unsupported",
                          static_cast<unsigned>(header.profile),
                          static_cast<unsigned>(frame.channel),
                          static_cast<unsigned>(header.payload_len));
@@ -1514,6 +1946,14 @@ class C6CompanionRuntime final : public WirelessCompanion
             ++status_.espnow_event_count;
             return;
         }
+        if (frame.frame_type == TM_C6_FRAME_WIFI_TIME_SYNC &&
+            frame.payload.size() == sizeof(tm_c6_wifi_time_sync_t))
+        {
+            tm_c6_wifi_time_sync_t event{};
+            std::memcpy(&event, frame.payload.data(), sizeof(event));
+            apply_c6_wifi_time_sync(event);
+            return;
+        }
         if (frame.frame_type == TM_C6_FRAME_WIFI_EVENT &&
             frame.payload.size() == sizeof(tm_c6_wifi_event_t))
         {
@@ -1523,6 +1963,16 @@ class C6CompanionRuntime final : public WirelessCompanion
             status_.wifi_error = event.error_code;
             copy_text(status_.wifi_ssid, event.ssid);
             status_.wifi_ipv4_addr = event.ipv4_addr;
+#if defined(ESP_PLATFORM)
+            ESP_LOGI(kTag,
+                     "C6 Wi-Fi event kind=%u error=%u ssid=%s ipv4=0x%08lx results=%u count=%lu",
+                     static_cast<unsigned>(event.event_kind),
+                     static_cast<unsigned>(event.error_code),
+                     event.ssid,
+                     static_cast<unsigned long>(event.ipv4_addr),
+                     static_cast<unsigned>(event.result_count),
+                     static_cast<unsigned long>(status_.wifi_event_count));
+#endif
             switch (event.event_kind)
             {
             case TM_C6_WIFI_EVENT_SCAN_DONE:
@@ -1537,17 +1987,60 @@ class C6CompanionRuntime final : public WirelessCompanion
                 }
                 break;
             case TM_C6_WIFI_EVENT_STA_CONNECTED:
+                status_.wifi_connected = false;
+                status_.wifi_scanning = false;
+                break;
             case TM_C6_WIFI_EVENT_STA_GOT_IP:
-                status_.wifi_connected = true;
+                status_.wifi_connected = event.ipv4_addr != 0;
                 status_.wifi_scanning = false;
                 break;
             case TM_C6_WIFI_EVENT_STA_DISCONNECTED:
             case TM_C6_WIFI_EVENT_STOPPED:
                 status_.wifi_connected = false;
                 status_.wifi_scanning = false;
+                reset_tcp_state(WifiTcpState::Disconnected, "wifi_disconnected");
                 break;
             case TM_C6_WIFI_EVENT_ERROR:
                 status_.wifi_scanning = false;
+                break;
+            default:
+                break;
+            }
+            return;
+        }
+        if (frame.frame_type == TM_C6_FRAME_WIFI_DATA &&
+            frame.channel == TM_C6_CH_WIFI_DATA &&
+            frame.payload.size() >= sizeof(tm_c6_wifi_tcp_header_t))
+        {
+            tm_c6_wifi_tcp_header_t header{};
+            std::memcpy(&header, frame.payload.data(), sizeof(header));
+            const size_t data_len = frame.payload.size() - sizeof(header);
+            if (header.payload_len != data_len ||
+                header.connection_id != tcp_status_.connection_id)
+            {
+                return;
+            }
+
+            switch (header.operation)
+            {
+            case TM_C6_WIFI_TCP_OPENED:
+                set_tcp_state(WifiTcpState::Connected, TM_C6_OK, "connected");
+                break;
+            case TM_C6_WIFI_TCP_DATA:
+                if (!append_tcp_rx(frame.payload.data() + sizeof(header), data_len))
+                {
+                    set_tcp_state(WifiTcpState::Error, TM_C6_ERROR_QUEUE_FULL, "rx_overflow");
+                    tm_c6_wifi_tcp_header_t close_header{};
+                    close_header.operation = TM_C6_WIFI_TCP_CLOSE;
+                    close_header.connection_id = tcp_status_.connection_id;
+                    (void)send_wifi_tcp_command(close_header, nullptr, 0);
+                }
+                break;
+            case TM_C6_WIFI_TCP_CLOSED:
+                set_tcp_state(WifiTcpState::Disconnected, TM_C6_OK, "remote_closed");
+                break;
+            case TM_C6_WIFI_TCP_ERROR:
+                set_tcp_state(WifiTcpState::Error, header.error_code, "remote_error");
                 break;
             default:
                 break;
@@ -1569,6 +2062,7 @@ class C6CompanionRuntime final : public WirelessCompanion
                                 uint32_t timeout_ms)
     {
 #if defined(ESP_PLATFORM)
+        std::lock_guard<std::recursive_mutex> receive_owner(receive_owner_mutex_);
         const TickType_t start_ticks = xTaskGetTickCount();
         uint32_t skipped = 0;
         while (true)
@@ -1724,6 +2218,19 @@ class C6CompanionRuntime final : public WirelessCompanion
     BleCompanionConfig ble_config_{};
     EspNowCompanionConfig espnow_config_{};
     WifiCompanionConfig wifi_config_{};
+    WifiTcpStatus tcp_status_{};
+    uint8_t next_tcp_connection_id_ = 1;
+    std::recursive_mutex receive_owner_mutex_{};
+    std::mutex send_mutex_{};
+    std::mutex tcp_rx_mutex_{};
+    std::array<uint8_t, kC6RxStreamCapacity> frame_rx_stream_{};
+    size_t frame_rx_stream_size_ = 0;
+    uint32_t frame_rx_resync_count_ = 0;
+    std::array<uint8_t, TM_C6_MAX_PAYLOAD> wifi_tcp_tx_buffer_{};
+    std::array<uint8_t, kWifiTcpRxBufferSize> tcp_rx_buffer_{};
+    size_t tcp_rx_head_ = 0;
+    size_t tcp_rx_tail_ = 0;
+    size_t tcp_rx_size_ = 0;
 #if defined(ESP_PLATFORM)
     std::unique_ptr<C6Transport> transport_;
 #endif
@@ -1734,6 +2241,11 @@ C6CompanionRuntime s_c6_companion{};
 } // namespace
 
 WirelessCompanion& c6_companion()
+{
+    return s_c6_companion;
+}
+
+WifiTcpTransport& c6_wifi_tcp_transport()
 {
     return s_c6_companion;
 }

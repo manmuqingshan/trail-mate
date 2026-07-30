@@ -17,6 +17,11 @@ Those two identities are related by an adapter mapper. `ui_presentation` must
 not include `chat/domain/chat_types.h`, `ChatService`, `ContactService`,
 `IMeshAdapter`, store cursors, or platform/runtime headers.
 
+Message, delivery, read/unread, retry, and projection ownership is governed by
+`RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md`. This file only defines presentation
+identity mapping; it does not authorize presentation code to own business
+state.
+
 ## Direction
 
 ```text
@@ -141,6 +146,11 @@ The Source/Sink adapter must preserve the protocol field during that mapping.
 Dropping the protocol and sending only by channel/peer is invalid because it
 turns a readable cross-protocol conversation into a send target for the active
 protocol.
+
+The same rule applies to `markRead` and retry actions. A presentation
+`MessageRef` or `ConversationId` must be mapped back to a protocol-aware
+business reference before a runtime command is issued. Bare `msg_id`, peer id,
+or channel id is not a valid cross-protocol command key.
 
 ## Source/Sink Adapter Contract
 

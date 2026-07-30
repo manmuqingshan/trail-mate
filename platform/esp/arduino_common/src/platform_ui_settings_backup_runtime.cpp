@@ -1,20 +1,29 @@
 #include "platform/ui/settings_backup_runtime.h"
 
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-
+#if defined(ARDUINO)
 #include <Arduino.h>
 #include <Preferences.h>
+#else
+#include "esp_timer.h"
+#include "nvs.h"
+#include "platform/esp/idf_common/bsp_runtime.h"
+#endif
 
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include <vector>
 
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
+#if defined(ARDUINO)
 #include "cJSON.h"
+#else
+#include "cJSON.h"
+#endif
 #include "chat/domain/chat_types.h"
+#include "chat/infra/mesh_protocol_utils.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/settings_store.h"
 
@@ -29,6 +38,41 @@ constexpr const char* kBackupTempPath = "/trailmate/settings-backup.tmp";
 constexpr const char* kBackupMagic = "trail-mate-settings-backup";
 constexpr int kBackupVersion = 1;
 constexpr std::size_t kMaxBackupBytes = 24 * 1024;
+constexpr std::size_t kMaxExtraBlobBytes = 128;
+
+uint32_t uptime_ms()
+{
+#if defined(ARDUINO)
+    return millis();
+#else
+    return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
+#endif
+}
+
+bool storage_exists(const char* path)
+{
+    return ::platform::esp::arduino_common::storage::sd_exists(path);
+}
+
+bool storage_is_directory(const char* path)
+{
+    return ::platform::esp::arduino_common::storage::sd_is_directory(path);
+}
+
+bool storage_mkdir(const char* path)
+{
+    return ::platform::esp::arduino_common::storage::sd_mkdir(path);
+}
+
+bool storage_remove(const char* path)
+{
+    return ::platform::esp::arduino_common::storage::sd_remove(path);
+}
+
+bool storage_rename(const char* from, const char* to)
+{
+    return ::platform::esp::arduino_common::storage::sd_rename(from, to);
+}
 
 enum class ValueType : uint8_t
 {
@@ -52,6 +96,30 @@ constexpr ExtraKey kExtraKeys[] = {
     {"settings", "screen_brightness", "screen_bright", ValueType::Int},
     {"settings", "speaker_volume", "speaker_volume", ValueType::Int},
     {"settings", "vibration_enabled", "vibe_enabled", ValueType::Bool},
+    {"settings", "wifi_enabled", "wifi_enabled", ValueType::Bool},
+    {"settings", "wifi_ssid", "wifi_ssid", ValueType::String},
+    {"settings", "wifi_password", "wifi_password", ValueType::String},
+    {"settings", "wifi_profile_count", "wifi_prof_count", ValueType::Int},
+    {"settings", "wifi_ssid_0", "wifi_ssid_0", ValueType::String},
+    {"settings", "wifi_password_0", "wifi_password_0", ValueType::String},
+    {"settings", "wifi_ssid_1", "wifi_ssid_1", ValueType::String},
+    {"settings", "wifi_password_1", "wifi_password_1", ValueType::String},
+    {"settings", "wifi_ssid_2", "wifi_ssid_2", ValueType::String},
+    {"settings", "wifi_password_2", "wifi_password_2", ValueType::String},
+    {"settings", "wifi_ssid_3", "wifi_ssid_3", ValueType::String},
+    {"settings", "wifi_password_3", "wifi_password_3", ValueType::String},
+    {"settings", "wifi_ssid_4", "wifi_ssid_4", ValueType::String},
+    {"settings", "wifi_password_4", "wifi_password_4", ValueType::String},
+    {"settings", "wifi_ssid_5", "wifi_ssid_5", ValueType::String},
+    {"settings", "wifi_password_5", "wifi_password_5", ValueType::String},
+    {"settings", "wifi_ssid_6", "wifi_ssid_6", ValueType::String},
+    {"settings", "wifi_password_6", "wifi_password_6", ValueType::String},
+    {"settings", "wifi_ssid_7", "wifi_ssid_7", ValueType::String},
+    {"settings", "wifi_password_7", "wifi_password_7", ValueType::String},
+    {"settings", "wifi_ssid_8", "wifi_ssid_8", ValueType::String},
+    {"settings", "wifi_password_8", "wifi_password_8", ValueType::String},
+    {"settings", "wifi_ssid_9", "wifi_ssid_9", ValueType::String},
+    {"settings", "wifi_password_9", "wifi_password_9", ValueType::String},
     {"settings", "display_locale", "disp_locale", ValueType::String},
     {"settings", "enabled_imes", "enabled_imes", ValueType::String},
     {"settings", "timezone_offset", "timezone_offset", ValueType::Int},
@@ -59,6 +127,8 @@ constexpr ExtraKey kExtraKeys[] = {
     {"settings", "timezone_tzdef", "timezone_tzdef", ValueType::Blob},
     {"settings", "chat_message_alerts", "chat_msg_alert", ValueType::Int},
     {"settings", "chat_contact_alerts", "chat_ct_alert", ValueType::Int},
+    {"settings", "chat_auto_reply_enabled", "chat_auto_reply", ValueType::Bool},
+    {"settings", "chat_auto_reply_text", "chat_auto_reply_text", ValueType::String},
     {"settings", "adv_debug", "adv_debug", ValueType::Bool},
     {"power", "gauge_design_mah", "gauge_dsgn", ValueType::UInt},
     {"power", "gauge_full_mah", "gauge_full_mah", ValueType::UInt},
@@ -81,17 +151,22 @@ void set_status_message(Status& out, const char* message, const char* detail = n
 
 bool sd_available()
 {
+#if defined(ARDUINO)
     return ::platform::ui::device::card_ready() &&
            ::platform::esp::arduino_common::storage::sd_card_ready();
+#else
+    return ::platform::ui::device::card_ready() &&
+           ::platform::esp::idf_common::bsp_runtime::sdcard_ready();
+#endif
 }
 
 bool ensure_backup_dir()
 {
-    if (::platform::esp::arduino_common::storage::sd_exists(kBackupDir))
+    if (storage_exists(kBackupDir))
     {
-        return ::platform::esp::arduino_common::storage::sd_is_directory(kBackupDir);
+        return storage_is_directory(kBackupDir);
     }
-    return ::platform::esp::arduino_common::storage::sd_mkdir(kBackupDir);
+    return storage_mkdir(kBackupDir);
 }
 
 const char* value_type_name(ValueType type)
@@ -154,10 +229,16 @@ int hex_nibble(char ch)
     return -1;
 }
 
-bool hex_to_bytes(const char* text, std::vector<uint8_t>& out)
+bool hex_to_bytes_into(const char* text,
+                       uint8_t* out,
+                       std::size_t capacity,
+                       std::size_t* out_len)
 {
-    out.clear();
-    if (!text)
+    if (out_len)
+    {
+        *out_len = 0;
+    }
+    if (!text || (!out && capacity != 0))
     {
         return false;
     }
@@ -166,17 +247,27 @@ bool hex_to_bytes(const char* text, std::vector<uint8_t>& out)
     {
         return false;
     }
-    out.resize(len / 2);
-    for (std::size_t index = 0; index < out.size(); ++index)
+    const std::size_t byte_len = len / 2;
+    if (byte_len > capacity)
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < byte_len; ++index)
     {
         const int high = hex_nibble(text[index * 2]);
         const int low = hex_nibble(text[index * 2 + 1]);
         if (high < 0 || low < 0)
         {
-            out.clear();
             return false;
         }
-        out[index] = static_cast<uint8_t>((high << 4) | low);
+        if (out)
+        {
+            out[index] = static_cast<uint8_t>((high << 4) | low);
+        }
+    }
+    if (out_len)
+    {
+        *out_len = byte_len;
     }
     return true;
 }
@@ -282,24 +373,24 @@ void copy_json_blob(cJSON* object,
                     std::size_t capacity,
                     uint8_t* out_len = nullptr)
 {
+    if (!out || capacity == 0)
+    {
+        return;
+    }
     const char* hex = json_string(object, key);
     if (!hex)
     {
         return;
     }
-    std::vector<uint8_t> bytes;
-    if (!hex_to_bytes(hex, bytes) || bytes.size() > capacity)
+    std::size_t bytes_len = 0;
+    if (!hex_to_bytes_into(hex, out, capacity, &bytes_len))
     {
         return;
     }
-    std::memset(out, 0, capacity);
-    if (!bytes.empty())
-    {
-        std::memcpy(out, bytes.data(), bytes.size());
-    }
+    std::memset(out + bytes_len, 0, capacity - bytes_len);
     if (out_len)
     {
-        *out_len = static_cast<uint8_t>(bytes.size());
+        *out_len = static_cast<uint8_t>(bytes_len);
     }
 }
 
@@ -335,10 +426,130 @@ void restore_chat_policy(cJSON* object, chat::ChatPolicy& policy)
         json_int(object, "max_channels", policy.max_channels));
 }
 
+void add_mqtt_client_config(cJSON* parent,
+                            const char* key,
+                            bool enabled,
+                            bool uplink_enabled,
+                            bool downlink_enabled,
+                            const char* host,
+                            uint16_t port,
+                            const char* root,
+                            const char* username,
+                            const char* password)
+{
+    cJSON* object = add_object(parent, key);
+    if (!object)
+    {
+        return;
+    }
+    add_bool(object, "enabled", enabled);
+    add_bool(object, "uplink_enabled", uplink_enabled);
+    add_bool(object, "downlink_enabled", downlink_enabled);
+    add_string(object, "host", host);
+    add_int(object, "port", port != 0 ? port : 1883);
+    add_string(object, "root", root);
+    add_string(object, "username", username);
+    add_string(object, "password", password);
+}
+
+void restore_mqtt_client_config(cJSON* object,
+                                bool& enabled,
+                                bool& uplink_enabled,
+                                bool& downlink_enabled,
+                                char* host,
+                                std::size_t host_len,
+                                uint16_t& port,
+                                char* root,
+                                std::size_t root_len,
+                                char* username,
+                                std::size_t username_len,
+                                char* password,
+                                std::size_t password_len)
+{
+    if (!cJSON_IsObject(object))
+    {
+        return;
+    }
+
+    enabled = json_bool(object, "enabled", enabled);
+    uplink_enabled = json_bool(object, "uplink_enabled", uplink_enabled);
+    downlink_enabled = json_bool(object, "downlink_enabled", downlink_enabled);
+    copy_json_string(object, "host", host, host_len);
+    const int restored_port = json_int(object, "port", port != 0 ? port : 1883);
+    if (restored_port > 0 && restored_port <= 65535)
+    {
+        port = static_cast<uint16_t>(restored_port);
+    }
+    copy_json_string(object, "root", root, root_len);
+    copy_json_string(object, "username", username, username_len);
+    copy_json_string(object, "password", password, password_len);
+}
+
+void add_meshcore_channel_config(cJSON* parent, const chat::MeshConfig& config)
+{
+    cJSON* channels = cJSON_AddArrayToObject(parent, "meshcore_channels");
+    if (!channels)
+    {
+        return;
+    }
+    for (std::size_t index = 0; index < chat::kMeshCoreChannelMaxCount; ++index)
+    {
+        cJSON* item = cJSON_CreateObject();
+        if (!item)
+        {
+            continue;
+        }
+        const chat::MeshCoreChannelConfig& channel =
+            config.meshCoreChannel(static_cast<uint8_t>(index));
+        add_int(item, "slot", static_cast<int>(index));
+        add_bool(item, "enabled", index == 0 ? true : channel.enabled);
+        add_string(item, "name", channel.name);
+        add_blob_hex(item, "key", channel.key, sizeof(channel.key));
+        cJSON_AddItemToArray(channels, item);
+    }
+}
+
+void restore_meshcore_channel_config(cJSON* parent, chat::MeshConfig& config)
+{
+    cJSON* channels = cJSON_GetObjectItemCaseSensitive(parent, "meshcore_channels");
+    if (cJSON_IsArray(channels))
+    {
+        const uint8_t active_slot =
+            chat::normalizeMeshCoreChannelSlot(config.meshcore_channel_slot);
+        config.resetMeshCoreChannels();
+        config.meshcore_channel_slot = active_slot;
+        cJSON* item = nullptr;
+        cJSON_ArrayForEach(item, channels)
+        {
+            if (!cJSON_IsObject(item))
+            {
+                continue;
+            }
+            const int slot_raw = json_int(item, "slot", -1);
+            if (slot_raw < 0 || slot_raw >= static_cast<int>(chat::kMeshCoreChannelMaxCount))
+            {
+                continue;
+            }
+            chat::MeshCoreChannelConfig& channel =
+                config.meshCoreChannel(static_cast<uint8_t>(slot_raw));
+            channel.enabled = json_bool(item, "enabled", channel.enabled);
+            copy_json_string(item, "name", channel.name, sizeof(channel.name));
+            copy_json_blob(item, "key", channel.key, sizeof(channel.key));
+        }
+    }
+    else
+    {
+        config.importMeshCoreLegacyChannelMirror();
+    }
+    config.meshCoreChannel(0).enabled = true;
+    config.syncMeshCoreLegacyChannelMirror();
+}
+
 void add_mesh_config(cJSON* parent,
                      const char* key,
                      const chat::MeshConfig& config,
-                     bool include_meshcore_fields)
+                     bool include_meshcore_fields,
+                     bool include_reticulum_fields)
 {
     cJSON* object = add_object(parent, key);
     if (!object)
@@ -386,14 +597,41 @@ void add_mesh_config(cJSON* parent,
         add_int(object, "meshcore_forward_profile",
                 static_cast<int>(static_cast<uint8_t>(config.meshcore_forward_profile)));
         add_int(object, "meshcore_channel_slot", config.meshcore_channel_slot);
-        add_string(object, "meshcore_channel_name", config.meshcore_channel_name);
-        add_blob_hex(object, "meshcore_channel_key", config.secondary_key, chat::kMeshCoreChannelKeyLen);
+        const chat::MeshCoreChannelConfig& active_channel =
+            config.activeMeshCoreChannel();
+        add_string(object, "meshcore_channel_name", active_channel.name);
+        add_blob_hex(object, "meshcore_channel_key",
+                     active_channel.key, sizeof(active_channel.key));
+        add_meshcore_channel_config(object, config);
+        add_mqtt_client_config(object,
+                               "meshcore_mqtt",
+                               config.meshcore_mqtt_enabled,
+                               config.meshcore_mqtt_uplink_enabled,
+                               config.meshcore_mqtt_downlink_enabled,
+                               config.meshcore_mqtt_host,
+                               config.meshcore_mqtt_port,
+                               config.meshcore_mqtt_root,
+                               config.meshcore_mqtt_username,
+                               config.meshcore_mqtt_password);
+    }
+    if (include_reticulum_fields)
+    {
+        add_bool(object, "reticulum_lora_enabled", config.reticulum_lora_enabled);
+        add_bool(object, "reticulum_wifi_gateway_enabled", config.reticulum_wifi_gateway_enabled);
+        add_bool(object, "reticulum_wifi_auto_connect", config.reticulum_wifi_auto_connect);
+        add_bool(object, "reticulum_anonymous_peer", config.reticulum_anonymous_peer);
+        add_string(object, "reticulum_wifi_gateway_host", config.reticulum_wifi_gateway_host);
+        add_int(object, "reticulum_wifi_gateway_port", config.reticulum_wifi_gateway_port);
+        add_int(object,
+                "reticulum_interface_policy",
+                static_cast<int>(static_cast<uint8_t>(config.reticulum_interface_policy)));
     }
 }
 
 void restore_mesh_config(cJSON* object,
                          chat::MeshConfig& config,
-                         bool include_meshcore_fields)
+                         bool include_meshcore_fields,
+                         bool include_reticulum_fields)
 {
     if (!cJSON_IsObject(object))
     {
@@ -452,6 +690,52 @@ void restore_mesh_config(cJSON* object,
             json_int(object, "meshcore_channel_slot", config.meshcore_channel_slot));
         copy_json_string(object, "meshcore_channel_name", config.meshcore_channel_name, sizeof(config.meshcore_channel_name));
         copy_json_blob(object, "meshcore_channel_key", config.secondary_key, sizeof(config.secondary_key));
+        restore_meshcore_channel_config(object, config);
+        restore_mqtt_client_config(cJSON_GetObjectItemCaseSensitive(object, "meshcore_mqtt"),
+                                   config.meshcore_mqtt_enabled,
+                                   config.meshcore_mqtt_uplink_enabled,
+                                   config.meshcore_mqtt_downlink_enabled,
+                                   config.meshcore_mqtt_host,
+                                   sizeof(config.meshcore_mqtt_host),
+                                   config.meshcore_mqtt_port,
+                                   config.meshcore_mqtt_root,
+                                   sizeof(config.meshcore_mqtt_root),
+                                   config.meshcore_mqtt_username,
+                                   sizeof(config.meshcore_mqtt_username),
+                                   config.meshcore_mqtt_password,
+                                   sizeof(config.meshcore_mqtt_password));
+    }
+    if (include_reticulum_fields)
+    {
+        config.reticulum_lora_enabled =
+            json_bool(object, "reticulum_lora_enabled", config.reticulum_lora_enabled);
+        config.reticulum_wifi_gateway_enabled =
+            json_bool(object, "reticulum_wifi_gateway_enabled", config.reticulum_wifi_gateway_enabled);
+        config.reticulum_wifi_auto_connect =
+            json_bool(object, "reticulum_wifi_auto_connect", config.reticulum_wifi_auto_connect);
+        config.reticulum_anonymous_peer =
+            json_bool(object, "reticulum_anonymous_peer", config.reticulum_anonymous_peer);
+        copy_json_string(object,
+                         "reticulum_wifi_gateway_host",
+                         config.reticulum_wifi_gateway_host,
+                         sizeof(config.reticulum_wifi_gateway_host));
+        config.reticulum_wifi_gateway_port = static_cast<uint16_t>(
+            json_int(object,
+                     "reticulum_wifi_gateway_port",
+                     config.reticulum_wifi_gateway_port != 0
+                         ? config.reticulum_wifi_gateway_port
+                         : 4242));
+        const int policy = json_int(object,
+                                    "reticulum_interface_policy",
+                                    static_cast<int>(static_cast<uint8_t>(
+                                        config.reticulum_interface_policy)));
+        if (policy >= 0 &&
+            policy <= static_cast<int>(static_cast<uint8_t>(
+                          chat::ReticulumInterfacePolicy::WifiGatewayOnly)))
+        {
+            config.reticulum_interface_policy =
+                static_cast<chat::ReticulumInterfacePolicy>(policy);
+        }
     }
 }
 
@@ -517,13 +801,22 @@ cJSON* create_app_config_json(const app::AppConfig& config)
         return nullptr;
     }
     add_chat_policy(object, config.chat_policy);
-    add_mesh_config(object, "meshtastic", config.meshtastic_config, false);
-    add_mesh_config(object, "meshcore", config.meshcore_config, true);
-    add_mesh_config(object, "rnode", config.rnode_config, false);
+    add_mesh_config(object, "meshtastic", config.meshtastic_config, false, false);
+    add_mesh_config(object, "meshcore", config.meshcore_config, true, false);
+    add_mesh_config(object, "reticulum", config.reticulumConfig(), false, true);
+    add_mqtt_client_config(object,
+                           "meshtastic_mqtt",
+                           config.meshtastic_mqtt_enabled,
+                           config.meshtastic_mqtt_uplink_enabled,
+                           config.meshtastic_mqtt_downlink_enabled,
+                           config.meshtastic_mqtt_host,
+                           config.meshtastic_mqtt_port,
+                           config.meshtastic_mqtt_root,
+                           config.meshtastic_mqtt_username,
+                           config.meshtastic_mqtt_password);
     add_int(object, "mesh_protocol", static_cast<int>(config.mesh_protocol));
     add_string(object, "node_name", config.node_name);
     add_string(object, "short_name", config.short_name);
-    add_bool(object, "ble_enabled", config.ble_enabled);
     add_bool(object, "primary_enabled", config.primary_enabled);
     add_bool(object, "secondary_enabled", config.secondary_enabled);
     add_bool(object, "primary_uplink_enabled", config.primary_uplink_enabled);
@@ -570,18 +863,42 @@ void restore_app_config_json(cJSON* object, app::AppConfig& config)
         return;
     }
     restore_chat_policy(cJSON_GetObjectItemCaseSensitive(object, "chat_policy"), config.chat_policy);
-    restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "meshtastic"), config.meshtastic_config, false);
-    restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "meshcore"), config.meshcore_config, true);
-    restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "rnode"), config.rnode_config, false);
-    const int protocol = json_int(object, "mesh_protocol", static_cast<int>(config.mesh_protocol));
-    if (protocol >= static_cast<int>(chat::MeshProtocol::Meshtastic) &&
-        protocol <= static_cast<int>(chat::MeshProtocol::LXMF))
+    restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "meshtastic"), config.meshtastic_config, false, false);
+    restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "meshcore"), config.meshcore_config, true, false);
+    cJSON* reticulum_object = cJSON_GetObjectItemCaseSensitive(object, "reticulum");
+    if (cJSON_IsObject(reticulum_object))
     {
-        config.mesh_protocol = static_cast<chat::MeshProtocol>(protocol);
+        restore_mesh_config(reticulum_object, config.reticulumConfig(), false, true);
     }
+    else
+    {
+        restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "rnode"),
+                            config.reticulumConfig(),
+                            false,
+                            true);
+    }
+    const int protocol = json_int(object, "mesh_protocol", static_cast<int>(config.mesh_protocol));
+    if (protocol >= 0 && protocol <= 0xFF &&
+        chat::infra::isValidMeshProtocolValue(static_cast<uint8_t>(protocol)))
+    {
+        config.mesh_protocol = chat::infra::meshProtocolFromRaw(static_cast<uint8_t>(protocol));
+    }
+    restore_mqtt_client_config(cJSON_GetObjectItemCaseSensitive(object, "meshtastic_mqtt"),
+                               config.meshtastic_mqtt_enabled,
+                               config.meshtastic_mqtt_uplink_enabled,
+                               config.meshtastic_mqtt_downlink_enabled,
+                               config.meshtastic_mqtt_host,
+                               sizeof(config.meshtastic_mqtt_host),
+                               config.meshtastic_mqtt_port,
+                               config.meshtastic_mqtt_root,
+                               sizeof(config.meshtastic_mqtt_root),
+                               config.meshtastic_mqtt_username,
+                               sizeof(config.meshtastic_mqtt_username),
+                               config.meshtastic_mqtt_password,
+                               sizeof(config.meshtastic_mqtt_password));
     copy_json_string(object, "node_name", config.node_name, sizeof(config.node_name));
     copy_json_string(object, "short_name", config.short_name, sizeof(config.short_name));
-    config.ble_enabled = json_bool(object, "ble_enabled", config.ble_enabled);
+    config.ble_enabled = false;
     config.primary_enabled = json_bool(object, "primary_enabled", config.primary_enabled);
     config.secondary_enabled = json_bool(object, "secondary_enabled", config.secondary_enabled);
     config.primary_uplink_enabled = json_bool(object, "primary_uplink_enabled", config.primary_uplink_enabled);
@@ -624,22 +941,67 @@ void restore_app_config_json(cJSON* object, app::AppConfig& config)
     restore_aprs_config(cJSON_GetObjectItemCaseSensitive(object, "aprs"), config.aprs);
 }
 
-PreferenceType extra_preference_type(const ExtraKey& key)
+bool extra_preference_exists(const ExtraKey& key)
 {
+#if defined(ARDUINO)
     Preferences prefs;
     if (!prefs.begin(key.ns, true))
     {
-        return PT_INVALID;
+        return false;
     }
     const PreferenceType type = prefs.getType(key.storage_key ? key.storage_key : key.key);
     prefs.end();
-    return type;
+    return type != PT_INVALID;
+#else
+    nvs_handle_t handle = 0;
+    if (nvs_open(key.ns, NVS_READONLY, &handle) != ESP_OK)
+    {
+        return false;
+    }
+
+    const char* storage_key = key.storage_key ? key.storage_key : key.key;
+    esp_err_t err = ESP_ERR_NVS_NOT_FOUND;
+    switch (key.type)
+    {
+    case ValueType::Bool:
+    {
+        uint8_t value = 0;
+        err = nvs_get_u8(handle, storage_key, &value);
+        break;
+    }
+    case ValueType::Int:
+    {
+        int32_t value = 0;
+        err = nvs_get_i32(handle, storage_key, &value);
+        break;
+    }
+    case ValueType::UInt:
+    {
+        uint32_t value = 0;
+        err = nvs_get_u32(handle, storage_key, &value);
+        break;
+    }
+    case ValueType::String:
+    {
+        std::size_t size = 0;
+        err = nvs_get_str(handle, storage_key, nullptr, &size);
+        break;
+    }
+    case ValueType::Blob:
+    {
+        std::size_t size = 0;
+        err = nvs_get_blob(handle, storage_key, nullptr, &size);
+        break;
+    }
+    }
+    nvs_close(handle);
+    return err == ESP_OK;
+#endif
 }
 
 void add_extra_value(cJSON* parent, const ExtraKey& key)
 {
-    const PreferenceType pref_type = extra_preference_type(key);
-    if (pref_type == PT_INVALID)
+    if (!extra_preference_exists(key))
     {
         return;
     }
@@ -689,13 +1051,18 @@ void add_extra_value(cJSON* parent, const ExtraKey& key)
     }
     case ValueType::Blob:
     {
-        std::vector<uint8_t> value;
-        if (::platform::ui::settings_store::get_blob(key.ns, key.key, value))
+        uint8_t value[kMaxExtraBlobBytes] = {};
+        std::size_t value_len = 0;
+        if (::platform::ui::settings_store::get_blob_into(key.ns,
+                                                          key.key,
+                                                          value,
+                                                          sizeof(value),
+                                                          &value_len))
         {
-            std::string hex(value.size() * 2 + 1, '\0');
-            if (bytes_to_hex(value.data(), value.size(), &hex[0], hex.size()))
+            char hex[kMaxExtraBlobBytes * 2 + 1] = {};
+            if (bytes_to_hex(value, value_len, hex, sizeof(hex)))
             {
-                add_string(value_object, "value", hex.c_str());
+                add_string(value_object, "value", hex);
             }
         }
         break;
@@ -740,14 +1107,15 @@ void restore_extra_value(const ExtraKey& key, cJSON* value_object)
     case ValueType::Blob:
         if (cJSON_IsString(value) && value->valuestring)
         {
-            std::vector<uint8_t> bytes;
-            if (hex_to_bytes(value->valuestring, bytes))
+            uint8_t bytes[kMaxExtraBlobBytes] = {};
+            std::size_t bytes_len = 0;
+            if (hex_to_bytes_into(value->valuestring, bytes, sizeof(bytes), &bytes_len))
             {
                 (void)::platform::ui::settings_store::put_blob(
                     key.ns,
                     key.key,
-                    bytes.empty() ? nullptr : bytes.data(),
-                    bytes.size());
+                    bytes_len == 0 ? nullptr : bytes,
+                    bytes_len);
             }
         }
         break;
@@ -795,9 +1163,9 @@ cJSON* create_backup_document()
     add_string(root, "magic", kBackupMagic);
     add_int(root, "version", kBackupVersion);
     add_string(root, "firmware", ::platform::ui::device::firmware_version());
-    add_uint(root, "created_ms", millis());
+    add_uint(root, "created_ms", uptime_ms());
 
-    cJSON* app_config = create_app_config_json(facade.getConfig());
+    cJSON* app_config = create_app_config_json(facade.readConfig());
     if (!app_config)
     {
         cJSON_Delete(root);
@@ -814,9 +1182,9 @@ bool write_text_atomic(const char* path, const char* temp_path, const char* text
     {
         return false;
     }
-    if (::platform::esp::arduino_common::storage::sd_exists(temp_path))
+    if (storage_exists(temp_path))
     {
-        ::platform::esp::arduino_common::storage::sd_remove(temp_path);
+        storage_remove(temp_path);
     }
     ::platform::esp::arduino_common::storage::SdRuntimeFile file;
     if (!file.open(temp_path, "w"))
@@ -824,19 +1192,20 @@ bool write_text_atomic(const char* path, const char* temp_path, const char* text
         return false;
     }
     const bool wrote = file.write(reinterpret_cast<const uint8_t*>(text), len) == len;
+    const bool flushed = file.flush();
     file.close();
-    if (!wrote)
+    if (!wrote || !flushed)
     {
-        ::platform::esp::arduino_common::storage::sd_remove(temp_path);
+        storage_remove(temp_path);
         return false;
     }
-    if (::platform::esp::arduino_common::storage::sd_exists(path))
+    if (storage_exists(path))
     {
-        ::platform::esp::arduino_common::storage::sd_remove(path);
+        storage_remove(path);
     }
-    if (!::platform::esp::arduino_common::storage::sd_rename(temp_path, path))
+    if (!storage_rename(temp_path, path))
     {
-        ::platform::esp::arduino_common::storage::sd_remove(temp_path);
+        storage_remove(temp_path);
         return false;
     }
     return true;
@@ -906,8 +1275,7 @@ Status status()
     Status out{};
     out.supported = true;
     out.sd_present = sd_available();
-    out.has_backup = out.sd_present &&
-                     ::platform::esp::arduino_common::storage::sd_exists(kBackupPath);
+    out.has_backup = out.sd_present && storage_exists(kBackupPath);
     out.busy = false;
     if (!out.sd_present)
     {
@@ -952,7 +1320,7 @@ bool backup()
 
 bool restore()
 {
-    if (!sd_available() || !::platform::esp::arduino_common::storage::sd_exists(kBackupPath))
+    if (!sd_available() || !storage_exists(kBackupPath))
     {
         return false;
     }
@@ -973,14 +1341,19 @@ bool restore()
         return false;
     }
 
-    app::AppConfig restored = app::appFacade().getConfig();
-    restore_app_config_json(cJSON_GetObjectItemCaseSensitive(root, "app_config"), restored);
     restore_extra_settings(root);
+    app::IAppFacade& facade = app::appFacade();
+    auto edit = facade.beginConfigEdit();
+    if (!edit)
+    {
+        cJSON_Delete(root);
+        return false;
+    }
+    restore_app_config_json(cJSON_GetObjectItemCaseSensitive(root, "app_config"),
+                            edit.config());
     cJSON_Delete(root);
 
-    app::IAppFacade& facade = app::appFacade();
-    facade.getConfig() = restored;
-    facade.saveConfig();
+    edit.commit(app::AppConfigChangeSet::allPersisted());
     return true;
 }
 
@@ -990,12 +1363,11 @@ bool remove()
     {
         return false;
     }
-    if (::platform::esp::arduino_common::storage::sd_exists(kBackupTempPath))
+    if (storage_exists(kBackupTempPath))
     {
-        ::platform::esp::arduino_common::storage::sd_remove(kBackupTempPath);
+        storage_remove(kBackupTempPath);
     }
-    return !::platform::esp::arduino_common::storage::sd_exists(kBackupPath) ||
-           ::platform::esp::arduino_common::storage::sd_remove(kBackupPath);
+    return !storage_exists(kBackupPath) || storage_remove(kBackupPath);
 }
 
 } // namespace platform::ui::settings_backup

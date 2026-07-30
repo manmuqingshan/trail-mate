@@ -60,8 +60,7 @@ SendResult DirectMessageService::sendDirect(const DirectMessageCommand& command)
     context.air_want_ack = command.air_want_ack;
     context.include_payload_dest = command.include_payload_dest;
 
-    EncodedPacket packet{};
-    auto built = protocol_.buildDirectMessage(context, command, packet);
+    auto built = protocol_.buildDirectMessage(context, command, packet_scratch_);
     if (!built.ok)
     {
         events_.emit(MeshEvent{MeshEventKind::SendFailed,
@@ -88,7 +87,7 @@ SendResult DirectMessageService::sendDirect(const DirectMessageCommand& command)
         return SendResult::fail(SendFailure::PacketBuildFailed);
     }
 
-    auto sent = radio_.send(packet.view());
+    auto sent = radio_.send(packet_scratch_.view());
     if (!sent.ok)
     {
         events_.emit(MeshEvent{MeshEventKind::RadioError,

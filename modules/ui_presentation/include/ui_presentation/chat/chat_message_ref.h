@@ -21,6 +21,7 @@ struct MessageRef
     uint64_t local_id = 0;
     uint32_t protocol_id = 0;
     uint32_t nonce_or_seq = 0;
+    uint8_t protocol = 0;
 
     bool isValid() const
     {
@@ -38,6 +39,14 @@ enum class MessageDeliveryState : uint8_t
     Failed,
     Received,
     Unknown,
+};
+
+enum class MessageIngressTransport : uint8_t
+{
+    Unknown,
+    LoRa,
+    Mqtt,
+    WiFi,
 };
 
 enum class MessageFailureKind : uint8_t

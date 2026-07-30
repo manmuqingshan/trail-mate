@@ -1,5 +1,6 @@
 #include "platform/ui/screen_runtime.h"
 
+#include "platform/ui/screen_power_state_machine.h"
 #include "platform/ui/settings_store.h"
 
 #include <chrono>
@@ -14,62 +15,26 @@ using Clock = std::chrono::steady_clock;
 
 constexpr const char* kSettingsNs = "settings";
 constexpr const char* kScreenTimeoutKey = "screen_timeout";
-constexpr uint32_t kScreenTimeoutMinMs = 10000U;
-constexpr uint32_t kScreenTimeoutMaxMs = 300000U;
-constexpr uint32_t kScreenTimeoutDefaultMs = 60000U;
+platform::ui::screen_power::StateMachine s_machine{};
 
-Hooks s_hooks{};
-Clock::time_point s_last_activity = Clock::now();
-uint32_t s_sleep_disable_depth = 0;
-bool s_sleeping = false;
-
-uint32_t normalize_timeout_ms(uint32_t timeout_ms)
+uint32_t now_ms()
 {
-    if (timeout_ms < kScreenTimeoutMinMs)
-    {
-        return kScreenTimeoutDefaultMs;
-    }
-    if (timeout_ms > kScreenTimeoutMaxMs)
-    {
-        return kScreenTimeoutMaxMs;
-    }
-    return timeout_ms;
-}
-
-uint32_t current_timeout_ms()
-{
-    return normalize_timeout_ms(
-        ::platform::ui::settings_store::get_uint(kSettingsNs, kScreenTimeoutKey, kScreenTimeoutDefaultMs));
-}
-
-bool should_consider_sleep_state()
-{
-    return s_sleep_disable_depth == 0 && current_timeout_ms() >= kScreenTimeoutMinMs;
-}
-
-bool refresh_idle_state()
-{
-    if (!should_consider_sleep_state())
-    {
-        s_sleeping = false;
-        return false;
-    }
-
-    const auto idle_for = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - s_last_activity);
-    s_sleeping = idle_for.count() >= current_timeout_ms();
-    return s_sleeping;
+    return static_cast<uint32_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            Clock::now().time_since_epoch())
+            .count());
 }
 
 } // namespace
 
 uint32_t clamp_timeout_ms(uint32_t timeout_ms)
 {
-    return normalize_timeout_ms(timeout_ms);
+    return platform::ui::screen_power::StateMachine::clamp_timeout_ms(timeout_ms);
 }
 
 uint32_t timeout_ms()
 {
-    return current_timeout_ms();
+    return s_machine.timeout_ms();
 }
 
 uint16_t timeout_secs()
@@ -84,69 +49,68 @@ bool supports_app_timeout_setting()
 
 void set_timeout_ms(uint32_t timeout_ms)
 {
-    ::platform::ui::settings_store::put_uint(kSettingsNs, kScreenTimeoutKey, normalize_timeout_ms(timeout_ms));
-    refresh_idle_state();
+    const uint32_t normalized =
+        platform::ui::screen_power::StateMachine::clamp_timeout_ms(timeout_ms);
+    ::platform::ui::settings_store::put_uint(kSettingsNs, kScreenTimeoutKey, normalized);
+    s_machine.set_timeout_ms(normalized);
 }
 
 void init(const Hooks& hooks)
 {
-    s_hooks = hooks;
-    s_last_activity = Clock::now();
-    s_sleeping = false;
+    (void)hooks;
+    s_machine.set_timeout_ms(
+        ::platform::ui::settings_store::get_uint(
+            kSettingsNs,
+            kScreenTimeoutKey,
+            platform::ui::screen_power::StateMachine::kDefaultTimeoutMs));
+    s_machine.dispatch(platform::ui::screen_power::Event::Initialize, now_ms());
 }
 
 bool is_sleeping()
 {
-    return refresh_idle_state();
+    return s_machine.snapshot().state ==
+           platform::ui::screen_power::State::Sleeping;
 }
 
 bool is_sleep_disabled()
 {
-    return s_sleep_disable_depth > 0;
+    return s_machine.snapshot().sleep_disable_depth > 0;
 }
 
 bool is_saver_active()
 {
-    return is_sleeping();
+    return s_machine.snapshot().state ==
+           platform::ui::screen_power::State::WakePreview;
 }
 
-void wake_saver()
+void handle_input()
 {
-    const bool was_sleeping = s_sleeping;
-    s_last_activity = Clock::now();
-    s_sleeping = false;
-    if (was_sleeping && s_hooks.on_wake_from_sleep)
-    {
-        s_hooks.on_wake_from_sleep();
-    }
+    s_machine.dispatch(platform::ui::screen_power::Event::Input, now_ms());
 }
 
-void enter_from_saver()
+void handle_input_release()
 {
-    wake_saver();
+    s_machine.dispatch(platform::ui::screen_power::Event::InputRelease, now_ms());
 }
 
-void update_user_activity()
+void wake_for_modal()
 {
-    wake_saver();
+    s_machine.dispatch(platform::ui::screen_power::Event::ModalWake, now_ms());
+}
+
+void record_activity()
+{
+    s_machine.dispatch(platform::ui::screen_power::Event::Activity, now_ms());
 }
 
 void disable_sleep()
 {
-    if (s_sleep_disable_depth < UINT32_MAX)
-    {
-        ++s_sleep_disable_depth;
-    }
-    s_sleeping = false;
+    s_machine.dispatch(platform::ui::screen_power::Event::DisableSleep, now_ms());
 }
 
 void enable_sleep()
 {
-    if (s_sleep_disable_depth > 0)
-    {
-        --s_sleep_disable_depth;
-    }
-    refresh_idle_state();
+    s_machine.dispatch(platform::ui::screen_power::Event::EnableSleep, now_ms());
 }
 
 } // namespace platform::ui::screen

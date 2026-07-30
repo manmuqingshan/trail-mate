@@ -5,17 +5,18 @@
 
 #pragma once
 
-#include <Arduino.h>
-
 #include "chat/domain/chat_types.h"
 #include "chat/infra/mesh_adapter_router_core.h"
+#include "chat/ports/i_incoming_delivery_commit_port.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
 namespace chat
 {
 
-class MeshAdapterRouter : public IMeshAdapter
+class MeshAdapterRouter : public IMeshAdapter,
+                          public IIncomingDeliveryCommitPort
 {
   public:
     MeshAdapterRouter();
@@ -36,7 +37,15 @@ class MeshAdapterRouter : public IMeshAdapter
     MeshSendResult sendTextDetailed(ChannelId channel, const std::string& text,
                                     MessageId forced_msg_id = 0,
                                     NodeId peer = 0) override;
+    MeshSendResult sendTextToReticulumDestination(
+        ChannelId channel,
+        const std::string& text,
+        MessageId forced_msg_id,
+        const ReticulumPeerIdentity& destination) override;
     bool pollIncomingText(MeshIncomingText* out) override;
+    IIncomingDeliveryCommitPort* incomingDeliveryCommitPort() override;
+    void commitIncomingText(const MeshIncomingText& message,
+                            bool durably_accepted) override;
     bool sendAppData(ChannelId channel, uint32_t portnum,
                      const uint8_t* payload, size_t len,
                      NodeId dest = 0, bool want_ack = false,
@@ -44,17 +53,24 @@ class MeshAdapterRouter : public IMeshAdapter
                      bool want_response = false) override;
     bool pollIncomingData(MeshIncomingData* out) override;
     bool requestNodeInfo(NodeId dest, bool want_response) override;
+    bool broadcastSelfIdentity() override;
     bool startKeyVerification(NodeId dest) override;
     bool submitKeyVerificationNumber(NodeId dest, uint64_t nonce, uint32_t number) override;
     NodeId getNodeId() const override;
     bool isPkiReady() const override;
+    bool getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const override;
     bool hasPkiKey(NodeId dest) const override;
     bool triggerDiscoveryAction(MeshDiscoveryAction action) override;
     MeshActionResult triggerDiscoveryActionDetailed(MeshDiscoveryAction action) override;
+    MeshActionResult startReticulumAudioCall(
+        const ReticulumPeerIdentity& destination) override;
+    MeshActionResult pingReticulumDestination(
+        const ReticulumPeerIdentity& destination) override;
     void applyConfig(const MeshConfig& config) override;
     void setUserInfo(const char* long_name, const char* short_name) override;
     void setNetworkLimits(bool duty_cycle_enabled, uint8_t util_percent) override;
     void setPrivacyConfig(uint8_t encrypt_mode) override;
+    bool setWifiTransportEnabled(bool enabled) override;
     bool isReady() const override;
     bool pollIncomingRawPacket(uint8_t* out_data, size_t& out_len, size_t max_len) override;
     void handleRawPacket(const uint8_t* data, size_t size) override;
@@ -65,7 +81,8 @@ class MeshAdapterRouter : public IMeshAdapter
     class LockGuard
     {
       public:
-        explicit LockGuard(SemaphoreHandle_t mutex);
+        explicit LockGuard(SemaphoreHandle_t mutex,
+                           TickType_t wait_ticks = portMAX_DELAY);
         ~LockGuard();
         bool locked() const { return locked_; }
 

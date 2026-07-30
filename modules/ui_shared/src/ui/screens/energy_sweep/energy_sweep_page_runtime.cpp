@@ -486,7 +486,7 @@ void apply_band_plan(float start_mhz, float end_mhz, float bw_khz)
 
 void setup_sweep_band_plan()
 {
-    const app::AppConfig& cfg = app::configFacade().getConfig();
+    const app::AppConfig& cfg = app::configFacade().readConfig();
 
     float start_mhz = kDefaultFreqStartMhz;
     float end_mhz = kDefaultFreqEndMhz;
@@ -1288,7 +1288,7 @@ void setup_radio_context()
     s_radio = {};
     setup_sweep_band_plan();
 
-    const app::AppConfig& cfg = app::configFacade().getConfig();
+    const app::AppConfig& cfg = app::configFacade().readConfig();
     s_radio.bw_khz = s_band.bw_khz;
 
     if (cfg.mesh_protocol == chat::MeshProtocol::MeshCore)

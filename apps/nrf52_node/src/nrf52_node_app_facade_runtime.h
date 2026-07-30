@@ -23,10 +23,10 @@ class ChatModel;
 class ChatService;
 class IChatStore;
 class IMeshAdapter;
+class IMeshPeerDirectory;
+class IMeshPeerDirectoryBlobStore;
 namespace contacts
 {
-class INodeStore;
-class IContactStore;
 class ContactService;
 } // namespace contacts
 } // namespace chat
@@ -55,10 +55,14 @@ class AppFacadeRuntime final : public app::IAppBleFacade
     bool installMeshBackend(chat::MeshProtocol protocol,
                             std::unique_ptr<chat::IMeshAdapter> backend);
 
-    app::AppConfig& getConfig() override;
+  protected:
     const app::AppConfig& getConfig() const override;
+
+  public:
     chat::MeshProtocol getMeshProtocol() const override;
     void saveConfig() override;
+    void saveConfig(app::AppConfigChangeSet changes) override;
+    app::AppConfigEdit beginConfigEdit() override;
     void applyMeshConfig() override;
     void applyUserInfo() override;
     void applyPositionConfig() override;
@@ -92,8 +96,6 @@ class AppFacadeRuntime final : public app::IAppBleFacade
     bool isBleEnabled() const override;
     void setBleEnabled(bool enabled) override;
     void restartDevice() override;
-    chat::contacts::INodeStore* getNodeStore() override;
-    const chat::contacts::INodeStore* getNodeStore() const override;
     bool getDeviceMacAddress(uint8_t out_mac[6]) const override;
     bool syncCurrentEpochSeconds(uint32_t epoch_seconds) override;
     void resetMeshConfig() override;
@@ -121,6 +123,9 @@ class AppFacadeRuntime final : public app::IAppBleFacade
   private:
     AppFacadeRuntime();
 
+    static void commitConfigEdit(void* context, app::AppConfigChangeSet changes);
+    static void cancelConfigEdit(void* context);
+
     void initializeStores();
     void initializeChatRuntime();
     void refreshEffectiveIdentity();
@@ -136,8 +141,9 @@ class AppFacadeRuntime final : public app::IAppBleFacade
     std::unique_ptr<platform::nrf52::arduino_common::SelfIdentityBridge> identity_bridge_;
     mutable chat::runtime::EffectiveSelfIdentity effective_identity_{};
 
-    std::unique_ptr<chat::contacts::INodeStore> node_store_;
-    std::unique_ptr<chat::contacts::IContactStore> contact_store_;
+    std::unique_ptr<chat::IMeshPeerDirectoryBlobStore>
+        mesh_peer_directory_blob_store_;
+    std::unique_ptr<chat::IMeshPeerDirectory> mesh_peer_directory_;
     std::unique_ptr<chat::contacts::ContactService> contact_service_;
     std::unique_ptr<chat::ChatModel> chat_model_;
     std::unique_ptr<chat::IChatStore> chat_store_;

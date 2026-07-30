@@ -4,30 +4,43 @@
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
 #include "app/app_facades.h"
+#include "app/config_persistence_runtime.h"
 #include "board/BoardBase.h"
-#include "chat/infra/contact_store_core.h"
+#include "chat/delivery/chat_delivery_event_port.h"
+#include "chat/delivery/chat_delivery_event_projector.h"
+#include "chat/delivery/chat_delivery_read_model.h"
+#include "chat/infra/mesh_peer_directory_core.h"
 #include "chat/infra/mesh_protocol_utils.h"
 #include "chat/infra/meshcore/mc_region_presets.h"
 #include "chat/infra/meshtastic/mt_region.h"
-#include "chat/infra/node_store_blob_format.h"
-#include "chat/infra/node_store_core.h"
 #include "chat/infra/store/ram_store.h"
-#include "chat/ports/i_contact_blob_store.h"
 #include "chat/ports/i_mesh_adapter.h"
-#include "chat/ports/i_node_blob_store.h"
+#include "chat/ports/i_mesh_peer_directory_blob_store.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_random.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "mbedtls/chachapoly.h"
 #include "mbedtls/sha256.h"
+#include "platform/esp/arduino_common/app_tasks.h"
+#include "platform/esp/arduino_common/chat/infra/mesh_adapter_router.h"
+#include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_adapter.h"
+#include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_adapter.h"
+#include "platform/esp/arduino_common/chat/infra/store/sd_store.h"
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
+#include "platform/esp/idf_common/storage_runtime.h"
 #include "platform/esp/radio/meshtastic_radio_adapter.h"
 #include "platform/ui/gps_runtime.h"
+#include "platform/ui/reticulum_directory_runtime.h"
+#include "platform/ui/reticulum_group_config_runtime.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/team_ui_store_runtime.h"
 #include "platform/ui/tracker_runtime.h"
@@ -43,6 +56,8 @@
 #include "team/usecase/team_track_sampler.h"
 #include "ui/chat_ui_runtime.h"
 #include "ui/screens/team/team_page_shell.h"
+#include "ui/widgets/reticulum_call_overlay.h"
+#include "ui/widgets/top_bar_power_presenter.h"
 
 #include <algorithm>
 #include <cmath>
@@ -50,6 +65,7 @@
 #include <cstring>
 #include <ctime>
 #include <memory>
+#include <new>
 #include <string>
 #include <vector>
 #endif
@@ -64,21 +80,12 @@ constexpr const char* kIdfStoreTag = "idf-app-store";
 constexpr const char* kIdfConfigTag = "idf-app-cfg";
 constexpr const char* kIdfSettingsNs = "idf_app";
 constexpr const char* kIdfConfigKey = "app_cfg";
-constexpr const char* kIdfNodesNvsKey = "nodes_blob";
-constexpr const char* kIdfContactsNvsKey = "contacts";
-constexpr const char* kIdfContactsFile = "/contacts.dat";
-constexpr const char* kIdfNodesFile = "/nodes.bin";
+constexpr const char* kIdfMeshPeersDir = "/mesh";
+constexpr const char* kIdfMeshPeersFile = "/mesh/peers.bin";
 constexpr size_t kIdfReadChunkBytes = 256;
 constexpr uint32_t kIdfAppConfigMagic = 0x50344346UL; // P4CF
 constexpr uint16_t kIdfAppConfigVersion = 1;
-constexpr uint32_t kIdfNodeStoreFlushIntervalMs = 5000UL;
-constexpr size_t kIdfMaxContactBlobBytes =
-    chat::contacts::ContactStoreCore::kMaxContacts *
-    chat::contacts::ContactStoreCore::kSerializedEntrySize;
-constexpr size_t kIdfMaxNodeFileBytes =
-    sizeof(chat::contacts::NodeStoreSdHeader) +
-    chat::contacts::NodeStoreCore::kMaxNodes *
-        chat::contacts::NodeStoreCore::kSerializedEntrySizeV8;
+constexpr size_t kIdfMaxMeshPeerBlobBytes = 768U * 1024U;
 constexpr const char* kIdfTeamTag = "idf-team";
 constexpr size_t kTeamAeadTagBytes = 16;
 constexpr size_t kTeamAeadKeyBytes = 32;
@@ -93,7 +100,29 @@ struct IdfPersistedAppConfig
     app::AppConfig config{};
 };
 
-IdfPersistedAppConfig s_config_blob_scratch{};
+IdfPersistedAppConfig* s_config_blob_scratch = nullptr;
+
+IdfPersistedAppConfig* ensureConfigBlobScratch()
+{
+    if (s_config_blob_scratch)
+    {
+        return s_config_blob_scratch;
+    }
+
+    void* psram_storage =
+        heap_caps_malloc(sizeof(IdfPersistedAppConfig),
+                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (psram_storage)
+    {
+        s_config_blob_scratch = new (psram_storage) IdfPersistedAppConfig();
+    }
+    else
+    {
+        s_config_blob_scratch =
+            new (std::nothrow) IdfPersistedAppConfig();
+    }
+    return s_config_blob_scratch;
+}
 
 uint32_t fnv1a32(const void* data, size_t len)
 {
@@ -122,7 +151,34 @@ int8_t clampTxPower(int8_t value)
 
 bool idfSupportsMeshProtocol(chat::MeshProtocol protocol)
 {
-    return protocol == chat::MeshProtocol::Meshtastic;
+    return protocol == chat::MeshProtocol::Reticulum ||
+           protocol == chat::MeshProtocol::MeshCore ||
+           protocol == chat::MeshProtocol::Meshtastic;
+}
+
+void syncReticulumGroupConfig(app::AppConfig& config)
+{
+    if (!chat::infra::isReticulumMeshProtocol(
+            chat::infra::normalizeMeshProtocol(config.mesh_protocol)))
+    {
+        return;
+    }
+
+    if (!platform::esp::idf_common::bsp_runtime::sdcard_ready())
+    {
+        ESP_LOGI(kIdfConfigTag, "reticulum group sync deferred: SD card not ready");
+        return;
+    }
+
+    const auto status = platform::ui::reticulum_groups::load(
+        config.reticulumConfig().reticulum_groups,
+        chat::kReticulumGroupDestinationMaxCount);
+    ESP_LOGI(kIdfConfigTag,
+             "reticulum group sync sd=%d loaded=%d file=%d message=%s",
+             status.sd_present ? 1 : 0,
+             status.loaded ? 1 : 0,
+             status.file_present ? 1 : 0,
+             status.message);
 }
 
 void normalizeIdfAppConfig(app::AppConfig& config)
@@ -131,9 +187,9 @@ void normalizeIdfAppConfig(app::AppConfig& config)
         !idfSupportsMeshProtocol(config.mesh_protocol))
     {
         ESP_LOGW(kIdfConfigTag,
-                 "unsupported mesh protocol=%u; falling back to Meshtastic",
+                 "unsupported mesh protocol=%u; falling back to Reticulum",
                  static_cast<unsigned>(config.mesh_protocol));
-        config.mesh_protocol = chat::MeshProtocol::Meshtastic;
+        config.mesh_protocol = chat::MeshProtocol::Reticulum;
     }
 
     if (chat::meshtastic::findRegion(
@@ -145,7 +201,7 @@ void normalizeIdfAppConfig(app::AppConfig& config)
 
     config.meshtastic_config.tx_power = clampTxPower(config.meshtastic_config.tx_power);
     config.meshcore_config.tx_power = clampTxPower(config.meshcore_config.tx_power);
-    config.rnode_config.tx_power = clampTxPower(config.rnode_config.tx_power);
+    config.reticulumConfig().tx_power = clampTxPower(config.reticulumConfig().tx_power);
     if (!chat::meshcore::isValidRegionPresetId(
             config.meshcore_config.meshcore_region_preset))
     {
@@ -163,45 +219,56 @@ void normalizeIdfAppConfig(app::AppConfig& config)
 
 bool loadIdfAppConfig(app::AppConfig& out)
 {
-    std::vector<uint8_t> blob;
-    if (!platform::ui::settings_store::get_blob(kIdfSettingsNs, kIdfConfigKey, blob))
+    IdfPersistedAppConfig* scratch = ensureConfigBlobScratch();
+    if (!scratch)
+    {
+        ESP_LOGE(kIdfConfigTag, "config scratch allocation failed");
+        return false;
+    }
+
+    std::size_t blob_size = 0U;
+    if (!platform::ui::settings_store::get_blob_into(
+            kIdfSettingsNs,
+            kIdfConfigKey,
+            scratch,
+            sizeof(*scratch),
+            &blob_size))
     {
         return false;
     }
-    if (blob.size() != sizeof(IdfPersistedAppConfig))
+    if (blob_size != sizeof(IdfPersistedAppConfig))
     {
         ESP_LOGW(kIdfConfigTag,
                  "load rejected size=%u expected=%u",
-                 static_cast<unsigned>(blob.size()),
+                 static_cast<unsigned>(blob_size),
                  static_cast<unsigned>(sizeof(IdfPersistedAppConfig)));
         return false;
     }
 
-    std::memcpy(&s_config_blob_scratch, blob.data(), sizeof(s_config_blob_scratch));
-    if (s_config_blob_scratch.magic != kIdfAppConfigMagic ||
-        s_config_blob_scratch.version != kIdfAppConfigVersion ||
-        s_config_blob_scratch.payload_size != sizeof(app::AppConfig))
+    if (scratch->magic != kIdfAppConfigMagic ||
+        scratch->version != kIdfAppConfigVersion ||
+        scratch->payload_size != sizeof(app::AppConfig))
     {
         ESP_LOGW(kIdfConfigTag,
                  "load rejected magic=%08lx version=%u payload=%u",
-                 static_cast<unsigned long>(s_config_blob_scratch.magic),
-                 static_cast<unsigned>(s_config_blob_scratch.version),
-                 static_cast<unsigned>(s_config_blob_scratch.payload_size));
+                 static_cast<unsigned long>(scratch->magic),
+                 static_cast<unsigned>(scratch->version),
+                 static_cast<unsigned>(scratch->payload_size));
         return false;
     }
 
     const uint32_t checksum =
-        fnv1a32(&s_config_blob_scratch.config, sizeof(s_config_blob_scratch.config));
-    if (checksum != s_config_blob_scratch.checksum)
+        fnv1a32(&scratch->config, sizeof(scratch->config));
+    if (checksum != scratch->checksum)
     {
         ESP_LOGW(kIdfConfigTag,
                  "load rejected checksum stored=%08lx actual=%08lx",
-                 static_cast<unsigned long>(s_config_blob_scratch.checksum),
+                 static_cast<unsigned long>(scratch->checksum),
                  static_cast<unsigned long>(checksum));
         return false;
     }
 
-    out = s_config_blob_scratch.config;
+    out = scratch->config;
     normalizeIdfAppConfig(out);
     ESP_LOGI(kIdfConfigTag,
              "loaded app config proto=%u region=%u tx=%d",
@@ -213,19 +280,26 @@ bool loadIdfAppConfig(app::AppConfig& out)
 
 bool saveIdfAppConfig(const app::AppConfig& config)
 {
-    s_config_blob_scratch = IdfPersistedAppConfig{};
-    s_config_blob_scratch.magic = kIdfAppConfigMagic;
-    s_config_blob_scratch.version = kIdfAppConfigVersion;
-    s_config_blob_scratch.payload_size = static_cast<uint16_t>(sizeof(app::AppConfig));
-    s_config_blob_scratch.config = config;
-    s_config_blob_scratch.checksum =
-        fnv1a32(&s_config_blob_scratch.config, sizeof(s_config_blob_scratch.config));
+    IdfPersistedAppConfig* scratch = ensureConfigBlobScratch();
+    if (!scratch)
+    {
+        ESP_LOGE(kIdfConfigTag, "config scratch allocation failed");
+        return false;
+    }
+
+    *scratch = IdfPersistedAppConfig{};
+    scratch->magic = kIdfAppConfigMagic;
+    scratch->version = kIdfAppConfigVersion;
+    scratch->payload_size = static_cast<uint16_t>(sizeof(app::AppConfig));
+    scratch->config = config;
+    scratch->checksum =
+        fnv1a32(&scratch->config, sizeof(scratch->config));
 
     const bool ok = platform::ui::settings_store::put_blob(
         kIdfSettingsNs,
         kIdfConfigKey,
-        &s_config_blob_scratch,
-        sizeof(s_config_blob_scratch));
+        scratch,
+        sizeof(*scratch));
     ESP_LOGI(kIdfConfigTag,
              "save app config proto=%u region=%u tx=%d ok=%u",
              static_cast<unsigned>(config.mesh_protocol),
@@ -235,79 +309,25 @@ bool saveIdfAppConfig(const app::AppConfig& config)
     return ok;
 }
 
-bool loadNvsBlob(const char* key, const char* label, std::vector<uint8_t>& out, size_t max_len)
-{
-    std::vector<uint8_t> blob;
-    if (!platform::ui::settings_store::get_blob(kIdfSettingsNs, key, blob))
-    {
-        return false;
-    }
-    if (blob.empty() || blob.size() > max_len)
-    {
-        ESP_LOGW(kIdfStoreTag,
-                 "%s nvs load rejected len=%u max=%u",
-                 label,
-                 static_cast<unsigned>(blob.size()),
-                 static_cast<unsigned>(max_len));
-        out.clear();
-        return false;
-    }
-    out = blob;
-    ESP_LOGI(kIdfStoreTag,
-             "%s load source=nvs key=%s len=%u",
-             label,
-             key,
-             static_cast<unsigned>(out.size()));
-    return true;
-}
-
-bool saveNvsBlob(const char* key, const char* label, const uint8_t* data, size_t len, size_t max_len)
-{
-    if (len == 0)
-    {
-        return platform::ui::settings_store::put_blob(kIdfSettingsNs, key, nullptr, 0);
-    }
-    if (!data || len > max_len)
-    {
-        return false;
-    }
-
-    const bool ok = platform::ui::settings_store::put_blob(kIdfSettingsNs, key, data, len);
-    ESP_LOGI(kIdfStoreTag,
-             "%s save target=nvs key=%s len=%u ok=%u",
-             label,
-             key,
-             static_cast<unsigned>(len),
-             ok ? 1U : 0U);
-    return ok;
-}
-
-bool isValidContactBlobSize(size_t len)
-{
-    return len != 0 &&
-           len <= kIdfMaxContactBlobBytes &&
-           (len % chat::contacts::ContactStoreCore::kSerializedEntrySize) == 0 &&
-           (len / chat::contacts::ContactStoreCore::kSerializedEntrySize) <=
-               chat::contacts::ContactStoreCore::kMaxContacts;
-}
-
 std::string makeSdPath(const char* relative)
 {
-    const char* mount = platform::esp::idf_common::bsp_runtime::sdcard_mount_point();
-    std::string path = mount ? mount : "";
-    if (path.empty() || !relative || !relative[0])
+    if (!relative || !relative[0])
     {
-        return path;
+        return "/";
     }
-    if (path.back() == '/' && relative[0] == '/')
+    std::string path = relative;
+    if (path.size() >= 2 && (path[0] == 'A' || path[0] == 'a') && path[1] == ':')
     {
-        path.pop_back();
+        path.erase(0, 2);
     }
-    else if (path.back() != '/' && relative[0] != '/')
+    if (path.empty())
     {
-        path.push_back('/');
+        return "/";
     }
-    path += relative;
+    if (path.front() != '/')
+    {
+        path.insert(path.begin(), '/');
+    }
     return path;
 }
 
@@ -321,46 +341,42 @@ bool readSdFile(const char* relative, std::vector<uint8_t>& out, size_t max_len)
     }
 
     const std::string path = makeSdPath(relative);
-    FILE* file = std::fopen(path.c_str(), "rb");
-    if (!file)
+    platform::esp::arduino_common::storage::SdRuntimeFile file;
+    if (!file.open(path.c_str(), "rb"))
     {
         return false;
     }
 
-    if (std::fseek(file, 0, SEEK_END) != 0)
+    const uint64_t file_size = file.size();
+    if (file_size == 0 || file_size > max_len)
     {
-        std::fclose(file);
+        file.close();
         return false;
     }
-    const long size = std::ftell(file);
-    if (size <= 0 || static_cast<size_t>(size) > max_len)
+    if (!file.seek(0))
     {
-        std::fclose(file);
-        return false;
-    }
-    if (std::fseek(file, 0, SEEK_SET) != 0)
-    {
-        std::fclose(file);
+        file.close();
         return false;
     }
 
-    out.reserve(static_cast<size_t>(size));
+    const size_t size = static_cast<size_t>(file_size);
+    out.reserve(size);
     uint8_t buffer[kIdfReadChunkBytes];
     size_t total_read = 0;
-    while (total_read < static_cast<size_t>(size))
+    while (total_read < size)
     {
-        const size_t chunk = std::min(kIdfReadChunkBytes, static_cast<size_t>(size) - total_read);
-        const size_t read = std::fread(buffer, 1, chunk, file);
-        if (read != chunk)
+        const size_t chunk = std::min(kIdfReadChunkBytes, size - total_read);
+        const int read = file.read(buffer, chunk);
+        if (read < 0 || static_cast<size_t>(read) != chunk)
         {
-            std::fclose(file);
+            file.close();
             out.clear();
             return false;
         }
-        out.insert(out.end(), buffer, buffer + read);
-        total_read += read;
+        out.insert(out.end(), buffer, buffer + static_cast<size_t>(read));
+        total_read += static_cast<size_t>(read);
     }
-    std::fclose(file);
+    file.close();
     return true;
 }
 
@@ -372,8 +388,8 @@ bool removeSdFile(const char* relative)
     }
     const std::string path = makeSdPath(relative);
     const std::string temp_path = path + ".tmp";
-    std::remove(temp_path.c_str());
-    std::remove(path.c_str());
+    (void)platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
+    (void)platform::esp::arduino_common::storage::sd_remove(path.c_str());
     return true;
 }
 
@@ -397,32 +413,33 @@ bool writeSdFileAtomic(const char* relative, const uint8_t* data, size_t len)
 
     const std::string path = makeSdPath(relative);
     const std::string temp_path = path + ".tmp";
-    std::remove(temp_path.c_str());
+    (void)platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
 
-    FILE* file = std::fopen(temp_path.c_str(), "wb");
-    if (!file)
+    platform::esp::arduino_common::storage::SdRuntimeFile file;
+    if (!file.open(temp_path.c_str(), "wb"))
     {
         ESP_LOGW(kIdfStoreTag, "save open failed path=%s", temp_path.c_str());
         return false;
     }
 
-    const size_t written = std::fwrite(data, 1, len, file);
-    const int close_result = std::fclose(file);
-    if (written != len || close_result != 0)
+    const size_t written = file.write(data, len);
+    const bool flushed = file.flush();
+    file.close();
+    if (written != len || !flushed)
     {
-        std::remove(temp_path.c_str());
-        ESP_LOGW(kIdfStoreTag, "save write failed path=%s want=%u got=%u close=%d",
+        (void)platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
+        ESP_LOGW(kIdfStoreTag, "save write failed path=%s want=%u got=%u flush=%u",
                  temp_path.c_str(),
                  static_cast<unsigned>(len),
                  static_cast<unsigned>(written),
-                 close_result);
+                 flushed ? 1U : 0U);
         return false;
     }
 
-    std::remove(path.c_str());
-    if (std::rename(temp_path.c_str(), path.c_str()) != 0)
+    (void)platform::esp::arduino_common::storage::sd_remove(path.c_str());
+    if (!platform::esp::arduino_common::storage::sd_rename(temp_path.c_str(), path.c_str()))
     {
-        std::remove(temp_path.c_str());
+        (void)platform::esp::arduino_common::storage::sd_remove(temp_path.c_str());
         ESP_LOGW(kIdfStoreTag, "save rename failed tmp=%s path=%s",
                  temp_path.c_str(),
                  path.c_str());
@@ -431,191 +448,122 @@ bool writeSdFileAtomic(const char* relative, const uint8_t* data, size_t len)
     return true;
 }
 
-class IdfSdNodeBlobStore final : public chat::contacts::INodeBlobStore
+class IdfSdMeshPeerDirectoryBlobStore final
+    : public chat::IMeshPeerDirectoryBlobStore
 {
   public:
-    bool loadBlob(std::vector<uint8_t>& out) override
+    chat::MeshPeerDirectoryBlobLoadResult loadBlob(
+        std::vector<uint8_t>& out) override
     {
-        std::vector<uint8_t> file;
-        if (!readSdFile(kIdfNodesFile, file, kIdfMaxNodeFileBytes) ||
-            file.size() <= sizeof(chat::contacts::NodeStoreSdHeader))
+        out.clear();
+        if (!platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready())
         {
-            return loadBlobFromNvs(out);
+            return chat::MeshPeerDirectoryBlobLoadResult::Unavailable;
         }
 
-        chat::contacts::NodeStoreSdHeader header{};
-        std::memcpy(&header, file.data(), sizeof(header));
-        const uint8_t* payload = file.data() + sizeof(header);
-        const size_t payload_len = file.size() - sizeof(header);
-        if (chat::contacts::validateNodeStoreSdBlob(header, payload, payload_len) !=
-            chat::contacts::NodeBlobValidation::Ok)
+        const std::string path = makeSdPath(kIdfMeshPeersFile);
+        if (!platform::esp::arduino_common::storage::sd_exists(path.c_str()))
         {
-            out.clear();
-            ESP_LOGW(kIdfStoreTag,
-                     "node load invalid path=%s ver=%u count=%u len=%u",
-                     kIdfNodesFile,
-                     static_cast<unsigned>(header.ver),
-                     static_cast<unsigned>(header.count),
-                     static_cast<unsigned>(payload_len));
-            return loadBlobFromNvs(out);
+            return chat::MeshPeerDirectoryBlobLoadResult::Missing;
+        }
+        if (!readSdFile(kIdfMeshPeersFile, out, kIdfMaxMeshPeerBlobBytes))
+        {
+            return chat::MeshPeerDirectoryBlobLoadResult::IoError;
         }
 
-        std::vector<chat::contacts::NodeEntry> entries;
-        if (!chat::contacts::NodeStoreCore::decodeBlob(entries, payload, payload_len, header.ver))
-        {
-            out.clear();
-            ESP_LOGW(kIdfStoreTag, "node load decode failed path=%s ver=%u",
-                     kIdfNodesFile,
-                     static_cast<unsigned>(header.ver));
-            return loadBlobFromNvs(out);
-        }
-
-        chat::contacts::NodeStoreCore::encodeBlob(out, entries);
         ESP_LOGI(kIdfStoreTag,
-                 "node load source=sd path=%s count=%u len=%u",
-                 kIdfNodesFile,
-                 static_cast<unsigned>(entries.size()),
+                 "mesh peer load path=%s len=%u",
+                 kIdfMeshPeersFile,
                  static_cast<unsigned>(out.size()));
-        return !out.empty();
+        return chat::MeshPeerDirectoryBlobLoadResult::Loaded;
+    }
+
+    chat::MeshPeerDirectoryBlobLoadResult loadBlobTo(
+        chat::IMeshPeerDirectoryBlobSink& sink) override
+    {
+        if (!platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready())
+        {
+            return chat::MeshPeerDirectoryBlobLoadResult::Unavailable;
+        }
+
+        const std::string path = makeSdPath(kIdfMeshPeersFile);
+        if (!platform::esp::arduino_common::storage::sd_exists(path.c_str()))
+        {
+            return chat::MeshPeerDirectoryBlobLoadResult::Missing;
+        }
+
+        platform::esp::arduino_common::storage::SdRuntimeFile file;
+        if (!file.open(path.c_str(), "rb"))
+        {
+            return chat::MeshPeerDirectoryBlobLoadResult::IoError;
+        }
+        const uint64_t file_size = file.size();
+        if (file_size == 0U || file_size > kIdfMaxMeshPeerBlobBytes ||
+            !file.seek(0))
+        {
+            file.close();
+            return chat::MeshPeerDirectoryBlobLoadResult::IoError;
+        }
+
+        const std::size_t size = static_cast<std::size_t>(file_size);
+        if (!sink.begin(size))
+        {
+            file.close();
+            return chat::MeshPeerDirectoryBlobLoadResult::IoError;
+        }
+
+        uint8_t buffer[kIdfReadChunkBytes];
+        std::size_t total_read = 0U;
+        while (total_read < size)
+        {
+            const std::size_t chunk =
+                std::min(kIdfReadChunkBytes, size - total_read);
+            const int read = file.read(buffer, chunk);
+            if (read < 0 || static_cast<std::size_t>(read) != chunk ||
+                !sink.write(buffer, chunk))
+            {
+                file.close();
+                return chat::MeshPeerDirectoryBlobLoadResult::IoError;
+            }
+            total_read += chunk;
+        }
+        file.close();
+        return sink.finish() ? chat::MeshPeerDirectoryBlobLoadResult::Loaded
+                             : chat::MeshPeerDirectoryBlobLoadResult::IoError;
     }
 
     bool saveBlob(const uint8_t* data, size_t len) override
     {
-        if (len == 0)
-        {
-            (void)removeSdFile(kIdfNodesFile);
-            (void)saveNvsBlob(kIdfNodesNvsKey, "node", nullptr, 0, kIdfMaxNodeFileBytes);
-            return true;
-        }
-        if (!chat::contacts::isValidNodeBlobSize(len) ||
-            chat::contacts::nodeBlobEntryCount(len) > chat::contacts::NodeStoreCore::kMaxNodes)
+        if ((!data && len != 0) || len > kIdfMaxMeshPeerBlobBytes ||
+            !ensureDirectory())
         {
             return false;
         }
-
-        chat::contacts::NodeStoreSdHeader header =
-            chat::contacts::makeNodeStoreSdHeader(data, len);
-        std::vector<uint8_t> file(sizeof(header) + len);
-        std::memcpy(file.data(), &header, sizeof(header));
-        std::memcpy(file.data() + sizeof(header), data, len);
-        const bool sd_ok = writeSdFileAtomic(kIdfNodesFile, file.data(), file.size());
-        const bool nvs_ok =
-            saveNvsBlob(kIdfNodesNvsKey, "node", data, len, kIdfMaxNodeFileBytes);
+        const bool ok = writeSdFileAtomic(kIdfMeshPeersFile, data, len);
         ESP_LOGI(kIdfStoreTag,
-                 "node save path=%s count=%u len=%u sd=%u nvs=%u",
-                 kIdfNodesFile,
-                 static_cast<unsigned>(header.count),
+                 "mesh peer save path=%s len=%u ok=%u",
+                 kIdfMeshPeersFile,
                  static_cast<unsigned>(len),
-                 sd_ok ? 1U : 0U,
-                 nvs_ok ? 1U : 0U);
-        return sd_ok || nvs_ok;
+                 ok ? 1U : 0U);
+        return ok;
     }
 
     void clearBlob() override
     {
-        (void)removeSdFile(kIdfNodesFile);
-        (void)saveNvsBlob(kIdfNodesNvsKey, "node", nullptr, 0, kIdfMaxNodeFileBytes);
+        (void)removeSdFile(kIdfMeshPeersFile);
     }
 
   private:
-    bool loadBlobFromNvs(std::vector<uint8_t>& out)
+    static bool ensureDirectory()
     {
-        if (!loadNvsBlob(kIdfNodesNvsKey, "node", out, kIdfMaxNodeFileBytes))
-        {
-            out.clear();
-            return false;
-        }
-        if (!chat::contacts::isValidNodeBlobSize(out.size()) ||
-            chat::contacts::nodeBlobEntryCount(out.size()) >
-                chat::contacts::NodeStoreCore::kMaxNodes)
-        {
-            ESP_LOGW(kIdfStoreTag,
-                     "node nvs load invalid len=%u",
-                     static_cast<unsigned>(out.size()));
-            out.clear();
-            return false;
-        }
-
-        std::vector<chat::contacts::NodeEntry> entries;
-        if (!chat::contacts::NodeStoreCore::decodeBlob(entries, out.data(), out.size()))
-        {
-            ESP_LOGW(kIdfStoreTag,
-                     "node nvs decode failed len=%u",
-                     static_cast<unsigned>(out.size()));
-            out.clear();
-            return false;
-        }
-
-        chat::contacts::NodeStoreCore::encodeBlob(out, entries);
-        ESP_LOGI(kIdfStoreTag,
-                 "node load source=nvs count=%u len=%u",
-                 static_cast<unsigned>(entries.size()),
-                 static_cast<unsigned>(out.size()));
-        return !out.empty();
-    }
-};
-
-class IdfSdContactBlobStore final : public chat::IContactBlobStore
-{
-  public:
-    bool loadBlob(std::vector<uint8_t>& out) override
-    {
-        const bool ok = readSdFile(kIdfContactsFile, out, kIdfMaxContactBlobBytes);
-        if (ok)
-        {
-            ESP_LOGI(kIdfStoreTag,
-                     "contacts load source=sd path=%s len=%u",
-                     kIdfContactsFile,
-                     static_cast<unsigned>(out.size()));
-            if (isValidContactBlobSize(out.size()))
-            {
-                return true;
-            }
-            ESP_LOGW(kIdfStoreTag,
-                     "contacts sd load invalid len=%u",
-                     static_cast<unsigned>(out.size()));
-            out.clear();
-        }
-
-        if (!loadNvsBlob(kIdfContactsNvsKey, "contacts", out, kIdfMaxContactBlobBytes))
-        {
-            out.clear();
-            return false;
-        }
-        if (!isValidContactBlobSize(out.size()))
-        {
-            ESP_LOGW(kIdfStoreTag,
-                     "contacts nvs load invalid len=%u",
-                     static_cast<unsigned>(out.size()));
-            out.clear();
-            return false;
-        }
-        return true;
-    }
-
-    bool saveBlob(const uint8_t* data, size_t len) override
-    {
-        if (len == 0)
-        {
-            (void)removeSdFile(kIdfContactsFile);
-            (void)saveNvsBlob(kIdfContactsNvsKey, "contacts", nullptr, 0, kIdfMaxContactBlobBytes);
-            return true;
-        }
-        if (!isValidContactBlobSize(len))
+        if (!platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready())
         {
             return false;
         }
 
-        const bool sd_ok = writeSdFileAtomic(kIdfContactsFile, data, len);
-        const bool nvs_ok =
-            saveNvsBlob(kIdfContactsNvsKey, "contacts", data, len, kIdfMaxContactBlobBytes);
-        ESP_LOGI(kIdfStoreTag,
-                 "contacts save path=%s len=%u sd=%u nvs=%u",
-                 kIdfContactsFile,
-                 static_cast<unsigned>(len),
-                 sd_ok ? 1U : 0U,
-                 nvs_ok ? 1U : 0U);
-        return sd_ok || nvs_ok;
+        const std::string path = makeSdPath(kIdfMeshPeersDir);
+        return platform::esp::arduino_common::storage::sd_is_directory(path.c_str()) ||
+               platform::esp::arduino_common::storage::sd_mkdir(path.c_str());
     }
 };
 
@@ -738,8 +686,13 @@ class IdfNullMeshAdapter final : public chat::IMeshAdapter
             dst[0] = '\0';
             return;
         }
-        std::strncpy(dst, src, dst_len - 1);
-        dst[dst_len - 1] = '\0';
+        std::size_t copy_len = std::strlen(src);
+        if (copy_len >= dst_len)
+        {
+            copy_len = dst_len - 1;
+        }
+        std::memmove(dst, src, copy_len);
+        dst[copy_len] = '\0';
     }
 
     chat::MessageId next_msg_id_ = 1;
@@ -1029,6 +982,29 @@ class IdfTeamEventBusSink final : public team::ITeamEventSink
     }
 };
 
+std::unique_ptr<chat::IChatStore> createIdfChatStore(
+    chat::SdStore** deferred_store)
+{
+    if (deferred_store)
+    {
+        *deferred_store = nullptr;
+    }
+    std::unique_ptr<chat::SdStore> persistent_store(new chat::SdStore());
+    if (persistent_store)
+    {
+        if (deferred_store)
+        {
+            *deferred_store = persistent_store.get();
+        }
+        ESP_LOGI(kIdfStoreTag,
+                 "chat store=SdStore backend=deferred layout=/data/v2");
+        return std::unique_ptr<chat::IChatStore>(persistent_store.release());
+    }
+
+    ESP_LOGW(kIdfStoreTag, "chat store=RamStore reason=ffat_store_unavailable");
+    return std::unique_ptr<chat::IChatStore>(new chat::RamStore());
+}
+
 class IdfAppFacadeRuntime final : public app::IAppFacade
 {
   public:
@@ -1047,9 +1023,28 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
             normalizeIdfAppConfig(config_);
             ESP_LOGI(kIdfConfigTag, "using default app config");
         }
+        syncReticulumGroupConfig(config_);
+
+        mesh_peer_directory_.setAutoSaveEnabled(false);
+        const chat::MeshPeerDirectoryStatus peer_directory_status =
+            mesh_peer_directory_.beginEmpty();
+        mesh_peer_directory_ready_ = peer_directory_status.succeeded();
+        platform::ui::reticulum_directory::bind_mesh_peer_directory(
+            mesh_peer_directory_ready_ ? &mesh_peer_directory_ : nullptr);
+        ESP_LOGI(kIdfStoreTag,
+                 "mesh peer directory path=%s status=%u hydration=deferred",
+                 kIdfMeshPeersFile,
+                 static_cast<unsigned>(peer_directory_status.code));
 
         if (!sys::EventBus::init())
         {
+            return false;
+        }
+
+        chat_store_ = createIdfChatStore(&deferred_chat_store_);
+        if (!chat_store_)
+        {
+            ESP_LOGE(kIdfStoreTag, "chat store allocation failed");
             return false;
         }
 
@@ -1063,20 +1058,25 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
             copyString(config_.short_name, sizeof(config_.short_name), identity.short_name);
         }
 
-        installMeshAdapter();
+        if (!installMeshAdapter())
+        {
+            ESP_LOGE(kIdfConfigTag,
+                     "mesh backend install failed proto=%u",
+                     static_cast<unsigned>(config_.mesh_protocol));
+            return false;
+        }
         applyMeshConfig();
+        ESP_LOGI(kIdfConfigTag,
+                 "mesh config applied stack_high_water=%u",
+                 static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
         applyUserInfo();
         applyNetworkLimits();
         applyPrivacyConfig();
+        config_persistence_runtime_.initialize(config_);
 
-        node_store_.setProtectedNodeChecker(
-            [this](uint32_t node_id)
-            {
-                return !contact_store_.getNickname(node_id).empty();
-            });
-        node_store_.setAutoSaveEnabled(false);
         contact_service_.begin();
-        chat_service_.reset(new chat::ChatService(chat_model_, meshAdapter(), chat_store_));
+        chat_service_.reset(new chat::ChatService(chat_model_, meshAdapter(), *chat_store_));
+        chat_service_->setDeliveryEventPort(&delivery_event_port_);
         chat_service_->setActiveProtocol(config_.mesh_protocol);
         chat_service_->switchChannel(config_.chat_channel == 1 ? chat::ChannelId::SECONDARY
                                                                : chat::ChannelId::PRIMARY);
@@ -1084,26 +1084,122 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         restoreTeamKeysFromSnapshot();
         setTeamModeActive(team_service_ && team_service_->hasKeys());
         initialized_ = true;
+        ESP_LOGI(kIdfConfigTag,
+                 "app facade ready stack_high_water=%u",
+                 static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
         return true;
     }
 
-    app::AppConfig& getConfig() override { return config_; }
+    void startDeferredStorage()
+    {
+        if (deferred_storage_started_ || !deferred_chat_store_)
+        {
+            return;
+        }
+        deferred_storage_started_ = true;
+        platform::esp::idf_common::storage::start_deferred_storage(
+            deferred_chat_store_,
+            mesh_peer_directory_ready_ ? &mesh_peer_directory_ : nullptr);
+    }
+
+    bool startBackgroundTasks()
+    {
+        if (background_tasks_started_)
+        {
+            return true;
+        }
+
+        background_tasks_started_ =
+            lora_board_ != nullptr && app::AppTasks::init(*lora_board_, &meshAdapter());
+        ESP_LOGI(kIdfConfigTag,
+                 "shared ESP background tasks ready=%u",
+                 background_tasks_started_ ? 1U : 0U);
+        return background_tasks_started_;
+    }
+
+    bool waitForInitialStorageHydration(uint32_t timeout_ms = 15000U)
+    {
+        const uint32_t started_ms = persistenceNowMs();
+        bool ready = platform::esp::idf_common::storage::
+            consume_hydration_ready();
+        while (!ready &&
+               platform::esp::idf_common::storage::hydration_active())
+        {
+            vTaskDelay(pdMS_TO_TICKS(10U));
+            ready = platform::esp::idf_common::storage::
+                consume_hydration_ready();
+            if (static_cast<uint32_t>(persistenceNowMs() - started_ms) >=
+                timeout_ms)
+            {
+                return false;
+            }
+        }
+        if (!ready)
+        {
+            ready = platform::esp::idf_common::storage::
+                consume_hydration_ready();
+        }
+        mesh_peer_directory_hydrated_ = ready;
+        return ready;
+    }
+
+  protected:
     const app::AppConfig& getConfig() const override { return config_; }
 
+  public:
+    app::AppConfigEdit beginConfigEdit() override
+    {
+        return app::AppConfigEdit(&config_,
+                                  this,
+                                  &IdfAppFacadeRuntime::commitConfigEdit,
+                                  &IdfAppFacadeRuntime::cancelConfigEdit);
+    }
+
     void saveConfig() override
+    {
+        saveConfig(app::AppConfigChangeSet::allPersisted());
+    }
+
+    void saveConfig(app::AppConfigChangeSet changes) override
     {
         normalizeIdfAppConfig(config_);
         if (chat_service_)
         {
             chat_service_->setActiveProtocol(config_.mesh_protocol);
         }
-        (void)saveIdfAppConfig(config_);
+
+        const uint32_t now_ms = persistenceNowMs();
+        const auto submission = config_persistence_runtime_.submit(
+            config_,
+            changes,
+            now_ms,
+            app::ConfigPersistenceUrgency::Debounced);
+        ESP_LOGI(kIdfConfigTag,
+                 "config intent queued=%u generation=%lu changes=0x%08lx",
+                 submission.queued ? 1U : 0U,
+                 static_cast<unsigned long>(submission.generation),
+                 static_cast<unsigned long>(submission.changes.bits()));
     }
 
     void applyMeshConfig() override
     {
         normalizeIdfAppConfig(config_);
-        meshAdapter().applyConfig(config_.activeMeshConfig());
+        syncReticulumGroupConfig(config_);
+        if (!mesh_router_.hasBackend() ||
+            mesh_router_.backendProtocol() != config_.mesh_protocol)
+        {
+            if (!switchMeshProtocol(config_.mesh_protocol, false))
+            {
+                ESP_LOGE(kIdfConfigTag,
+                         "mesh backend switch failed proto=%u",
+                         static_cast<unsigned>(config_.mesh_protocol));
+                return;
+            }
+        }
+        else
+        {
+            meshAdapter().applyConfig(config_.activeMeshConfig());
+        }
         if (board_)
         {
             board_->applyRadioConfig(config_.mesh_protocol, config_.activeMeshConfig());
@@ -1160,8 +1256,10 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     bool switchMeshProtocol(chat::MeshProtocol protocol, bool persist = true) override
     {
-        if (!chat::infra::isValidMeshProtocol(protocol) ||
-            !idfSupportsMeshProtocol(protocol))
+        const chat::MeshProtocol normalized =
+            chat::infra::normalizeMeshProtocol(protocol);
+        if (!chat::infra::isValidMeshProtocol(normalized) ||
+            !idfSupportsMeshProtocol(normalized))
         {
             ESP_LOGW(kIdfConfigTag,
                      "reject mesh protocol switch proto=%u",
@@ -1169,12 +1267,43 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
             return false;
         }
 
-        config_.mesh_protocol = protocol;
+        std::unique_ptr<chat::IMeshAdapter> backend =
+            createMeshBackend(normalized);
+        if (!backend)
+        {
+            return false;
+        }
+
+        const chat::MeshProtocol previous_protocol = config_.mesh_protocol;
+        config_.mesh_protocol = normalized;
+        syncReticulumGroupConfig(config_);
+        backend->applyConfig(config_.activeMeshConfig());
+
+        char long_name[sizeof(config_.node_name)] = {};
+        char short_name[sizeof(config_.short_name)] = {};
+        getEffectiveUserInfo(long_name,
+                             sizeof(long_name),
+                             short_name,
+                             sizeof(short_name));
+        backend->setUserInfo(long_name, short_name);
+        backend->setNetworkLimits(config_.net_duty_cycle, config_.net_channel_util);
+        backend->setPrivacyConfig(config_.privacy_encrypt_mode);
+
+        if (!mesh_router_.installBackend(normalized, std::move(backend)))
+        {
+            config_.mesh_protocol = previous_protocol;
+            return false;
+        }
+        mesh_adapter_ = &mesh_router_;
+
+        if (board_)
+        {
+            board_->applyRadioConfig(normalized, config_.activeMeshConfig());
+        }
         if (chat_service_)
         {
-            chat_service_->setActiveProtocol(protocol);
+            chat_service_->setActiveProtocol(normalized);
         }
-        applyMeshConfig();
         if (persist)
         {
             saveConfig();
@@ -1187,6 +1316,19 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     chat::IMeshAdapter* getMeshAdapter() override { return &meshAdapter(); }
     const chat::IMeshAdapter* getMeshAdapter() const override { return &meshAdapter(); }
     chat::NodeId getSelfNodeId() const override { return meshAdapter().getNodeId(); }
+    chat::delivery::ChatDeliveryReadModel* getChatDeliveryReadModel() override
+    {
+        return &delivery_read_model_;
+    }
+    const chat::delivery::ChatDeliveryReadModel*
+    getChatDeliveryReadModel() const override
+    {
+        return &delivery_read_model_;
+    }
+    chat::delivery::IChatDeliveryEventPort* getChatDeliveryEventPort() override
+    {
+        return &delivery_event_port_;
+    }
 
     team::TeamController* getTeamController() override { return team_controller_.get(); }
     team::TeamPairingService* getTeamPairing() override { return team_pairing_service_.get(); }
@@ -1202,8 +1344,7 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     void clearNodeDb() override
     {
-        node_store_.clear();
-        node_blob_store_.clearBlob();
+        (void)mesh_peer_directory_.clearProtocol(config_.mesh_protocol);
     }
 
     void clearMessageDb() override
@@ -1239,11 +1380,20 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     void updateCoreServices() override
     {
-        meshAdapter().processSendQueue();
+        flushConfigPersistence(persistenceNowMs());
+        if (!mesh_peer_directory_hydrated_ &&
+            platform::esp::idf_common::storage::consume_hydration_ready())
+        {
+            mesh_peer_directory_hydrated_ = true;
+            ESP_LOGI(kIdfStoreTag, "mesh peer directory hydration ready");
+        }
+        if (::platform::ui::reticulum_groups::hasPending())
+        {
+            (void)::platform::ui::reticulum_groups::flushPending();
+        }
         platform::ui::tracker::poll();
         chat_service_->processIncoming();
         chat_service_->flushStore();
-        flushNodeStoreIfDue();
         if (team_service_)
         {
             team_service_->processIncoming();
@@ -1263,11 +1413,16 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     void tickEventRuntime() override
     {
+        // The IDF app loop runs on a dedicated FreeRTOS task. Keep every LVGL
+        // projection inside tickBoundLifecycle()'s display lock instead of
+        // allowing the loop task to update the call overlay independently.
+        ::ui::widgets::reticulum_call_overlay::tick();
         chat::ui::IChatUiRuntime* runtime = getChatUiRuntime();
         if (runtime != nullptr)
         {
             runtime->update();
         }
+        ::ui::widgets::top_bar_power::tick();
     }
 
     void dispatchPendingEvents(std::size_t max_events = 32) override
@@ -1306,6 +1461,39 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     bool initialized() const { return initialized_; }
 
   private:
+    static uint32_t persistenceNowMs()
+    {
+        return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
+    }
+
+    void flushConfigPersistence(uint32_t now_ms)
+    {
+        app::ConfigPersistenceWork work{};
+        if (!config_persistence_runtime_.takeDue(now_ms, work) ||
+            work.snapshot == nullptr)
+        {
+            return;
+        }
+
+        const bool ok = saveIdfAppConfig(*work.snapshot);
+        config_persistence_runtime_.complete(
+            work.generation,
+            ok ? app::ConfigPersistenceResultKind::Completed
+               : app::ConfigPersistenceResultKind::IoError,
+            persistenceNowMs());
+    }
+
+    static void commitConfigEdit(void* context, app::AppConfigChangeSet changes)
+    {
+        auto* self = static_cast<IdfAppFacadeRuntime*>(context);
+        if (self)
+        {
+            self->saveConfig(changes);
+        }
+    }
+
+    static void cancelConfigEdit(void*) {}
+
     static void copyString(char* dst, size_t dst_len, const char* src)
     {
         if (!dst || dst_len == 0)
@@ -1317,8 +1505,13 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
             dst[0] = '\0';
             return;
         }
-        std::strncpy(dst, src, dst_len - 1);
-        dst[dst_len - 1] = '\0';
+        std::size_t copy_len = std::strlen(src);
+        if (copy_len >= dst_len)
+        {
+            copy_len = dst_len - 1;
+        }
+        std::memmove(dst, src, copy_len);
+        dst[copy_len] = '\0';
     }
 
     static chat::NodeId resolveSelfNodeId()
@@ -1400,16 +1593,50 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         }
     }
 
-    void installMeshAdapter()
+    std::unique_ptr<chat::IMeshAdapter> createMeshBackend(
+        chat::MeshProtocol protocol)
+    {
+        if (lora_board_ == nullptr)
+        {
+            return nullptr;
+        }
+
+        if (protocol == chat::MeshProtocol::Reticulum)
+        {
+            return std::unique_ptr<chat::IMeshAdapter>(
+                new chat::reticulum::ReticulumAdapter(
+                    *lora_board_,
+                    mesh_peer_directory_ready_ ? &mesh_peer_directory_ : nullptr));
+        }
+        if (protocol == chat::MeshProtocol::Meshtastic)
+        {
+            return std::unique_ptr<chat::IMeshAdapter>(
+                new platform::esp::radio::MeshtasticRadioAdapter(*lora_board_));
+        }
+        if (protocol == chat::MeshProtocol::MeshCore)
+        {
+            return std::unique_ptr<chat::IMeshAdapter>(
+                new chat::meshcore::MeshCoreAdapter(
+                    *lora_board_,
+                    mesh_peer_directory_ready_ ? &mesh_peer_directory_ : nullptr));
+        }
+        return nullptr;
+    }
+
+    bool installMeshAdapter()
     {
         null_mesh_adapter_.setSelfNodeId(resolveSelfNodeId());
         mesh_adapter_ = &null_mesh_adapter_;
 
-        if (lora_board_ != nullptr)
+        std::unique_ptr<chat::IMeshAdapter> backend =
+            createMeshBackend(config_.mesh_protocol);
+        if (!backend ||
+            !mesh_router_.installBackend(config_.mesh_protocol, std::move(backend)))
         {
-            radio_mesh_adapter_.reset(new platform::esp::radio::MeshtasticRadioAdapter(*lora_board_));
-            mesh_adapter_ = radio_mesh_adapter_.get();
+            return false;
         }
+        mesh_adapter_ = &mesh_router_;
+        return true;
     }
 
     chat::IMeshAdapter& meshAdapter()
@@ -1424,20 +1651,6 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
             return *mesh_adapter_;
         }
         return null_mesh_adapter_;
-    }
-
-    void flushNodeStoreIfDue()
-    {
-        const uint32_t now_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
-        if ((now_ms - last_node_store_flush_ms_) < kIdfNodeStoreFlushIntervalMs)
-        {
-            return;
-        }
-        last_node_store_flush_ms_ = now_ms;
-        if (!node_store_.flush())
-        {
-            ESP_LOGW(kIdfStoreTag, "node flush failed");
-        }
     }
 
     static bool isTeamRuntimeEvent(sys::EventType type)
@@ -1484,7 +1697,22 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         case sys::EventType::ChatSendResult:
         {
             auto* result_event = static_cast<sys::ChatSendResultEvent*>(event);
-            chat_service_->handleSendResult(result_event->msg_id, result_event->success);
+            if (result_event->has_protocol)
+            {
+                chat_service_->handleSendResultForProtocol(
+                    result_event->msg_id,
+                    result_event->protocol,
+                    result_event->status,
+                    result_event->timestamp,
+                    result_event->failure);
+            }
+            else
+            {
+                chat_service_->handleSendResult(result_event->msg_id,
+                                                result_event->status,
+                                                result_event->timestamp,
+                                                result_event->failure);
+            }
             return false;
         }
         case sys::EventType::NodeInfoUpdate:
@@ -1569,16 +1797,23 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     BoardBase* board_ = nullptr;
     LoraBoard* lora_board_ = nullptr;
     app::AppConfig config_{};
-    IdfSdNodeBlobStore node_blob_store_{};
-    IdfSdContactBlobStore contact_blob_store_{};
-    chat::contacts::NodeStoreCore node_store_{node_blob_store_};
-    chat::contacts::ContactStoreCore contact_store_{contact_blob_store_};
-    chat::contacts::ContactService contact_service_{node_store_, contact_store_};
+    app::ConfigPersistenceRuntime config_persistence_runtime_{};
+    IdfSdMeshPeerDirectoryBlobStore mesh_peer_directory_blob_store_{};
+    chat::MeshPeerDirectoryCore mesh_peer_directory_{mesh_peer_directory_blob_store_};
+    chat::contacts::ContactService contact_service_{mesh_peer_directory_};
     chat::ChatModel chat_model_{};
-    chat::RamStore chat_store_{};
+    std::unique_ptr<chat::IChatStore> chat_store_{};
+    chat::SdStore* deferred_chat_store_ = nullptr;
+    bool deferred_storage_started_ = false;
+    bool mesh_peer_directory_hydrated_ = false;
     IdfNullMeshAdapter null_mesh_adapter_{};
-    std::unique_ptr<platform::esp::radio::MeshtasticRadioAdapter> radio_mesh_adapter_{};
+    chat::MeshAdapterRouter mesh_router_{};
     chat::IMeshAdapter* mesh_adapter_ = &null_mesh_adapter_;
+    chat::delivery::ChatDeliveryReadModel delivery_read_model_{};
+    chat::delivery::ChatDeliveryEventProjector delivery_projector_{
+        delivery_read_model_};
+    chat::delivery::ProjectingChatDeliveryEventPort delivery_event_port_{
+        delivery_projector_};
     std::unique_ptr<chat::ChatService> chat_service_{};
     std::unique_ptr<team::ITeamCrypto> team_crypto_{};
     std::unique_ptr<team::ITeamEventSink> team_event_sink_{};
@@ -1590,10 +1825,29 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     std::unique_ptr<team::TeamController> team_controller_{};
     std::unique_ptr<team::TeamTrackSampler> team_track_sampler_{};
     chat::ui::IChatUiRuntime* chat_ui_runtime_ = nullptr;
-    uint32_t last_node_store_flush_ms_ = 0;
+    bool mesh_peer_directory_ready_ = false;
+    bool background_tasks_started_ = false;
 };
 
-IdfAppFacadeRuntime s_runtime{};
+IdfAppFacadeRuntime* s_runtime = nullptr;
+
+IdfAppFacadeRuntime* createRuntime()
+{
+    void* psram_storage =
+        heap_caps_malloc(sizeof(IdfAppFacadeRuntime),
+                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (psram_storage)
+    {
+        ESP_LOGI(kIdfConfigTag,
+                 "app facade runtime allocated in PSRAM bytes=%u",
+                 static_cast<unsigned>(sizeof(IdfAppFacadeRuntime)));
+        return new (psram_storage) IdfAppFacadeRuntime();
+    }
+
+    ESP_LOGW(kIdfConfigTag,
+             "app facade runtime PSRAM allocation failed; using internal heap");
+    return new (std::nothrow) IdfAppFacadeRuntime();
+}
 #endif
 
 } // namespace
@@ -1613,19 +1867,39 @@ bool initialize(const platform::esp::boards::AppContextInitHandles& handles,
         return true;
     }
 
-    if (!s_runtime.begin(*handles.board, handles.lora_board))
+    if (s_runtime == nullptr)
+    {
+        s_runtime = createRuntime();
+    }
+    if (s_runtime == nullptr ||
+        !s_runtime->begin(*handles.board, handles.lora_board))
     {
         ESP_LOGE(config.log_tag, "IDF AppFacade runtime initialization failed for %s", config.target_name);
         return false;
     }
 
-    app::bindAppFacade(s_runtime);
+    app::bindAppFacade(*s_runtime);
+    s_runtime->startDeferredStorage();
+    if (!s_runtime->waitForInitialStorageHydration())
+    {
+        ESP_LOGE(config.log_tag,
+                 "initial storage hydration did not reach a ready state for %s",
+                 config.target_name);
+        return false;
+    }
+    if (!s_runtime->startBackgroundTasks())
+    {
+        ESP_LOGE(config.log_tag,
+                 "IDF shared ESP background tasks unavailable for %s; radio TX/RX remains disabled",
+                 config.target_name);
+    }
     ESP_LOGI(config.log_tag,
              "IDF AppFacade runtime bound for %s self=%08lX mesh_backend=%s",
              config.target_name,
-             static_cast<unsigned long>(s_runtime.getSelfNodeId()),
-             s_runtime.getMeshAdapter() != nullptr && s_runtime.getMeshAdapter()->isReady()
-                 ? "meshtastic_radio"
+             static_cast<unsigned long>(s_runtime->getSelfNodeId()),
+             s_runtime->getMeshAdapter() != nullptr &&
+                     s_runtime->getMeshAdapter()->isReady()
+                 ? chat::infra::meshProtocolName(s_runtime->getMeshProtocol())
                  : "not_ready");
     return true;
 #else
@@ -1638,9 +1912,19 @@ bool initialize(const platform::esp::boards::AppContextInitHandles& handles,
 bool isInitialized()
 {
 #if defined(ESP_PLATFORM)
-    return s_runtime.initialized();
+    return s_runtime != nullptr && s_runtime->initialized();
 #else
     return false;
+#endif
+}
+
+void startDeferredStorage()
+{
+#if defined(ESP_PLATFORM)
+    if (s_runtime != nullptr)
+    {
+        s_runtime->startDeferredStorage();
+    }
 #endif
 }
 

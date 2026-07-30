@@ -35,7 +35,7 @@ bool build_status_payload(std::vector<uint8_t>& out, uint8_t link_state, uint32_
 {
     const platform::ui::device::BatteryInfo battery_info = platform::ui::device::battery_info();
     app::IAppConfigFacade& config_api = app::configFacade();
-    app::AppConfig& cfg = config_api.getConfig();
+    const app::AppConfig& cfg = config_api.readConfig();
     hostlink::bridge::AppRxStats stats = hostlink::bridge::get_app_rx_stats();
 
     StatusPayloadSnapshot snapshot;
@@ -43,7 +43,8 @@ bool build_status_payload(std::vector<uint8_t>& out, uint8_t link_state, uint32_
     snapshot.charging = battery_info.charging;
     snapshot.link_state = link_state;
     snapshot.last_error = last_error;
-    snapshot.mesh_protocol = static_cast<uint8_t>(cfg.mesh_protocol);
+    snapshot.mesh_protocol =
+        static_cast<uint8_t>(chat::infra::normalizeMeshProtocol(cfg.mesh_protocol));
     snapshot.region = cfg.meshtastic_config.region;
     snapshot.channel = cfg.chat_channel;
     snapshot.duty_cycle = cfg.net_duty_cycle;
@@ -94,14 +95,14 @@ bool apply_config(const uint8_t* data, size_t len, uint32_t* out_err)
 
     app::IAppConfigFacade& config_api = app::configFacade();
     app::IAppMessagingFacade& messaging_api = app::messagingFacade();
-    app::AppConfig& cfg = config_api.getConfig();
-    const chat::MeshProtocol original_protocol = cfg.mesh_protocol;
+    const app::AppConfig& current_config = config_api.readConfig();
+    const chat::MeshProtocol original_protocol = current_config.mesh_protocol;
     bool mesh_changed = false;
     bool net_changed = false;
     bool chat_changed = false;
     bool aprs_changed = false;
     bool protocol_changed = false;
-    chat::MeshProtocol target_protocol = cfg.mesh_protocol;
+    chat::MeshProtocol target_protocol = current_config.mesh_protocol;
 
     if (patch.has_mesh_protocol)
     {
@@ -113,6 +114,13 @@ bool apply_config(const uint8_t* data, size_t len, uint32_t* out_err)
         mesh_changed = true;
         protocol_changed = (target_protocol != original_protocol);
     }
+    auto edit = config_api.beginConfigEdit();
+    if (!edit)
+    {
+        return false;
+    }
+    app::AppConfig& cfg = edit.config();
+
     if (patch.has_region)
     {
         cfg.meshtastic_config.region = patch.region;
@@ -204,6 +212,25 @@ bool apply_config(const uint8_t* data, size_t len, uint32_t* out_err)
         aprs_changed = true;
     }
 
+    app::AppConfigChangeSet changes = app::AppConfigChangeSet::none();
+    if (mesh_changed)
+    {
+        changes.mergeIn(app::AppConfigChangeSet::mesh());
+    }
+    if (net_changed)
+    {
+        changes.mergeIn(app::AppConfigChangeSet::network());
+    }
+    if (chat_changed)
+    {
+        changes.mergeIn(app::AppConfigChangeSet::chatUi());
+    }
+    if (aprs_changed)
+    {
+        changes.mergeIn(app::AppConfigChangeSet::aprs());
+    }
+    edit.commit(changes);
+
     if (protocol_changed)
     {
         if (!config_api.switchMeshProtocol(target_protocol, false))
@@ -222,10 +249,14 @@ bool apply_config(const uint8_t* data, size_t len, uint32_t* out_err)
     }
     if (chat_changed)
     {
-        messaging_api.getChatService().switchChannel(static_cast<chat::ChannelId>(cfg.chat_channel));
+        messaging_api.getChatService().switchChannel(
+            static_cast<chat::ChannelId>(config_api.readConfig().chat_channel));
     }
-    (void)aprs_changed;
-    config_api.saveConfig();
+    if (protocol_changed)
+    {
+        changes.mergeIn(app::AppConfigChangeSet::mesh());
+    }
+    config_api.requestSaveConfig(changes);
     return true;
 }
 

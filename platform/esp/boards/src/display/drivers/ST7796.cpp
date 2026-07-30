@@ -14,6 +14,7 @@ static const CommandTable_t st7796_init_commands[] = {
     {0xF0, {0xC3}, 0x01},                                                                               // Command Set Control 1
     {0xF0, {0xC3}, 0x01},                                                                               // Command Set Control 1
     {0xF0, {0x96}, 0x01},                                                                               // Command Set Control 1
+    {0x36, {0x48}, 0x01},                                                                               // Initial memory access control
     {0x3A, {0x55}, 0x01},                                                                               // Pixel Format Set (16-bit/pixel)
     {0xB4, {0x01}, 0x01},                                                                               // Display Inversion Control
     {0xB6, {0x80, 0x02, 0x3B}, 0x03},                                                                   // Display Function Control

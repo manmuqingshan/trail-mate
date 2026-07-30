@@ -12,6 +12,7 @@
 
 #include "app/linux_app_services.h"
 #include "chat/domain/contact_types.h"
+#include "chat/infra/mesh_protocol_utils.h"
 #include "chat/linux_raw_lora_mesh_adapter.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/usecase/chat_service.h"
@@ -34,37 +35,13 @@ namespace
 
 [[nodiscard]] const char* protocolLabel(::chat::MeshProtocol protocol) noexcept
 {
-    switch (protocol)
-    {
-    case ::chat::MeshProtocol::Meshtastic:
-        return "Meshtastic";
-    case ::chat::MeshProtocol::MeshCore:
-        return "MeshCore";
-    case ::chat::MeshProtocol::RNode:
-        return "RNode";
-    case ::chat::MeshProtocol::LXMF:
-        return "LXMF";
-    }
-    return "Unknown";
+    return ::chat::infra::meshProtocolName(protocol);
 }
 
 [[nodiscard]] const char* nodeProtocolLabel(
     ::chat::contacts::NodeProtocolType protocol) noexcept
 {
-    switch (protocol)
-    {
-    case ::chat::contacts::NodeProtocolType::Meshtastic:
-        return "Meshtastic";
-    case ::chat::contacts::NodeProtocolType::MeshCore:
-        return "MeshCore";
-    case ::chat::contacts::NodeProtocolType::RNode:
-        return "RNode";
-    case ::chat::contacts::NodeProtocolType::LXMF:
-        return "LXMF";
-    case ::chat::contacts::NodeProtocolType::Unknown:
-        return "Unknown";
-    }
-    return "Unknown";
+    return ::chat::infra::nodeProtocolName(protocol);
 }
 
 [[nodiscard]] std::string formatNodeId(std::uint32_t node_id)
@@ -212,7 +189,7 @@ void pushOverviewTimeline(std::vector<OverviewTimelineItem>& out,
 }
 
 [[nodiscard]] ContactPreview makeContactPreview(
-    const ::chat::contacts::NodeInfo& node)
+    const ::chat::contacts::PeerDirectoryItem& node)
 {
     ContactPreview preview{};
     preview.name = node.display_name.empty() ? node.short_name : node.display_name;
@@ -239,7 +216,7 @@ void pushOverviewTimeline(std::vector<OverviewTimelineItem>& out,
                    ? "Secondary broadcast"
                    : "Primary broadcast";
     }
-    if (const auto* node = contacts.getNodeInfo(id.peer))
+    if (const auto* node = contacts.getPeerByNodeId(id.peer))
     {
         if (!node->display_name.empty())
         {
@@ -273,7 +250,7 @@ void pushOverviewTimeline(std::vector<OverviewTimelineItem>& out,
                    formatLastSeen(conversation.last_timestamp);
     if (conversation.id.peer != 0)
     {
-        if (const auto* node = contacts.getNodeInfo(conversation.id.peer))
+        if (const auto* node = contacts.getPeerByNodeId(conversation.id.peer))
         {
             preview.detail =
                 std::string("hops ") +
@@ -484,7 +461,7 @@ void appendChatTimeline(std::vector<OverviewTimelineItem>& out,
 }
 
 void appendNodeTimeline(std::vector<OverviewTimelineItem>& out,
-                        const std::vector<::chat::contacts::NodeInfo>& nodes)
+                        const std::vector<::chat::contacts::PeerDirectoryItem>& nodes)
 {
     for (const auto& node : nodes)
     {
@@ -785,7 +762,7 @@ UConsoleDashboardSnapshot UConsoleDashboardModel::snapshot() const
     out.nearby_count = nearby.size();
     out.ignored_count = ignored.size();
 
-    std::vector<::chat::contacts::NodeInfo> visible_nodes{};
+    std::vector<::chat::contacts::PeerDirectoryItem> visible_nodes{};
     visible_nodes.reserve(contacts.size() + nearby.size());
     visible_nodes.insert(visible_nodes.end(), contacts.begin(), contacts.end());
     visible_nodes.insert(visible_nodes.end(), nearby.begin(), nearby.end());

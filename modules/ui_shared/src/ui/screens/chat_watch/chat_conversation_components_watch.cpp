@@ -28,13 +28,22 @@ constexpr size_t kMaxPrefixedSenderLen = 20;
         return ::ui::chat::MessageDeliveryState::Sent;
     case chat::MessageStatus::Failed:
         return ::ui::chat::MessageDeliveryState::Failed;
+    case chat::MessageStatus::Delivered:
+        return ::ui::chat::MessageDeliveryState::Delivered;
     }
     return ::ui::chat::MessageDeliveryState::Unknown;
 }
 
 bool message_ref_matches_id(const ::ui::chat::MessageRef& ref,
-                            chat::MessageId msg_id)
+                            chat::MessageId msg_id,
+                            bool has_protocol,
+                            chat::MeshProtocol protocol)
 {
+    if (has_protocol && ref.protocol != 0 &&
+        ref.protocol != static_cast<uint8_t>(protocol))
+    {
+        return false;
+    }
     if (ref.protocol_id != 0)
     {
         return ref.protocol_id == msg_id;
@@ -65,6 +74,22 @@ std::string format_team_rich_payload_text(
         out += "Team";
     }
     return out;
+}
+
+const char* message_ingress_label(::ui::chat::MessageIngressTransport transport)
+{
+    switch (transport)
+    {
+    case ::ui::chat::MessageIngressTransport::LoRa:
+        return "LoRa";
+    case ::ui::chat::MessageIngressTransport::Mqtt:
+        return "MQTT";
+    case ::ui::chat::MessageIngressTransport::WiFi:
+        return "Wi-Fi";
+    case ::ui::chat::MessageIngressTransport::Unknown:
+        break;
+    }
+    return nullptr;
 }
 
 bool sender_token_is_valid(const std::string& sender)
@@ -203,7 +228,10 @@ ChatConversationScreen::~ChatConversationScreen()
         lv_obj_del(container_);
         container_ = nullptr;
     }
-    delete guard_;
+    if (guard_ && guard_->pending_async == 0)
+    {
+        delete guard_;
+    }
     guard_ = nullptr;
 }
 
@@ -269,6 +297,14 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
     {
         display_text = body_text;
     }
+    const char* ingress_label =
+        !row.outgoing ? message_ingress_label(row.ingress_transport) : nullptr;
+    if (ingress_label && ingress_label[0] != '\0')
+    {
+        display_text += " [";
+        display_text += ingress_label;
+        display_text += "]";
+    }
 
     item.text_label = lv_label_create(item.container);
     lv_label_set_long_mode(item.text_label, LV_LABEL_LONG_WRAP);
@@ -276,8 +312,16 @@ void ChatConversationScreen::createMessageItem(const ::ui::chat::MessageRow& row
     lv_label_set_text(item.text_label, display_text.c_str());
     lv_obj_set_style_text_color(item.text_label, ::ui::theme::text(), 0);
     lv_obj_set_style_bg_color(item.text_label,
-                              is_self ? ::ui::theme::surface_alt() : ::ui::theme::surface(),
+                              is_self ? ::ui::theme::surface_alt()
+                                      : (row.source_unverified
+                                             ? lv_color_hex(0xF4E1DE)
+                                             : ::ui::theme::surface()),
                               0);
+    if (!is_self && row.source_unverified)
+    {
+        lv_obj_set_style_border_width(item.text_label, 1, 0);
+        lv_obj_set_style_border_color(item.text_label, lv_color_hex(0xC47D70), 0);
+    }
     lv_obj_set_style_bg_opa(item.text_label, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_all(item.text_label, 6, 0);
     lv_obj_set_style_radius(item.text_label, 6, 0);
@@ -309,7 +353,9 @@ void ChatConversationScreen::scrollToBottom()
 }
 
 bool ChatConversationScreen::updateMessageStatus(const chat::MessageId msg_id,
-                                                 const chat::MessageStatus status)
+                                                 const chat::MessageStatus status,
+                                                 bool has_protocol,
+                                                 chat::MeshProtocol protocol)
 {
     if (!guard_ || !guard_->alive || msg_id == 0)
     {
@@ -318,7 +364,7 @@ bool ChatConversationScreen::updateMessageStatus(const chat::MessageId msg_id,
 
     for (auto& item : messages_)
     {
-        if (!message_ref_matches_id(item.ref, msg_id))
+        if (!message_ref_matches_id(item.ref, msg_id, has_protocol, protocol))
         {
             continue;
         }
@@ -377,9 +423,20 @@ void ChatConversationScreen::setReplyEnabled(bool enabled)
     }
 }
 
+void ChatConversationScreen::setHistoryPaging(bool has_older,
+                                              bool has_newer,
+                                              uint16_t offset,
+                                              uint16_t total_count)
+{
+    (void)has_older;
+    (void)has_newer;
+    (void)offset;
+    (void)total_count;
+}
+
 void ChatConversationScreen::schedule_action_async(ActionIntent intent)
 {
-    if (!action_cb_)
+    if (!guard_ || !guard_->alive || !action_cb_)
     {
         return;
     }
@@ -388,12 +445,17 @@ void ChatConversationScreen::schedule_action_async(ActionIntent intent)
     payload->action_cb = action_cb_;
     payload->user_data = action_cb_user_data_;
     payload->intent = intent;
-    lv_async_call(async_action_cb, payload);
+    guard_->pending_async++;
+    if (lv_async_call(async_action_cb, payload) != LV_RESULT_OK)
+    {
+        release_async_guard(payload->guard);
+        delete payload;
+    }
 }
 
 void ChatConversationScreen::schedule_back_async()
 {
-    if (!back_cb_)
+    if (!guard_ || !guard_->alive || !back_cb_)
     {
         return;
     }
@@ -401,7 +463,12 @@ void ChatConversationScreen::schedule_back_async()
     payload->guard = guard_;
     payload->back_cb = back_cb_;
     payload->user_data = back_cb_user_data_;
-    lv_async_call(async_back_cb, payload);
+    guard_->pending_async++;
+    if (lv_async_call(async_back_cb, payload) != LV_RESULT_OK)
+    {
+        release_async_guard(payload->guard);
+        delete payload;
+    }
 }
 
 void ChatConversationScreen::action_event_cb(lv_event_t* e)
@@ -436,6 +503,22 @@ void ChatConversationScreen::back_event_cb(lv_event_t* e)
     screen->schedule_back_async();
 }
 
+void ChatConversationScreen::release_async_guard(LifetimeGuard* guard)
+{
+    if (!guard)
+    {
+        return;
+    }
+    if (guard->pending_async > 0)
+    {
+        guard->pending_async--;
+    }
+    if (!guard->alive && guard->pending_async == 0)
+    {
+        delete guard;
+    }
+}
+
 void ChatConversationScreen::async_action_cb(void* user_data)
 {
     auto* payload = static_cast<ActionPayload*>(user_data);
@@ -443,10 +526,12 @@ void ChatConversationScreen::async_action_cb(void* user_data)
     {
         return;
     }
-    if (payload->guard && payload->guard->alive && payload->action_cb)
+    LifetimeGuard* guard = payload->guard;
+    if (guard && guard->alive && payload->action_cb)
     {
         payload->action_cb(payload->intent, payload->user_data);
     }
+    release_async_guard(guard);
     delete payload;
 }
 
@@ -457,10 +542,12 @@ void ChatConversationScreen::async_back_cb(void* user_data)
     {
         return;
     }
-    if (payload->guard && payload->guard->alive && payload->back_cb)
+    LifetimeGuard* guard = payload->guard;
+    if (guard && guard->alive && payload->back_cb)
     {
         payload->back_cb(payload->user_data);
     }
+    release_async_guard(guard);
     delete payload;
 }
 

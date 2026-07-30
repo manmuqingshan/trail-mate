@@ -1,4 +1,5 @@
 #include "chat/infra/meshtastic/mt_mqtt_proxy_runtime.h"
+#include "chat/infra/meshtastic/mt_protocol_helpers.h"
 #include "chat/runtime/meshtastic_protocol_policy.h"
 
 #include <cassert>
@@ -12,6 +13,7 @@ int main()
     using chat::meshtastic::mqttProxyRejectReasonName;
     using chat::meshtastic::mqttProxyRuntimeEnabled;
     using chat::meshtastic::MqttProxyRuntimeSettings;
+    using chat::meshtastic::requirePkiForDirectPort;
     using chat::meshtastic::resolveMqttProxyDownlinkChannel;
     using chat::meshtastic::shouldPublishToMqtt;
     using chat::meshtastic::validateMqttDecodedDownlinkPayload;
@@ -32,6 +34,15 @@ int main()
     using chat::runtime::resolveMeshtasticNodeInfoReplyPolicy;
     using chat::runtime::resolveMeshtasticPositionReplyPolicy;
     using chat::runtime::resolveMeshtasticTraceRouteReplyPolicy;
+
+    {
+        assert(requirePkiForDirectPort(0x12345678UL,
+                                       meshtastic_PortNum_TEXT_MESSAGE_APP));
+        assert(!requirePkiForDirectPort(kMeshtasticBroadcastNode,
+                                        meshtastic_PortNum_TEXT_MESSAGE_APP));
+        assert(!requirePkiForDirectPort(0x12345678UL,
+                                        meshtastic_PortNum_NODEINFO_APP));
+    }
 
     {
         const auto policy = resolveMeshtasticAppDataSendPolicy(0, true, true);
@@ -130,6 +141,15 @@ int main()
     {
         const auto policy = resolveMeshtasticMqttDownlinkPolicy(
             "!00000000", 0xA1B3B57CUL, 0x4A59CD8CUL,
+            0xB0B0B0B0UL, true);
+        assert(policy.accept_locally);
+        assert(policy.transmit_to_mesh);
+        assert(policy.reason == MeshtasticMqttDownlinkReason::TransmitToMesh);
+    }
+
+    {
+        const auto policy = resolveMeshtasticMqttDownlinkPolicy(
+            "!00000000", 0xA1B3B57CUL, 0x4A59CD8CUL,
             kMeshtasticBroadcastNode, false);
         assert(policy.accept_locally);
         assert(!policy.transmit_to_mesh);
@@ -184,6 +204,9 @@ int main()
                MqttProxyRejectReason::None);
 
         settings.encryption_enabled = false;
+        assert(validateMqttProxyPublish(settings, chat::ChannelId::PRIMARY, false, true) ==
+               MqttProxyRejectReason::None);
+        assert(shouldPublishToMqtt(settings, chat::ChannelId::PRIMARY, false, true));
         assert(validateMqttDecodedDownlinkPayload(settings,
                                                   true,
                                                   meshtastic_PortNum_ADMIN_APP) ==

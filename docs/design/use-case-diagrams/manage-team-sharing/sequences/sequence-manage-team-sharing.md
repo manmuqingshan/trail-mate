@@ -1,108 +1,41 @@
-# Sequence Diagram：对象交互：管理团队共享
-
-<!-- praxis:use-case-diagram:start -->
-
-## 元数据
-
-项目版本：0.1.30-alpha
-设计文档版本：0.1.30-alpha
-Git 分支：main
-Git 提交：34aad0bffa2f6450192f655f248a94b6c3cbd767
-Git 工作区状态：dirty
-Agent 版本决策：none - 本次渲染没有单独的 agent 版本决策
-更新于：2026-06-25T14:17:55.307Z
-来源：Agent 候选分析
-父级 Use Case：use-case:manage-team-sharing
-业务边界路径：Trail Mate 系统 / 团队协作
-父级文档：docs/design/use-case-diagrams/manage-team-sharing.md
-Markdown 路径：docs/design/use-case-diagrams/manage-team-sharing/sequences/sequence-manage-team-sharing.md
-HTML 路径：docs/design/use-case-diagrams/manage-team-sharing/sequences/sequence-manage-team-sharing.html
-
-## 交互场景
-
-团队协作
-
-## 参与者 / 生命线
-
-- actor User
-- participant UI as 团队页面
-- participant Network as Meshtastic 网络
-
-## 消息时序
-
-- User->>UI: 加入团队
-- UI->>Network: 发送位置和团队 ID
-- Network-->>UI: 接收其他成员位置
-- UI->>UI: 在地图上渲染
-- UI->>User: 显示团队
-
-## 同步 / 异步 / 回调
-
-- Network-->>UI: 接收其他成员位置
-
-## 返回 / 异常 / 补偿
-
-- Network-->>UI: 接收其他成员位置
-
-## 事务 / 幂等 / 重试边界
-
-网络同步
-
-- 无
-
-## Sequence UML 读图说明
-
-交互
-
-## 实现范围锚点
-
-- 模块：apps/linux_uconsole_gtk
-- 模块：boards
-- 代码锚点：apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_team_logic.cpp#L1
-- 不覆盖代码：非当前场景的全部调用链
-- 不覆盖代码：未被证据支持的异步/补偿路径
-
-## 不覆盖场景
-
-- 所有相关函数调用
-- 所有失败补偿场景
-- 未被证据支持的异步或回调流程
-
-
-## Mermaid 图
-
+# Sequence：Leader 与 Candidate 配对
 ```mermaid
 sequenceDiagram
-  actor User
-  participant UI as 团队页面
-  participant Network as Meshtastic 网络
-  User->>UI: 加入团队
-  UI->>Network: 发送位置和团队 ID
-  Network-->>UI: 接收其他成员位置
-  UI->>UI: 在地图上渲染
-  UI->>User: 显示团队
+  actor L as Leader 用户
+  participant LP as Leader PairingCoordinator
+  participant Transport as Active Mesh Transport
+  participant MP as Member PairingCoordinator
+  actor M as Candidate 用户
+  participant Store as Team UI/Key Store
+  L->>LP: start pairing
+  LP->>Transport: PairRequest(team,proof)
+  Transport->>MP: verified request
+  MP-->>M: show candidate + proof
+  M->>MP: confirm
+  MP->>Transport: PairConfirm
+  Transport->>LP: confirmed candidate
+  LP->>Transport: KeyDist / roster status
+  Transport->>MP: encrypted Team keys
+  MP->>Store: persist keys + role
+  Store-->>M: Team active
 ```
 
-## 证据上下文
+## 场景与责任
 
-| 来源 | 路径 | 行号 | 强度 | 摘要 |
-| --- | --- | --- | --- | --- |
-| 本地仓库扫描 | apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp | 524-524 | medium | ESP32 固件中存在 TeamController |
-| 本地仓库扫描 | apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_team_logic.cpp | 1-1 | medium | 团队管理逻辑 |
+Leader/Member PairingCoordinator 各自拥有本地 pairing phase；Transport 只承载已验证消息；Candidate 用户确认加入意图；Key Store 是本地 TeamId、keys 和 role 的持久化边界。
 
-## 变更记录
+## 顺序与认证
 
-### 0.1.30-alpha - 2026-06-25T14:17:55.307Z
+PairRequest 必须带团队和 leader proof；Member 展示可验证信息后才接受确认。PairConfirm 关联原 request nonce/session。KeyDist 只发给已确认 candidate，并使用适合的保护上下文，不能把团队共享 key 明文放入普通广播。
 
-变更类型：DISCOVERY
-版本决策：none - 本次渲染没有单独的 agent 版本决策
+## 提交语义
 
+Leader 收到 confirm 不等于 Member 已 active。Member 只有在 key material 验证和 Store 提交成功后进入 Team active。Leader 的 roster 投影何时加入成员需要独立 ACK/revision；当前实现对此仍不完整。
 
-Git 分支：main
-Git 提交：34aad0bffa2f6450192f655f248a94b6c3cbd767
-Git 工作区状态：dirty
+## 重复、超时与撤销
 
-摘要：
-- 恢复或更新「管理团队共享位置」的 Sequence Diagram。
+重复 request/confirm/keyDist 按 pairing session 幂等。超时清除临时 key material，不创建成员。Leader 取消或 candidate 拒绝后，迟到消息不能恢复 session。旧 key version 不能覆盖新团队状态。
 
-<!-- praxis:use-case-diagram:end -->
+## 测试
+
+覆盖伪造 proof、用户拒绝、confirm 丢失、重复 KeyDist、Store 失败、两次并发 pairing 和 leader/member 状态不一致。

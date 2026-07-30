@@ -1,0 +1,9 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：HostLink Frame</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed"><h1>HostLink Frame 处理</h1><pre class="mermaid">flowchart TD
+Connect --> Handshake
+Handshake --> Frame
+Frame --> Codec{"valid?"}
+Codec -- 是 --> Route{"known + capable?"}
+Route -- 是 --> Handle
+Handle --> Response
+Codec -- 否 --> Error
+Route -- 否 --> Error</pre></main></body></html>

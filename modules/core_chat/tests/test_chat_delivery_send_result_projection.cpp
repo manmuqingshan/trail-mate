@@ -1,4 +1,5 @@
 #include "chat/delivery/chat_delivery_send_result_projection.h"
+#include "chat/domain/chat_types.h"
 
 #include <cassert>
 
@@ -8,6 +9,7 @@ int main()
 
     ChatDeliveryRef ref{};
     ref.protocol_id = 10;
+    ref.protocol = static_cast<uint8_t>(chat::MeshProtocol::Meshtastic);
 
     ChatDeliveryEvent event = makeChatSendResultDeliveryEvent(
         ref,
@@ -15,9 +17,35 @@ int main()
         SendFailureKind::PeerKeyMissing,
         111);
     assert(event.ref.protocol_id == 10);
+    assert(event.ref.protocol ==
+           static_cast<uint8_t>(chat::MeshProtocol::Meshtastic));
     assert(event.state == DeliveryState::Sent);
     assert(event.failure == SendFailureKind::None);
     assert(event.timestamp_ms == 111);
+
+    event = makeChatSendResultDeliveryEvent(ref,
+                                            DeliveryState::Queued,
+                                            SendFailureKind::RadioSendFailed,
+                                            110);
+    assert(event.state == DeliveryState::Queued);
+    assert(event.failure == SendFailureKind::None);
+    assert(event.timestamp_ms == 110);
+
+    event = makeChatSendResultDeliveryEvent(ref,
+                                            DeliveryState::Sending,
+                                            SendFailureKind::RadioSendFailed,
+                                            111);
+    assert(event.state == DeliveryState::Sending);
+    assert(event.failure == SendFailureKind::None);
+    assert(event.timestamp_ms == 111);
+
+    event = makeChatSendResultDeliveryEvent(ref,
+                                            DeliveryState::Delivered,
+                                            SendFailureKind::RadioSendFailed,
+                                            112);
+    assert(event.state == DeliveryState::Delivered);
+    assert(event.failure == SendFailureKind::None);
+    assert(event.timestamp_ms == 112);
 
     ref.protocol_id = 11;
     event = makeChatSendResultDeliveryEvent(ref,
@@ -37,8 +65,15 @@ int main()
     assert(event.failure == SendFailureKind::RadioSendFailed);
     assert(event.timestamp_ms == 333);
 
-    event = makeAckTimeoutDeliveryEvent(ChatDeliveryRef{0, 12, 0}, 444);
+    event = makeAckTimeoutDeliveryEvent(
+        ChatDeliveryRef{0,
+                        12,
+                        0,
+                        static_cast<uint8_t>(chat::MeshProtocol::MeshCore)},
+        444);
     assert(event.ref.protocol_id == 12);
+    assert(event.ref.protocol ==
+           static_cast<uint8_t>(chat::MeshProtocol::MeshCore));
     assert(event.state == DeliveryState::Failed);
     assert(event.failure == SendFailureKind::AckTimeout);
     assert(event.timestamp_ms == 444);

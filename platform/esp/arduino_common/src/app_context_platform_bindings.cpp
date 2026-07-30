@@ -8,25 +8,31 @@
 #include "board/MotionBoard.h"
 #include "chat/infra/store/ram_store.h"
 #include "chat/usecase/contact_service.h"
+#include "platform/esp/arduino_common/chat/infra/auto_reply_observer.h"
 #include "platform/esp/arduino_common/chat/infra/chat_event_bus_bridge.h"
-#include "platform/esp/arduino_common/chat/infra/contact_store.h"
 #include "platform/esp/arduino_common/chat/infra/mesh_adapter_router.h"
-#include "platform/esp/arduino_common/chat/infra/meshtastic/node_store.h"
 #include "platform/esp/arduino_common/chat/infra/protocol_factory.h"
+#include "platform/esp/arduino_common/chat/infra/store/sd_protocol_peer_repository.h"
 #include "platform/esp/arduino_common/chat/infra/store/sd_store.h"
 #include "platform/esp/arduino_common/device_identity.h"
 #include "platform/esp/arduino_common/gps/gps_service.h"
 #include "platform/esp/arduino_common/gps/track_recorder.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/arduino_common/storage/storage_runtime.h"
 #include "platform/esp/arduino_common/team/crypto/team_crypto.h"
 #include "platform/esp/arduino_common/team/event/team_app_data_event_bus_bridge.h"
 #include "platform/esp/arduino_common/team/event/team_event_bus_sink.h"
 #include "platform/esp/arduino_common/team/event/team_pairing_event_bus_sink.h"
 #include "platform/esp/arduino_common/team_platform_bundle.h"
+#include "platform/ui/reticulum_group_config_runtime.h"
 #include "platform/ui/team_ui_store_runtime.h"
 #include "team/usecase/team_controller.h"
 #include "team/usecase/team_track_sampler.h"
 #include "ui/ui_common.h"
+
+#include "freertos/FreeRTOS.h"
+
+#include <new>
 
 namespace
 {
@@ -97,12 +103,59 @@ void init_track_recorder(const app::AppConfig& config)
         recorder.setDistanceOnly(false);
         recorder.setIntervalSeconds(static_cast<uint32_t>(config.map_track_interval));
     }
+    recorder.setAutoRecording(config.map_track_enabled);
+}
+
+void deferred_storage_ready(app::IAppFacade& app_facade)
+{
+    const app::AppConfig& config = app_facade.readConfig();
+    if (chat::infra::isReticulumMeshProtocol(
+            chat::infra::normalizeMeshProtocol(config.mesh_protocol)))
+    {
+        auto edit = app_facade.beginConfigEdit();
+        if (!edit)
+        {
+            return;
+        }
+        const auto status = ::platform::ui::reticulum_groups::load(
+            edit.config().reticulumConfig().reticulum_groups,
+            chat::kReticulumGroupDestinationMaxCount);
+        edit.commit(app::AppConfigChangeSet::none());
+        Serial.printf("[RTGroupConfig] deferred sd=%u loaded=%u file=%u message=%s detail=%s\n",
+                      status.sd_present ? 1U : 0U,
+                      status.loaded ? 1U : 0U,
+                      status.file_present ? 1U : 0U,
+                      status.message,
+                      status.detail);
+        app_facade.applyMeshConfig();
+    }
+
+    auto& recorder = gps::TrackRecorder::getInstance();
     if (recorder.restoreActiveSession())
     {
-        Serial.printf("[Tracker] active session restored path=%s\n",
+        Serial.printf("[Tracker] deferred active session restored path=%s\n",
                       recorder.currentPath().c_str());
     }
-    recorder.setAutoRecording(config.map_track_enabled);
+
+    team::TeamController* team_controller = app_facade.getTeamController();
+    if (team_controller)
+    {
+        team::ui::TeamUiSnapshot snap;
+        if (team::ui::team_ui_snapshot_store().load(snap) &&
+            snap.has_team_id && snap.has_team_psk && snap.security_round > 0)
+        {
+            if (team_controller->setKeysFromPsk(snap.team_id,
+                                                snap.security_round,
+                                                snap.team_psk.data(),
+                                                snap.team_psk.size()))
+            {
+                Serial.printf("[Team] deferred keys restored key_id=%lu\n",
+                              static_cast<unsigned long>(snap.security_round));
+            }
+        }
+    }
+    app_facade.setTeamModeActive(
+        app_facade.getTeamService() && app_facade.getTeamService()->hasKeys());
 }
 
 void set_team_mode_active(bool active)
@@ -110,18 +163,26 @@ void set_team_mode_active(bool active)
     gps::GpsService::getInstance().setTeamModeActive(active);
 }
 
-std::unique_ptr<chat::IChatStore> create_chat_store()
+std::unique_ptr<chat::IChatStore> create_chat_store(void** deferred_context)
 {
+    if (deferred_context)
+    {
+        *deferred_context = nullptr;
+    }
     if (::platform::esp::arduino_common::storage::sd_card_ready())
     {
         std::unique_ptr<chat::SdStore> sd_store(new chat::SdStore());
-        if (sd_store && sd_store->isReady())
+        if (sd_store)
         {
-            Serial.printf("[AppContext] chat store=SdStore backend=%s layout=/chat/index.bin+/chat/*.log\n",
+            if (deferred_context)
+            {
+                *deferred_context = sd_store.get();
+            }
+            Serial.printf("[AppContext] chat store=SdStore hydration=pending backend=%s layout=/data/v2/{mt,mc,rt}/chat\n",
                           ::platform::esp::arduino_common::storage::sd_card_backend_name());
             return std::unique_ptr<chat::IChatStore>(sd_store.release());
         }
-        Serial.printf("[AppContext] chat store=RamStore reason=sd_store_unavailable\n");
+        Serial.printf("[AppContext] chat store=RamStore reason=sd_store_alloc_failed\n");
         return std::unique_ptr<chat::IChatStore>(new chat::RamStore());
     }
 
@@ -129,30 +190,47 @@ std::unique_ptr<chat::IChatStore> create_chat_store()
     return std::unique_ptr<chat::IChatStore>(new chat::RamStore());
 }
 
-std::unique_ptr<chat::IMeshAdapter> create_mesh_backend(chat::MeshProtocol protocol,
-                                                        LoraBoard& lora_board)
+std::unique_ptr<chat::IProtocolPeerRepository> create_mesh_peer_directory(
+    chat::IChatStore& chat_store,
+    void** deferred_context)
 {
-    return chat::ProtocolFactory::createAdapter(protocol, lora_board);
+    if (deferred_context)
+    {
+        *deferred_context = nullptr;
+    }
+    std::unique_ptr<chat::IProtocolPeerRepository> repository(
+        new (std::nothrow) chat::SdProtocolPeerRepository(chat_store));
+    if (!repository)
+    {
+        return repository;
+    }
+    if (deferred_context)
+    {
+        *deferred_context = repository.get();
+    }
+    const auto status = repository->begin();
+    Serial.printf("[PeerStoreV2] backend=sd root=/data/v2 status=%u hydration=pending\n",
+                  static_cast<unsigned>(status.code));
+    return repository;
 }
 
-app::ContactServicesBundle create_contact_services()
+std::unique_ptr<chat::IMeshAdapter> create_mesh_backend(chat::MeshProtocol protocol,
+                                                        LoraBoard& lora_board,
+                                                        chat::IMeshPeerDirectory* peer_directory)
+{
+    return chat::ProtocolFactory::createAdapter(protocol, lora_board, peer_directory);
+}
+
+app::ContactServicesBundle create_contact_services(
+    chat::IProtocolPeerRepository& repository)
 {
     app::ContactServicesBundle bundle;
-    bundle.node_store = std::unique_ptr<chat::contacts::INodeStore>(new chat::meshtastic::NodeStore());
-    bundle.contact_store = std::unique_ptr<chat::contacts::IContactStore>(new chat::contacts::ContactStore());
-    if (!bundle.node_store || !bundle.contact_store)
-    {
-        return bundle;
-    }
-
     bundle.service = std::unique_ptr<chat::contacts::ContactService>(
-        new chat::contacts::ContactService(*bundle.node_store, *bundle.contact_store));
+        new chat::contacts::ContactService(repository));
     if (bundle.service)
     {
         bundle.service->begin();
-        Serial.printf("[ContactService] startup nodes=%u nicknames=%u\n",
-                      static_cast<unsigned>(bundle.node_store->getEntries().size()),
-                      static_cast<unsigned>(bundle.contact_store->getCount()));
+        Serial.printf("[ContactService] unified peer directory ready\n");
     }
     return bundle;
 }
@@ -160,6 +238,16 @@ app::ContactServicesBundle create_contact_services()
 std::unique_ptr<chat::ChatService::IncomingMessageObserver> create_chat_message_observer(chat::ChatService& service)
 {
     return std::unique_ptr<chat::ChatService::IncomingMessageObserver>(new chat::infra::ChatEventBusBridge(service));
+}
+
+void start_deferred_storage(void* store_context,
+                            void* peer_directory_context,
+                            chat::MeshProtocol active_protocol)
+{
+    ::platform::esp::arduino_common::storage::start_deferred_storage(
+        static_cast<chat::SdStore*>(store_context),
+        static_cast<chat::SdProtocolPeerRepository*>(peer_directory_context),
+        active_protocol);
 }
 
 app::ChatServicesBundle create_chat_services(const app::AppConfig& config,
@@ -176,16 +264,26 @@ app::ChatServicesBundle create_chat_services(const app::AppConfig& config,
     }
     bundle.model->setPolicy(config.chat_policy);
 
-    bundle.store = create_chat_store();
+    bundle.store = create_chat_store(&bundle.deferred_storage_store_context);
+    if (!bundle.store)
+    {
+        return bundle;
+    }
+    bundle.mesh_peer_directory =
+        create_mesh_peer_directory(*bundle.store,
+                                   &bundle.deferred_storage_peer_context);
     bundle.mesh_runtime = create_mesh_runtime();
-    if (!bundle.store || !bundle.mesh_runtime)
+    if (!bundle.store || !bundle.mesh_peer_directory || !bundle.mesh_runtime)
     {
         return bundle;
     }
 
     if (lora_board)
     {
-        std::unique_ptr<chat::IMeshAdapter> backend = create_mesh_backend(config.mesh_protocol, *lora_board);
+        std::unique_ptr<chat::IMeshAdapter> backend =
+            create_mesh_backend(config.mesh_protocol,
+                                *lora_board,
+                                bundle.mesh_peer_directory.get());
         if (backend)
         {
             backend->applyConfig(config.activeMeshConfig());
@@ -204,6 +302,16 @@ app::ChatServicesBundle create_chat_services(const app::AppConfig& config,
     }
 
     bundle.incoming_message_observer = create_chat_message_observer(*bundle.service);
+    bundle.auto_reply_observer = chat::infra::create_auto_reply_observer(*bundle.service);
+    if (!bundle.incoming_message_observer || !bundle.auto_reply_observer)
+    {
+        return app::ChatServicesBundle{};
+    }
+    if (bundle.deferred_storage_store_context ||
+        bundle.deferred_storage_peer_context)
+    {
+        bundle.start_deferred_storage = start_deferred_storage;
+    }
     return bundle;
 }
 
@@ -267,31 +375,8 @@ void finalize_startup(app::IAppFacade& app_facade)
 {
     (void)ui_get_timezone_offset_min();
 
-    team::TeamController* team_controller = app_facade.getTeamController();
-    if (team_controller)
-    {
-        team::ui::TeamUiSnapshot snap;
-        if (team::ui::team_ui_snapshot_store().load(snap) &&
-            snap.has_team_id && snap.has_team_psk && snap.security_round > 0)
-        {
-            if (team_controller->setKeysFromPsk(snap.team_id,
-                                                snap.security_round,
-                                                snap.team_psk.data(),
-                                                snap.team_psk.size()))
-            {
-                Serial.printf("[Team] keys restored from store key_id=%lu\n",
-                              static_cast<unsigned long>(snap.security_round));
-            }
-            else
-            {
-                Serial.printf("[Team] keys restore failed key_id=%lu\n",
-                              static_cast<unsigned long>(snap.security_round));
-            }
-        }
-    }
-
-    team::TeamService* team_service = app_facade.getTeamService();
-    app_facade.setTeamModeActive(team_service && team_service->hasKeys());
+    // Team snapshot restore is performed by deferred_storage_ready() after
+    // the shell is interactive and maintenance hydration has completed.
 }
 
 chat::NodeId get_self_node_id()
@@ -315,6 +400,7 @@ app::AppContextPlatformBindings makeAppContextPlatformBindings()
     bindings.init_track_recorder = init_track_recorder;
     bindings.set_team_mode_active = set_team_mode_active;
     bindings.finalize_startup = finalize_startup;
+    bindings.deferred_storage_ready = deferred_storage_ready;
     bindings.create_chat_services = create_chat_services;
     bindings.create_mesh_backend = create_mesh_backend;
     bindings.create_contact_services = create_contact_services;

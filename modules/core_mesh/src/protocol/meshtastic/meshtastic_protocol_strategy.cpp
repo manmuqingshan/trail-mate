@@ -53,26 +53,28 @@ uint32_t portFromCommand(const DirectMessageCommand& command)
 bool encodeAppData(const ProtocolBuildContext& context,
                    const DirectMessageCommand& command,
                    uint8_t* out,
-                   size_t* out_size)
+                   size_t* out_size,
+                   meshtastic_Data* data)
 {
-    if (!out || !out_size || command.payload.size > sizeof(meshtastic_Data::payload.bytes))
+    if (!out || !out_size || !data ||
+        command.payload.size > sizeof(meshtastic_Data::payload.bytes))
     {
         return false;
     }
-    meshtastic_Data data = meshtastic_Data_init_default;
-    data.portnum = static_cast<meshtastic_PortNum>(portFromCommand(command));
-    data.want_response = command.request_ack;
-    data.has_bitfield = true;
-    data.bitfield = 0;
+    *data = meshtastic_Data_init_default;
+    data->portnum = static_cast<meshtastic_PortNum>(portFromCommand(command));
+    data->want_response = command.request_ack;
+    data->has_bitfield = true;
+    data->bitfield = 0;
     if (context.include_payload_dest)
     {
-        data.dest = command.to.value;
+        data->dest = command.to.value;
     }
-    data.payload.size = static_cast<pb_size_t>(command.payload.size);
-    std::memcpy(data.payload.bytes, command.payload.data, command.payload.size);
+    data->payload.size = static_cast<pb_size_t>(command.payload.size);
+    std::memcpy(data->payload.bytes, command.payload.data, command.payload.size);
 
     pb_ostream_t stream = pb_ostream_from_buffer(out, *out_size);
-    if (!pb_encode(&stream, meshtastic_Data_fields, &data))
+    if (!pb_encode(&stream, meshtastic_Data_fields, data))
     {
         return false;
     }
@@ -110,21 +112,21 @@ ProtocolResult MeshtasticProtocolStrategy::buildDirectMessage(
         return ProtocolResult::fail(ProtocolFailure::InvalidInput);
     }
 
-    uint8_t data[256]{};
-    size_t data_size = sizeof(data);
-    if (!encodeAppData(context, command, data, &data_size))
+    out.size = sizeof(out.bytes);
+    if (!encodeAppData(context, command, out.bytes, &out.size, &data_scratch_))
     {
         return ProtocolResult::fail(ProtocolFailure::EncodeFailed);
     }
 
-    out.size = sizeof(out.bytes);
     const bool want_ack = context.has_air_want_ack
                               ? context.air_want_ack
                               : ::chat::meshtastic::shouldSetAirWantAck(command.to.value,
                                                                         command.request_ack);
     const uint8_t* psk = context.channel_key.data;
     const size_t psk_len = context.channel_key.size;
-    if (!::chat::meshtastic::buildWirePacket(data,
+    const size_t data_size = out.size;
+    out.size = sizeof(out.bytes);
+    if (!::chat::meshtastic::buildWirePacket(out.bytes,
                                              data_size,
                                              context.local_node.value,
                                              packetIdFromContext(context),
@@ -150,30 +152,29 @@ ProtocolResult MeshtasticProtocolStrategy::parseRadioPacket(const RadioRxPacket&
         return ProtocolResult::fail(ProtocolFailure::InvalidInput);
     }
 
+    out = MeshProtocolEvent{};
     ::chat::meshtastic::PacketHeaderWire header{};
-    uint8_t payload[256]{};
-    size_t payload_size = sizeof(payload);
+    size_t payload_size = sizeof(out.payload_bytes);
     if (!::chat::meshtastic::parseWirePacket(packet.bytes,
                                              packet.size,
                                              &header,
-                                             payload,
+                                             out.payload_bytes,
                                              &payload_size))
     {
         return ProtocolResult::fail(ProtocolFailure::DecodeFailed);
     }
 
-    meshtastic_Data data = meshtastic_Data_init_default;
-    pb_istream_t stream = pb_istream_from_buffer(payload, payload_size);
-    if (!pb_decode(&stream, meshtastic_Data_fields, &data))
+    data_scratch_ = meshtastic_Data_init_default;
+    pb_istream_t stream = pb_istream_from_buffer(out.payload_bytes, payload_size);
+    if (!pb_decode(&stream, meshtastic_Data_fields, &data_scratch_))
     {
         return ProtocolResult::fail(ProtocolFailure::DecodeFailed);
     }
 
-    out = MeshProtocolEvent{};
     out.kind = MeshProtocolEventKind::MessageReceived;
     out.peer = NodeId{header.from};
     out.packet_id = header.id;
-    out.setPayload(data.payload.bytes, data.payload.size);
+    out.setPayload(data_scratch_.payload.bytes, data_scratch_.payload.size);
     return ProtocolResult::success();
 }
 

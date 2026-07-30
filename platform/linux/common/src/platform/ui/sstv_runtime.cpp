@@ -278,6 +278,12 @@ bool is_supported()
     return true;
 }
 
+CapabilityStatus capability_status()
+{
+    return {CapabilityState::Simulated,
+            "Linux SSTV decoder is available as a simulated backend."};
+}
+
 bool start()
 {
     std::lock_guard<std::mutex> lock(s_mutex);

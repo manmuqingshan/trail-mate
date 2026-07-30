@@ -6,8 +6,10 @@
 #pragma once
 
 #include "lvgl.h"
+#include "platform/ui/auto_reply_settings.h"
 #include "ui/widgets/top_bar.h"
 #include <cstddef>
+#include <cstdint>
 
 namespace settings::ui
 {
@@ -19,6 +21,150 @@ enum class SettingType
     Enum,
     Text,
     Action,
+};
+
+enum class SettingId : std::uint16_t
+{
+    Unknown,
+    ChatUser,
+    ChatShort,
+    MeshProtocol,
+    ChatMessageAlerts,
+    ChatContactAlerts,
+    ChatAutoReplyEnabled,
+    ChatAutoReplyText,
+    ChatRegion,
+    ChatChannel,
+    ChatPsk,
+    MtPrimaryEnabled,
+    MtPrimaryName,
+    MtPrimaryKey,
+    MtPrimaryKeyGenerate,
+    MtPrimaryUplink,
+    MtPrimaryDownlink,
+    MtSecondaryEnabled,
+    MtSecondaryName,
+    MtSecondaryKey,
+    MtSecondaryKeyGenerate,
+    MtSecondaryUplink,
+    MtSecondaryDownlink,
+    PrivacyEncrypt,
+    MtMqttEnabled,
+    MtMqttHost,
+    MtMqttPort,
+    MtMqttRoot,
+    MtMqttUser,
+    MtMqttPass,
+    MtMqttUplink,
+    MtMqttDownlink,
+    McMqttEnabled,
+    McMqttHost,
+    McMqttPort,
+    McMqttRoot,
+    McMqttUser,
+    McMqttPass,
+    McMqttUplink,
+    McMqttDownlink,
+    McChannelSlot,
+    McChannelEnabled,
+    McChannelName,
+    McChannelKey,
+    McChannelKeyGenerate,
+    McChannelClear,
+    RtBearer,
+    RtLoraEnabled,
+    RtDisplayName,
+    RtIdentityHash,
+    RtLxmfAddress,
+    RtWifiGateway,
+    RtWifiHost,
+    RtWifiPort,
+    RtWifiAuto,
+    RtAnonymousPeer,
+    RtLocationRequests,
+    NetUsePreset,
+    NetPreset,
+    NetBw,
+    NetSf,
+    NetCr,
+    NetTxPower,
+    NetHopLimit,
+    NetTxEnabled,
+    NetOverrideDuty,
+    NetChannelNum,
+    NetFreqOffset,
+    NetOverrideFreq,
+    NetRelay,
+    NetDutyCycle,
+    NetUtil,
+    McRegionPreset,
+    McFreq,
+    McBw,
+    McSf,
+    McCr,
+    McTxPower,
+    McRepeat,
+    McRxDelay,
+    McAirtime,
+    McFloodMax,
+    McMultiAcks,
+    McSendProfile,
+    McForwardProfile,
+    GpsEnabled,
+    GpsInitBaud,
+    GpsInitProbeMs,
+    GpsInitProfile,
+    GpsInitRxm,
+    GpsInitGnss,
+    GpsInitNmea,
+    GpsMode,
+    GpsSatMask,
+    GpsStrategy,
+    GpsInterval,
+    GpsAltRef,
+    GpsCoordFmt,
+    ExternalNmea,
+    ExternalNmeaSent,
+    GpsDiagnostics,
+    MapCoord,
+    MapSource,
+    MapContour,
+    MapTrack,
+    MapTrackInterval,
+    MapTrackFormat,
+    DisplayLocale,
+    EnabledImes,
+    ScreenTimeout,
+    ScreenBrightness,
+    SpeakerVolume,
+    VibrationEnabled,
+    C6CompanionStatus,
+    C6EnterDownload,
+    TimezoneProfile,
+    ManualTimeSet,
+    GaugeDesignMah,
+    GaugeFullMah,
+    WifiEnabled,
+    WifiStatus,
+    WifiScan,
+    WifiNetwork,
+    WifiSsid,
+    WifiPassword,
+    WifiConnect,
+    WifiDisconnect,
+    FwCurrent,
+    FwLatest,
+    FwStatus,
+    FwCheck,
+    FwInstall,
+    SettingsBackupStatus,
+    SettingsBackup,
+    SettingsRestore,
+    AdvDebug,
+    ChatResetMesh,
+    ChatResetNodes,
+    ChatClearMessages,
+    SystemFactoryReset,
 };
 
 struct SettingOption
@@ -39,6 +185,7 @@ struct SettingItem
     size_t text_max;
     bool mask_text;
     const char* pref_key;
+    SettingId id = SettingId::Unknown;
 };
 
 struct SettingsData
@@ -75,6 +222,20 @@ struct SettingsData
     char chat_psk[65] = {};
     int chat_message_alerts = 1;
     int chat_contact_alerts = 1;
+    bool chat_auto_reply_enabled = false;
+    char chat_auto_reply_text[::platform::ui::auto_reply::kTextMaxBytes + 1] = {};
+
+    // Meshtastic channels
+    bool mt_primary_enabled = true;
+    char mt_primary_name[32] = "LongFast";
+    char mt_primary_key[65] = {};
+    bool mt_primary_uplink = false;
+    bool mt_primary_downlink = false;
+    bool mt_secondary_enabled = false;
+    char mt_secondary_name[32] = "Secondary";
+    char mt_secondary_key[65] = {};
+    bool mt_secondary_uplink = false;
+    bool mt_secondary_downlink = false;
 
     // Network
     int net_use_preset = 1;
@@ -92,6 +253,27 @@ struct SettingsData
     bool net_relay = true;
     bool net_duty_cycle = true;
     int net_channel_util = 0;
+    int rt_bearer_policy = 0;
+    bool rt_lora_enabled = true;
+    bool rt_wifi_gateway_enabled = true;
+    bool rt_wifi_auto_connect = true;
+    bool rt_anonymous_peer = false;
+    bool rt_location_requests = false;
+    char rt_display_name[32] = "--";
+    char rt_identity_hash[36] = "--";
+    char rt_lxmf_address[36] = "--";
+    char rt_wifi_gateway_host[64] = "";
+    char rt_wifi_gateway_port[6] = "4242";
+
+    // Meshtastic MQTT
+    bool mt_mqtt_enabled = false;
+    bool mt_mqtt_uplink = true;
+    bool mt_mqtt_downlink = true;
+    char mt_mqtt_host[64] = "mqtt.meshtastic.org";
+    char mt_mqtt_port[6] = "1883";
+    char mt_mqtt_root[64] = "msh/CN";
+    char mt_mqtt_user[64] = "meshdev";
+    char mt_mqtt_pass[64] = "large4cats";
 
     // MeshCore
     int mc_region_preset = 0;
@@ -108,8 +290,17 @@ struct SettingsData
     int mc_send_profile = 1;
     int mc_forward_profile = 1;
     int mc_channel_slot = 0;
+    bool mc_channel_enabled = true;
     char mc_channel_name[32] = "Public";
     char mc_channel_key[65] = {};
+    bool mc_mqtt_enabled = false;
+    bool mc_mqtt_uplink = true;
+    bool mc_mqtt_downlink = true;
+    char mc_mqtt_host[64] = "";
+    char mc_mqtt_port[6] = "1883";
+    char mc_mqtt_root[64] = "meshcore";
+    char mc_mqtt_user[64] = "";
+    char mc_mqtt_pass[64] = "";
 
     // Chat/privacy controls
     int privacy_encrypt_mode = 1;
@@ -130,7 +321,6 @@ struct SettingsData
     int speaker_volume = 45;
     int display_locale_index = 0;
     char c6_companion_status[96] = "";
-    bool ble_enabled = true;
     bool vibration_enabled = true;
 
     // Wi-Fi
@@ -170,7 +360,7 @@ struct UiState
     ::ui::widgets::TopBar top_bar;
     lv_obj_t* filter_buttons[8]{};
     size_t filter_count = 0;
-    ItemWidget item_widgets[32]{};
+    ItemWidget item_widgets[64]{};
     size_t item_count = 0;
     int current_category = 0;
 

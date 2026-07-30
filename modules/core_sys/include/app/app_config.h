@@ -9,6 +9,7 @@
 #include "chat/domain/chat_types.h"
 #include "chat/infra/mesh_protocol_utils.h"
 #include "gps/domain/motion_config.h"
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 
@@ -68,6 +69,16 @@ struct AppConfig
     static constexpr uint8_t kRNodeDefaultCr = 5;
     static constexpr int8_t kRNodeDefaultTxPowerDbm = 17;
     static constexpr int8_t kTxPowerMinDbm = -9;
+    static constexpr std::size_t kMqttHostMaxLen = 63;
+    static constexpr std::size_t kMqttRootMaxLen = 63;
+    static constexpr std::size_t kMqttUsernameMaxLen = 63;
+    static constexpr std::size_t kMqttPasswordMaxLen = 63;
+    static constexpr const char* kDefaultMeshtasticMqttHost = "mqtt.meshtastic.org";
+    static constexpr const char* kDefaultMeshtasticMqttUsername = "meshdev";
+    static constexpr const char* kDefaultMeshtasticMqttPassword = "large4cats";
+    static constexpr const char* kDefaultMeshtasticMqttRoot = "msh/CN";
+    static constexpr const char* kDefaultMeshCoreMqttHost = "test.mosquitto.org";
+    static constexpr const char* kDefaultMeshCoreMqttRoot = "meshcore";
 #if defined(TRAIL_MATE_LORA_TX_POWER_MAX_DBM)
     // Board/module capability must be declared per build target.
     // Examples: SX1262 22S => 22 dBm, 30S => 30 dBm, 33S => 33 dBm.
@@ -84,6 +95,14 @@ struct AppConfig
     chat::MeshConfig meshcore_config;
     chat::MeshConfig rnode_config;
     chat::MeshProtocol mesh_protocol;
+    bool meshtastic_mqtt_enabled;
+    bool meshtastic_mqtt_uplink_enabled;
+    bool meshtastic_mqtt_downlink_enabled;
+    char meshtastic_mqtt_host[kMqttHostMaxLen + 1];
+    uint16_t meshtastic_mqtt_port;
+    char meshtastic_mqtt_root[kMqttRootMaxLen + 1];
+    char meshtastic_mqtt_username[kMqttUsernameMaxLen + 1];
+    char meshtastic_mqtt_password[kMqttPasswordMaxLen + 1];
 
     // Device settings
     char node_name[32];
@@ -169,15 +188,16 @@ struct AppConfig
         meshcore_config = chat::MeshConfig();
         applyMeshCoreFactoryDefaults();
         rnode_config = chat::MeshConfig();
-        applyRNodeFactoryDefaults();
-        mesh_protocol = chat::MeshProtocol::Meshtastic;
+        applyReticulumFactoryDefaults();
+        mesh_protocol = chat::MeshProtocol::Reticulum;
+        applyMeshtasticMqttFactoryDefaults();
         node_name[0] = '\0';
         short_name[0] = '\0';
-        ble_enabled = true;
+        ble_enabled = false;
         primary_enabled = true;
         secondary_enabled = false;
-        primary_uplink_enabled = false;
-        primary_downlink_enabled = false;
+        primary_uplink_enabled = true;
+        primary_downlink_enabled = true;
         secondary_uplink_enabled = false;
         secondary_downlink_enabled = false;
         primary_channel_has_module_settings = false;
@@ -222,6 +242,26 @@ struct AppConfig
         aprs = AprsConfig();
     }
 
+    void applyMeshtasticMqttFactoryDefaults()
+    {
+        meshtastic_mqtt_enabled = false;
+        meshtastic_mqtt_uplink_enabled = true;
+        meshtastic_mqtt_downlink_enabled = true;
+        strncpy(meshtastic_mqtt_host, kDefaultMeshtasticMqttHost,
+                sizeof(meshtastic_mqtt_host) - 1);
+        meshtastic_mqtt_host[sizeof(meshtastic_mqtt_host) - 1] = '\0';
+        meshtastic_mqtt_port = 1883;
+        strncpy(meshtastic_mqtt_root, kDefaultMeshtasticMqttRoot,
+                sizeof(meshtastic_mqtt_root) - 1);
+        meshtastic_mqtt_root[sizeof(meshtastic_mqtt_root) - 1] = '\0';
+        strncpy(meshtastic_mqtt_username, kDefaultMeshtasticMqttUsername,
+                sizeof(meshtastic_mqtt_username) - 1);
+        meshtastic_mqtt_username[sizeof(meshtastic_mqtt_username) - 1] = '\0';
+        strncpy(meshtastic_mqtt_password, kDefaultMeshtasticMqttPassword,
+                sizeof(meshtastic_mqtt_password) - 1);
+        meshtastic_mqtt_password[sizeof(meshtastic_mqtt_password) - 1] = '\0';
+    }
+
     void applyMeshCoreFactoryDefaults()
     {
         meshcore_config.meshcore_region_preset = 0;
@@ -237,10 +277,19 @@ struct AppConfig
         meshcore_config.meshcore_multi_acks = false;
         meshcore_config.meshcore_send_profile = chat::MeshCorePayloadSendProfile::AutoPreferV2;
         meshcore_config.meshcore_forward_profile = chat::MeshCoreForwardProfile::MultibyteOnly;
-        meshcore_config.meshcore_channel_slot = 0;
-        strncpy(meshcore_config.meshcore_channel_name, "Public",
-                sizeof(meshcore_config.meshcore_channel_name) - 1);
-        meshcore_config.meshcore_channel_name[sizeof(meshcore_config.meshcore_channel_name) - 1] = '\0';
+        meshcore_config.resetMeshCoreChannels();
+        meshcore_config.meshcore_mqtt_enabled = false;
+        meshcore_config.meshcore_mqtt_uplink_enabled = true;
+        meshcore_config.meshcore_mqtt_downlink_enabled = true;
+        strncpy(meshcore_config.meshcore_mqtt_host, kDefaultMeshCoreMqttHost,
+                sizeof(meshcore_config.meshcore_mqtt_host) - 1);
+        meshcore_config.meshcore_mqtt_host[sizeof(meshcore_config.meshcore_mqtt_host) - 1] = '\0';
+        meshcore_config.meshcore_mqtt_port = 1883;
+        strncpy(meshcore_config.meshcore_mqtt_root, kDefaultMeshCoreMqttRoot,
+                sizeof(meshcore_config.meshcore_mqtt_root) - 1);
+        meshcore_config.meshcore_mqtt_root[sizeof(meshcore_config.meshcore_mqtt_root) - 1] = '\0';
+        meshcore_config.meshcore_mqtt_username[0] = '\0';
+        meshcore_config.meshcore_mqtt_password[0] = '\0';
     }
 
     void applyRNodeFactoryDefaults()
@@ -255,15 +304,37 @@ struct AppConfig
         rnode_config.override_frequency_mhz = kRNodeDefaultFreqMHz;
     }
 
+    void applyReticulumFactoryDefaults()
+    {
+        applyRNodeFactoryDefaults();
+        rnode_config.reticulum_lora_enabled = true;
+        rnode_config.reticulum_wifi_gateway_enabled = true;
+        rnode_config.reticulum_wifi_auto_connect = true;
+        rnode_config.reticulum_anonymous_peer = false;
+        rnode_config.reticulum_wifi_gateway_host[0] = '\0';
+        rnode_config.reticulum_wifi_gateway_port = 4242;
+        rnode_config.reticulum_interface_policy = chat::ReticulumInterfacePolicy::All;
+    }
+
+    chat::MeshConfig& reticulumConfig()
+    {
+        return rnode_config;
+    }
+
+    const chat::MeshConfig& reticulumConfig() const
+    {
+        return rnode_config;
+    }
+
     chat::MeshConfig& activeMeshConfig()
     {
         switch (mesh_protocol)
         {
         case chat::MeshProtocol::MeshCore:
             return meshcore_config;
-        case chat::MeshProtocol::LXMF:
+        case chat::MeshProtocol::Reticulum:
         case chat::MeshProtocol::RNode:
-            return rnode_config;
+            return reticulumConfig();
         case chat::MeshProtocol::Meshtastic:
         default:
             return meshtastic_config;
@@ -276,9 +347,9 @@ struct AppConfig
         {
         case chat::MeshProtocol::MeshCore:
             return meshcore_config;
-        case chat::MeshProtocol::LXMF:
+        case chat::MeshProtocol::Reticulum:
         case chat::MeshProtocol::RNode:
-            return rnode_config;
+            return reticulumConfig();
         case chat::MeshProtocol::Meshtastic:
         default:
             return meshtastic_config;

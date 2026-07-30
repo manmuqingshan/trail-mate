@@ -1,6 +1,8 @@
 #include "ui_presentation/chat/chat_workspace_snapshot.h"
 
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
 
 namespace
@@ -23,6 +25,34 @@ void directPeerAndTeamAreDifferent()
     assert(direct.isValid());
     assert(team.isValid());
     assert(direct != team);
+}
+
+void reticulumDestinationHashDefinesPresentationIdentity()
+{
+    ui::chat::ConversationId first;
+    first.kind = ui::chat::ConversationKind::DirectPeer;
+    first.protocol = ui::chat::ChatProtocolKind::Reticulum;
+    first.primary = 0x1234ABCDU;
+    first.secondary = 0;
+    first.has_reticulum_destination_hash = true;
+
+    ui::chat::ConversationId second = first;
+    second.primary = 0x87654321U;
+
+    for (std::size_t index = 0;
+         index < ui::chat::kReticulumDestinationHashSize;
+         ++index)
+    {
+        first.reticulum_destination_hash[index] =
+            static_cast<std::uint8_t>(0x30U + index);
+        second.reticulum_destination_hash[index] =
+            static_cast<std::uint8_t>(0x30U + index);
+    }
+
+    assert(first == second);
+
+    second.reticulum_destination_hash[0] ^= 0x01U;
+    assert(first != second);
 }
 
 void workspaceSnapshotUsesPresentationIds()
@@ -82,6 +112,7 @@ void sendViewUsesConversationToken()
 int main()
 {
     directPeerAndTeamAreDifferent();
+    reticulumDestinationHashDefinesPresentationIdentity();
     workspaceSnapshotUsesPresentationIds();
     sendViewUsesConversationToken();
     return 0;

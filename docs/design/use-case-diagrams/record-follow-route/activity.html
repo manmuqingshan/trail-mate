@@ -1,0 +1,9 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：轨迹记录</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed"><h1>轨迹记录与关闭</h1><pre class="mermaid">flowchart TD
+Start --> Open
+Open --> Fix{"valid sample?"}
+Fix -- 是 --> Buffer{"space?"}
+Buffer -- 是 --> Write["worker batch write"]
+Buffer -- 否 --> Drop["count drop"]
+Write --> Fix
+Fix --> Stop
+Stop --> Drain["drain + flush + close"]</pre></main></body></html>

@@ -1,21 +1,22 @@
 #include "platform/esp/arduino_common/app_event_runtime_support.h"
 
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 #include "app/app_facades.h"
-#include "board/BoardBase.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/esp/arduino_common/app_runtime_support.h"
-#include "platform/esp/arduino_common/hostlink/hostlink_bridge_radio.h"
-#include "platform/ui/settings_store.h"
+#include "platform/esp/arduino_common/notification_runtime.h"
 #include "sys/event_bus.h"
 #include "team/protocol/team_chat.h"
 #include "ui/chat_ui_runtime.h"
 #include "ui/localization.h"
 #include "ui/runtime/ui_feedback.h"
 #include "ui/screens/team/team_page_shell.h"
+#include "ui/widgets/reticulum_ping_overlay.h"
+#include "ui/widgets/top_bar_power_presenter.h"
 #include "ui_chat_runtime/chat_delivery_feedback_controller.h"
 
 namespace platform::esp::arduino_common
@@ -23,12 +24,9 @@ namespace platform::esp::arduino_common
 namespace
 {
 
-constexpr const char* kSettingsNs = "settings";
-constexpr const char* kMessageAlertsKey = "chat_message_alerts";
-
 bool messageAlertsEnabled()
 {
-    return platform::ui::settings_store::get_int(kSettingsNs, kMessageAlertsKey, 1) != 0;
+    return notification::message_alerts_enabled();
 }
 
 bool isTeamRuntimeEvent(sys::EventType type)
@@ -72,16 +70,7 @@ class UiFeedbackChatDeliveryFeedbackPort final
 
 void triggerMessageFeedback(app::IAppFacade& app_context)
 {
-    BoardBase* board = app_context.getBoard();
-    if (!board)
-    {
-        return;
-    }
-    if (platform::ui::settings_store::get_bool(kSettingsNs, "vibration_enabled", true))
-    {
-        board->vibrator();
-    }
-    board->playMessageTone();
+    (void)notification::play_alert(app_context, notification::AlertKind::Message);
 }
 
 std::string resolveContactName(app::IAppFacade& app_context, chat::NodeId node_id)
@@ -167,10 +156,16 @@ void handleTeamChatNotification(app::IAppFacade& app_context, const sys::TeamCha
 void handleChatSendResultFeedback(app::IAppFacade& app_context,
                                   const sys::ChatSendResultEvent& event)
 {
+    const chat::ChatMessage* message =
+        event.has_protocol
+            ? app_context.getChatService().getMessageForProtocol(
+                  event.msg_id,
+                  event.protocol)
+            : app_context.getChatService().getMessage(event.msg_id);
     chatDeliveryFeedback().onChatSendResult(
         event.msg_id,
         event.success,
-        app_context.getChatService().getMessage(event.msg_id));
+        message);
 }
 
 void tickUiRuntime(app::IAppFacade& app_context)
@@ -182,6 +177,8 @@ void tickUiRuntime(app::IAppFacade& app_context)
     {
         chat_ui_runtime->update();
     }
+
+    ::ui::widgets::top_bar_power::tick();
 }
 
 bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
@@ -191,10 +188,28 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
         return true;
     }
 
-    hostlink::bridge::on_event(*event);
-
     switch (event->type)
     {
+    case sys::EventType::ReticulumPingResult:
+    {
+        const auto* ping_event =
+            static_cast<sys::ReticulumPingResultEvent*>(event);
+        if (ping_event->result == sys::ReticulumPingResult::Delivered)
+        {
+            ::ui::widgets::reticulum_ping::show_delivered(
+                ping_event->destination_hash,
+                ping_event->elapsed_ms,
+                ping_event->hops);
+        }
+        else
+        {
+            ::ui::widgets::reticulum_ping::show_timeout(
+                ping_event->destination_hash,
+                ping_event->elapsed_ms);
+        }
+        delete event;
+        return true;
+    }
     case sys::EventType::ChatSendResult:
         handleChatSendResultFeedback(
             app_context,
@@ -203,10 +218,25 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
     case sys::EventType::ChatNewMessage:
     {
         auto* msg_event = static_cast<sys::ChatNewMessageEvent*>(event);
-        if (messageAlertsEnabled())
+        const bool alerts_enabled = messageAlertsEnabled();
+        std::printf("[UI][event] chat_new_message msg=%lu ch=%u len=%u origin=%u alerts=%u text='%s'\n",
+                    static_cast<unsigned long>(msg_event->msg_id),
+                    static_cast<unsigned>(msg_event->channel),
+                    static_cast<unsigned>(std::strlen(msg_event->text)),
+                    static_cast<unsigned>(msg_event->rx_meta.origin),
+                    alerts_enabled ? 1U : 0U,
+                    msg_event->text);
+        if (alerts_enabled)
         {
             triggerMessageFeedback(app_context);
             ::ui::feedback::show_notice(msg_event->text, 3000);
+            std::printf("[UI][notice] chat_new_message msg=%lu shown=1\n",
+                        static_cast<unsigned long>(msg_event->msg_id));
+        }
+        else
+        {
+            std::printf("[UI][notice] chat_new_message msg=%lu shown=0 reason=alerts_disabled\n",
+                        static_cast<unsigned long>(msg_event->msg_id));
         }
         break;
     }
@@ -275,10 +305,6 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
     if (team_runtime_event || event->type == sys::EventType::SystemTick)
     {
         team::ui::shell::handle_event(nullptr, event);
-        if (team_runtime_event)
-        {
-            hostlink::bridge::on_team_state_changed();
-        }
         delete event;
         return true;
     }
@@ -286,6 +312,13 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
     chat::ui::IChatUiRuntime* chat_ui_runtime = app_context.getChatUiRuntime();
     if (chat_ui_runtime)
     {
+        if (event->type == sys::EventType::ChatNewMessage)
+        {
+            auto* msg_event = static_cast<sys::ChatNewMessageEvent*>(event);
+            std::printf("[UI][chat_runtime] dispatch chat_new_message msg=%lu ch=%u\n",
+                        static_cast<unsigned long>(msg_event->msg_id),
+                        static_cast<unsigned>(msg_event->channel));
+        }
         chat_ui_runtime->onChatEvent(event);
         return true;
     }

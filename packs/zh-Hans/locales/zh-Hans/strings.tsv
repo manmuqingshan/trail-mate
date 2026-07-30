@@ -248,6 +248,8 @@ Send ID Broadcast	广播发送 ID
 Send ID Local	本地发送 ID
 Sending...	发送中...
 Sent	已发送
+Queued	已排队
+Delivered	已送达
 Settings	设置
 Setting	设置
 Share Position Marker	分享位置标记
@@ -656,3 +658,78 @@ Power off device now?	现在关闭设备电源?
 USB power keeps the device awake.	USB 供电会让设备保持唤醒.
 Unplug USB to power off	拔掉 USB 后才能关机
 Power chip unavailable	电源芯片不可用
+%u days ago	%u 天前
+%u hours ago	%u 小时前
+%u mins ago	%u 分钟前
+1 day ago	1 天前
+1 hour ago	1 小时前
+1 min ago	1 分钟前
+Add Reticulum Group	添加 Reticulum 群组
+Applying defaults	正在应用默认设置
+Applying setting	正在应用设置
+Backing up settings...	正在备份设置...
+Backup complete	备份完成
+C6 Companion	C6 协处理器
+Calling %s	正在呼叫 %s
+Channel PSK generated	频道 PSK 已生成
+Channel cleared	频道已清除
+Channel key generated	频道密钥已生成
+Check SD card	请检查 SD 卡
+Clearing messages...	正在清除消息...
+Clearing node database	正在清除节点数据库
+Clearing stored settings	正在清除已存储设置
+Configure Wi-Fi in Settings first	请先在设置中配置 Wi-Fi
+Connect Wi-Fi to browse uninstalled packages	连接 Wi-Fi 以浏览未安装的扩展包
+Connecting Wi-Fi...	正在连接 Wi-Fi...
+Conversation	会话
+Delete this chat?	删除此聊天？
+Destination hash	目标哈希
+Disconnecting Wi-Fi...	正在断开 Wi-Fi...
+ERR	错误
+Enter	确定
+FSK	FSK 调制
+GPS Diagnostics	GPS 诊断
+Group Actions	群组操作
+Group destination	群组目标
+Install package failed	扩展包安装失败
+Installed locally	已在本地安装
+Installed package	已安装的扩展包
+Invalid MQTT port	MQTT 端口无效
+Invalid gateway port	网关端口无效
+Key generation failed	密钥生成失败
+Key missing	缺少密钥
+Looking for nearby networks	正在查找附近的网络
+Monitor Off	监听关闭
+Name	名称
+No installed packages	没有已安装的扩展包
+No matches	没有匹配项
+No uninstalled packages	没有未安装的扩展包
+Node info: %s	节点信息：%s
+PSK generation failed	PSK 生成失败
+PSK must be 32/64 hex or 16/32 chars	PSK 必须是 32/64 位十六进制或 16/32 个字符
+Preparing companion...	正在准备协处理器...
+Preview Help	预览帮助
+Preview failed	预览失败
+Primary Group	主要群组
+Public	公开
+Reading backup from SD	正在从 SD 卡读取备份
+Refresh	刷新
+Remote catalog is unavailable. Connect Wi-Fi to view package details and updates.	远程目录不可用。请连接 Wi-Fi 以查看扩展包详情和更新。
+Requesting download mode	正在请求下载模式
+Resetting mesh...	正在重置网状网络...
+Resetting nodes...	正在重置节点...
+Restoring settings...	正在恢复设置...
+Reticulum Peer	Reticulum 对等节点
+Route Preview	路线预览
+Scanning Wi-Fi...	正在扫描 Wi-Fi...
+Settings restored	设置已恢复
+Settings saved to SD	设置已保存到 SD 卡
+Start failed	启动失败
+Unable to apply GPS setting	无法应用 GPS 设置
+Updating chat storage	正在更新聊天存储
+Updating network list	正在更新网络列表
+Wi-Fi connect failed	Wi-Fi 连接失败
+Wi-Fi connected	Wi-Fi 已连接
+Wi-Fi unsupported	不支持 Wi-Fi
+Wi-Fi unsupported on this device	此设备不支持 Wi-Fi
+Writing to SD card	正在写入 SD 卡

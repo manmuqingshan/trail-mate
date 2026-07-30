@@ -5,7 +5,7 @@ source_dir="${TRAIL_MATE_CARDPUTER_ZERO_CONTAINER_SOURCE:-/work/source}"
 build_dir="${TRAIL_MATE_CARDPUTER_ZERO_CONTAINER_BUILD:-/work/build}"
 out_dir="${TRAIL_MATE_CARDPUTER_ZERO_CONTAINER_OUT:-/work/out}"
 jobs="${TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_JOBS:-2}"
-package_version="${TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_VERSION:-0.1.29-alpha}"
+package_version="${TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_VERSION:-0.1.38-alpha}"
 package_build_type="${TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_BUILD_TYPE:-Release}"
 
 mkdir -p "${build_dir}" "${out_dir}"

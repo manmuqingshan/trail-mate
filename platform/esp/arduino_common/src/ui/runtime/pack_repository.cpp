@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "platform/ui/device_runtime.h"
+#include "platform/ui/http_client_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 #include "ui/localization.h"
 #include "ui/runtime/memory_profile.h"
@@ -29,13 +30,10 @@
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
 
 #include "cJSON.h"
-#include "esp_err.h"
 #include "esp_heap_caps.h"
-#include "esp_http_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "mbedtls/platform.h"
 #include "mbedtls/sha256.h"
 #ifdef INADDR_NONE
 #undef INADDR_NONE
@@ -48,15 +46,11 @@
 #error "A compatible miniz header is required for pack_repository.cpp"
 #endif
 
-#define UI_PACKS_HAVE_CRT_BUNDLE 1
-
-extern "C" esp_err_t esp_crt_bundle_attach(void* conf);
-
 #if defined(ARDUINO)
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include <Arduino.h>
 #else
-#include "platform/esp/idf_common/bsp_runtime.h"
+#include "platform/esp/idf_common/flash_storage_runtime.h"
 #endif
 
 namespace ui::runtime::packs
@@ -89,15 +83,15 @@ constexpr const char* kTempDir = "/trailmate/packs/index/tmp";
 constexpr const char* kInstalledIndexPath = kSdInstalledIndexPath;
 constexpr const char* kInstallStorage = kStorageSd;
 #else
-constexpr const char* kPackRoot = "/trailmate/packs";
-constexpr const char* kIndexDir = "/trailmate/packs/index";
-constexpr const char* kTempDir = "/trailmate/packs/index/tmp";
-constexpr const char* kInstalledIndexPath = "/trailmate/packs/index/installed.json";
-constexpr const char* kInstallStorage = kStorageSd;
+constexpr const char* kPackRoot = "/fs/trailmate/packs";
+constexpr const char* kIndexDir = "/fs/trailmate/packs/index";
+constexpr const char* kTempDir = "/fs/trailmate/packs/index/tmp";
+constexpr const char* kInstalledIndexPath = "/fs/trailmate/packs/index/installed.json";
+constexpr const char* kInstallStorage = kStorageFlash;
 #endif
 constexpr int kHttpBufferSize = 1024;
 constexpr int kHttpTxBufferSize = 512;
-constexpr std::size_t kTlsLargeAllocThresholdBytes = 4096;
+constexpr std::size_t kLargeScratchThresholdBytes = 4096;
 constexpr std::size_t kFileWriteChunkBytes = 4096;
 constexpr std::size_t kFileReadChunkBytes = 4096;
 constexpr std::size_t kMaxInstalledIndexTokenBytes = 512;
@@ -172,13 +166,36 @@ void set_install_status_locked(PackageInstallPhase phase,
                                bool busy,
                                const std::string& package_id,
                                const char* message,
-                               const char* detail = nullptr)
+                               const char* detail = nullptr,
+                               int progress_percent = -1)
 {
     s_install_state.status.phase = phase;
     s_install_state.status.busy = busy;
+    s_install_state.status.progress_percent = progress_percent;
     s_install_state.status.package_id = package_id;
     s_install_state.status.message = message ? message : "";
     s_install_state.status.detail = detail ? detail : "";
+}
+
+void set_install_status(PackageInstallPhase phase,
+                        bool busy,
+                        const std::string& package_id,
+                        const char* message,
+                        const char* detail = nullptr,
+                        int progress_percent = -1)
+{
+    if (!ensure_install_mutex())
+    {
+        return;
+    }
+
+    InstallStateLock lock(s_install_state.mutex);
+    set_install_status_locked(phase,
+                              busy,
+                              package_id,
+                              message,
+                              detail,
+                              progress_percent);
 }
 
 void* allocate_pack_scratch(std::size_t bytes)
@@ -190,7 +207,7 @@ void* allocate_pack_scratch(std::size_t bytes)
 
     const bool prefer_psram =
         heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0 &&
-        bytes > kTlsLargeAllocThresholdBytes;
+        bytes > kLargeScratchThresholdBytes;
     const uint32_t primary_caps = prefer_psram ? (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
                                                : (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     const uint32_t secondary_caps = prefer_psram ? (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
@@ -284,71 +301,6 @@ void install_worker_task_entry(void* param)
                 ok ? 1 : 0,
                 error.empty() ? "<none>" : error.c_str());
     vTaskDelete(nullptr);
-}
-
-void log_pack_memory_snapshot(const char* stage)
-{
-    std::printf("[Packs][TLS] %s ram_free=%u ram_largest=%u psram_free=%u psram_largest=%u\n",
-                stage ? stage : "state",
-                static_cast<unsigned>(
-                    heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-                static_cast<unsigned>(
-                    heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
-                static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
-}
-
-// Arduino's prebuilt mbedTLS keeps 16 KB TLS record buffers, which can exhaust
-// internal RAM on ESP32 UI builds. Route large allocations to PSRAM first while
-// leaving small control allocations in internal RAM for lower latency.
-void* mbedtls_calloc_prefer_psram(std::size_t count, std::size_t size)
-{
-    if (count == 0 || size == 0)
-    {
-        return nullptr;
-    }
-    if (count > (static_cast<std::size_t>(-1) / size))
-    {
-        return nullptr;
-    }
-
-    const std::size_t bytes = count * size;
-    const bool prefer_psram =
-        heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0 &&
-        bytes >= kTlsLargeAllocThresholdBytes;
-
-    const uint32_t primary_caps = prefer_psram ? (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
-                                               : (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    const uint32_t secondary_caps = prefer_psram ? (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
-                                                 : (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-
-    return heap_caps_calloc_prefer(count, size, 2, primary_caps, secondary_caps);
-}
-
-void mbedtls_free_prefer_psram(void* ptr)
-{
-    heap_caps_free(ptr);
-}
-
-bool ensure_tls_allocator_configured()
-{
-    static bool attempted = false;
-    static bool configured = false;
-
-    if (attempted)
-    {
-        return configured;
-    }
-
-    attempted = true;
-    log_pack_memory_snapshot("before allocator config");
-    configured = mbedtls_platform_set_calloc_free(&mbedtls_calloc_prefer_psram,
-                                                  &mbedtls_free_prefer_psram) == 0;
-    std::printf("[Packs][TLS] allocator configured=%d threshold=%lu\n",
-                configured ? 1 : 0,
-                static_cast<unsigned long>(kTlsLargeAllocThresholdBytes));
-    log_pack_memory_snapshot("after allocator config");
-    return configured;
 }
 
 std::string lowercase_ascii(std::string value)
@@ -1443,7 +1395,16 @@ class SequentialWriteFile
 
 std::string host_path(const std::string& logical_path)
 {
-    return std::string(platform::esp::idf_common::bsp_runtime::sdcard_mount_point()) + logical_path;
+    if (!platform::esp::idf_common::flash_storage_runtime::ensure_ready(true))
+    {
+        return {};
+    }
+    if (logical_path == "/fs" || starts_with(logical_path, "/fs/"))
+    {
+        return logical_path;
+    }
+    return std::string(platform::esp::idf_common::flash_storage_runtime::mount_point()) +
+           logical_path;
 }
 
 bool ensure_dir_recursive(const std::string& logical_dir)
@@ -1561,7 +1522,14 @@ void log_path_probe(const char* scope, const std::string& logical_path)
                 dir_exists ? 1 : 0,
                 size_ok ? 1 : 0,
                 static_cast<unsigned long>(size),
-                kStorageSd);
+                kStorageFlash);
+}
+
+void log_lvgl_path_probe(const char* scope, const std::string& logical_path)
+{
+    std::printf("[Packs][Probe][LVGL] %s logical=%s mapped=0 reason=idf_posix_mount\n",
+                scope ? scope : "path",
+                logical_path.c_str());
 }
 
 bool remove_file_if_exists(const std::string& logical_path)
@@ -1781,98 +1749,33 @@ std::uint32_t read_le32(const std::uint8_t* ptr)
            (static_cast<std::uint32_t>(ptr[3]) << 24);
 }
 
-void configure_http_client(esp_http_client_config_t& config, const std::string& url)
-{
-    (void)ensure_tls_allocator_configured();
-    config = esp_http_client_config_t{};
-    config.url = url.c_str();
-    config.method = HTTP_METHOD_GET;
-    config.timeout_ms = 30000;
-    config.disable_auto_redirect = false;
-    config.buffer_size = kHttpBufferSize;
-    config.buffer_size_tx = kHttpTxBufferSize;
-#if UI_PACKS_HAVE_CRT_BUNDLE
-    config.crt_bundle_attach = esp_crt_bundle_attach;
-#endif
-}
-
-bool http_get_text(const std::string& url, std::string& out, std::string& out_error)
+bool fetch_catalog_text(const std::string& url, std::string& out, std::string& out_error)
 {
     out.clear();
     out_error.clear();
 
-    esp_http_client_config_t config{};
-    configure_http_client(config, url);
-
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == nullptr)
-    {
-        out_error = "Create HTTP client failed";
-        return false;
-    }
-
-    bool ok = false;
-    if (esp_http_client_open(client, 0) == ESP_OK)
-    {
-        if (esp_http_client_fetch_headers(client) >= 0)
-        {
-            const int status_code = esp_http_client_get_status_code(client);
-            if (status_code < 200 || status_code >= 300)
-            {
-                char buffer[64];
-                std::snprintf(buffer, sizeof(buffer), "Catalog HTTP %d", status_code);
-                out_error = buffer;
-            }
-            else
-            {
-                ScopedPackScratch buffer(kHttpBufferSize);
-                if (!buffer)
-                {
-                    out_error = "Allocate catalog buffer failed";
-                }
-                while (true)
-                {
-                    if (!buffer)
-                    {
-                        break;
-                    }
-                    const int read = esp_http_client_read(client,
-                                                          reinterpret_cast<char*>(buffer.bytes()),
-                                                          static_cast<int>(buffer.size()));
-                    if (read < 0)
-                    {
-                        out_error = "Read catalog failed";
-                        break;
-                    }
-                    if (read == 0)
-                    {
-                        ok = true;
-                        break;
-                    }
-                    out.append(reinterpret_cast<const char*>(buffer.bytes()),
-                               static_cast<std::size_t>(read));
-                }
-            }
-        }
-        else
-        {
-            out_error = "Fetch catalog headers failed";
-        }
-    }
-    else
-    {
-        log_pack_memory_snapshot("catalog open failed");
-        out_error = "Open catalog request failed";
-    }
-
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-    return ok;
+    platform::ui::http_client::Request request{};
+    request.url = url.c_str();
+    request.client = platform::ui::wifi_access::Client::PackRepository;
+    request.access_kind = platform::ui::wifi_access::AccessKind::HttpMetadata;
+    request.priority = platform::ui::wifi_access::Priority::UserForeground;
+    request.reason = "pack_catalog";
+    request.buffer_size = kHttpBufferSize;
+    request.tx_buffer_size = kHttpTxBufferSize;
+    return platform::ui::http_client::get_text(request, out, out_error);
 }
 
-bool http_download_file(const std::string& url,
-                        const std::string& logical_path,
-                        std::string& out_error)
+struct PackageDownloadContext
+{
+    SequentialWriteFile* file = nullptr;
+    const PackageRecord* package = nullptr;
+    std::size_t bytes_written = 0;
+    int last_progress = -1;
+};
+
+bool download_package_archive(const PackageRecord& package,
+                              const std::string& logical_path,
+                              std::string& out_error)
 {
     out_error.clear();
 
@@ -1893,77 +1796,66 @@ bool http_download_file(const std::string& url,
         return false;
     }
 
-    esp_http_client_config_t config{};
-    configure_http_client(config, url);
+    const bool has_total = package.archive_size_bytes > 0;
+    set_install_status(PackageInstallPhase::Installing,
+                       true,
+                       package.id,
+                       "Downloading package...",
+                       has_total ? "0%" : package.id.c_str(),
+                       has_total ? 0 : -1);
 
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == nullptr)
-    {
-        file.close();
-        out_error = "Create download client failed";
-        return false;
-    }
+    platform::ui::http_client::Request request{};
+    request.url = package.download_url.c_str();
+    request.client = platform::ui::wifi_access::Client::PackRepository;
+    request.access_kind = platform::ui::wifi_access::AccessKind::HttpDownload;
+    request.priority = platform::ui::wifi_access::Priority::UserForeground;
+    request.reason = "pack_install";
+    request.buffer_size = kHttpBufferSize;
+    request.tx_buffer_size = kHttpTxBufferSize;
 
-    bool ok = false;
-    if (esp_http_client_open(client, 0) == ESP_OK)
-    {
-        if (esp_http_client_fetch_headers(client) >= 0)
+    PackageDownloadContext context{};
+    context.file = &file;
+    context.package = &package;
+
+    bool ok = platform::ui::http_client::download(
+        request,
+        [](const std::uint8_t* data, std::size_t len, void* context)
         {
-            const int status_code = esp_http_client_get_status_code(client);
-            if (status_code < 200 || status_code >= 300)
+            auto* state = static_cast<PackageDownloadContext*>(context);
+            if (!state || !state->file || !state->file->write(data, len))
             {
-                char buffer[64];
-                std::snprintf(buffer, sizeof(buffer), "Download HTTP %d", status_code);
-                out_error = buffer;
+                return false;
             }
-            else
-            {
-                ScopedPackScratch buffer(kHttpBufferSize);
-                if (!buffer)
-                {
-                    out_error = "Allocate download buffer failed";
-                }
-                while (true)
-                {
-                    if (!buffer)
-                    {
-                        break;
-                    }
-                    const int read = esp_http_client_read(client,
-                                                          reinterpret_cast<char*>(buffer.bytes()),
-                                                          static_cast<int>(buffer.size()));
-                    if (read < 0)
-                    {
-                        out_error = "Download read failed";
-                        break;
-                    }
-                    if (read == 0)
-                    {
-                        ok = true;
-                        break;
-                    }
-                    if (!file.write(buffer.bytes(), static_cast<std::size_t>(read)))
-                    {
-                        out_error = "Write download file failed";
-                        break;
-                    }
-                }
-            }
-        }
-        else
-        {
-            out_error = "Fetch download headers failed";
-        }
-    }
-    else
-    {
-        log_pack_memory_snapshot("download open failed");
-        out_error = "Open download request failed";
-    }
 
+            state->bytes_written += len;
+            const std::size_t total = state->package ? state->package->archive_size_bytes : 0;
+            if (state->package && total > 0)
+            {
+                int progress = static_cast<int>(
+                    (static_cast<std::uint64_t>(state->bytes_written) * 100U) /
+                    total);
+                if (progress > 100)
+                {
+                    progress = 100;
+                }
+                if (progress != state->last_progress)
+                {
+                    state->last_progress = progress;
+                    char detail[32];
+                    std::snprintf(detail, sizeof(detail), "%d%%", progress);
+                    set_install_status(PackageInstallPhase::Installing,
+                                       true,
+                                       state->package->id,
+                                       "Downloading package...",
+                                       detail,
+                                       progress);
+                }
+            }
+            return true;
+        },
+        &context,
+        out_error);
     file.close();
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
 
     if (!ok)
     {
@@ -3328,7 +3220,7 @@ bool is_supported()
 #if defined(ARDUINO)
     return true;
 #else
-    return platform::ui::device::card_ready();
+    return platform::esp::idf_common::flash_storage_runtime::ensure_ready(true);
 #endif
 }
 
@@ -3364,7 +3256,7 @@ bool fetch_catalog(std::vector<PackageRecord>& out_packages, std::string& out_er
     }
 
     std::string text;
-    if (!http_get_text(kCatalogUrl, text, out_error))
+    if (!fetch_catalog_text(kCatalogUrl, text, out_error))
     {
         return false;
     }
@@ -3602,12 +3494,18 @@ bool install_package_impl(const PackageRecord& package,
 
     const std::string temp_zip_path = std::string(kTempDir) + "/" + package.id + "-" + package.version + ".zip";
     std::printf("[Packs][Install] download temp=%s\n", temp_zip_path.c_str());
-    if (!http_download_file(package.download_url, temp_zip_path, out_error))
+    if (!download_package_archive(package, temp_zip_path, out_error))
     {
         std::printf("[Packs][Install] download failed error=%s\n", out_error.c_str());
         return false;
     }
     log_path_probe("temp_zip.after_download", temp_zip_path);
+
+    set_install_status(PackageInstallPhase::Installing,
+                       true,
+                       package.id,
+                       "Verifying package...",
+                       package.id.c_str());
 
     std::string archive_sha256;
     if (!sha256_file(temp_zip_path, archive_sha256))
@@ -3629,6 +3527,12 @@ bool install_package_impl(const PackageRecord& package,
                     package.archive_sha256.c_str());
         return false;
     }
+
+    set_install_status(PackageInstallPhase::Installing,
+                       true,
+                       package.id,
+                       "Extracting package...",
+                       package.id.c_str());
 
     if (!extract_zip_payload(temp_zip_path, out_error))
     {
@@ -3657,6 +3561,12 @@ bool install_package_impl(const PackageRecord& package,
 
     const InstalledPackageRecord* previous_record = find_installed_record(index, package.id);
     const std::string previous_storage = previous_record ? previous_record->storage : "";
+
+    set_install_status(PackageInstallPhase::Installing,
+                       true,
+                       package.id,
+                       "Writing package index...",
+                       package.id.c_str());
 
     bool updated = false;
     for (InstalledPackageRecord& record : index.packages)

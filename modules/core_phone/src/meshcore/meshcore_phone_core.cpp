@@ -104,7 +104,8 @@ constexpr uint8_t TXT_TYPE_PLAIN = 0;
 constexpr uint8_t TXT_TYPE_CLI_DATA = 1;
 constexpr uint8_t kCompatFirmwareVerCode = 8;
 constexpr uint8_t kCompatMaxContactsDiv2 = 50;
-constexpr uint8_t kCompatMaxGroupChannels = 1;
+constexpr uint8_t kCompatMaxGroupChannels =
+    static_cast<uint8_t>(chat::kMeshCoreChannelMaxCount);
 constexpr const char* kCompatFirmwareVersion = "v1.11.0";
 constexpr size_t kPrefixSize = 6;
 constexpr size_t kMaxFrameSize = 172;
@@ -142,8 +143,13 @@ void copyBounded(char* dst, size_t dst_len, const char* src)
         dst[0] = '\0';
         return;
     }
-    std::strncpy(dst, src, dst_len - 1);
-    dst[dst_len - 1] = '\0';
+    std::size_t copy_len = std::strlen(src);
+    if (copy_len >= dst_len)
+    {
+        copy_len = dst_len - 1;
+    }
+    std::memmove(dst, src, copy_len);
+    dst[copy_len] = '\0';
 }
 
 void copyFixedField(uint8_t* dst, size_t dst_len, const char* src)
@@ -596,9 +602,20 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
             enqueueErr(ERR_CODE_UNSUPPORTED_CMD);
             return;
         }
+        if (channel_idx >= chat::kMeshCoreChannelMaxCount)
+        {
+            enqueueErr(ERR_CODE_NOT_FOUND);
+            return;
+        }
+        const auto& channel_cfg = cfg.mesh.meshCoreChannel(channel_idx);
+        if (!channel_cfg.enabled)
+        {
+            enqueueErr(ERR_CODE_NOT_FOUND);
+            return;
+        }
         const std::string text(reinterpret_cast<const char*>(&data[index]), len - index);
         chat::MessageId msg_id = 0;
-        const chat::ChannelId channel = (channel_idx == 1U) ? chat::ChannelId::SECONDARY : chat::ChannelId::PRIMARY;
+        const chat::ChannelId channel = chat::meshCoreChannelIdFromSlot(channel_idx);
         if (!app_.sendPhoneText(channel, text, 0, 0, msg_id))
         {
             enqueueErr(ERR_CODE_BAD_STATE);
@@ -989,7 +1006,7 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
     if (cmd == CMD_GET_CHANNEL && len >= 2)
     {
         const uint8_t channel_idx = data[1];
-        if (channel_idx > 1U)
+        if (channel_idx >= chat::kMeshCoreChannelMaxCount)
         {
             enqueueErr(ERR_CODE_NOT_FOUND);
             return;
@@ -998,20 +1015,11 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
         size_t index = 0;
         out[index++] = RESP_CODE_CHANNEL_INFO;
         out[index++] = channel_idx;
-        if (channel_idx == 0U)
-        {
-            copyBounded(reinterpret_cast<char*>(&out[index]), 32, cfg.mesh.meshcore_channel_name);
-            index += 32;
-            std::memcpy(&out[index], cfg.mesh.primary_key, 16);
-            index += 16;
-        }
-        else
-        {
-            copyBounded(reinterpret_cast<char*>(&out[index]), 32, "Secondary");
-            index += 32;
-            std::memcpy(&out[index], cfg.mesh.secondary_key, 16);
-            index += 16;
-        }
+        const auto& channel = cfg.mesh.meshCoreChannel(channel_idx);
+        copyBounded(reinterpret_cast<char*>(&out[index]), 32, channel.name);
+        index += 32;
+        std::memcpy(&out[index], channel.key, chat::kMeshCoreChannelKeyLen);
+        index += chat::kMeshCoreChannelKeyLen;
         enqueueFrame(out, index);
         return;
     }
@@ -1517,22 +1525,31 @@ void MeshCorePhoneCore::handleCmdFrame(const uint8_t* data, size_t len)
     if (cmd == CMD_SET_CHANNEL && len >= 2 + 32 + 16)
     {
         const uint8_t channel_idx = data[1];
-        if (channel_idx > 1U)
+        if (channel_idx >= chat::kMeshCoreChannelMaxCount)
         {
             enqueueErr(ERR_CODE_NOT_FOUND);
             return;
         }
+        auto& channel = cfg.mesh.meshCoreChannel(channel_idx);
+        copyBounded(channel.name,
+                    sizeof(channel.name),
+                    reinterpret_cast<const char*>(&data[2]));
+        std::memcpy(channel.key, &data[34], chat::kMeshCoreChannelKeyLen);
         if (channel_idx == 0U)
         {
-            copyBounded(cfg.mesh.meshcore_channel_name,
-                        sizeof(cfg.mesh.meshcore_channel_name),
-                        reinterpret_cast<const char*>(&data[2]));
-            std::memcpy(cfg.mesh.primary_key, &data[34], 16);
+            channel.enabled = true;
+            if (channel.name[0] == '\0')
+            {
+                copyBounded(channel.name, sizeof(channel.name), "Public");
+            }
         }
         else
         {
-            std::memcpy(cfg.mesh.secondary_key, &data[34], 16);
+            channel.enabled = (channel.name[0] != '\0') ||
+                              !chat::isAllZeroKeyBytes(channel.key, chat::kMeshCoreChannelKeyLen);
         }
+        cfg.mesh.meshcore_channel_slot = channel_idx;
+        cfg.mesh.syncMeshCoreLegacyChannelMirror();
         app_.setMeshCorePhoneConfig(cfg);
         app_.saveConfig();
         app_.applyMeshConfig();

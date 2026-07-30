@@ -30,6 +30,9 @@ class ChatModel
     void onIncoming(const ChatMessage& msg);
     void onSendQueued(const ChatMessage& msg);
     bool updateMessageStatus(MessageId msg_id, MessageStatus status);
+    bool updateMessageStatusForProtocol(MessageId msg_id,
+                                        MeshProtocol protocol,
+                                        MessageStatus status);
 
     /**
      * @brief Handle send result
@@ -56,11 +59,18 @@ class ChatModel
      * @brief Get message by ID
      */
     const ChatMessage* getMessage(MessageId msg_id) const;
+    const ChatMessage* getMessageForProtocol(MessageId msg_id,
+                                             MeshProtocol protocol) const;
 
     /**
      * @brief Clear all conversations and failed messages
      */
     void clearAll();
+
+    /**
+     * @brief Clear one conversation and matching failed-message entries
+     */
+    void clearConversation(const ConversationId& conv);
 
     /**
      * @brief Set policy

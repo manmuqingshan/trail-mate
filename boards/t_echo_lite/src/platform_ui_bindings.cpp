@@ -301,7 +301,7 @@ GpsState get_data()
         return gps;
     }
 
-    const ::chat::contacts::NodeInfo* self = facade.getContactService().getNodeInfo(self_id);
+    const ::chat::contacts::PeerDirectoryItem* self = facade.getContactService().getPeerByNodeId(self_id);
     if (!self || !self->position.valid)
     {
         return gps;

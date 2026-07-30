@@ -1,5 +1,6 @@
 #pragma once
 
+#include "chat/domain/mesh_peer_directory.h"
 #include "chat/infra/mesh_incoming_queue.h"
 #include "chat/infra/meshcore/meshcore_ble_backend.h"
 #include "chat/infra/meshcore/meshcore_identity_crypto.h"
@@ -129,6 +130,7 @@ class MeshCoreRadioAdapter final : public ::chat::IMeshAdapter,
     std::string short_name_;
     const ::chat::runtime::SelfIdentityProvider* identity_provider_ = nullptr;
     chat_contacts::ContactService* contact_service_ = nullptr;
+    ::chat::MeshPeerRecord peer_record_scratch_{};
     bool keys_ready_ = false;
     uint8_t public_key_[::chat::meshcore::kMeshCorePubKeySize] = {};
     uint8_t private_key_[::chat::meshcore::kMeshCorePrivKeySize] = {};

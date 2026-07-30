@@ -106,7 +106,6 @@ int main()
     bool has_map = false;
     bool has_gps = false;
     bool has_sky_plot = false;
-    bool has_pc_link = false;
     bool has_energy_sweep = false;
     bool has_walkie = false;
     bool has_sstv = false;
@@ -125,10 +124,6 @@ int main()
         if (menu.items()[index].screen_id == ui::menu::MenuScreenId::SkyPlot)
         {
             has_sky_plot = true;
-        }
-        if (menu.items()[index].screen_id == ui::menu::MenuScreenId::PcLink)
-        {
-            has_pc_link = true;
         }
         if (menu.items()[index].screen_id == ui::menu::MenuScreenId::EnergySweep)
         {
@@ -154,7 +149,6 @@ int main()
     assert(has_map);
     assert(!has_gps);
     assert(has_sky_plot);
-    assert(!has_pc_link);
     assert(!has_energy_sweep);
     assert(has_walkie);
     assert(!has_sstv);

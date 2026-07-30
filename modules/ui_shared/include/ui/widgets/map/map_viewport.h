@@ -124,6 +124,7 @@ class Runtime
     friend bool screen_center(const Runtime& runtime, GeoPoint& out_center);
     friend Status status(const Runtime& runtime);
     friend bool take_missing_tile_notice(Runtime& runtime, uint8_t* out_map_source);
+    friend void set_loader_paused(Runtime& runtime, bool paused);
     friend void set_gesture_enabled(Runtime& runtime, bool enabled);
     friend void set_gesture_callback(Runtime& runtime, GestureCallback callback, void* user_data);
 };
@@ -143,6 +144,7 @@ bool focus_tile_available(const Model& model);
 Status status(const Runtime& runtime);
 bool take_missing_tile_notice(Runtime& runtime, uint8_t* out_map_source);
 bool transform_geo_point(const GeoPoint& point, uint8_t coord_system, GeoPoint& out_point);
+void set_loader_paused(Runtime& runtime, bool paused);
 void set_gesture_enabled(Runtime& runtime, bool enabled);
 void set_gesture_callback(Runtime& runtime, GestureCallback callback, void* user_data);
 LayerState current_layer_state();

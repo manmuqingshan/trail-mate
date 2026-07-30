@@ -6,6 +6,7 @@
 #include "chat/infra/store/ram_store.h"
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <tuple>
 #include <utility>
 
@@ -27,7 +28,7 @@ void RamStore::append(const ChatMessage& msg)
         evictOldestMessage();
     }
 
-    ConversationId conv(msg.channel, msg.peer, msg.protocol);
+    ConversationId conv = conversationIdForMessage(msg);
     ConversationStorage& storage = getConversationStorage(conv);
     StoredMessageEntry entry;
     entry.message = msg;
@@ -42,13 +43,33 @@ void RamStore::append(const ChatMessage& msg)
 
 std::vector<ChatMessage> RamStore::loadRecent(const ConversationId& conv, size_t n)
 {
+    return loadPageFromLatest(conv, 0, n, nullptr);
+}
+
+std::vector<ChatMessage> RamStore::loadPageFromLatest(const ConversationId& conv,
+                                                      size_t offset_from_latest,
+                                                      size_t limit,
+                                                      size_t* total)
+{
     const ConversationStorage& storage = getConversationStorage(conv);
     std::vector<ChatMessage> result;
 
     size_t count = storage.messages.size();
-    size_t start = (count > n) ? (count - n) : 0;
+    if (total)
+    {
+        *total = count;
+    }
+    if (limit == 0 || offset_from_latest >= count)
+    {
+        return result;
+    }
 
-    for (size_t i = start; i < count; i++)
+    const size_t available = count - offset_from_latest;
+    const size_t to_read = std::min<size_t>(limit, available);
+    size_t start = count - offset_from_latest - to_read;
+    const size_t end = start + to_read;
+
+    for (size_t i = start; i < end; i++)
     {
         result.push_back(storage.messages[i].message);
     }
@@ -71,11 +92,13 @@ std::vector<ConversationMeta> RamStore::loadConversationPage(size_t offset,
         {
             continue;
         }
+        const ChatMessage& latest = storage.messages.back().message;
         ConversationMeta meta;
         meta.id = conv;
-        meta.preview = storage.messages.back().message.text;
-        meta.last_timestamp = storage.messages.back().message.timestamp;
+        meta.preview = latest.text;
+        meta.last_timestamp = latest.timestamp;
         meta.unread = storage.unread_count;
+        meta.reticulum_identity = latest.reticulum_identity;
         if (conv.peer == 0)
         {
             meta.name = "Broadcast";
@@ -120,10 +143,11 @@ std::vector<ConversationMeta> RamStore::loadConversationPage(size_t offset,
     return list;
 }
 
-void RamStore::setUnread(const ConversationId& conv, int unread)
+bool RamStore::setUnread(const ConversationId& conv, int unread)
 {
     ConversationStorage& storage = getConversationStorage(conv);
     storage.unread_count = unread;
+    return true;
 }
 
 int RamStore::getUnread(const ConversationId& conv) const
@@ -168,6 +192,28 @@ bool RamStore::updateMessageStatus(MessageId msg_id, MessageStatus status)
     return false;
 }
 
+bool RamStore::updateMessageStatusForProtocol(MessageId msg_id,
+                                              MeshProtocol protocol,
+                                              MessageStatus status)
+{
+    if (msg_id == 0) return false;
+    for (auto& pair : conversations_)
+    {
+        ConversationStorage& storage = pair.second;
+        size_t count = storage.messages.size();
+        for (size_t i = 0; i < count; ++i)
+        {
+            ChatMessage* msg = &storage.messages[i].message;
+            if (!msg) continue;
+            if (msg->msg_id != msg_id || msg->protocol != protocol) continue;
+            if (msg->from != 0) continue; // only update outgoing messages
+            msg->status = status;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool RamStore::getMessage(MessageId msg_id, ChatMessage* out) const
 {
     if (msg_id == 0)
@@ -189,6 +235,63 @@ bool RamStore::getMessage(MessageId msg_id, ChatMessage* out) const
                 *out = entry.message;
             }
             return true;
+        }
+    }
+    return false;
+}
+
+bool RamStore::getMessageForProtocol(MessageId msg_id,
+                                     MeshProtocol protocol,
+                                     ChatMessage* out) const
+{
+    if (msg_id == 0)
+    {
+        return false;
+    }
+
+    for (const auto& pair : conversations_)
+    {
+        const ConversationStorage& storage = pair.second;
+        for (const auto& entry : storage.messages)
+        {
+            if (entry.message.msg_id != msg_id ||
+                entry.message.protocol != protocol)
+            {
+                continue;
+            }
+            if (out)
+            {
+                *out = entry.message;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+bool RamStore::hasReticulumLxmfMessageHash(const uint8_t* lxmf_hash) const
+{
+    if (!lxmf_hash || isAllZeroKeyBytes(lxmf_hash, kReticulumLxmfHashSize))
+    {
+        return false;
+    }
+
+    for (const auto& pair : conversations_)
+    {
+        const ConversationStorage& storage = pair.second;
+        for (const auto& entry : storage.messages)
+        {
+            const ChatMessage& message = entry.message;
+            if (!chat::hasReticulumLxmfMessageHash(message))
+            {
+                continue;
+            }
+            if (std::memcmp(message.reticulum_lxmf_hash,
+                            lxmf_hash,
+                            kReticulumLxmfHashSize) == 0)
+            {
+                return true;
+            }
         }
     }
     return false;

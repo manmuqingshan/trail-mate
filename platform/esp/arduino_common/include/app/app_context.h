@@ -9,11 +9,10 @@
 #include "app/app_context_platform_bindings.h"
 #include "app/app_event_runtime.h"
 #include "app/app_facades.h"
+#include "app/config_persistence_runtime.h"
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
 #include "freertos/semphr.h"
-#include "freertos/task.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -35,10 +34,9 @@ class ChatModel;
 class ChatService;
 class IChatStore;
 class IMeshAdapter;
+class IMeshPeerDirectory;
 namespace contacts
 {
-class INodeStore;
-class IContactStore;
 class ContactService;
 } // namespace contacts
 namespace ui
@@ -72,6 +70,7 @@ class AppContext final : public IAppBleFacade
 
     bool init(BoardBase& board, LoraBoard* lora_board = nullptr, GpsBoard* gps_board = nullptr,
               MotionBoard* motion_board = nullptr, bool use_mock_adapter = true, uint32_t disable_hw_init = 0);
+    void startDeferredStorage();
 
     chat::ChatService& getChatService() override
     {
@@ -119,16 +118,13 @@ class AppContext final : public IAppBleFacade
         }
     }
 
-    AppConfig& getConfig() override
-    {
-        return config_;
-    }
-
+  protected:
     const AppConfig& getConfig() const override
     {
         return config_;
     }
 
+  public:
     chat::MeshProtocol getMeshProtocol() const override
     {
         return config_.mesh_protocol;
@@ -158,32 +154,15 @@ class AppContext final : public IAppBleFacade
         return board_;
     }
 
-    chat::contacts::INodeStore* getNodeStore() override
-    {
-        return node_store_.get();
-    }
-
-    const chat::contacts::INodeStore* getNodeStore() const override
-    {
-        return node_store_.get();
-    }
-
     bool getDeviceMacAddress(uint8_t out_mac[6]) const override;
     bool syncCurrentEpochSeconds(uint32_t epoch_seconds) override;
     void restartDevice() override;
 
-    chat::contacts::IContactStore* getContactStore()
-    {
-        return contact_store_.get();
-    }
-
-    const chat::contacts::IContactStore* getContactStore() const
-    {
-        return contact_store_.get();
-    }
-
     void saveConfig() override;
     void requestSaveConfig() override;
+    void saveConfig(AppConfigChangeSet changes) override;
+    void requestSaveConfig(AppConfigChangeSet changes) override;
+    AppConfigEdit beginConfigEdit() override;
 
     void applyMeshConfig() override;
     void applyUserInfo() override;
@@ -212,18 +191,17 @@ class AppContext final : public IAppBleFacade
             config_.meshcore_config = chat::MeshConfig();
             config_.applyMeshCoreFactoryDefaults();
         }
-        else if (config_.mesh_protocol == chat::MeshProtocol::RNode ||
-                 config_.mesh_protocol == chat::MeshProtocol::LXMF)
+        else if (chat::infra::isReticulumMeshProtocol(config_.mesh_protocol))
         {
-            config_.rnode_config = chat::MeshConfig();
-            config_.applyRNodeFactoryDefaults();
+            config_.reticulumConfig() = chat::MeshConfig();
+            config_.applyReticulumFactoryDefaults();
         }
         else
         {
             config_.meshtastic_config = chat::MeshConfig();
             config_.meshtastic_config.region = AppConfig::kDefaultRegionCode;
         }
-        saveConfig();
+        saveConfig(AppConfigChangeSet::mesh());
         applyMeshConfig();
     }
 
@@ -249,6 +227,7 @@ class AppContext final : public IAppBleFacade
     void attachBleManager(std::unique_ptr<ble::BleManager> ble_manager);
     void setBleEnabled(bool enabled) override;
     bool isBleEnabled() const override;
+    bool isInitialStorageHydrationPending() const override;
 
   private:
     AppContext();
@@ -264,21 +243,27 @@ class AppContext final : public IAppBleFacade
     void initChatRuntime(bool use_mock_adapter);
     void initTeamServices();
     void initContactServices();
-    void ensureConfigSaveWorker();
-    void enqueueConfigSave();
-    void configSaveLoop();
-    static void configSaveTaskEntry(void* context);
+    void ensureConfigPersistenceLock();
+    void enqueueConfigSave(AppConfigChangeSet requested_changes);
+    bool enqueueConfigSaveLocked(const AppConfig& desired_config,
+                                 AppConfigChangeSet requested_changes,
+                                 uint32_t* out_generation,
+                                 AppConfigChangeSet* out_changes);
+    void finishConfigEdit(AppConfigChangeSet changes);
+    void flushConfigPersistence(uint32_t now_ms);
+    static void commitConfigEdit(void* context, AppConfigChangeSet changes);
+    static void cancelConfigEdit(void* context);
 
     std::unique_ptr<chat::ChatModel> chat_model_;
 
     std::unique_ptr<chat::IChatStore> chat_store_;
+    std::unique_ptr<chat::IProtocolPeerRepository> mesh_peer_directory_;
     std::unique_ptr<chat::IMeshAdapter> mesh_router_;
-    std::unique_ptr<chat::contacts::INodeStore> node_store_;
-    std::unique_ptr<chat::contacts::IContactStore> contact_store_;
 
     std::unique_ptr<chat::ChatService> chat_service_;
     std::unique_ptr<chat::contacts::ContactService> contact_service_;
     std::unique_ptr<chat::ChatService::IncomingMessageObserver> chat_event_bus_bridge_;
+    std::unique_ptr<chat::ChatService::IncomingMessageObserver> auto_reply_observer_;
     std::unique_ptr<team::ITeamCrypto> team_crypto_;
     std::unique_ptr<team::ITeamEventSink> team_event_sink_;
     std::unique_ptr<team::TeamService::UnhandledAppDataObserver> team_app_data_bridge_;
@@ -297,16 +282,13 @@ class AppContext final : public IAppBleFacade
 
     AppConfig config_;
     AppContextPlatformBindings platform_bindings_{};
-    SemaphoreHandle_t config_save_mutex_ = nullptr;
-    QueueHandle_t config_save_queue_ = nullptr;
-    TaskHandle_t config_save_task_ = nullptr;
-    AppConfig pending_config_save_{};
-    AppConfig active_config_save_{};
-    uint32_t pending_config_save_generation_ = 0;
-    uint32_t completed_config_save_generation_ = 0;
-    bool config_save_pending_ = false;
-    bool config_save_busy_ = false;
-    bool config_save_failed_ = false;
+    SemaphoreHandle_t config_state_mutex_ = nullptr;
+    ConfigPersistenceRuntime config_persistence_runtime_{};
+    bool deferred_storage_started_ = false;
+    app::ChatServicesBundle::DeferredStorageStarter deferred_storage_starter_ =
+        nullptr;
+    void* deferred_storage_store_context_ = nullptr;
+    void* deferred_storage_peer_context_ = nullptr;
 
     BoardBase* board_ = nullptr;
     LoraBoard* lora_board_ = nullptr;

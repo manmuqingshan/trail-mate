@@ -3,10 +3,9 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
-#include <esp_heap_caps.h>
-#include <memory>
-#include <new>
+#include <cstdio>
 
+#include "platform/ui/setting_sensitivity.h"
 #include "platform/ui/settings_store.h"
 
 namespace app
@@ -17,6 +16,7 @@ bool loadAppConfigFromPreferences(AppConfig& config,
                                   bool emit_logs);
 bool saveAppConfigToPreferences(const AppConfig& config,
                                 Preferences& prefs,
+                                AppConfigChangeSet changes,
                                 bool emit_logs);
 
 namespace
@@ -25,7 +25,24 @@ namespace
 constexpr const char* kChatKeyMeshOverrideDuty = "mesh_ovr_dc";
 constexpr const char* kChatKeyMeshFreqOverride = "mesh_freq_ovr";
 constexpr const char* kChatKeyMeshIgnoreMqtt = "mesh_ign_mqtt";
+constexpr const char* kChatKeyMtMqttEnabled = "mt_mqtt_en";
+constexpr const char* kChatKeyMtMqttUplink = "mt_mqtt_up";
+constexpr const char* kChatKeyMtMqttDownlink = "mt_mqtt_down";
+constexpr const char* kChatKeyMtMqttHost = "mt_mqtt_host";
+constexpr const char* kChatKeyMtMqttPort = "mt_mqtt_port";
+constexpr const char* kChatKeyMtMqttRoot = "mt_mqtt_root";
+constexpr const char* kChatKeyMtMqttUser = "mt_mqtt_user";
+constexpr const char* kChatKeyMtMqttPass = "mt_mqtt_pass";
+constexpr const char* kLegacyMeshtasticMqttRoot = "msh";
 constexpr const char* kChatKeyMcRegionPreset = "mc_reg_preset";
+constexpr const char* kChatKeyMcMqttEnabled = "mc_mqtt_en";
+constexpr const char* kChatKeyMcMqttUplink = "mc_mqtt_up";
+constexpr const char* kChatKeyMcMqttDownlink = "mc_mqtt_down";
+constexpr const char* kChatKeyMcMqttHost = "mc_mqtt_host";
+constexpr const char* kChatKeyMcMqttPort = "mc_mqtt_port";
+constexpr const char* kChatKeyMcMqttRoot = "mc_mqtt_root";
+constexpr const char* kChatKeyMcMqttUser = "mc_mqtt_user";
+constexpr const char* kChatKeyMcMqttPass = "mc_mqtt_pass";
 constexpr const char* kChatKeySecondaryEnabled = "sec_enabled";
 constexpr const char* kChatKeyPrimaryDownlink = "pri_downlink";
 constexpr const char* kChatKeySecondaryUplink = "sec_uplink";
@@ -42,6 +59,15 @@ constexpr const char* kChatKeyPrimaryChannelId = "pri_ch_id";
 constexpr const char* kChatKeySecondaryChannelId = "sec_ch_id";
 constexpr const char* kChatKeyPrimaryKeyLen = "pri_key_len";
 constexpr const char* kChatKeySecondaryKeyLen = "sec_key_len";
+constexpr const char* kChatKeyMaxChannels = "max_channels";
+constexpr const char* kChatKeyRtLoraEnabled = "rt_lora_en";
+constexpr const char* kChatKeyRtWifiEnabled = "rt_wifi_en";
+constexpr const char* kChatKeyRtWifiAuto = "rt_wifi_auto";
+constexpr const char* kChatKeyRtWifiHost = "rt_wifi_host";
+constexpr const char* kChatKeyRtWifiPort = "rt_wifi_port";
+constexpr const char* kChatKeyRtIfacePolicy = "rt_if_policy";
+constexpr const char* kChatKeyRtAnonPeer = "rt_anon_peer";
+constexpr const char* kChatKeyRtLocationRequests = "rt_loc_req";
 constexpr const char* kGpsKeyInitBaud = "init_baud";
 constexpr const char* kGpsKeyInitProbeMs = "init_probe_ms";
 constexpr const char* kGpsKeyInitProfile = "init_profile";
@@ -52,34 +78,6 @@ constexpr const char* kGpsKeyMotionSensorId = "motion_sensor";
 constexpr const char* kGpsKeyExternalNmeaSentence = "ext_nmea_sent";
 constexpr const char* kSettingsKeyMapTrackInterval = "map_track_int";
 constexpr const char* kSettingsKeyMapTrackFormat = "map_track_fmt";
-
-struct AppConfigDeleter
-{
-    void operator()(AppConfig* config) const
-    {
-        if (!config)
-        {
-            return;
-        }
-        config->~AppConfig();
-        heap_caps_free(config);
-    }
-};
-
-using AppConfigPtr = std::unique_ptr<AppConfig, AppConfigDeleter>;
-
-AppConfigPtr makeHeapAppConfig()
-{
-    void* storage = heap_caps_malloc_prefer(sizeof(AppConfig),
-                                            2,
-                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
-                                            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (storage == nullptr)
-    {
-        return AppConfigPtr{};
-    }
-    return AppConfigPtr(new (storage) AppConfig());
-}
 
 const char* safe_label(const char* value)
 {
@@ -107,6 +105,32 @@ bool begin_namespace(Preferences& prefs,
                       bool_label(ok));
     }
     return ok;
+}
+
+bool changes_require_chat_store(AppConfigChangeSet changes)
+{
+    return changes.intersects(AppConfigChangeSet::identity() |
+                              AppConfigChangeSet::mesh() |
+                              AppConfigChangeSet::channels());
+}
+
+bool changes_require_gps_store(AppConfigChangeSet changes)
+{
+    return changes.contains(AppConfigChangeDomain::Gps);
+}
+
+bool changes_require_settings_store(AppConfigChangeSet changes)
+{
+    return changes.intersects(AppConfigChangeSet::map() |
+                              AppConfigChangeSet::chatUi() |
+                              AppConfigChangeSet::network() |
+                              AppConfigChangeSet::privacy() |
+                              AppConfigChangeSet::route());
+}
+
+bool changes_require_aprs_store(AppConfigChangeSet changes)
+{
+    return changes.contains(AppConfigChangeDomain::Aprs);
 }
 
 bool get_bool_logged(Preferences& prefs,
@@ -264,7 +288,9 @@ String get_string_logged(Preferences& prefs,
                       safe_label(key),
                       exists ? "stored" : "default",
                       static_cast<unsigned long>(value.length()),
-                      safe_label(value.c_str()));
+                      ::platform::ui::settings::diagnostic_value(
+                          key,
+                          value.c_str()));
     }
     return value;
 }
@@ -433,7 +459,9 @@ bool put_string_logged(Preferences& prefs,
                       safe_label(key),
                       static_cast<unsigned long>(expected),
                       bool_label(ok),
-                      safe_value);
+                      ::platform::ui::settings::diagnostic_value(
+                          key,
+                          safe_value));
     }
     return ok;
 }
@@ -475,270 +503,17 @@ bool remove_key_logged(Preferences& prefs,
     return ok;
 }
 
-void log_change_bool(const char* field, bool before, bool after, bool& any_change)
+void format_meshcore_channel_key(char* out, size_t out_len, uint8_t slot, const char* suffix)
 {
-    if (before == after)
+    if (!out || out_len == 0)
     {
         return;
     }
-    any_change = true;
-    Serial.printf("[AppCfg][DELTA] %s %s -> %s\n",
-                  safe_label(field),
-                  bool_label(before),
-                  bool_label(after));
-}
-
-void log_change_u8(const char* field, uint8_t before, uint8_t after, bool& any_change)
-{
-    if (before == after)
-    {
-        return;
-    }
-    any_change = true;
-    Serial.printf("[AppCfg][DELTA] %s %u -> %u\n",
-                  safe_label(field),
-                  static_cast<unsigned>(before),
-                  static_cast<unsigned>(after));
-}
-
-void log_change_u16(const char* field, uint16_t before, uint16_t after, bool& any_change)
-{
-    if (before == after)
-    {
-        return;
-    }
-    any_change = true;
-    Serial.printf("[AppCfg][DELTA] %s %u -> %u\n",
-                  safe_label(field),
-                  static_cast<unsigned>(before),
-                  static_cast<unsigned>(after));
-}
-
-void log_change_u32(const char* field, uint32_t before, uint32_t after, bool& any_change)
-{
-    if (before == after)
-    {
-        return;
-    }
-    any_change = true;
-    Serial.printf("[AppCfg][DELTA] %s %lu -> %lu\n",
-                  safe_label(field),
-                  static_cast<unsigned long>(before),
-                  static_cast<unsigned long>(after));
-}
-
-void log_change_i8(const char* field, int8_t before, int8_t after, bool& any_change)
-{
-    if (before == after)
-    {
-        return;
-    }
-    any_change = true;
-    Serial.printf("[AppCfg][DELTA] %s %d -> %d\n",
-                  safe_label(field),
-                  static_cast<int>(before),
-                  static_cast<int>(after));
-}
-
-void log_change_float(const char* field, float before, float after, bool& any_change)
-{
-    if (before == after)
-    {
-        return;
-    }
-    any_change = true;
-    Serial.printf("[AppCfg][DELTA] %s %.3f -> %.3f\n",
-                  safe_label(field),
-                  static_cast<double>(before),
-                  static_cast<double>(after));
-}
-
-void log_change_text(const char* field,
-                     const char* before,
-                     const char* after,
-                     bool& any_change)
-{
-    const char* safe_before = before ? before : "";
-    const char* safe_after = after ? after : "";
-    if (strcmp(safe_before, safe_after) == 0)
-    {
-        return;
-    }
-    any_change = true;
-    Serial.printf("[AppCfg][DELTA] %s \"%s\" -> \"%s\"\n",
-                  safe_label(field),
-                  safe_before,
-                  safe_after);
-}
-
-void log_change_protocol(const char* field,
-                         chat::MeshProtocol before,
-                         chat::MeshProtocol after,
-                         bool& any_change)
-{
-    if (before == after)
-    {
-        return;
-    }
-    any_change = true;
-    Serial.printf("[AppCfg][DELTA] %s %s -> %s\n",
-                  safe_label(field),
-                  chat::infra::meshProtocolName(before),
-                  chat::infra::meshProtocolName(after));
-}
-
-void log_config_delta(const AppConfig& before, const AppConfig& after)
-{
-    bool any_change = false;
-
-    log_change_protocol("mesh_protocol", before.mesh_protocol, after.mesh_protocol, any_change);
-    log_change_text("node_name", before.node_name, after.node_name, any_change);
-    log_change_text("short_name", before.short_name, after.short_name, any_change);
-    log_change_bool("ble_enabled", before.ble_enabled, after.ble_enabled, any_change);
-
-    log_change_bool("chat_policy.relay", before.chat_policy.enable_relay, after.chat_policy.enable_relay, any_change);
-    log_change_u8("chat_policy.hop_limit", before.chat_policy.hop_limit_default,
-                  after.chat_policy.hop_limit_default, any_change);
-    log_change_bool("chat_policy.ack_bcast", before.chat_policy.ack_for_broadcast,
-                    after.chat_policy.ack_for_broadcast, any_change);
-    log_change_bool("chat_policy.ack_squad", before.chat_policy.ack_for_squad,
-                    after.chat_policy.ack_for_squad, any_change);
-    log_change_u8("chat_policy.max_retries", before.chat_policy.max_tx_retries,
-                  after.chat_policy.max_tx_retries, any_change);
-
-    log_change_u8("meshtastic.region", before.meshtastic_config.region, after.meshtastic_config.region, any_change);
-    log_change_u8("meshtastic.modem_preset", before.meshtastic_config.modem_preset,
-                  after.meshtastic_config.modem_preset, any_change);
-    log_change_i8("meshtastic.tx_power", before.meshtastic_config.tx_power,
-                  after.meshtastic_config.tx_power, any_change);
-    log_change_bool("meshtastic.tx_enabled", before.meshtastic_config.tx_enabled,
-                    after.meshtastic_config.tx_enabled, any_change);
-    log_change_u16("meshtastic.channel_num", before.meshtastic_config.channel_num,
-                   after.meshtastic_config.channel_num, any_change);
-    log_change_text("meshtastic.primary_name", before.meshtastic_config.primary_channel_name,
-                    after.meshtastic_config.primary_channel_name, any_change);
-    log_change_text("meshtastic.secondary_name", before.meshtastic_config.secondary_channel_name,
-                    after.meshtastic_config.secondary_channel_name, any_change);
-    log_change_u32("meshtastic.primary_id", before.meshtastic_config.primary_channel_id,
-                   after.meshtastic_config.primary_channel_id, any_change);
-    log_change_u32("meshtastic.secondary_id", before.meshtastic_config.secondary_channel_id,
-                   after.meshtastic_config.secondary_channel_id, any_change);
-    log_change_u8("meshtastic.primary_key_len", before.meshtastic_config.primary_key_len,
-                  after.meshtastic_config.primary_key_len, any_change);
-    log_change_u8("meshtastic.secondary_key_len", before.meshtastic_config.secondary_key_len,
-                  after.meshtastic_config.secondary_key_len, any_change);
-    log_change_float("meshtastic.freq_offset", before.meshtastic_config.frequency_offset_mhz,
-                     after.meshtastic_config.frequency_offset_mhz, any_change);
-    log_change_float("meshtastic.freq_override", before.meshtastic_config.override_frequency_mhz,
-                     after.meshtastic_config.override_frequency_mhz, any_change);
-
-    log_change_u8("meshcore.region_preset", before.meshcore_config.meshcore_region_preset,
-                  after.meshcore_config.meshcore_region_preset, any_change);
-    log_change_float("meshcore.freq_mhz", before.meshcore_config.meshcore_freq_mhz,
-                     after.meshcore_config.meshcore_freq_mhz, any_change);
-    log_change_float("meshcore.bw_khz", before.meshcore_config.meshcore_bw_khz,
-                     after.meshcore_config.meshcore_bw_khz, any_change);
-    log_change_u8("meshcore.sf", before.meshcore_config.meshcore_sf,
-                  after.meshcore_config.meshcore_sf, any_change);
-    log_change_u8("meshcore.cr", before.meshcore_config.meshcore_cr,
-                  after.meshcore_config.meshcore_cr, any_change);
-    log_change_i8("meshcore.tx_power", before.meshcore_config.tx_power,
-                  after.meshcore_config.tx_power, any_change);
-    log_change_text("meshcore.channel_name", before.meshcore_config.meshcore_channel_name,
-                    after.meshcore_config.meshcore_channel_name, any_change);
-
-    log_change_float("rnode.freq_mhz", before.rnode_config.override_frequency_mhz,
-                     after.rnode_config.override_frequency_mhz, any_change);
-    log_change_float("rnode.bw_khz", before.rnode_config.bandwidth_khz,
-                     after.rnode_config.bandwidth_khz, any_change);
-    log_change_u8("rnode.sf", before.rnode_config.spread_factor,
-                  after.rnode_config.spread_factor, any_change);
-    log_change_u8("rnode.cr", before.rnode_config.coding_rate,
-                  after.rnode_config.coding_rate, any_change);
-    log_change_i8("rnode.tx_power", before.rnode_config.tx_power,
-                  after.rnode_config.tx_power, any_change);
-    log_change_bool("rnode.tx_enabled", before.rnode_config.tx_enabled,
-                    after.rnode_config.tx_enabled, any_change);
-
-    log_change_bool("primary_enabled", before.primary_enabled, after.primary_enabled, any_change);
-    log_change_bool("secondary_enabled", before.secondary_enabled, after.secondary_enabled, any_change);
-    log_change_bool("primary_uplink", before.primary_uplink_enabled, after.primary_uplink_enabled, any_change);
-    log_change_bool("primary_downlink", before.primary_downlink_enabled, after.primary_downlink_enabled, any_change);
-    log_change_bool("secondary_uplink", before.secondary_uplink_enabled, after.secondary_uplink_enabled, any_change);
-    log_change_bool("secondary_downlink", before.secondary_downlink_enabled, after.secondary_downlink_enabled, any_change);
-    log_change_bool("primary_channel.has_module_settings",
-                    before.primary_channel_has_module_settings,
-                    after.primary_channel_has_module_settings,
-                    any_change);
-    log_change_u32("primary_channel.position_precision",
-                   before.primary_channel_position_precision,
-                   after.primary_channel_position_precision,
-                   any_change);
-    log_change_bool("primary_channel.is_muted",
-                    before.primary_channel_is_muted,
-                    after.primary_channel_is_muted,
-                    any_change);
-    log_change_bool("secondary_channel.has_module_settings",
-                    before.secondary_channel_has_module_settings,
-                    after.secondary_channel_has_module_settings,
-                    any_change);
-    log_change_u32("secondary_channel.position_precision",
-                   before.secondary_channel_position_precision,
-                   after.secondary_channel_position_precision,
-                   any_change);
-    log_change_bool("secondary_channel.is_muted",
-                    before.secondary_channel_is_muted,
-                    after.secondary_channel_is_muted,
-                    any_change);
-
-    log_change_bool("gps_enabled", before.gps_enabled, after.gps_enabled, any_change);
-    log_change_u32("gps_interval_ms", before.gps_interval_ms, after.gps_interval_ms, any_change);
-    log_change_u8("gps_mode", before.gps_mode, after.gps_mode, any_change);
-    log_change_u8("gps_sat_mask", before.gps_sat_mask, after.gps_sat_mask, any_change);
-    log_change_u8("gps_strategy", before.gps_strategy, after.gps_strategy, any_change);
-    log_change_u8("gps_alt_ref", before.gps_alt_ref, after.gps_alt_ref, any_change);
-    log_change_u8("gps_coord_format", before.gps_coord_format, after.gps_coord_format, any_change);
-    log_change_u32("motion_idle_ms", before.motion_config.idle_timeout_ms,
-                   after.motion_config.idle_timeout_ms, any_change);
-    log_change_u8("motion_sensor_id", before.motion_config.sensor_id,
-                  after.motion_config.sensor_id, any_change);
-    log_change_u8("external_nmea_output_hz", before.external_nmea_output_hz,
-                  after.external_nmea_output_hz, any_change);
-    log_change_u8("external_nmea_sentence_mask", before.external_nmea_sentence_mask,
-                  after.external_nmea_sentence_mask, any_change);
-
-    log_change_u8("map_coord_system", before.map_coord_system, after.map_coord_system, any_change);
-    log_change_u8("map_source", before.map_source, after.map_source, any_change);
-    log_change_bool("map_contour_enabled", before.map_contour_enabled, after.map_contour_enabled, any_change);
-    log_change_bool("map_track_enabled", before.map_track_enabled, after.map_track_enabled, any_change);
-    log_change_u8("map_track_interval", before.map_track_interval, after.map_track_interval, any_change);
-    log_change_u8("map_track_format", before.map_track_format, after.map_track_format, any_change);
-
-    log_change_u8("chat_channel", before.chat_channel, after.chat_channel, any_change);
-    log_change_bool("net_duty_cycle", before.net_duty_cycle, after.net_duty_cycle, any_change);
-    log_change_u8("net_util", before.net_channel_util, after.net_channel_util, any_change);
-
-    log_change_u8("privacy_encrypt_mode", before.privacy_encrypt_mode, after.privacy_encrypt_mode, any_change);
-
-    log_change_bool("route_enabled", before.route_enabled, after.route_enabled, any_change);
-    log_change_text("route_path", before.route_path, after.route_path, any_change);
-
-    log_change_bool("aprs.enabled", before.aprs.enabled, after.aprs.enabled, any_change);
-    log_change_text("aprs.igate_callsign", before.aprs.igate_callsign, after.aprs.igate_callsign, any_change);
-    log_change_u8("aprs.igate_ssid", before.aprs.igate_ssid, after.aprs.igate_ssid, any_change);
-    log_change_text("aprs.tocall", before.aprs.tocall, after.aprs.tocall, any_change);
-    log_change_text("aprs.path", before.aprs.path, after.aprs.path, any_change);
-    log_change_u16("aprs.tx_min_interval_s", before.aprs.tx_min_interval_s, after.aprs.tx_min_interval_s, any_change);
-    log_change_u16("aprs.dedupe_window_s", before.aprs.dedupe_window_s, after.aprs.dedupe_window_s, any_change);
-    log_change_u16("aprs.position_interval_s", before.aprs.position_interval_s,
-                   after.aprs.position_interval_s, any_change);
-    log_change_bool("aprs.self_enable", before.aprs.self_enable, after.aprs.self_enable, any_change);
-    log_change_text("aprs.self_callsign", before.aprs.self_callsign, after.aprs.self_callsign, any_change);
-
-    if (!any_change)
-    {
-        Serial.println("[AppCfg][DELTA] no field changes");
-    }
+    std::snprintf(out,
+                  out_len,
+                  "mc_ch%u_%s",
+                  static_cast<unsigned>(chat::normalizeMeshCoreChannelSlot(slot)),
+                  suffix ? suffix : "");
 }
 
 void log_config_summary(const char* phase, const AppConfig& config)
@@ -826,6 +601,19 @@ void log_config_summary(const char* phase, const AppConfig& config)
                   bool_label(config.aprs.self_enable),
                   config.aprs.self_callsign,
                   static_cast<unsigned>(config.aprs.node_map_len));
+    Serial.printf("[AppCfg][%s][reticulum_if] lora=%s wifi=%s auto_wifi=%s anonymous=%s host=%s port=%u policy=%u call=sideband_lxst location_requests=%s\n",
+                  safe_label(phase),
+                  bool_label(config.rnode_config.reticulum_lora_enabled),
+                  bool_label(config.rnode_config.reticulum_wifi_gateway_enabled),
+                  bool_label(config.rnode_config.reticulum_wifi_auto_connect),
+                  bool_label(config.rnode_config.reticulum_anonymous_peer),
+                  config.rnode_config.reticulum_wifi_gateway_host[0] != '\0'
+                      ? config.rnode_config.reticulum_wifi_gateway_host
+                      : "<unset>",
+                  static_cast<unsigned>(config.rnode_config.reticulum_wifi_gateway_port),
+                  static_cast<unsigned>(static_cast<uint8_t>(
+                      config.rnode_config.reticulum_interface_policy)),
+                  bool_label(config.rnode_config.reticulum_allow_location_requests));
 }
 
 } // namespace
@@ -935,6 +723,7 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         chat_policy.ack_for_broadcast = get_bool("ack_bcast", false);
         chat_policy.ack_for_squad = get_bool("ack_squad", true);
         chat_policy.max_tx_retries = get_uchar("max_retries", 1);
+        chat_policy.max_channels = get_uchar(kChatKeyMaxChannels, 3);
 
         // Load meshtastic config (legacy-compatible keys)
         meshtastic_config.region = get_uchar("region", 0);
@@ -971,6 +760,32 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         meshtastic_config.secondary_channel_name[sizeof(meshtastic_config.secondary_channel_name) - 1] = '\0';
         meshtastic_config.primary_channel_id = get_uint(kChatKeyPrimaryChannelId, 0);
         meshtastic_config.secondary_channel_id = get_uint(kChatKeySecondaryChannelId, 0);
+        config.meshtastic_mqtt_enabled =
+            get_bool(kChatKeyMtMqttEnabled, config.meshtastic_mqtt_enabled);
+        config.meshtastic_mqtt_uplink_enabled =
+            get_bool(kChatKeyMtMqttUplink, config.meshtastic_mqtt_uplink_enabled);
+        config.meshtastic_mqtt_downlink_enabled =
+            get_bool(kChatKeyMtMqttDownlink, config.meshtastic_mqtt_downlink_enabled);
+        String mt_mqtt_host = get_string(kChatKeyMtMqttHost, config.meshtastic_mqtt_host);
+        strncpy(config.meshtastic_mqtt_host, mt_mqtt_host.c_str(),
+                sizeof(config.meshtastic_mqtt_host) - 1);
+        config.meshtastic_mqtt_host[sizeof(config.meshtastic_mqtt_host) - 1] = '\0';
+        config.meshtastic_mqtt_port =
+            get_ushort(kChatKeyMtMqttPort, config.meshtastic_mqtt_port);
+        String mt_mqtt_root = get_string(kChatKeyMtMqttRoot, config.meshtastic_mqtt_root);
+        strncpy(config.meshtastic_mqtt_root, mt_mqtt_root.c_str(),
+                sizeof(config.meshtastic_mqtt_root) - 1);
+        config.meshtastic_mqtt_root[sizeof(config.meshtastic_mqtt_root) - 1] = '\0';
+        String mt_mqtt_user =
+            get_string(kChatKeyMtMqttUser, config.meshtastic_mqtt_username);
+        strncpy(config.meshtastic_mqtt_username, mt_mqtt_user.c_str(),
+                sizeof(config.meshtastic_mqtt_username) - 1);
+        config.meshtastic_mqtt_username[sizeof(config.meshtastic_mqtt_username) - 1] = '\0';
+        String mt_mqtt_pass =
+            get_string(kChatKeyMtMqttPass, config.meshtastic_mqtt_password);
+        strncpy(config.meshtastic_mqtt_password, mt_mqtt_pass.c_str(),
+                sizeof(config.meshtastic_mqtt_password) - 1);
+        config.meshtastic_mqtt_password[sizeof(config.meshtastic_mqtt_password) - 1] = '\0';
 
         // Load meshcore profile (protocol-specific keys)
         meshcore_config.meshcore_freq_mhz = get_float("mc_freq", meshcore_config.meshcore_freq_mhz);
@@ -991,13 +806,60 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         meshcore_config.meshcore_forward_profile = static_cast<chat::MeshCoreForwardProfile>(
             get_uchar("mc_fwd_prof",
                       static_cast<uint8_t>(meshcore_config.meshcore_forward_profile)));
-        meshcore_config.meshcore_channel_slot = get_uchar("mc_ch_slot", 0);
+        meshcore_config.meshcore_channel_slot =
+            chat::normalizeMeshCoreChannelSlot(get_uchar("mc_ch_slot", 0));
         meshcore_config.tx_enabled = get_bool("mc_tx_en", meshcore_config.tx_enabled);
         String mc_name = get_string("mc_ch_name", meshcore_config.meshcore_channel_name);
         strncpy(meshcore_config.meshcore_channel_name, mc_name.c_str(),
                 sizeof(meshcore_config.meshcore_channel_name) - 1);
         meshcore_config.meshcore_channel_name[sizeof(meshcore_config.meshcore_channel_name) - 1] = '\0';
         get_bytes("mc_ch_key", meshcore_config.secondary_key, sizeof(meshcore_config.secondary_key));
+        meshcore_config.importMeshCoreLegacyChannelMirror();
+        for (uint8_t slot = 0; slot < chat::kMeshCoreChannelMaxCount; ++slot)
+        {
+            char key[16] = {};
+            chat::MeshCoreChannelConfig& channel = meshcore_config.meshCoreChannel(slot);
+            format_meshcore_channel_key(key, sizeof(key), slot, "en");
+            channel.enabled = get_bool(key, channel.enabled);
+            format_meshcore_channel_key(key, sizeof(key), slot, "name");
+            String channel_name = get_string(key, channel.name);
+            strncpy(channel.name, channel_name.c_str(), sizeof(channel.name) - 1);
+            channel.name[sizeof(channel.name) - 1] = '\0';
+            format_meshcore_channel_key(key, sizeof(key), slot, "key");
+            uint8_t channel_key[chat::kMeshCoreChannelKeyLen] = {};
+            const size_t channel_key_read =
+                get_bytes(key, channel_key, sizeof(channel_key));
+            if (channel_key_read == chat::kMeshCoreChannelKeyLen)
+            {
+                memcpy(channel.key, channel_key, sizeof(channel.key));
+            }
+        }
+        meshcore_config.meshCoreChannel(0).enabled = true;
+        meshcore_config.syncMeshCoreLegacyChannelMirror();
+        meshcore_config.meshcore_mqtt_enabled =
+            get_bool(kChatKeyMcMqttEnabled, meshcore_config.meshcore_mqtt_enabled);
+        meshcore_config.meshcore_mqtt_uplink_enabled =
+            get_bool(kChatKeyMcMqttUplink, meshcore_config.meshcore_mqtt_uplink_enabled);
+        meshcore_config.meshcore_mqtt_downlink_enabled =
+            get_bool(kChatKeyMcMqttDownlink, meshcore_config.meshcore_mqtt_downlink_enabled);
+        String mc_mqtt_host = get_string(kChatKeyMcMqttHost, meshcore_config.meshcore_mqtt_host);
+        strncpy(meshcore_config.meshcore_mqtt_host, mc_mqtt_host.c_str(),
+                sizeof(meshcore_config.meshcore_mqtt_host) - 1);
+        meshcore_config.meshcore_mqtt_host[sizeof(meshcore_config.meshcore_mqtt_host) - 1] = '\0';
+        meshcore_config.meshcore_mqtt_port =
+            get_ushort(kChatKeyMcMqttPort, meshcore_config.meshcore_mqtt_port);
+        String mc_mqtt_root = get_string(kChatKeyMcMqttRoot, meshcore_config.meshcore_mqtt_root);
+        strncpy(meshcore_config.meshcore_mqtt_root, mc_mqtt_root.c_str(),
+                sizeof(meshcore_config.meshcore_mqtt_root) - 1);
+        meshcore_config.meshcore_mqtt_root[sizeof(meshcore_config.meshcore_mqtt_root) - 1] = '\0';
+        String mc_mqtt_user = get_string(kChatKeyMcMqttUser, meshcore_config.meshcore_mqtt_username);
+        strncpy(meshcore_config.meshcore_mqtt_username, mc_mqtt_user.c_str(),
+                sizeof(meshcore_config.meshcore_mqtt_username) - 1);
+        meshcore_config.meshcore_mqtt_username[sizeof(meshcore_config.meshcore_mqtt_username) - 1] = '\0';
+        String mc_mqtt_pass = get_string(kChatKeyMcMqttPass, meshcore_config.meshcore_mqtt_password);
+        strncpy(meshcore_config.meshcore_mqtt_password, mc_mqtt_pass.c_str(),
+                sizeof(meshcore_config.meshcore_mqtt_password) - 1);
+        meshcore_config.meshcore_mqtt_password[sizeof(meshcore_config.meshcore_mqtt_password) - 1] = '\0';
 
         rnode_config.override_frequency_mhz = get_float("rn_freq", rnode_config.override_frequency_mhz);
         rnode_config.bandwidth_khz = get_float("rn_bw", rnode_config.bandwidth_khz);
@@ -1005,6 +867,33 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         rnode_config.coding_rate = get_uchar("rn_cr", rnode_config.coding_rate);
         rnode_config.tx_power = get_char("rn_tx", rnode_config.tx_power);
         rnode_config.tx_enabled = get_bool("rn_tx_en", rnode_config.tx_enabled);
+        rnode_config.reticulum_lora_enabled =
+            get_bool(kChatKeyRtLoraEnabled, rnode_config.reticulum_lora_enabled);
+        rnode_config.reticulum_wifi_gateway_enabled =
+            get_bool(kChatKeyRtWifiEnabled, rnode_config.reticulum_wifi_gateway_enabled);
+        rnode_config.reticulum_wifi_auto_connect =
+            get_bool(kChatKeyRtWifiAuto, rnode_config.reticulum_wifi_auto_connect);
+        rnode_config.reticulum_anonymous_peer =
+            get_bool(kChatKeyRtAnonPeer, rnode_config.reticulum_anonymous_peer);
+        String reticulum_wifi_host =
+            get_string(kChatKeyRtWifiHost, rnode_config.reticulum_wifi_gateway_host);
+        strncpy(rnode_config.reticulum_wifi_gateway_host,
+                reticulum_wifi_host.c_str(),
+                sizeof(rnode_config.reticulum_wifi_gateway_host) - 1);
+        rnode_config.reticulum_wifi_gateway_host[sizeof(rnode_config.reticulum_wifi_gateway_host) - 1] = '\0';
+        rnode_config.reticulum_wifi_gateway_port =
+            get_ushort(kChatKeyRtWifiPort, rnode_config.reticulum_wifi_gateway_port);
+        const uint8_t reticulum_interface_policy =
+            get_uchar(kChatKeyRtIfacePolicy,
+                      static_cast<uint8_t>(rnode_config.reticulum_interface_policy));
+        if (reticulum_interface_policy <= static_cast<uint8_t>(chat::ReticulumInterfacePolicy::WifiGatewayOnly))
+        {
+            rnode_config.reticulum_interface_policy =
+                static_cast<chat::ReticulumInterfacePolicy>(reticulum_interface_policy);
+        }
+        rnode_config.reticulum_allow_location_requests =
+            get_bool(kChatKeyRtLocationRequests,
+                     rnode_config.reticulum_allow_location_requests);
 
         const uint8_t mesh_protocol_raw = get_uchar("mesh_protocol", 0xFF);
         if (chat::infra::isValidMeshProtocolValue(mesh_protocol_raw))
@@ -1014,10 +903,10 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         else
         {
             const int legacy_protocol = get_int("mesh_protocol",
-                                                static_cast<int>(chat::MeshProtocol::Meshtastic));
+                                                static_cast<int>(mesh_protocol));
             mesh_protocol = chat::infra::meshProtocolFromRaw(
                 static_cast<uint8_t>(legacy_protocol),
-                chat::MeshProtocol::Meshtastic);
+                mesh_protocol);
         }
 
         // Load device name
@@ -1035,8 +924,8 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         // Load channel settings
         primary_enabled = get_bool("primary_enabled", true);
         secondary_enabled = get_bool(kChatKeySecondaryEnabled, false);
-        primary_uplink_enabled = get_bool("primary_uplink", false);
-        primary_downlink_enabled = get_bool(kChatKeyPrimaryDownlink, false);
+        primary_uplink_enabled = get_bool("primary_uplink", true);
+        primary_downlink_enabled = get_bool(kChatKeyPrimaryDownlink, true);
         secondary_uplink_enabled = get_bool(kChatKeySecondaryUplink, false);
         secondary_downlink_enabled = get_bool(kChatKeySecondaryDownlink, false);
         primary_channel_has_module_settings = get_bool(kChatKeyPrimaryHasModuleSettings, false);
@@ -1072,6 +961,49 @@ bool loadAppConfigFromPreferences(AppConfig& config,
     meshtastic_config.tx_power = clamp_tx_power(meshtastic_config.tx_power);
     meshcore_config.tx_power = clamp_tx_power(meshcore_config.tx_power);
     rnode_config.tx_power = clamp_tx_power(rnode_config.tx_power);
+    if (config.meshtastic_mqtt_port == 0)
+    {
+        config.meshtastic_mqtt_port = 1883;
+    }
+    if (strcmp(config.meshtastic_mqtt_root, kLegacyMeshtasticMqttRoot) == 0 &&
+        strcmp(config.meshtastic_mqtt_root, AppConfig::kDefaultMeshtasticMqttRoot) != 0)
+    {
+        strncpy(config.meshtastic_mqtt_root, AppConfig::kDefaultMeshtasticMqttRoot,
+                sizeof(config.meshtastic_mqtt_root) - 1);
+        config.meshtastic_mqtt_root[sizeof(config.meshtastic_mqtt_root) - 1] = '\0';
+        if (emit_logs)
+        {
+            std::printf("[AppCfg][MIGRATE] mt_mqtt_root old=%s new=%s\n",
+                        kLegacyMeshtasticMqttRoot,
+                        config.meshtastic_mqtt_root);
+        }
+    }
+    if (config.meshtastic_mqtt_root[0] == '\0')
+    {
+        strncpy(config.meshtastic_mqtt_root, AppConfig::kDefaultMeshtasticMqttRoot,
+                sizeof(config.meshtastic_mqtt_root) - 1);
+        config.meshtastic_mqtt_root[sizeof(config.meshtastic_mqtt_root) - 1] = '\0';
+    }
+    if (meshcore_config.meshcore_mqtt_port == 0)
+    {
+        meshcore_config.meshcore_mqtt_port = 1883;
+    }
+    if (meshcore_config.meshcore_mqtt_host[0] == '\0')
+    {
+        strncpy(meshcore_config.meshcore_mqtt_host, AppConfig::kDefaultMeshCoreMqttHost,
+                sizeof(meshcore_config.meshcore_mqtt_host) - 1);
+        meshcore_config.meshcore_mqtt_host[sizeof(meshcore_config.meshcore_mqtt_host) - 1] = '\0';
+    }
+    if (meshcore_config.meshcore_mqtt_root[0] == '\0')
+    {
+        strncpy(meshcore_config.meshcore_mqtt_root, AppConfig::kDefaultMeshCoreMqttRoot,
+                sizeof(meshcore_config.meshcore_mqtt_root) - 1);
+        meshcore_config.meshcore_mqtt_root[sizeof(meshcore_config.meshcore_mqtt_root) - 1] = '\0';
+    }
+    if (rnode_config.reticulum_wifi_gateway_port == 0)
+    {
+        rnode_config.reticulum_wifi_gateway_port = 4242;
+    }
 
     if (begin_namespace(prefs, "gps", true, "LOAD", emit_logs))
     {
@@ -1133,7 +1065,8 @@ bool loadAppConfigFromPreferences(AppConfig& config,
         map_track_enabled = get_bool("map_track", map_track_enabled);
         map_track_interval = get_uchar(kSettingsKeyMapTrackInterval, map_track_interval);
         map_track_format = get_uchar(kSettingsKeyMapTrackFormat, map_track_format);
-        ble_enabled = get_bool("ble_enabled", ble_enabled);
+        (void)get_bool("ble_enabled", false);
+        ble_enabled = false;
         chat_channel = get_uchar("chat_channel", chat_channel);
         net_duty_cycle = get_bool("net_duty_cycle", net_duty_cycle);
         net_channel_util = get_uchar("net_util", net_channel_util);
@@ -1211,6 +1144,7 @@ bool loadAppConfigFromPreferences(AppConfig& config,
 
 bool saveAppConfigToPreferences(const AppConfig& config,
                                 Preferences& prefs,
+                                AppConfigChangeSet changes,
                                 bool emit_logs)
 {
     const auto& chat_policy = config.chat_policy;
@@ -1254,7 +1188,6 @@ bool saveAppConfigToPreferences(const AppConfig& config,
     const auto& map_track_enabled = config.map_track_enabled;
     const auto& map_track_interval = config.map_track_interval;
     const auto& map_track_format = config.map_track_format;
-    const auto& ble_enabled = config.ble_enabled;
     const auto& chat_channel = config.chat_channel;
     const auto& net_duty_cycle = config.net_duty_cycle;
     const auto& net_channel_util = config.net_channel_util;
@@ -1262,19 +1195,41 @@ bool saveAppConfigToPreferences(const AppConfig& config,
     const auto& route_enabled = config.route_enabled;
     const auto& route_path = config.route_path;
     const auto& aprs = config.aprs;
+    const bool save_chat = changes_require_chat_store(changes);
+    const bool save_gps = changes_require_gps_store(changes);
+    const bool save_settings = changes_require_settings_store(changes);
+    const bool save_aprs = changes_require_aprs_store(changes);
 
     if (emit_logs)
     {
-        Serial.println("[AppCfg][SAVE] begin");
-        log_config_summary("SAVE", config);
+        Serial.printf("[AppCfg][SAVE] begin changes=0x%08lx chat=%u gps=%u settings=%u aprs=%u\n",
+                      static_cast<unsigned long>(changes.bits()),
+                      save_chat ? 1U : 0U,
+                      save_gps ? 1U : 0U,
+                      save_settings ? 1U : 0U,
+                      save_aprs ? 1U : 0U);
+        if (changes.bits() == AppConfigChangeSet::allPersisted().bits())
+        {
+            log_config_summary("SAVE", config);
+        }
+    }
+
+    if (!save_chat && !save_gps && !save_settings && !save_aprs)
+    {
+        if (emit_logs)
+        {
+            Serial.println("[AppCfg][SAVE] skipped no persistent domains");
+        }
+        return true;
     }
 
     bool ok = true;
 
-    if (!begin_namespace(prefs, "chat", false, "SAVE", emit_logs))
+    if (save_chat && !begin_namespace(prefs, "chat", false, "SAVE", emit_logs))
     {
         return false;
     }
+    if (save_chat)
     {
         auto put_bool = [&](const char* key, bool value)
         {
@@ -1315,6 +1270,7 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         put_bool("ack_bcast", chat_policy.ack_for_broadcast);
         put_bool("ack_squad", chat_policy.ack_for_squad);
         put_uchar("max_retries", chat_policy.max_tx_retries);
+        put_uchar(kChatKeyMaxChannels, chat_policy.max_channels);
 
         // Save meshtastic profile (legacy-compatible keys)
         put_uchar("region", meshtastic_config.region);
@@ -1337,6 +1293,17 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         put_string(kChatKeySecondaryChannelName, meshtastic_config.secondary_channel_name);
         put_uint(kChatKeyPrimaryChannelId, meshtastic_config.primary_channel_id);
         put_uint(kChatKeySecondaryChannelId, meshtastic_config.secondary_channel_id);
+        put_bool(kChatKeyMtMqttEnabled, config.meshtastic_mqtt_enabled);
+        put_bool(kChatKeyMtMqttUplink, config.meshtastic_mqtt_uplink_enabled);
+        put_bool(kChatKeyMtMqttDownlink, config.meshtastic_mqtt_downlink_enabled);
+        put_string(kChatKeyMtMqttHost, config.meshtastic_mqtt_host);
+        put_ushort(kChatKeyMtMqttPort,
+                   config.meshtastic_mqtt_port != 0
+                       ? config.meshtastic_mqtt_port
+                       : 1883);
+        put_string(kChatKeyMtMqttRoot, config.meshtastic_mqtt_root);
+        put_string(kChatKeyMtMqttUser, config.meshtastic_mqtt_username);
+        put_string(kChatKeyMtMqttPass, config.meshtastic_mqtt_password);
 
         // Save meshcore profile
         put_float("mc_freq", meshcore_config.meshcore_freq_mhz);
@@ -1352,10 +1319,36 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         put_bool("mc_multi_acks", meshcore_config.meshcore_multi_acks);
         put_uchar("mc_send_prof", static_cast<uint8_t>(meshcore_config.meshcore_send_profile));
         put_uchar("mc_fwd_prof", static_cast<uint8_t>(meshcore_config.meshcore_forward_profile));
-        put_uchar("mc_ch_slot", meshcore_config.meshcore_channel_slot);
+        const uint8_t mc_slot =
+            chat::normalizeMeshCoreChannelSlot(meshcore_config.meshcore_channel_slot);
+        const chat::MeshCoreChannelConfig& active_mc_channel =
+            meshcore_config.meshCoreChannel(mc_slot);
+        put_uchar("mc_ch_slot", mc_slot);
         put_bool("mc_tx_en", meshcore_config.tx_enabled);
-        put_string("mc_ch_name", meshcore_config.meshcore_channel_name);
-        put_bytes("mc_ch_key", meshcore_config.secondary_key, sizeof(meshcore_config.secondary_key));
+        put_string("mc_ch_name", active_mc_channel.name);
+        put_bytes("mc_ch_key", active_mc_channel.key, sizeof(active_mc_channel.key));
+        for (uint8_t slot = 0; slot < chat::kMeshCoreChannelMaxCount; ++slot)
+        {
+            char key[16] = {};
+            const chat::MeshCoreChannelConfig& channel = meshcore_config.meshCoreChannel(slot);
+            format_meshcore_channel_key(key, sizeof(key), slot, "en");
+            put_bool(key, slot == 0 ? true : channel.enabled);
+            format_meshcore_channel_key(key, sizeof(key), slot, "name");
+            put_string(key, channel.name);
+            format_meshcore_channel_key(key, sizeof(key), slot, "key");
+            put_bytes(key, channel.key, sizeof(channel.key));
+        }
+        put_bool(kChatKeyMcMqttEnabled, meshcore_config.meshcore_mqtt_enabled);
+        put_bool(kChatKeyMcMqttUplink, meshcore_config.meshcore_mqtt_uplink_enabled);
+        put_bool(kChatKeyMcMqttDownlink, meshcore_config.meshcore_mqtt_downlink_enabled);
+        put_string(kChatKeyMcMqttHost, meshcore_config.meshcore_mqtt_host);
+        put_ushort(kChatKeyMcMqttPort,
+                   meshcore_config.meshcore_mqtt_port != 0
+                       ? meshcore_config.meshcore_mqtt_port
+                       : 1883);
+        put_string(kChatKeyMcMqttRoot, meshcore_config.meshcore_mqtt_root);
+        put_string(kChatKeyMcMqttUser, meshcore_config.meshcore_mqtt_username);
+        put_string(kChatKeyMcMqttPass, meshcore_config.meshcore_mqtt_password);
 
         put_float("rn_freq", rnode_config.override_frequency_mhz);
         put_float("rn_bw", rnode_config.bandwidth_khz);
@@ -1363,9 +1356,40 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         put_uchar("rn_cr", rnode_config.coding_rate);
         put_char("rn_tx", rnode_config.tx_power);
         put_bool("rn_tx_en", rnode_config.tx_enabled);
+        put_bool(kChatKeyRtLoraEnabled, rnode_config.reticulum_lora_enabled);
+        put_bool(kChatKeyRtWifiEnabled, rnode_config.reticulum_wifi_gateway_enabled);
+        put_bool(kChatKeyRtWifiAuto, rnode_config.reticulum_wifi_auto_connect);
+        put_bool(kChatKeyRtAnonPeer, rnode_config.reticulum_anonymous_peer);
+        put_string(kChatKeyRtWifiHost, rnode_config.reticulum_wifi_gateway_host);
+        put_ushort(kChatKeyRtWifiPort,
+                   rnode_config.reticulum_wifi_gateway_port != 0
+                       ? rnode_config.reticulum_wifi_gateway_port
+                       : 4242);
+        put_uchar(kChatKeyRtIfacePolicy,
+                  static_cast<uint8_t>(rnode_config.reticulum_interface_policy));
+        put_bool(kChatKeyRtLocationRequests,
+                 rnode_config.reticulum_allow_location_requests);
+        const char* legacy_reticulum_group_suffixes[] = {"en", "name", "dest"};
+        for (size_t index = 0; index < chat::kReticulumGroupDestinationMaxCount; ++index)
+        {
+            for (const char* suffix : legacy_reticulum_group_suffixes)
+            {
+                char legacy_key[16] = {};
+                const int written = snprintf(legacy_key,
+                                             sizeof(legacy_key),
+                                             "rtg%u_%s",
+                                             static_cast<unsigned>(index),
+                                             suffix);
+                if (written > 0 && static_cast<size_t>(written) < sizeof(legacy_key))
+                {
+                    ok = remove_key_logged(prefs, "chat", legacy_key, emit_logs) && ok;
+                }
+            }
+        }
         // Remove first so legacy key type mismatches cannot block updating this value.
         ok = remove_key_logged(prefs, "chat", "mesh_protocol", emit_logs) && ok;
-        put_uchar("mesh_protocol", static_cast<uint8_t>(mesh_protocol));
+        put_uchar("mesh_protocol",
+                  static_cast<uint8_t>(chat::infra::normalizeMeshProtocol(mesh_protocol)));
 
         // Save device name
         put_bytes("node_name", node_name, strlen(node_name));
@@ -1410,13 +1434,14 @@ bool saveAppConfigToPreferences(const AppConfig& config,
             ok = remove_key_logged(prefs, "chat", "secondary_key", emit_logs) && ok;
         }
         put_uchar(kChatKeySecondaryKeyLen, secondary_key_len);
+        prefs.end();
     }
-    prefs.end();
 
-    if (!begin_namespace(prefs, "gps", false, "SAVE", emit_logs))
+    if (save_gps && !begin_namespace(prefs, "gps", false, "SAVE", emit_logs))
     {
         return false;
     }
+    if (save_gps)
     {
         auto put_bool = [&](const char* key, bool value)
         {
@@ -1448,13 +1473,14 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         put_uchar(kGpsKeyMotionSensorId, motion_config.sensor_id);
         put_uchar("ext_nmea", external_nmea_output_hz);
         put_uchar(kGpsKeyExternalNmeaSentence, external_nmea_sentence_mask);
+        prefs.end();
     }
-    prefs.end();
 
-    if (!begin_namespace(prefs, "settings", false, "SAVE", emit_logs))
+    if (save_settings && !begin_namespace(prefs, "settings", false, "SAVE", emit_logs))
     {
         return false;
     }
+    if (save_settings)
     {
         auto put_bool = [&](const char* key, bool value)
         {
@@ -1475,7 +1501,7 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         put_bool("map_track", map_track_enabled);
         put_uchar(kSettingsKeyMapTrackInterval, map_track_interval);
         put_uchar(kSettingsKeyMapTrackFormat, map_track_format);
-        put_bool("ble_enabled", ble_enabled);
+        put_bool("ble_enabled", false);
         put_uchar("chat_channel", chat_channel);
         put_bool("net_duty_cycle", net_duty_cycle);
         put_uchar("net_util", net_channel_util);
@@ -1483,13 +1509,14 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         ok = remove_key_logged(prefs, "settings", "privacy_pki", emit_logs) && ok;
         put_bool("route_enabled", route_enabled);
         put_string("route_path", route_path);
+        prefs.end();
     }
-    prefs.end();
 
-    if (!begin_namespace(prefs, "aprs", false, "SAVE", emit_logs))
+    if (save_aprs && !begin_namespace(prefs, "aprs", false, "SAVE", emit_logs))
     {
         return false;
     }
+    if (save_aprs)
     {
         auto put_bool = [&](const char* key, bool value)
         {
@@ -1536,8 +1563,8 @@ bool saveAppConfigToPreferences(const AppConfig& config,
         }
         put_bool("self_enable", aprs.self_enable);
         put_string("self_call", aprs.self_callsign);
+        prefs.end();
     }
-    prefs.end();
 
     if (emit_logs)
     {
@@ -1566,21 +1593,10 @@ bool loadAppConfig(AppConfig& config)
     return loadAppConfigFromPreferences(config, prefs, true);
 }
 
-bool saveAppConfig(const AppConfig& config)
+bool saveAppConfig(const AppConfig& config, AppConfigChangeSet changes)
 {
-    AppConfigPtr previous_config = makeHeapAppConfig();
-    if (!previous_config)
-    {
-        Serial.println("[AppCfg][SAVE] failed: app config snapshot alloc");
-        return false;
-    }
-
-    Preferences previous_prefs;
-    loadAppConfigFromPreferences(*previous_config, previous_prefs, false);
-    log_config_delta(*previous_config, config);
-
     Preferences prefs;
-    return saveAppConfigToPreferences(config, prefs, true);
+    return saveAppConfigToPreferences(config, prefs, changes, true);
 }
 
 } // namespace app

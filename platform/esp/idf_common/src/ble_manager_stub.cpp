@@ -6,7 +6,7 @@ namespace ble
 {
 
 BleManager::BleManager(app::IAppBleFacade& ctx)
-    : ctx_(ctx), active_protocol_(ctx.getConfig().mesh_protocol)
+    : ctx_(ctx), active_protocol_(ctx.readConfig().mesh_protocol)
 {
 }
 

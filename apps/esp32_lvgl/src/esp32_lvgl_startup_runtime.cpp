@@ -11,10 +11,13 @@
 #include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/esp/idf_common/debug/sd_coredump_export.h"
+#include "platform/esp/idf_common/reticulum_call_runtime_support.h"
 #include "platform/esp/idf_common/startup_support.h"
+#include "platform/esp/idf_common/usb_console_runtime.h"
 #include "platform/esp/idf_common/wireless_companion/c6_companion.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/gps_runtime.h"
+#include "platform/ui/screen_brightness_steps.h"
 #include "platform/ui/screen_runtime.h"
 #include "platform/ui/settings_store.h"
 #include "product_composition/target_ux_binding.h"
@@ -46,7 +49,7 @@ void applyPlatformRuntimeConfig(const Esp32LvglRuntimeConfig& config)
         return;
     }
 
-    const app::AppConfig& app_config = app::appFacade().getConfig();
+    const app::AppConfig& app_config = app::appFacade().readConfig();
     platform::ui::gps::set_enabled(app_config.gps_enabled);
     platform::ui::gps::set_collection_interval(app_config.gps_interval_ms);
     platform::ui::gps::set_power_strategy(app_config.gps_strategy);
@@ -86,12 +89,11 @@ ui::startup_shell::Hooks buildShellHooks(const Esp32LvglRuntimeConfig& config)
     {
         const int saved = platform::ui::settings_store::get_int("settings", "screen_brightness",
                                                                 DEVICE_MAX_BRIGHTNESS_LEVEL);
-        const int clamped =
-            saved < DEVICE_MIN_BRIGHTNESS_LEVEL
-                ? DEVICE_MIN_BRIGHTNESS_LEVEL
-                : (saved > DEVICE_MAX_BRIGHTNESS_LEVEL ? DEVICE_MAX_BRIGHTNESS_LEVEL : saved);
+        const uint8_t clamped = platform::ui::screen_brightness_steps::clampLevel(
+            saved,
+            DEVICE_MAX_BRIGHTNESS_LEVEL);
         (void)platform::esp::idf_common::bsp_runtime::wake_display();
-        platform::ui::device::set_screen_brightness(static_cast<uint8_t>(clamped));
+        platform::ui::device::set_screen_brightness(clamped);
     };
     return hooks;
 }
@@ -131,7 +133,7 @@ void setBootLog(const Esp32LvglRuntimeConfig& config, const char* line)
 #if defined(ESP_PLATFORM)
 extern "C" void trail_mate_idf_note_user_activity(void)
 {
-    platform::ui::screen::update_user_activity();
+    platform::ui::screen::record_activity();
 }
 #endif
 
@@ -150,6 +152,8 @@ void runEsp32LvglStartupRuntime(const Esp32LvglRuntimeConfig& config)
 #if defined(ESP_PLATFORM)
     constexpr bool waking_from_sleep = false;
 
+    (void)platform::esp::idf_common::usb_console::ensure_started();
+    platform::esp::idf_common::startup_support::initializeClockProviders();
     platform::esp::idf_common::startup_support::logStartupBanner(config.log_tag);
     (void)platform::esp::idf_common::bsp_runtime::ensure_nvs_ready();
     platform::esp::boards::initializeBoard(waking_from_sleep);
@@ -159,10 +163,20 @@ void runEsp32LvglStartupRuntime(const Esp32LvglRuntimeConfig& config)
     {
         ESP_LOGI(config.log_tag, "Boot time restored from hardware RTC");
     }
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    // T-Display-P4 puts the SD card and C6 companion on the two slots of the
+    // same SDMMC controller. Finish the optional SD probe before bringing up
+    // C6 so a no-card probe cannot disturb an already active HostLink slot.
+    setBootLog(config, "Mounting SD card...");
+    (void)platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready();
+    setBootLog(config, "Starting wireless services...");
+    (void)platform::esp::idf_common::wireless_companion::ensure_c6_companion_started();
+#else
     setBootLog(config, "Starting companion...");
     (void)platform::esp::idf_common::wireless_companion::ensure_c6_companion_started();
     setBootLog(config, "Mounting SD card...");
     (void)platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready();
+#endif
     setBootLog(config, "Checking crash dump...");
     (void)platform::esp::idf_common::debug::export_previous_coredump_to_sd();
 
@@ -180,6 +194,7 @@ void runEsp32LvglStartupRuntime(const Esp32LvglRuntimeConfig& config)
     }
 
     idf_app_runtime_access::initialize(config);
+    platform::esp::idf_common::reticulum_call_support::ensure_registered();
     applyPlatformRuntimeConfig(config);
 
     const ui::startup_shell::Hooks shell_hooks = buildShellHooks(config);
@@ -196,6 +211,8 @@ void runEsp32LvglStartupRuntime(const Esp32LvglRuntimeConfig& config)
     {
         ESP_LOGW(config.log_tag, "initializeShell failed to acquire LVGL lock");
     }
+
+    idf_app_runtime_access::startDeferredStorage();
 
     const auto& runtime_status = idf_app_runtime_access::status();
     ESP_LOGI(config.log_tag,

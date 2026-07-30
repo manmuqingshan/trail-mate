@@ -94,9 +94,27 @@ void apply_label_time(lv_obj_t* label)
 
 void apply_label_unread(lv_obj_t* label)
 {
+    if (!label)
+    {
+        return;
+    }
     init_once();
-    ::ui::components::two_pane_styles::apply_label_accent(label);
     lv_obj_add_style(label, &s_label_font, 0);
+    lv_obj_set_size(label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_color(label, lv_color_hex(0xE53935), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(label, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(label, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(label, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_min_width(label, 20, LV_PART_MAIN);
+    lv_obj_set_style_min_height(label, 20, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(label, 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(label, 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(label, 2, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(label, 2, LV_PART_MAIN);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_color(label, lv_color_white(), LV_PART_MAIN);
+    lv_obj_clear_flag(label, LV_OBJ_FLAG_SCROLLABLE);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
 }
 
 void apply_label_placeholder(lv_obj_t* label)

@@ -18,20 +18,37 @@ IMPLEMENTATION_SUFFIXES = {".c", ".cc", ".cpp", ".cxx"}
 
 HOT_PATH_PREFIXES = (
     "platform/esp/arduino_common/src/chat/infra/meshtastic/",
+    "platform/esp/arduino_common/src/chat/infra/reticulum/",
+    "platform/esp/arduino_common/src/chat/infra/rnode/",
+    "platform/esp/radio/",
+    "modules/core_chat/src/infra/meshtastic/",
+    "modules/core_chat/src/runtime/",
+    "modules/core_mesh/src/protocol/meshtastic/",
+    "modules/core_mesh/src/usecase/",
     "modules/core_phone/src/meshtastic/",
 )
 
 HOT_PATH_FILES = {
     "platform/esp/arduino_common/src/ble/meshtastic_ble.cpp",
+    "platform/esp/arduino_common/src/chat/infra/store/protocol_chat_codec.cpp",
+    "platform/esp/arduino_common/src/chat/infra/store/protocol_peer_codec.cpp",
+    "platform/esp/arduino_common/src/chat/infra/store/sd_protocol_peer_repository.cpp",
+    "platform/esp/arduino_common/src/chat/infra/store/sd_store.cpp",
 }
 
 HOT_HEADER_PREFIXES = (
     "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/meshtastic/",
+    "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/reticulum/",
+    "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/rnode/",
     "modules/core_phone/include/phone/meshtastic/",
 )
 
 HOT_HEADER_FILES = {
     "platform/esp/arduino_common/include/ble/meshtastic_ble.h",
+    "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/store/protocol_chat_codec.h",
+    "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/store/protocol_peer_codec.h",
+    "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/store/sd_protocol_peer_repository.h",
+    "platform/esp/arduino_common/include/platform/esp/arduino_common/chat/infra/store/sd_store.h",
 }
 
 APP_CONFIG_PATHS = {
@@ -49,6 +66,12 @@ HIGH_RISK_PROTOCOL_TYPES = (
     "meshtastic_AdminMessage",
     "meshtastic_MqttClientProxyMessage",
     "meshtastic_ServiceEnvelope",
+    "EncodedAirPacketSet",
+    "chat::rnode::EncodedAirPacketSet",
+    "QueuedPacket",
+    "RadioRxPacket",
+    "EncodedPacket",
+    "MeshProtocolEvent",
 )
 
 HIGH_RISK_CONFIG_TYPES = (
@@ -67,6 +90,9 @@ LARGE_ARRAY_SIZE_TOKENS = (
     "kMaxEncoded",
     "MAX_PACKET_SIZE",
     "TM_C6_MAX_PAYLOAD",
+    "reticulum::kReticulumMtu",
+    "chat::rnode::kRNodeMaxPayloadSize",
+    "chat::rnode::kRNodeSingleAirPacketSize",
 )
 
 
@@ -90,7 +116,7 @@ def is_under(relative: str, prefixes: tuple[str, ...]) -> bool:
 def git_tracked_files() -> list[Path]:
     try:
         result = subprocess.run(
-            ["git", "ls-files"],
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
             cwd=REPO_ROOT,
             check=True,
             text=True,
@@ -99,7 +125,8 @@ def git_tracked_files() -> list[Path]:
         )
     except (OSError, subprocess.CalledProcessError):
         return []
-    return [REPO_ROOT / line for line in result.stdout.splitlines() if line]
+    paths = [REPO_ROOT / line for line in result.stdout.splitlines() if line]
+    return [path for path in paths if path.is_file()]
 
 
 def walk_source_files() -> list[Path]:

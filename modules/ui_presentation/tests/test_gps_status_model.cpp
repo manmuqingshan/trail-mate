@@ -14,6 +14,7 @@ int main()
     source.snapshot_value.fix_valid = true;
     source.snapshot_value.latitude = 31.2304;
     source.snapshot_value.longitude = 121.4737;
+    source.snapshot_value.has_altitude = true;
     source.snapshot_value.altitude_m = 12.5f;
     source.snapshot_value.speed_mps = 1.25f;
     source.snapshot_value.course_deg = 48.0f;
@@ -35,6 +36,7 @@ int main()
     assert(snapshot.fix_valid);
     assert(snapshot.latitude == 31.2304);
     assert(snapshot.longitude == 121.4737);
+    assert(snapshot.has_altitude);
     assert(snapshot.satellites == 8);
     assert(snapshot.time_synced);
     assert(snapshot.epoch_seconds == 1700000000ULL);

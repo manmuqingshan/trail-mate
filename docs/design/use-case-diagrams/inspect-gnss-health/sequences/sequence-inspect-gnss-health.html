@@ -1,0 +1,11 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Sequence：GNSS 快照</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed"><h1>GNSS 快照到位置与时钟</h1><pre class="mermaid">sequenceDiagram
+participant D as GNSS Runtime
+participant L as LocationService
+participant T as TimeUpdater
+participant UI as Sky Plot
+D->>L: revision/fix
+L->>L: validate/filter
+L-->>UI: fix or explicit no-fix
+D->>T: valid RMC epoch only
+UI->>D: snapshot
+D-->>UI: sats/status/diagnostics</pre></main></body></html>

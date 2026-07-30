@@ -1,0 +1,7 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：SSTV 接收</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed"><h1>SSTV 接收</h1><pre class="mermaid">flowchart TD
+Start --> Listen
+Listen --> Decode{"valid mode?"}
+Decode -- 是 --> Frame{"complete?"}
+Frame -- 是 --> Save{"saved?"}
+Save -- 是 --> Ready["image + path"]
+Save -- 否 --> Error["image + save error"]</pre></main></body></html>

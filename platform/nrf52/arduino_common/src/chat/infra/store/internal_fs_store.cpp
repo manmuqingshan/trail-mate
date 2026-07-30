@@ -16,6 +16,36 @@ namespace
 using Adafruit_LittleFS_Namespace::FILE_O_READ;
 
 constexpr const char* kTempSuffix = ".tmp";
+constexpr uint8_t kMessageHasGeoFlag = 0x01U;
+constexpr uint8_t kMessageHasReticulumIdentityFlag = 0x02U;
+constexpr uint16_t kConversationHasReticulumIdentityFlag = 0x0001U;
+
+void copyReticulumIdentityToRecord(
+    uint8_t* destination_hash,
+    uint8_t* identity_hash,
+    const ::chat::ReticulumPeerIdentity& identity)
+{
+    if (!destination_hash || !identity_hash)
+    {
+        return;
+    }
+    (void)::chat::copyReticulumIdentityHashes(destination_hash,
+                                              identity_hash,
+                                              identity);
+}
+
+void readReticulumIdentityFromRecord(
+    ::chat::ReticulumPeerIdentity& identity,
+    const uint8_t* destination_hash,
+    const uint8_t* identity_hash)
+{
+    if (!destination_hash || !identity_hash)
+    {
+        return;
+    }
+    identity = ::chat::makeReticulumPeerIdentity(destination_hash,
+                                                 identity_hash);
+}
 } // namespace
 
 InternalFsStore::InternalFsStore(const char* path)
@@ -31,7 +61,7 @@ void InternalFsStore::append(const ::chat::ChatMessage& msg)
         evictOldestMessage();
     }
 
-    ConversationStorage& storage = getConversationStorage(::chat::ConversationId(msg.channel, msg.peer, msg.protocol));
+    ConversationStorage& storage = getConversationStorage(::chat::conversationIdForMessage(msg));
     StoredMessageEntry entry;
     entry.message = msg;
     entry.sequence = next_sequence_++;
@@ -47,12 +77,33 @@ void InternalFsStore::append(const ::chat::ChatMessage& msg)
 
 std::vector<::chat::ChatMessage> InternalFsStore::loadRecent(const ::chat::ConversationId& conv, size_t n)
 {
+    return loadPageFromLatest(conv, 0, n, nullptr);
+}
+
+std::vector<::chat::ChatMessage> InternalFsStore::loadPageFromLatest(
+    const ::chat::ConversationId& conv,
+    size_t offset_from_latest,
+    size_t limit,
+    size_t* total)
+{
     const ConversationStorage& storage = getConversationStorage(conv);
     std::vector<::chat::ChatMessage> result;
 
     size_t count = storage.messages.size();
-    size_t start = (count > n) ? (count - n) : 0;
-    for (size_t i = start; i < count; ++i)
+    if (total)
+    {
+        *total = count;
+    }
+    if (limit == 0 || offset_from_latest >= count)
+    {
+        return result;
+    }
+
+    const size_t available = count - offset_from_latest;
+    const size_t to_read = std::min<size_t>(limit, available);
+    size_t start = count - offset_from_latest - to_read;
+    const size_t end = start + to_read;
+    for (size_t i = start; i < end; ++i)
     {
         result.push_back(storage.messages[i].message);
     }
@@ -81,6 +132,7 @@ std::vector<::chat::ConversationMeta> InternalFsStore::loadConversationPage(size
         meta.preview = storage.messages.back().message.text;
         meta.last_timestamp = storage.messages.back().message.timestamp;
         meta.unread = storage.unread_count;
+        meta.reticulum_identity = conv.reticulum_identity;
         if (conv.peer == 0)
         {
             meta.name = "Broadcast";
@@ -119,11 +171,12 @@ std::vector<::chat::ConversationMeta> InternalFsStore::loadConversationPage(size
                                                  list.begin() + static_cast<long>(end));
 }
 
-void InternalFsStore::setUnread(const ::chat::ConversationId& conv, int unread)
+bool InternalFsStore::setUnread(const ::chat::ConversationId& conv, int unread)
 {
     getConversationStorage(conv).unread_count = unread;
     markDirty();
-    maybeSave();
+    maybeSave(true);
+    return !dirty_;
 }
 
 int InternalFsStore::getUnread(const ::chat::ConversationId& conv) const
@@ -189,6 +242,38 @@ bool InternalFsStore::updateMessageStatus(::chat::MessageId msg_id, ::chat::Mess
     return false;
 }
 
+bool InternalFsStore::updateMessageStatusForProtocol(
+    ::chat::MessageId msg_id,
+    ::chat::MeshProtocol protocol,
+    ::chat::MessageStatus status)
+{
+    if (msg_id == 0)
+    {
+        return false;
+    }
+
+    for (auto& pair : conversations_)
+    {
+        auto& storage = pair.second;
+        const size_t count = storage.messages.size();
+        for (size_t i = 0; i < count; ++i)
+        {
+            ::chat::ChatMessage* msg = &storage.messages[i].message;
+            if (!msg || msg->msg_id != msg_id || msg->protocol != protocol ||
+                msg->from != 0)
+            {
+                continue;
+            }
+            msg->status = status;
+            markDirty();
+            maybeSave();
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool InternalFsStore::getMessage(::chat::MessageId msg_id, ::chat::ChatMessage* out) const
 {
     if (msg_id == 0)
@@ -202,6 +287,37 @@ bool InternalFsStore::getMessage(::chat::MessageId msg_id, ::chat::ChatMessage* 
         for (const auto& entry : storage.messages)
         {
             if (entry.message.msg_id != msg_id)
+            {
+                continue;
+            }
+            if (out)
+            {
+                *out = entry.message;
+            }
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool InternalFsStore::getMessageForProtocol(
+    ::chat::MessageId msg_id,
+    ::chat::MeshProtocol protocol,
+    ::chat::ChatMessage* out) const
+{
+    if (msg_id == 0)
+    {
+        return false;
+    }
+
+    for (const auto& pair : conversations_)
+    {
+        const auto& storage = pair.second;
+        for (const auto& entry : storage.messages)
+        {
+            if (entry.message.msg_id != msg_id ||
+                entry.message.protocol != protocol)
             {
                 continue;
             }
@@ -245,7 +361,9 @@ bool InternalFsStore::loadFromFs()
         return false;
     }
 
-    if (header.version != kVersion)
+    if (header.version != kVersion &&
+        header.version != kReticulumIdentityVersion &&
+        header.version != kLegacyVersion)
     {
         file.close();
         InternalFS.remove(path_);
@@ -254,28 +372,87 @@ bool InternalFsStore::loadFromFs()
 
     const uint16_t conversation_count = header.conversation_count;
     next_sequence_ = std::max<uint32_t>(1U, header.next_sequence);
+    const bool legacy_format = header.version == kLegacyVersion;
+    const bool reticulum_identity_format =
+        header.version == kReticulumIdentityVersion;
 
     for (uint16_t index = 0; index < conversation_count; ++index)
     {
-        ConversationRecord conv_record{};
-        if (file.read(&conv_record, sizeof(conv_record)) != sizeof(conv_record))
+        ::chat::ConversationId conv{};
+        int32_t unread_count = 0;
+        uint16_t message_count = 0;
+
+        if (legacy_format)
         {
-            file.close();
-            InternalFS.remove(path_);
-            conversations_.clear();
-            return false;
+            ConversationRecordV2 conv_record{};
+            if (file.read(&conv_record, sizeof(conv_record)) != sizeof(conv_record))
+            {
+                file.close();
+                InternalFS.remove(path_);
+                conversations_.clear();
+                return false;
+            }
+            conv = ::chat::ConversationId(
+                static_cast<::chat::ChannelId>(conv_record.channel),
+                conv_record.peer,
+                static_cast<::chat::MeshProtocol>(conv_record.protocol));
+            unread_count = conv_record.unread_count;
+            message_count = conv_record.message_count;
+        }
+        else
+        {
+            ConversationRecord conv_record{};
+            if (file.read(&conv_record, sizeof(conv_record)) != sizeof(conv_record))
+            {
+                file.close();
+                InternalFS.remove(path_);
+                conversations_.clear();
+                return false;
+            }
+            conv = ::chat::ConversationId(
+                static_cast<::chat::ChannelId>(conv_record.channel),
+                conv_record.peer,
+                static_cast<::chat::MeshProtocol>(conv_record.protocol));
+            if ((conv_record.flags & kConversationHasReticulumIdentityFlag) != 0)
+            {
+                readReticulumIdentityFromRecord(
+                    conv.reticulum_identity,
+                    conv_record.reticulum_destination_hash,
+                    conv_record.reticulum_identity_hash);
+            }
+            unread_count = conv_record.unread_count;
+            message_count = conv_record.message_count;
         }
 
-        ::chat::ConversationId conv(static_cast<::chat::ChannelId>(conv_record.channel),
-                                    conv_record.peer,
-                                    static_cast<::chat::MeshProtocol>(conv_record.protocol));
         ConversationStorage& storage = getConversationStorage(conv);
-        storage.unread_count = conv_record.unread_count;
+        storage.unread_count = unread_count;
 
-        for (uint16_t message_index = 0; message_index < conv_record.message_count; ++message_index)
+        for (uint16_t message_index = 0; message_index < message_count; ++message_index)
         {
             MessageRecord rec{};
-            if (file.read(&rec, sizeof(rec)) != sizeof(rec))
+            MessageRecordV3 rec_v3{};
+            MessageRecordV2 legacy_rec{};
+            if (legacy_format)
+            {
+                if (file.read(&legacy_rec, sizeof(legacy_rec)) != sizeof(legacy_rec))
+                {
+                    file.close();
+                    InternalFS.remove(path_);
+                    conversations_.clear();
+                    return false;
+                }
+            }
+            else if (reticulum_identity_format)
+            {
+                if (file.read(&rec_v3, sizeof(rec_v3)) != sizeof(rec_v3))
+                {
+                    file.close();
+                    InternalFS.remove(path_);
+                    conversations_.clear();
+                    return false;
+                }
+            }
+            else if (file.read(&rec, sizeof(rec)) != sizeof(rec))
             {
                 file.close();
                 InternalFS.remove(path_);
@@ -284,19 +461,75 @@ bool InternalFsStore::loadFromFs()
             }
 
             ::chat::ChatMessage msg;
-            msg.protocol = static_cast<::chat::MeshProtocol>(rec.protocol);
-            msg.channel = static_cast<::chat::ChannelId>(rec.channel);
-            msg.from = rec.from;
-            msg.peer = rec.peer;
-            msg.msg_id = rec.msg_id;
-            msg.timestamp = rec.timestamp;
-            msg.team_location_icon = rec.team_location_icon;
-            msg.has_geo = (rec.flags & 0x01U) != 0;
-            msg.geo_lat_e7 = rec.geo_lat_e7;
-            msg.geo_lon_e7 = rec.geo_lon_e7;
-            msg.status = static_cast<::chat::MessageStatus>(rec.status);
-            msg.text.assign(rec.text, std::min<size_t>(rec.text_len, sizeof(rec.text)));
-            const uint32_t sequence = rec.sequence;
+            uint32_t sequence = 0;
+            if (legacy_format)
+            {
+                msg.protocol = static_cast<::chat::MeshProtocol>(legacy_rec.protocol);
+                msg.channel = static_cast<::chat::ChannelId>(legacy_rec.channel);
+                msg.from = legacy_rec.from;
+                msg.peer = legacy_rec.peer;
+                msg.msg_id = legacy_rec.msg_id;
+                msg.timestamp = legacy_rec.timestamp;
+                msg.team_location_icon = legacy_rec.team_location_icon;
+                msg.has_geo = (legacy_rec.flags & kMessageHasGeoFlag) != 0;
+                msg.geo_lat_e7 = legacy_rec.geo_lat_e7;
+                msg.geo_lon_e7 = legacy_rec.geo_lon_e7;
+                msg.status = static_cast<::chat::MessageStatus>(legacy_rec.status);
+                msg.text.assign(legacy_rec.text,
+                                std::min<size_t>(legacy_rec.text_len,
+                                                 sizeof(legacy_rec.text)));
+                sequence = legacy_rec.sequence;
+            }
+            else if (reticulum_identity_format)
+            {
+                msg.protocol = static_cast<::chat::MeshProtocol>(rec_v3.protocol);
+                msg.channel = static_cast<::chat::ChannelId>(rec_v3.channel);
+                msg.from = rec_v3.from;
+                msg.peer = rec_v3.peer;
+                msg.msg_id = rec_v3.msg_id;
+                msg.timestamp = rec_v3.timestamp;
+                msg.team_location_icon = rec_v3.team_location_icon;
+                msg.has_geo = (rec_v3.flags & kMessageHasGeoFlag) != 0;
+                msg.geo_lat_e7 = rec_v3.geo_lat_e7;
+                msg.geo_lon_e7 = rec_v3.geo_lon_e7;
+                msg.status = static_cast<::chat::MessageStatus>(rec_v3.status);
+                if ((rec_v3.flags & kMessageHasReticulumIdentityFlag) != 0)
+                {
+                    readReticulumIdentityFromRecord(
+                        msg.reticulum_identity,
+                        rec_v3.reticulum_destination_hash,
+                        rec_v3.reticulum_identity_hash);
+                }
+                msg.text.assign(rec_v3.text,
+                                std::min<size_t>(rec_v3.text_len,
+                                                 sizeof(rec_v3.text)));
+                sequence = rec_v3.sequence;
+            }
+            else
+            {
+                msg.protocol = static_cast<::chat::MeshProtocol>(rec.protocol);
+                msg.channel = static_cast<::chat::ChannelId>(rec.channel);
+                msg.from = rec.from;
+                msg.peer = rec.peer;
+                msg.msg_id = rec.msg_id;
+                msg.timestamp = rec.timestamp;
+                msg.team_location_icon = rec.team_location_icon;
+                msg.has_geo = (rec.flags & kMessageHasGeoFlag) != 0;
+                msg.geo_lat_e7 = rec.geo_lat_e7;
+                msg.geo_lon_e7 = rec.geo_lon_e7;
+                msg.status = static_cast<::chat::MessageStatus>(rec.status);
+                msg.rx_origin = static_cast<::chat::RxOrigin>(rec.rx_origin);
+                if ((rec.flags & kMessageHasReticulumIdentityFlag) != 0)
+                {
+                    readReticulumIdentityFromRecord(
+                        msg.reticulum_identity,
+                        rec.reticulum_destination_hash,
+                        rec.reticulum_identity_hash);
+                }
+                msg.text.assign(rec.text,
+                                std::min<size_t>(rec.text_len, sizeof(rec.text)));
+                sequence = rec.sequence;
+            }
             StoredMessageEntry entry;
             entry.message = msg;
             entry.sequence = sequence;
@@ -357,6 +590,15 @@ bool InternalFsStore::saveToFs() const
         conv_record.peer = conv.peer;
         conv_record.unread_count = storage.unread_count;
         conv_record.message_count = static_cast<uint16_t>(std::min<size_t>(storage.messages.size(), 0xFFFF));
+        if (conv.protocol == ::chat::MeshProtocol::Reticulum &&
+            ::chat::hasReticulumDestinationIdentity(conv.reticulum_identity))
+        {
+            conv_record.flags |= kConversationHasReticulumIdentityFlag;
+            copyReticulumIdentityToRecord(
+                conv_record.reticulum_destination_hash,
+                conv_record.reticulum_identity_hash,
+                conv.reticulum_identity);
+        }
         if (file.write(reinterpret_cast<const uint8_t*>(&conv_record), sizeof(conv_record)) != sizeof(conv_record))
         {
             file.close();
@@ -373,7 +615,17 @@ bool InternalFsStore::saveToFs() const
             rec.protocol = static_cast<uint8_t>(msg->protocol);
             rec.channel = static_cast<uint8_t>(msg->channel);
             rec.status = static_cast<uint8_t>(msg->status);
-            rec.flags = msg->has_geo ? 0x01U : 0x00U;
+            rec.flags = msg->has_geo ? kMessageHasGeoFlag : 0x00U;
+            rec.rx_origin = static_cast<uint8_t>(msg->rx_origin);
+            if (msg->protocol == ::chat::MeshProtocol::Reticulum &&
+                ::chat::hasReticulumDestinationIdentity(msg->reticulum_identity))
+            {
+                rec.flags |= kMessageHasReticulumIdentityFlag;
+                copyReticulumIdentityToRecord(
+                    rec.reticulum_destination_hash,
+                    rec.reticulum_identity_hash,
+                    msg->reticulum_identity);
+            }
             rec.from = msg->from;
             rec.peer = msg->peer;
             rec.msg_id = msg->msg_id;

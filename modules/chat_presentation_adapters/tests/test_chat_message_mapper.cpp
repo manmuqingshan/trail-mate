@@ -29,6 +29,20 @@ void messageStatusesMapToFailureKinds()
            ui::chat::MessageFailureKind::Unknown);
 }
 
+void rxOriginsMapToIngressTransport()
+{
+    assert(chat_presentation_adapters::mapMessageIngressTransport(chat::RxOrigin::Unknown) ==
+           ui::chat::MessageIngressTransport::Unknown);
+    assert(chat_presentation_adapters::mapMessageIngressTransport(chat::RxOrigin::Mesh) ==
+           ui::chat::MessageIngressTransport::LoRa);
+    assert(chat_presentation_adapters::mapMessageIngressTransport(chat::RxOrigin::LoRa) ==
+           ui::chat::MessageIngressTransport::LoRa);
+    assert(chat_presentation_adapters::mapMessageIngressTransport(chat::RxOrigin::External) ==
+           ui::chat::MessageIngressTransport::Mqtt);
+    assert(chat_presentation_adapters::mapMessageIngressTransport(chat::RxOrigin::WiFi) ==
+           ui::chat::MessageIngressTransport::WiFi);
+}
+
 void incomingMessageMapsToRemoteStoredRef()
 {
     chat::ChatMessage message;
@@ -41,6 +55,8 @@ void incomingMessageMapsToRemoteStoredRef()
 
     assert(ref.origin == ui::chat::MessageOrigin::RemoteStored);
     assert(ref.protocol_id == 77);
+    assert(ref.protocol ==
+           static_cast<uint8_t>(chat::MeshProtocol::Meshtastic));
     assert(ref.local_id == 0);
     assert(ref.nonce_or_seq == 0);
     assert(ref.isValid());
@@ -58,6 +74,8 @@ void queuedMessageMapsToLocalPendingRef()
 
     assert(ref.origin == ui::chat::MessageOrigin::LocalPending);
     assert(ref.protocol_id == 88);
+    assert(ref.protocol ==
+           static_cast<uint8_t>(chat::MeshProtocol::Meshtastic));
     assert(ref.isValid());
 }
 
@@ -73,6 +91,8 @@ void storedLocalMessageMapsToLocalStoredRef()
 
     assert(ref.origin == ui::chat::MessageOrigin::LocalStored);
     assert(ref.protocol_id == 99);
+    assert(ref.protocol ==
+           static_cast<uint8_t>(chat::MeshProtocol::Meshtastic));
     assert(ref.isValid());
 }
 
@@ -82,6 +102,7 @@ int main()
 {
     messageStatusesMapToDeliveryStates();
     messageStatusesMapToFailureKinds();
+    rxOriginsMapToIngressTransport();
     incomingMessageMapsToRemoteStoredRef();
     queuedMessageMapsToLocalPendingRef();
     storedLocalMessageMapsToLocalStoredRef();

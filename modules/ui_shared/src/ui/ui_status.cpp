@@ -23,7 +23,11 @@
 
 #include <cstdio>
 
-#if __has_include("ble/ble_manager.h")
+#ifndef TRAIL_MATE_ENABLE_BLE
+#define TRAIL_MATE_ENABLE_BLE 0
+#endif
+
+#if TRAIL_MATE_ENABLE_BLE && __has_include("ble/ble_manager.h")
 #include "ble/ble_manager.h"
 #define TRAIL_MATE_UI_STATUS_HAS_BLE_MANAGER_HEADER 1
 #else
@@ -40,7 +44,9 @@ extern "C"
     extern const lv_image_dsc_t team_topbar;
 #endif
     extern const lv_image_dsc_t tracker_topbar;
+#if TRAIL_MATE_ENABLE_BLE
     extern const lv_image_dsc_t ble_topbar;
+#endif
     extern const lv_image_dsc_t lora_mod_topbar;
     extern const lv_image_dsc_t fsk_mod_topbar;
     extern const lv_image_dsc_t walkie_monitor_topbar;
@@ -60,7 +66,9 @@ struct StatusSnapshot
     bool gps_enabled = false;
     bool wifi_enabled = false;
     bool team_active = false;
+#if TRAIL_MATE_ENABLE_BLE
     bool ble_enabled = false;
+#endif
     bool radio_mod_visible = false;
     bool radio_mod_fsk = false;
     bool walkie_monitor = false;
@@ -142,9 +150,9 @@ StatusSnapshot collect_status()
 
     if (app::hasAppFacade())
     {
-        const auto& cfg = app::configFacade().getConfig();
+        const auto& cfg = app::configFacade().readConfig();
         snap.route_active = cfg.route_enabled && (cfg.route_path[0] != '\0');
-#if !defined(TRAIL_MATE_FINAL_IDF_NO_APP_FACADE)
+#if TRAIL_MATE_ENABLE_BLE && !defined(TRAIL_MATE_FINAL_IDF_NO_APP_FACADE)
         snap.ble_enabled = app::runtimeFacade().isBleEnabled();
 #if TRAIL_MATE_UI_STATUS_HAS_BLE_MANAGER_HEADER
         if (auto* ble = app::runtimeFacade().getBleManager())
@@ -210,14 +218,21 @@ void apply_menu_icons(const StatusSnapshot& snap)
     apply_icon(s_menu_team_icon, nullptr, false);
 #endif
     apply_icon(s_menu_msg_icon, &message_topbar, snap.unread > 0);
+#if TRAIL_MATE_ENABLE_BLE
     apply_icon(s_menu_ble_icon, &ble_topbar, snap.ble_enabled);
+#else
+    apply_icon(s_menu_ble_icon, nullptr, false);
+#endif
     apply_icon(s_menu_radio_mod_icon,
                snap.radio_mod_fsk ? &fsk_mod_topbar : &lora_mod_topbar,
                snap.radio_mod_visible);
     apply_icon(s_menu_walkie_monitor_icon, &walkie_monitor_topbar, snap.walkie_monitor);
 
     const bool any = snap.route_active || snap.track_recording || snap.gps_enabled ||
-                     snap.wifi_enabled || snap.team_active || snap.ble_enabled ||
+                     snap.wifi_enabled || snap.team_active ||
+#if TRAIL_MATE_ENABLE_BLE
+                     snap.ble_enabled ||
+#endif
                      snap.radio_mod_visible || snap.walkie_monitor || (snap.unread > 0);
     if (any)
     {
@@ -241,8 +256,15 @@ void apply_menu_badge(const StatusSnapshot& snap)
         return;
     }
 
-    char buf[12];
-    snprintf(buf, sizeof(buf), "%d", snap.unread);
+    char buf[4];
+    if (snap.unread > 99)
+    {
+        snprintf(buf, sizeof(buf), "99+");
+    }
+    else
+    {
+        snprintf(buf, sizeof(buf), "%d", snap.unread);
+    }
     lv_label_set_text(s_chat_badge_label, buf);
     lv_obj_clear_flag(s_chat_badge, LV_OBJ_FLAG_HIDDEN);
 }

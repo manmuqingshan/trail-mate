@@ -248,6 +248,8 @@ Send ID Broadcast	Envoyer la diffusion ID
 Send ID Local	Envoyer ID Local
 Sending...	Envoi en cours...
 Sent	Envoyé
+Queued	En file
+Delivered	Livré
 Settings	Paramètres
 Setting	Paramètre
 Share Position Marker	Partager le marqueur de position
@@ -656,3 +658,78 @@ Power off device now?	Éteindre l'appareil maintenant ?
 USB power keeps the device awake.	L'alimentation USB garde l'appareil éveillé.
 Unplug USB to power off	Débranchez l'USB pour éteindre
 Power chip unavailable	Puce d'alimentation indisponible
+%u days ago	%u days ago
+%u hours ago	%u hours ago
+%u mins ago	%u mins ago
+1 day ago	1 day ago
+1 hour ago	1 hour ago
+1 min ago	1 min ago
+Add Reticulum Group	Add Reticulum Group
+Applying defaults	Applying defaults
+Applying setting	Applying setting
+Backing up settings...	Backing up settings...
+Backup complete	Backup complete
+C6 Companion	C6 Companion
+Calling %s	Calling %s
+Channel PSK generated	Channel PSK generated
+Channel cleared	Channel cleared
+Channel key generated	Channel key generated
+Check SD card	Check SD card
+Clearing messages...	Clearing messages...
+Clearing node database	Clearing node database
+Clearing stored settings	Clearing stored settings
+Configure Wi-Fi in Settings first	Configure Wi-Fi in Settings first
+Connect Wi-Fi to browse uninstalled packages	Connect Wi-Fi to browse uninstalled packages
+Connecting Wi-Fi...	Connecting Wi-Fi...
+Conversation	Conversation
+Delete this chat?	Delete this chat?
+Destination hash	Destination hash
+Disconnecting Wi-Fi...	Disconnecting Wi-Fi...
+ERR	ERR
+Enter	Enter
+FSK	FSK
+GPS Diagnostics	GPS Diagnostics
+Group Actions	Group Actions
+Group destination	Group destination
+Install package failed	Install package failed
+Installed locally	Installed locally
+Installed package	Installed package
+Invalid MQTT port	Invalid MQTT port
+Invalid gateway port	Invalid gateway port
+Key generation failed	Key generation failed
+Key missing	Key missing
+Looking for nearby networks	Looking for nearby networks
+Monitor Off	Monitor Off
+Name	Name
+No installed packages	No installed packages
+No matches	No matches
+No uninstalled packages	No uninstalled packages
+Node info: %s	Node info: %s
+PSK generation failed	PSK generation failed
+PSK must be 32/64 hex or 16/32 chars	PSK must be 32/64 hex or 16/32 chars
+Preparing companion...	Preparing companion...
+Preview Help	Preview Help
+Preview failed	Preview failed
+Primary Group	Primary Group
+Public	Public
+Reading backup from SD	Reading backup from SD
+Refresh	Refresh
+Remote catalog is unavailable. Connect Wi-Fi to view package details and updates.	Remote catalog is unavailable. Connect Wi-Fi to view package details and updates.
+Requesting download mode	Requesting download mode
+Resetting mesh...	Resetting mesh...
+Resetting nodes...	Resetting nodes...
+Restoring settings...	Restoring settings...
+Reticulum Peer	Reticulum Peer
+Route Preview	Route Preview
+Scanning Wi-Fi...	Scanning Wi-Fi...
+Settings restored	Settings restored
+Settings saved to SD	Settings saved to SD
+Start failed	Start failed
+Unable to apply GPS setting	Unable to apply GPS setting
+Updating chat storage	Updating chat storage
+Updating network list	Updating network list
+Wi-Fi connect failed	Wi-Fi connect failed
+Wi-Fi connected	Wi-Fi connected
+Wi-Fi unsupported	Wi-Fi unsupported
+Wi-Fi unsupported on this device	Wi-Fi unsupported on this device
+Writing to SD card	Writing to SD card

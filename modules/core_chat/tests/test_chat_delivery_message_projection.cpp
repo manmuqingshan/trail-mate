@@ -21,6 +21,8 @@ int main()
         chat::delivery::toDeliveryRecord(message(chat::MessageStatus::Queued, 10),
                                          100);
     assert(queued.ref.protocol_id == 10);
+    assert(queued.ref.protocol ==
+           static_cast<uint8_t>(chat::MeshProtocol::Meshtastic));
     assert(queued.state == chat::delivery::DeliveryState::Queued);
     assert(queued.failure == chat::delivery::DeliveryFailureKind::None);
     assert(queued.updated_at_ms == 100);
@@ -28,7 +30,14 @@ int main()
     const auto sent =
         chat::delivery::toDeliveryRecord(message(chat::MessageStatus::Sent, 11));
     assert(sent.state == chat::delivery::DeliveryState::Sent);
+    assert(sent.ref.protocol ==
+           static_cast<uint8_t>(chat::MeshProtocol::Meshtastic));
     assert(sent.failure == chat::delivery::DeliveryFailureKind::None);
+
+    const auto delivered = chat::delivery::toDeliveryRecord(
+        message(chat::MessageStatus::Delivered, 14));
+    assert(delivered.state == chat::delivery::DeliveryState::Delivered);
+    assert(delivered.failure == chat::delivery::DeliveryFailureKind::None);
 
     const auto failed =
         chat::delivery::toDeliveryRecord(message(chat::MessageStatus::Failed, 12));

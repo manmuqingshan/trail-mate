@@ -6,18 +6,24 @@
 #include "ui/screens/contacts/contacts_page_components.h"
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
+#include "chat/domain/reticulum_identity.h"
 #include "chat/infra/mesh_protocol_utils.h"
 #include "chat/infra/meshtastic/mt_radio_config.h"
+#include "chat/infra/reticulum/reticulum_wire.h"
 #include "chat/ports/i_mesh_adapter.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "platform/ui/gps_runtime.h"
+#include "platform/ui/reticulum_directory_runtime.h"
+#include "platform/ui/reticulum_group_config_runtime.h"
 #include "platform/ui/team_ui_store_runtime.h"
 #include "sys/clock.h"
 #include "team/protocol/team_position.h"
 #include "team/usecase/team_controller.h"
 #include "ui/app_runtime.h"
+#include "ui/components/floating_search_box.h"
 #include "ui/components/info_card.h"
+#include "ui/components/shortcut_help_modal.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
 #include "ui/presentation_sources/team_chat_presentation_source.h"
@@ -26,6 +32,7 @@
 #include "ui/screens/chat/chat_conversation_components.h"
 #include "ui/screens/chat/chat_page_shell.h"
 #include "ui/screens/chat/chat_protocol_support.h"
+#include "ui/screens/contacts/contacts_filter_profile.h"
 #include "ui/screens/contacts/contacts_page_input.h"
 #include "ui/screens/contacts/contacts_page_layout.h"
 #include "ui/screens/contacts/contacts_page_styles.h"
@@ -35,8 +42,12 @@
 #include "ui/team_actions/team_action_runtime_sink.h"
 #include "ui/team_actions/team_runtime_adapters.h"
 #include "ui/ui_common.h"
+#include "ui/widgets/busy_overlay.h"
 #include "ui/widgets/ime/ime_widget.h"
+#include "ui/widgets/reticulum_ping_overlay.h"
+#include "ui/widgets/top_bar.h"
 
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -55,12 +66,14 @@
 
 using namespace contacts::ui;
 namespace chat_support = chat::ui::support;
+namespace rtdir = ::platform::ui::reticulum_directory;
 
 static constexpr int kItemsPerPage = 4;
 static constexpr int kButtonHeight = 28;
 static constexpr int kBottomBtnMinWidth = 50;
 static constexpr int kBottomBtnPadH = 8;
 static constexpr intptr_t kBackListItemUserData = -2;
+static constexpr intptr_t kAddReticulumGroupUserData = -3;
 
 // UI color tokens (must align with docs/skyplot.md)
 static constexpr uint32_t kColorAmber = 0xEBA341;
@@ -75,6 +88,8 @@ static lv_group_t* s_compose_prev_group = nullptr;
 static uint32_t s_compose_peer_id = 0;
 static chat::ChannelId s_compose_channel = chat::ChannelId::PRIMARY;
 static chat::MeshProtocol s_compose_protocol = chat::MeshProtocol::Meshtastic;
+static chat::ConversationId s_compose_conversation{};
+static std::string s_compose_target_display_name;
 static bool s_refreshing_ui = false;
 static lv_coord_t page_button_height()
 {
@@ -96,10 +111,143 @@ static std::unique_ptr<::ui::team_actions::TeamActionRuntimeSink> s_team_action_
 static std::unique_ptr<::ui::presentation_sources::TeamChatPresentationSource> s_team_chat_source;
 static team::TeamController* s_team_action_controller = nullptr;
 static std::unique_ptr<contacts::ui::ContactsTeamSnapshotSource> s_team_snapshot_source;
+static ::ui::components::shortcut_help_modal::State s_help_modal{};
+static ::ui::widgets::TopBar s_reticulum_node_info_top_bar{};
+
+static void format_reticulum_hash_prefix(const chat::ReticulumPeerIdentity& identity,
+                                         char* out,
+                                         size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!chat::hasReticulumDestinationIdentity(identity) || out_len < 9)
+    {
+        std::snprintf(out, out_len, "-");
+        return;
+    }
+    std::snprintf(out,
+                  out_len,
+                  "%02X%02X%02X%02X",
+                  static_cast<unsigned>(identity.destination_hash[0]),
+                  static_cast<unsigned>(identity.destination_hash[1]),
+                  static_cast<unsigned>(identity.destination_hash[2]),
+                  static_cast<unsigned>(identity.destination_hash[3]));
+}
+
+static void format_log_text_preview(const std::string& text, char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    const size_t max_copy = out_len - 1U;
+    size_t used = 0;
+    for (char value : text)
+    {
+        if (used >= max_copy)
+        {
+            break;
+        }
+        const unsigned char c = static_cast<unsigned char>(value);
+        if (c == '\r' || c == '\n' || c == '\t')
+        {
+            out[used++] = ' ';
+        }
+        else if (c < 0x20U || c == 0x7FU)
+        {
+            out[used++] = '.';
+        }
+        else
+        {
+            out[used++] = value;
+        }
+    }
+    out[used] = '\0';
+}
+
+static void format_reticulum_hash_text(const uint8_t* hash, char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!hash || out_len < (chat::kReticulumPeerHashSize * 2U + 1U))
+    {
+        std::snprintf(out, out_len, "--");
+        return;
+    }
+    for (std::size_t index = 0; index < chat::kReticulumPeerHashSize; ++index)
+    {
+        out[index * 2U] =
+            chat::reticulumHexDigit(static_cast<uint8_t>(hash[index] >> 4U));
+        out[index * 2U + 1U] = chat::reticulumHexDigit(hash[index]);
+    }
+    out[chat::kReticulumPeerHashSize * 2U] = '\0';
+}
+
+static bool is_reticulum_node(const chat::contacts::PeerDirectoryItem& node)
+{
+    return node.protocol == chat::contacts::NodeProtocolType::Reticulum ||
+           chat::hasReticulumDestinationIdentity(node.reticulum_identity);
+}
+
+static std::string node_display_name_for_contacts(const chat::contacts::PeerDirectoryItem& node)
+{
+    return contacts::ui::layout::preferred_node_display_name(node);
+}
 
 static bool show_second_column_back()
 {
     return !::ui::components::info_card::use_tdeck_layout();
+}
+
+static bool filter_mode_for_button(lv_obj_t* target, ContactsMode* out_mode)
+{
+    if (!target || !out_mode)
+    {
+        return false;
+    }
+    if (target == g_contacts_state.contacts_btn)
+    {
+        *out_mode = ContactsMode::Contacts;
+        return true;
+    }
+    if (target == g_contacts_state.nearby_btn)
+    {
+        *out_mode = ContactsMode::Nearby;
+        return true;
+    }
+    if (target == g_contacts_state.groups_btn)
+    {
+        *out_mode = ContactsMode::Groups;
+        return true;
+    }
+    if (target == g_contacts_state.ignored_btn)
+    {
+        *out_mode = ContactsMode::Ignored;
+        return true;
+    }
+    if (target == g_contacts_state.broadcast_btn)
+    {
+        *out_mode = ContactsMode::Broadcast;
+        return true;
+    }
+    if (target == g_contacts_state.team_btn)
+    {
+        *out_mode = ContactsMode::Team;
+        return true;
+    }
+    if (target == g_contacts_state.discover_btn)
+    {
+        *out_mode = ContactsMode::Discover;
+        return true;
+    }
+    return false;
 }
 
 lv_style_selector_t selector_for_state(lv_state_t state)
@@ -112,7 +260,6 @@ static std::string format_time_status(uint32_t last_seen);
 [[maybe_unused]] static std::string format_snr(float snr);
 
 static void on_filter_focused(lv_event_t* e);
-static void on_filter_clicked(lv_event_t* e);
 static void on_list_item_clicked(lv_event_t* e);
 static void on_list_item_focused(lv_event_t* e);
 static void on_prev_clicked(lv_event_t* e);
@@ -122,14 +269,30 @@ static void open_action_menu_modal();
 static void on_action_menu_item_clicked(lv_event_t* e);
 static void on_action_menu_key(lv_event_t* e);
 static lv_obj_t* create_action_menu_button(lv_obj_t* parent, const char* text);
-static const chat::contacts::NodeInfo* get_selected_node();
-static const chat::contacts::NodeInfo* find_node_by_id(uint32_t node_id);
+static void open_search_modal();
+static void open_lxmf_address_modal();
+static void open_contacts_help_modal();
+static void on_search_apply(const char* text, void* user_data);
+static void on_search_clear(void* user_data);
+static void on_search_cancel(void* user_data);
+static void on_lxmf_address_apply(const char* text, void* user_data);
+static void on_lxmf_address_clear(void* user_data);
+static void on_lxmf_address_cancel(void* user_data);
+static void apply_filter_panel_visibility();
+static void toggle_filter_panel_visibility();
+static void contacts_handle_page_shortcut(lv_event_t* event);
+static const chat::contacts::PeerDirectoryItem* get_selected_node();
+static const chat::contacts::PeerDirectoryItem* get_selected_reticulum_group();
+static const chat::contacts::PeerDirectoryItem* find_node_by_id(uint32_t node_id);
 struct BroadcastTargetSpec;
 static bool get_selected_broadcast_target(BroadcastTargetSpec* out_spec,
                                           std::string* out_title);
 static void open_add_edit_modal(bool is_edit);
+static void open_reticulum_group_config_modal();
 static void open_delete_confirm_modal();
 static void open_node_info_screen_for_node(uint32_t node_id);
+static void open_reticulum_node_info_screen(const chat::contacts::PeerDirectoryItem& node,
+                                            lv_obj_t* parent);
 static void close_node_info_screen();
 static void modal_close(lv_obj_t*& modal_obj);
 static void modal_prepare_group();
@@ -138,11 +301,12 @@ static lv_obj_t* create_modal_root(int width, int height);
 static bool is_any_modal_open();
 static void on_add_edit_save_clicked(lv_event_t* e);
 static void on_add_edit_cancel_clicked(lv_event_t* e);
+static void on_reticulum_group_save_clicked(lv_event_t* e);
+static void on_reticulum_group_cancel_clicked(lv_event_t* e);
 static void on_del_confirm_clicked(lv_event_t* e);
 static void on_del_cancel_clicked(lv_event_t* e);
 static void on_discovery_scan_done(lv_timer_t* timer);
 static void execute_discovery_command(uint8_t command_index);
-static void on_node_info_back_clicked(lv_event_t* e);
 static void on_node_info_key(lv_event_t* e);
 static void open_chat_compose();
 static void close_chat_compose();
@@ -170,16 +334,22 @@ static void refresh_filter_checked_state()
 {
     if (g_contacts_state.contacts_btn == nullptr ||
         g_contacts_state.nearby_btn == nullptr ||
-        g_contacts_state.ignored_btn == nullptr ||
-        g_contacts_state.broadcast_btn == nullptr)
+        g_contacts_state.ignored_btn == nullptr)
     {
         return;
     }
 
     lv_obj_clear_state(g_contacts_state.contacts_btn, LV_STATE_CHECKED);
     lv_obj_clear_state(g_contacts_state.nearby_btn, LV_STATE_CHECKED);
+    if (g_contacts_state.groups_btn)
+    {
+        lv_obj_clear_state(g_contacts_state.groups_btn, LV_STATE_CHECKED);
+    }
     lv_obj_clear_state(g_contacts_state.ignored_btn, LV_STATE_CHECKED);
-    lv_obj_clear_state(g_contacts_state.broadcast_btn, LV_STATE_CHECKED);
+    if (g_contacts_state.broadcast_btn)
+    {
+        lv_obj_clear_state(g_contacts_state.broadcast_btn, LV_STATE_CHECKED);
+    }
     if (g_contacts_state.team_btn)
     {
         lv_obj_clear_state(g_contacts_state.team_btn, LV_STATE_CHECKED);
@@ -201,7 +371,13 @@ static void refresh_filter_checked_state()
     {
         lv_obj_add_state(g_contacts_state.ignored_btn, LV_STATE_CHECKED);
     }
-    else if (g_contacts_state.current_mode == ContactsMode::Broadcast)
+    else if (g_contacts_state.current_mode == ContactsMode::Groups &&
+             g_contacts_state.groups_btn)
+    {
+        lv_obj_add_state(g_contacts_state.groups_btn, LV_STATE_CHECKED);
+    }
+    else if (g_contacts_state.current_mode == ContactsMode::Broadcast &&
+             g_contacts_state.broadcast_btn)
     {
         lv_obj_add_state(g_contacts_state.broadcast_btn, LV_STATE_CHECKED);
     }
@@ -354,23 +530,13 @@ static bool node_protocol_to_mesh(chat::contacts::NodeProtocolType protocol, cha
     {
         return false;
     }
-    switch (protocol)
+    if (!chat::infra::isValidNodeProtocol(protocol) ||
+        protocol == chat::contacts::NodeProtocolType::Unknown)
     {
-    case chat::contacts::NodeProtocolType::LXMF:
-        *out = chat::MeshProtocol::LXMF;
-        return true;
-    case chat::contacts::NodeProtocolType::RNode:
-        *out = chat::MeshProtocol::RNode;
-        return true;
-    case chat::contacts::NodeProtocolType::MeshCore:
-        *out = chat::MeshProtocol::MeshCore;
-        return true;
-    case chat::contacts::NodeProtocolType::Meshtastic:
-        *out = chat::MeshProtocol::Meshtastic;
-        return true;
-    default:
         return false;
     }
+    *out = chat::infra::meshProtocolFromNodeProtocol(protocol);
+    return true;
 }
 
 struct BroadcastTargetSpec
@@ -410,11 +576,15 @@ static const char* broadcast_chat_unavailable_message(const BroadcastTargetSpec&
     {
         return "MT send uses slot 0/1 only";
     }
-    if (spec.protocol == chat::MeshProtocol::RNode)
+    if (chat::infra::isReticulumMeshProtocol(spec.protocol))
     {
-        return "RNode text chat runs on host";
+        return "Reticulum group send unavailable";
     }
-    return "Chat unavailable";
+    if (!spec.enabled)
+    {
+        return "MC channel disabled";
+    }
+    return "MC channel key missing";
 }
 
 static size_t get_broadcast_target_count()
@@ -424,8 +594,8 @@ static size_t get_broadcast_target_count()
     case chat::MeshProtocol::Meshtastic:
         return 8U;
     case chat::MeshProtocol::MeshCore:
-        return 2U;
-    case chat::MeshProtocol::RNode:
+        return chat::kMeshCoreChannelMaxCount;
+    case chat::MeshProtocol::Reticulum:
         return 1U;
     default:
         return 0U;
@@ -446,7 +616,7 @@ static bool get_broadcast_target_spec(int index, BroadcastTargetSpec* out)
             return false;
         }
 
-        const auto& cfg = app::appFacade().getConfig();
+        const auto& cfg = app::appFacade().readConfig();
         out->protocol = chat::MeshProtocol::Meshtastic;
         out->channel_index = static_cast<uint8_t>(index);
         out->channel = (index == 1) ? chat::ChannelId::SECONDARY : chat::ChannelId::PRIMARY;
@@ -455,13 +625,13 @@ static bool get_broadcast_target_spec(int index, BroadcastTargetSpec* out)
         return true;
     }
 
-    if (chat_support::active_mesh_protocol() == chat::MeshProtocol::RNode)
+    if (chat::infra::isReticulumMeshProtocol(chat_support::active_mesh_protocol()))
     {
         if (index != 0)
         {
             return false;
         }
-        out->protocol = chat::MeshProtocol::RNode;
+        out->protocol = chat::MeshProtocol::Reticulum;
         out->channel = chat::ChannelId::PRIMARY;
         out->channel_index = 0;
         out->enabled = true;
@@ -469,41 +639,46 @@ static bool get_broadcast_target_spec(int index, BroadcastTargetSpec* out)
         return true;
     }
 
-    switch (index)
+    if (index >= static_cast<int>(chat::kMeshCoreChannelMaxCount))
     {
-    case 0:
-        out->protocol = chat::MeshProtocol::MeshCore;
-        out->channel = chat::ChannelId::PRIMARY;
-        out->channel_index = 0;
-        out->enabled = true;
-        out->chat_supported = true;
-        return true;
-    case 1:
-        out->protocol = chat::MeshProtocol::MeshCore;
-        out->channel = chat::ChannelId::SECONDARY;
-        out->channel_index = 1;
-        out->enabled = true;
-        out->chat_supported = true;
-        return true;
-    default:
         return false;
     }
+    const auto& cfg = app::appFacade().readConfig().meshcore_config;
+    const uint8_t slot = static_cast<uint8_t>(index);
+    const chat::MeshCoreChannelConfig& channel = cfg.meshCoreChannel(slot);
+    const bool has_key =
+        !chat::isAllZeroKeyBytes(channel.key, chat::kMeshCoreChannelKeyLen);
+    out->protocol = chat::MeshProtocol::MeshCore;
+    out->channel = chat::meshCoreChannelIdFromSlot(slot);
+    out->channel_index = slot;
+    out->enabled = (slot == 0) ? true : channel.enabled;
+    out->chat_supported = out->enabled && (slot == 0 || has_key);
+    return true;
 }
 
 static std::string format_broadcast_target_label(const BroadcastTargetSpec& spec)
 {
     if (spec.protocol == chat::MeshProtocol::Meshtastic)
     {
-        return std::string("[MT] ") +
-               chat::meshtastic::channelName(app::appFacade().getConfig().meshtastic_config,
+        return chat::meshtastic::channelName(app::appFacade().readConfig().meshtastic_config,
                                              spec.channel);
     }
-    if (spec.protocol == chat::MeshProtocol::RNode)
+    if (chat::infra::isReticulumMeshProtocol(spec.protocol))
     {
-        return std::string("[RN] ") + ::ui::i18n::tr("Modem Bridge");
+        return ::ui::i18n::tr("Primary Group");
     }
-    return std::string("[MC] ") +
-           ::ui::i18n::tr((spec.channel == chat::ChannelId::SECONDARY) ? "Secondary" : "Primary");
+    const chat::MeshConfig& cfg = app::appFacade().readConfig().meshcore_config;
+    const chat::MeshCoreChannelConfig& channel =
+        cfg.meshCoreChannel(spec.channel_index);
+    const char* name = channel.name[0] != '\0' ? channel.name : nullptr;
+    char fallback[16] = {};
+    if (!name)
+    {
+        std::snprintf(fallback, sizeof(fallback), "Slot %u",
+                      static_cast<unsigned>(spec.channel_index));
+        name = fallback;
+    }
+    return name;
 }
 
 static std::string format_broadcast_target_status(const BroadcastTargetSpec& spec)
@@ -520,14 +695,29 @@ static std::string format_broadcast_target_status(const BroadcastTargetSpec& spe
         }
         if (spec.channel_index == 1)
         {
-            return chat::meshtastic::channelName(app::appFacade().getConfig().meshtastic_config,
+            return chat::meshtastic::channelName(app::appFacade().readConfig().meshtastic_config,
                                                  spec.channel);
         }
         return spec.chat_supported ? ::ui::i18n::tr("Ready") : ::ui::i18n::tr("Slot");
     }
-    if (spec.protocol == chat::MeshProtocol::RNode)
+    if (chat::infra::isReticulumMeshProtocol(spec.protocol))
     {
-        return ::ui::i18n::tr("Host bridge");
+        return ::ui::i18n::tr("Group destination");
+    }
+    const chat::MeshConfig& cfg = app::appFacade().readConfig().meshcore_config;
+    const chat::MeshCoreChannelConfig& channel =
+        cfg.meshCoreChannel(spec.channel_index);
+    if (!spec.enabled)
+    {
+        return ::ui::i18n::tr("Disabled");
+    }
+    if (spec.channel_index == 0)
+    {
+        return ::ui::i18n::tr("Public");
+    }
+    if (chat::isAllZeroKeyBytes(channel.key, chat::kMeshCoreChannelKeyLen))
+    {
+        return ::ui::i18n::tr("Key missing");
     }
     return ::ui::i18n::tr("Ready");
 }
@@ -584,6 +774,46 @@ static void reset_contacts_team_action_seam()
     s_team_chat_command_port.reset();
     s_team_action_controller = nullptr;
     s_team_snapshot_source.reset();
+}
+
+static void reset_contacts_team_chat_runtime()
+{
+    reset_contacts_team_action_seam();
+    s_team_chat_source.reset();
+}
+
+static void delete_static_group(lv_group_t*& group)
+{
+    if (!group)
+    {
+        return;
+    }
+    if (lv_group_get_default() == group)
+    {
+        set_default_group(nullptr);
+    }
+    lv_group_remove_all_objs(group);
+    lv_group_del(group);
+    group = nullptr;
+}
+
+static void reset_compose_runtime_state()
+{
+    delete_static_group(s_compose_group);
+    s_compose_prev_group = nullptr;
+    s_compose_peer_id = 0;
+    s_compose_channel = chat::ChannelId::PRIMARY;
+    s_compose_protocol = chat::MeshProtocol::Meshtastic;
+    s_compose_conversation = chat::ConversationId{};
+    s_compose_target_display_name.clear();
+    s_compose_from_conversation = false;
+    s_compose_is_team = false;
+}
+
+static void reset_conversation_runtime_state()
+{
+    delete_static_group(s_conv_group);
+    s_conv_prev_group = nullptr;
 }
 
 static ::ui::team_actions::ITeamActionSink* contacts_team_action_sink()
@@ -696,6 +926,19 @@ static const char* local_text_failure_message(chat::MeshOperationFailure failure
     return "Send failed";
 }
 
+static const char* compose_text_failure_message(chat::MeshOperationFailure failure,
+                                                bool reticulum_destination_send,
+                                                int detail)
+{
+    if (reticulum_destination_send &&
+        failure == chat::MeshOperationFailure::NotReady &&
+        detail > 0)
+    {
+        return detail == 1 ? "Path requested" : "Path pending";
+    }
+    return local_text_failure_message(failure);
+}
+
 static uint32_t current_timestamp_seconds()
 {
     uint32_t ts = sys::epoch_seconds_now();
@@ -706,52 +949,401 @@ static uint32_t current_timestamp_seconds()
     return ts;
 }
 
+static bool is_reticulum_destination_conversation(const chat::ConversationId& conversation)
+{
+    return conversation.protocol == chat::MeshProtocol::Reticulum &&
+           conversation.peer == 0 &&
+           chat::hasReticulumDestinationIdentity(conversation.reticulum_identity);
+}
+
+static bool is_searchable_contacts_mode(ContactsMode mode)
+{
+    return mode == ContactsMode::Contacts ||
+           mode == ContactsMode::Nearby ||
+           mode == ContactsMode::Groups ||
+           mode == ContactsMode::Ignored;
+}
+
+static bool search_active()
+{
+    return g_contacts_state.search_query[0] != '\0';
+}
+
+static void clear_search_query()
+{
+    g_contacts_state.search_query[0] = '\0';
+}
+
+static constexpr const char* kLxmfAddressAcceptedChars =
+    "0123456789abcdefABCDEFlxmfLXMF@:-_ \t\r\n";
+
+static const char* trim_left(const char* text)
+{
+    if (!text)
+    {
+        return "";
+    }
+    while (*text == ' ' || *text == '\t' || *text == '\r' || *text == '\n')
+    {
+        ++text;
+    }
+    return text;
+}
+
+static const char* skip_lxmf_prefix(const char* text)
+{
+    const char* cursor = trim_left(text);
+    if ((cursor[0] == 'l' || cursor[0] == 'L') &&
+        (cursor[1] == 'x' || cursor[1] == 'X') &&
+        (cursor[2] == 'm' || cursor[2] == 'M') &&
+        (cursor[3] == 'f' || cursor[3] == 'F') &&
+        cursor[4] == '@')
+    {
+        return cursor + 5;
+    }
+    return cursor;
+}
+
+static void make_lxmf_contact_nickname(const chat::ReticulumPeerIdentity& identity,
+                                       char* out,
+                                       size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    out[0] = '\0';
+    if (!chat::hasReticulumDestinationIdentity(identity) || out_len < 12)
+    {
+        std::snprintf(out, out_len, "RT-UNKNOWN");
+        return;
+    }
+    std::snprintf(out,
+                  out_len,
+                  "RT-%02X%02X%02X%02X",
+                  static_cast<unsigned>(identity.destination_hash[0]),
+                  static_cast<unsigned>(identity.destination_hash[1]),
+                  static_cast<unsigned>(identity.destination_hash[2]),
+                  static_cast<unsigned>(identity.destination_hash[3]));
+}
+
+static void make_lxmf_short_name(const chat::ReticulumPeerIdentity& identity,
+                                 uint32_t node_id,
+                                 char* out,
+                                 size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    if (chat::hasReticulumDestinationIdentity(identity) && out_len >= 9)
+    {
+        std::snprintf(out,
+                      out_len,
+                      "%02X%02X%02X%02X",
+                      static_cast<unsigned>(identity.destination_hash[0]),
+                      static_cast<unsigned>(identity.destination_hash[1]),
+                      static_cast<unsigned>(identity.destination_hash[2]),
+                      static_cast<unsigned>(identity.destination_hash[3]));
+        return;
+    }
+    std::snprintf(out, out_len, "%04X", static_cast<unsigned>(node_id & 0xFFFF));
+}
+
+static bool existing_contact_matches(uint32_t node_id)
+{
+    for (const auto& node : g_contacts_state.contacts_list)
+    {
+        if (node.node_id == node_id && node.is_contact)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool contains_ci(const char* text, const char* query)
+{
+    if (!query || query[0] == '\0')
+    {
+        return true;
+    }
+    if (!text)
+    {
+        return false;
+    }
+    const std::size_t query_len = std::strlen(query);
+    const std::size_t text_len = std::strlen(text);
+    if (query_len == 0)
+    {
+        return true;
+    }
+    if (query_len > text_len)
+    {
+        return false;
+    }
+    for (std::size_t start = 0; start + query_len <= text_len; ++start)
+    {
+        bool match = true;
+        for (std::size_t offset = 0; offset < query_len; ++offset)
+        {
+            const auto lhs = static_cast<unsigned char>(text[start + offset]);
+            const auto rhs = static_cast<unsigned char>(query[offset]);
+            if (std::tolower(lhs) != std::tolower(rhs))
+            {
+                match = false;
+                break;
+            }
+        }
+        if (match)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool node_matches_search(const chat::contacts::PeerDirectoryItem& node)
+{
+    if (!search_active())
+    {
+        return true;
+    }
+
+    const char* query = g_contacts_state.search_query;
+    const std::string display_name = node_display_name_for_contacts(node);
+    char destination_hash[chat::kReticulumPeerHashSize * 2U + 1U] = {};
+    char identity_hash[chat::kReticulumPeerHashSize * 2U + 1U] = {};
+    if (chat::hasReticulumDestinationIdentity(node.reticulum_identity))
+    {
+        format_reticulum_hash_text(node.reticulum_identity.destination_hash,
+                                   destination_hash,
+                                   sizeof(destination_hash));
+        format_reticulum_hash_text(node.reticulum_identity.identity_hash,
+                                   identity_hash,
+                                   sizeof(identity_hash));
+    }
+    return contains_ci(node.long_name, query) ||
+           contains_ci(node.display_name.c_str(), query) ||
+           contains_ci(display_name.c_str(), query) ||
+           contains_ci(node.short_name, query) ||
+           contains_ci(destination_hash, query) ||
+           contains_ci(identity_hash, query);
+}
+
+static void build_display_list(const std::vector<chat::contacts::PeerDirectoryItem>& source)
+{
+    g_contacts_state.display_list.clear();
+    g_contacts_state.display_list.reserve(source.size());
+    for (const auto& node : source)
+    {
+        if (node_matches_search(node))
+        {
+            g_contacts_state.display_list.push_back(node);
+        }
+    }
+}
+
+static bool use_search_display_list_for_mode(ContactsMode mode)
+{
+    return search_active() && is_searchable_contacts_mode(mode);
+}
+
+static const std::vector<chat::contacts::PeerDirectoryItem>* raw_list_for_mode(ContactsMode mode)
+{
+    switch (mode)
+    {
+    case ContactsMode::Contacts:
+        return &g_contacts_state.contacts_list;
+    case ContactsMode::Nearby:
+        return &g_contacts_state.nearby_list;
+    case ContactsMode::Groups:
+        return &g_contacts_state.reticulum_group_list;
+    case ContactsMode::Ignored:
+        return &g_contacts_state.ignored_list;
+    default:
+        break;
+    }
+    return nullptr;
+}
+
+static const std::vector<chat::contacts::PeerDirectoryItem>* selectable_list_for_mode(
+    ContactsMode mode)
+{
+    if (use_search_display_list_for_mode(mode))
+    {
+        return &g_contacts_state.display_list;
+    }
+    return raw_list_for_mode(mode);
+}
+
+static const char* reticulum_address_save_failure_message(
+    chat::MeshOperationFailure failure)
+{
+    switch (failure)
+    {
+    case chat::MeshOperationFailure::PeerKeyMissing:
+        return "Address pending";
+    case chat::MeshOperationFailure::NotReady:
+        return "SD unavailable";
+    case chat::MeshOperationFailure::InvalidInput:
+        return "Invalid peer";
+    case chat::MeshOperationFailure::Unsupported:
+        return "Address save unsupported";
+    default:
+        break;
+    }
+    return "Address save failed";
+}
+
+static chat::MeshActionResult persist_reticulum_contact_peer(
+    const chat::ReticulumPeerIdentity& identity,
+    bool favorite)
+{
+    if (!g_contacts_state.chat_service ||
+        !chat::hasReticulumDestinationIdentity(identity))
+    {
+        return chat::MeshActionResult::fail(chat::MeshOperationFailure::InvalidInput);
+    }
+    return g_contacts_state.chat_service->persistReticulumPeer(identity, favorite);
+}
+
+class ScopedReticulumContactSaveOverlay
+{
+  public:
+    explicit ScopedReticulumContactSaveOverlay(bool active,
+                                               const char* detail = nullptr)
+        : active_(active)
+    {
+        if (!active_)
+        {
+            return;
+        }
+        ::ui::widgets::busy_overlay::show("Saving contact...", detail);
+    }
+
+    ~ScopedReticulumContactSaveOverlay()
+    {
+        if (!active_)
+        {
+            return;
+        }
+        ::ui::widgets::busy_overlay::hide();
+    }
+
+    ScopedReticulumContactSaveOverlay(const ScopedReticulumContactSaveOverlay&) =
+        delete;
+    ScopedReticulumContactSaveOverlay& operator=(
+        const ScopedReticulumContactSaveOverlay&) = delete;
+
+  private:
+    bool active_ = false;
+};
+
+static bool is_search_shortcut_key(uint32_t key)
+{
+    return key == '/' || key == 's' || key == 'S';
+}
+
+static bool is_add_lxmf_shortcut_key(uint32_t key)
+{
+    return key == 'a' || key == 'A';
+}
+
+static bool is_filter_toggle_shortcut_key(uint32_t key)
+{
+    return key == 'f' || key == 'F';
+}
+
+static bool is_help_shortcut_key(uint32_t key)
+{
+    return key == 'h' || key == 'H';
+}
+
+static void bind_page_shortcuts(lv_obj_t* obj)
+{
+    if (obj)
+    {
+        lv_obj_add_event_cb(obj, contacts_handle_page_shortcut, LV_EVENT_KEY, nullptr);
+    }
+}
+
+static void apply_filter_panel_visibility()
+{
+    if (!g_contacts_state.filter_panel)
+    {
+        return;
+    }
+    if (g_contacts_state.filter_panel_visible)
+    {
+        lv_obj_clear_flag(g_contacts_state.filter_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+    else
+    {
+        lv_obj_add_flag(g_contacts_state.filter_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+    contacts_input_on_ui_refreshed();
+}
+
+static void toggle_filter_panel_visibility()
+{
+    g_contacts_state.filter_panel_visible = !g_contacts_state.filter_panel_visible;
+    apply_filter_panel_visibility();
+    contacts_focus_to_list();
+}
+
 // ---------------- Panel creation (public API) ----------------
 
 void create_filter_panel(lv_obj_t* parent)
 {
     // Structure + styles handled in layout/styles
     contacts::ui::layout::create_filter_panel(parent);
+    g_contacts_state.filter_panel_visible = true;
 
-    // Bind events:
-    // - Rotate in Filter column triggers FOCUSED -> switch mode + refresh
-    // - Press in Filter column:
-    //    * on TopBar back -> exit (handled by topbar)
-    //    * on a mode button -> move focus to the List column
+    // Bind focus-only events here. Actual filter activation is routed through
+    // two_pane_nav so focus movement stays cheap on low-power targets.
     if (g_contacts_state.contacts_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.contacts_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
-        lv_obj_add_event_cb(g_contacts_state.contacts_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
+        bind_page_shortcuts(g_contacts_state.contacts_btn);
     }
     if (g_contacts_state.nearby_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.nearby_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
-        lv_obj_add_event_cb(g_contacts_state.nearby_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
+        bind_page_shortcuts(g_contacts_state.nearby_btn);
+    }
+    if (g_contacts_state.groups_btn)
+    {
+        lv_obj_add_event_cb(g_contacts_state.groups_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
+        bind_page_shortcuts(g_contacts_state.groups_btn);
     }
     if (g_contacts_state.ignored_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.ignored_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
-        lv_obj_add_event_cb(g_contacts_state.ignored_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
+        bind_page_shortcuts(g_contacts_state.ignored_btn);
     }
     if (g_contacts_state.broadcast_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.broadcast_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
-        lv_obj_add_event_cb(g_contacts_state.broadcast_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
+        bind_page_shortcuts(g_contacts_state.broadcast_btn);
     }
     if (g_contacts_state.team_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.team_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
-        lv_obj_add_event_cb(g_contacts_state.team_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
+        bind_page_shortcuts(g_contacts_state.team_btn);
     }
     if (g_contacts_state.discover_btn)
     {
         lv_obj_add_event_cb(g_contacts_state.discover_btn, on_filter_focused, LV_EVENT_FOCUSED, nullptr);
-        lv_obj_add_event_cb(g_contacts_state.discover_btn, on_filter_clicked, LV_EVENT_CLICKED, nullptr);
+        bind_page_shortcuts(g_contacts_state.discover_btn);
     }
+    bind_page_shortcuts(g_contacts_state.root);
+    bind_page_shortcuts(g_contacts_state.top_bar.back_btn);
 
     // Keep highlight consistent with mode using CHECKED state
     // (visual-only; does not change behavior)
     refresh_filter_checked_state();
+    apply_filter_panel_visibility();
 }
 
 // ---------------- Filter handlers (unchanged behavior) ----------------
@@ -760,57 +1352,43 @@ static void on_filter_focused(lv_event_t* e)
 {
     lv_obj_t* tgt = (lv_obj_t*)lv_event_get_target(e);
     ContactsMode new_mode = g_contacts_state.current_mode;
-    if (tgt == g_contacts_state.contacts_btn) new_mode = ContactsMode::Contacts;
-    else if (tgt == g_contacts_state.nearby_btn) new_mode = ContactsMode::Nearby;
-    else if (tgt == g_contacts_state.ignored_btn) new_mode = ContactsMode::Ignored;
-    else if (tgt == g_contacts_state.broadcast_btn) new_mode = ContactsMode::Broadcast;
-    else if (tgt == g_contacts_state.team_btn) new_mode = ContactsMode::Team;
-    else if (tgt == g_contacts_state.discover_btn) new_mode = ContactsMode::Discover;
-    else return;
+    if (!filter_mode_for_button(tgt, &new_mode))
+    {
+        return;
+    }
 
+    g_contacts_state.focused_filter_mode = new_mode;
+    g_contacts_state.focused_filter_mode_valid = true;
+    refresh_filter_checked_state();
+}
+
+bool activate_contacts_filter(lv_obj_t* filter_button)
+{
+    ContactsMode new_mode = g_contacts_state.current_mode;
+    if (!filter_mode_for_button(filter_button, &new_mode))
+    {
+        return false;
+    }
+
+    g_contacts_state.focused_filter_mode = new_mode;
+    g_contacts_state.focused_filter_mode_valid = true;
     if (new_mode != g_contacts_state.current_mode)
     {
-        if (new_mode == ContactsMode::Discover &&
-            g_contacts_state.current_mode != ContactsMode::Discover)
+        if (new_mode == ContactsMode::Discover)
         {
             g_contacts_state.last_action_mode = g_contacts_state.current_mode;
         }
         g_contacts_state.current_mode = new_mode;
         g_contacts_state.current_page = 0;
         g_contacts_state.selected_index = -1;
-        refresh_contacts_data();
-        refresh_ui(); // When switching filter mode, refresh the list column.
-        return;
-    }
-
-    refresh_filter_checked_state();
-}
-
-static void on_filter_clicked(lv_event_t* e)
-{
-    lv_obj_t* tgt = (lv_obj_t*)lv_event_get_target(e);
-    if (tgt == g_contacts_state.discover_btn &&
-        g_contacts_state.current_mode != ContactsMode::Discover)
-    {
-        g_contacts_state.last_action_mode = g_contacts_state.current_mode;
-        g_contacts_state.current_mode = ContactsMode::Discover;
-        g_contacts_state.current_page = 0;
-        g_contacts_state.selected_index = -1;
-        refresh_contacts_data();
+        clear_search_query();
         refresh_ui();
+        if (g_contacts_state.refresh_timer)
+        {
+            lv_timer_reset(g_contacts_state.refresh_timer);
+        }
     }
-    else if (tgt == g_contacts_state.ignored_btn &&
-             g_contacts_state.current_mode != ContactsMode::Ignored)
-    {
-        g_contacts_state.current_mode = ContactsMode::Ignored;
-        g_contacts_state.current_page = 0;
-        g_contacts_state.selected_index = -1;
-        refresh_contacts_data();
-        refresh_ui();
-    }
-
-    // Press on filter mode button: move focus to List column
-    contacts_focus_to_list();
+    return true;
 }
 
 static void on_list_item_clicked(lv_event_t* e)
@@ -821,6 +1399,12 @@ static void on_list_item_clicked(lv_event_t* e)
     {
         g_contacts_state.selected_index = -1;
         contacts_focus_to_filter();
+        return;
+    }
+    if (g_contacts_state.current_mode == ContactsMode::Groups &&
+        g_contacts_state.selected_index == static_cast<int>(kAddReticulumGroupUserData))
+    {
+        open_reticulum_group_config_modal();
         return;
     }
     if (g_contacts_state.current_mode == ContactsMode::Discover)
@@ -837,6 +1421,14 @@ static void on_list_item_clicked(lv_event_t* e)
             return;
         }
     }
+    if (g_contacts_state.current_mode == ContactsMode::Groups &&
+        !chat_support::supports_reticulum_destination_text())
+    {
+        ::ui::feedback::show_notice(
+            chat_support::reticulum_destination_text_unavailable_message(),
+            2200);
+        return;
+    }
     open_action_menu_modal();
 }
 
@@ -850,6 +1442,11 @@ static void on_list_item_focused(lv_event_t* e)
     if (!item || !lv_obj_is_valid(item))
     {
         return;
+    }
+    const intptr_t user_data = reinterpret_cast<intptr_t>(lv_obj_get_user_data(item));
+    if (user_data >= 0)
+    {
+        g_contacts_state.selected_index = static_cast<int>(user_data);
     }
     lv_obj_scroll_to_view(item, LV_ANIM_OFF);
 }
@@ -892,11 +1489,13 @@ static void on_back_clicked(lv_event_t* /*e*/)
     contacts_focus_to_filter();
 }
 
-static const chat::contacts::NodeInfo* get_selected_node()
+static const chat::contacts::PeerDirectoryItem* get_selected_node()
 {
     if (g_contacts_state.current_mode == ContactsMode::Broadcast ||
         g_contacts_state.current_mode == ContactsMode::Team ||
-        g_contacts_state.current_mode == ContactsMode::Discover)
+        g_contacts_state.current_mode == ContactsMode::Discover ||
+        g_contacts_state.current_mode == ContactsMode::Groups ||
+        g_contacts_state.current_mode == ContactsMode::Public)
     {
         return nullptr;
     }
@@ -904,19 +1503,32 @@ static const chat::contacts::NodeInfo* get_selected_node()
     {
         return nullptr;
     }
-    const auto& list = (g_contacts_state.current_mode == ContactsMode::Contacts)
-                           ? g_contacts_state.contacts_list
-                       : (g_contacts_state.current_mode == ContactsMode::Nearby)
-                           ? g_contacts_state.nearby_list
-                           : g_contacts_state.ignored_list;
-    if (g_contacts_state.selected_index >= static_cast<int>(list.size()))
+    const auto* list = selectable_list_for_mode(g_contacts_state.current_mode);
+    if (!list ||
+        g_contacts_state.selected_index >= static_cast<int>(list->size()))
     {
         return nullptr;
     }
-    return &list[g_contacts_state.selected_index];
+    return &(*list)[g_contacts_state.selected_index];
 }
 
-static const chat::contacts::NodeInfo* find_node_by_id(uint32_t node_id)
+static const chat::contacts::PeerDirectoryItem* get_selected_reticulum_group()
+{
+    if (g_contacts_state.current_mode != ContactsMode::Groups ||
+        g_contacts_state.selected_index < 0)
+    {
+        return nullptr;
+    }
+    const auto* list = selectable_list_for_mode(g_contacts_state.current_mode);
+    if (!list ||
+        g_contacts_state.selected_index >= static_cast<int>(list->size()))
+    {
+        return nullptr;
+    }
+    return &(*list)[g_contacts_state.selected_index];
+}
+
+static const chat::contacts::PeerDirectoryItem* find_node_by_id(uint32_t node_id)
 {
     for (const auto& node : g_contacts_state.contacts_list)
     {
@@ -940,6 +1552,67 @@ static const chat::contacts::NodeInfo* find_node_by_id(uint32_t node_id)
         }
     }
     return nullptr;
+}
+
+static bool reticulum_identity_hash_present(
+    const chat::ReticulumPeerIdentity& identity)
+{
+    if (!chat::hasReticulumDestinationIdentity(identity))
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < chat::kReticulumPeerHashSize; ++index)
+    {
+        if (identity.identity_hash[index] != 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void merge_reticulum_projection_for_details(
+    chat::contacts::PeerDirectoryItem& target,
+    const chat::contacts::PeerDirectoryItem& projection)
+{
+    if (!is_reticulum_node(projection))
+    {
+        return;
+    }
+
+    if (target.protocol != chat::contacts::NodeProtocolType::Reticulum)
+    {
+        target.protocol = chat::contacts::NodeProtocolType::Reticulum;
+    }
+    if (!reticulum_identity_hash_present(target.reticulum_identity) &&
+        chat::hasReticulumDestinationIdentity(projection.reticulum_identity))
+    {
+        target.reticulum_identity = projection.reticulum_identity;
+    }
+    if (target.last_seen == 0 && projection.last_seen != 0)
+    {
+        target.last_seen = projection.last_seen;
+    }
+    if (std::isnan(target.snr) && !std::isnan(projection.snr))
+    {
+        target.snr = projection.snr;
+    }
+    if (std::isnan(target.rssi) && !std::isnan(projection.rssi))
+    {
+        target.rssi = projection.rssi;
+    }
+    if (target.hops_away == 0xFF && projection.hops_away != 0xFF)
+    {
+        target.hops_away = projection.hops_away;
+    }
+    if (target.long_name[0] == '\0' && projection.long_name[0] != '\0')
+    {
+        lv_strlcpy(target.long_name, projection.long_name, sizeof(target.long_name));
+    }
+    if (target.display_name.empty() && !projection.display_name.empty())
+    {
+        target.display_name = projection.display_name;
+    }
 }
 
 static bool get_selected_broadcast_target(BroadcastTargetSpec* out_spec,
@@ -1035,10 +1708,330 @@ static void modal_close(lv_obj_t*& modal_obj)
 
 static bool is_any_modal_open()
 {
-    return g_contacts_state.add_edit_modal != nullptr ||
+    return ::ui::components::floating_search_box::is_open(g_contacts_state.search_box) ||
+           ::ui::components::floating_search_box::is_open(g_contacts_state.lxmf_address_box) ||
+           g_contacts_state.add_edit_modal != nullptr ||
+           g_contacts_state.reticulum_group_modal != nullptr ||
            g_contacts_state.del_confirm_modal != nullptr ||
            g_contacts_state.action_menu_modal != nullptr ||
-           g_contacts_state.discover_modal != nullptr;
+           g_contacts_state.discover_modal != nullptr ||
+           ::ui::components::shortcut_help_modal::is_open(s_help_modal);
+}
+
+static void on_search_apply(const char* text, void* /*user_data*/)
+{
+    std::snprintf(g_contacts_state.search_query,
+                  sizeof(g_contacts_state.search_query),
+                  "%s",
+                  text ? text : "");
+    g_contacts_state.current_page = 0;
+    g_contacts_state.selected_index = -1;
+    refresh_ui();
+    contacts_focus_to_list();
+}
+
+static void on_search_clear(void* /*user_data*/)
+{
+    g_contacts_state.search_query[0] = '\0';
+    g_contacts_state.current_page = 0;
+    g_contacts_state.selected_index = -1;
+    refresh_ui();
+    contacts_focus_to_list();
+}
+
+static void on_search_cancel(void* /*user_data*/)
+{
+    contacts_focus_to_list();
+}
+
+static void open_search_modal()
+{
+    if (::ui::components::floating_search_box::is_open(g_contacts_state.search_box))
+    {
+        ::ui::components::floating_search_box::focus(g_contacts_state.search_box);
+        return;
+    }
+    if (!is_searchable_contacts_mode(g_contacts_state.current_mode))
+    {
+        ::ui::feedback::show_notice("Search current contacts list", 1600);
+        return;
+    }
+    if (is_any_modal_open())
+    {
+        return;
+    }
+
+    ::ui::components::floating_search_box::Config config{};
+    config.title = "Search contacts";
+    config.initial_text = g_contacts_state.search_query;
+    config.max_length = sizeof(g_contacts_state.search_query) - 1U;
+    config.restore_group = contacts_input_get_group();
+    config.callbacks.apply = on_search_apply;
+    config.callbacks.clear = on_search_clear;
+    config.callbacks.cancel = on_search_cancel;
+    (void)::ui::components::floating_search_box::open(
+        g_contacts_state.search_box,
+        g_contacts_state.root ? g_contacts_state.root : lv_screen_active(),
+        config);
+}
+
+static void on_lxmf_address_apply(const char* text, void* /*user_data*/)
+{
+    if (!g_contacts_state.contact_service)
+    {
+        ::ui::feedback::show_notice("Contacts unavailable", 1800);
+        contacts_focus_to_list();
+        return;
+    }
+
+    chat::ReticulumPeerIdentity identity{};
+    char error[64] = {};
+    const char* address_text = skip_lxmf_prefix(text);
+    if (!chat::parseReticulumDestinationHashText(address_text,
+                                                 &identity,
+                                                 error,
+                                                 sizeof(error)))
+    {
+        ::ui::feedback::show_notice(error[0] != '\0' ? error : "Invalid LXMF address",
+                                    2200);
+        contacts_focus_to_list();
+        return;
+    }
+
+    rtdir::LxmfAddressRecord address_record{};
+    const auto address_lookup =
+        rtdir::find_lxmf_address_by_destination(identity.destination_hash,
+                                                &address_record);
+    const bool has_full_address =
+        address_lookup.loaded && address_record.valid;
+    if (has_full_address)
+    {
+        identity = chat::makeReticulumPeerIdentity(address_record.destination_hash,
+                                                   address_record.identity_hash);
+    }
+
+    uint32_t node_id = 0;
+    if (!g_contacts_state.contact_service->findNodeIdByReticulumDestinationHash(
+            identity.destination_hash,
+            &node_id))
+    {
+        node_id = chat::reticulum::nodeIdFromDestinationHash(identity.destination_hash);
+    }
+
+    const chat::contacts::PeerDirectoryItem* existing_node = find_node_by_id(node_id);
+    char short_name[10] = {};
+    char nickname[13] = {};
+    char generated_nickname[13] = {};
+    make_lxmf_short_name(identity, node_id, short_name, sizeof(short_name));
+    make_lxmf_contact_nickname(identity, generated_nickname, sizeof(generated_nickname));
+    lv_strlcpy(nickname, generated_nickname, sizeof(nickname));
+    const char* address_display_name =
+        has_full_address && address_record.display_name[0] != '\0'
+            ? address_record.display_name
+            : nullptr;
+    if (address_display_name && std::strlen(address_display_name) <= 12U)
+    {
+        lv_strlcpy(nickname, address_display_name, sizeof(nickname));
+    }
+    else if (existing_node)
+    {
+        const std::string existing_name = node_display_name_for_contacts(*existing_node);
+        if (!existing_name.empty() && existing_name.size() <= 12U)
+        {
+            lv_strlcpy(nickname, existing_name.c_str(), sizeof(nickname));
+        }
+    }
+
+    chat::contacts::NodeUpdate update{};
+    update.short_name = short_name;
+    char fallback_long_name[32] = {};
+    if (address_display_name)
+    {
+        std::snprintf(fallback_long_name,
+                      sizeof(fallback_long_name),
+                      "%s",
+                      address_display_name);
+        update.long_name = fallback_long_name;
+    }
+    else if (!existing_node || existing_node->long_name[0] == '\0')
+    {
+        std::snprintf(fallback_long_name, sizeof(fallback_long_name), "%s", nickname);
+        update.long_name = fallback_long_name;
+    }
+    update.has_last_seen = true;
+    update.last_seen = current_timestamp_seconds();
+    update.has_protocol = true;
+    update.protocol = static_cast<uint8_t>(chat::contacts::NodeProtocolType::Reticulum);
+    update.has_role = true;
+    update.role = static_cast<uint8_t>(chat::contacts::NodeRoleType::Client);
+    update.reticulum_identity = identity;
+
+    ScopedReticulumContactSaveOverlay save_overlay(
+        true,
+        has_full_address ? "Updating SD address book" : "Saving local contact");
+    g_contacts_state.contact_service->applyNodeUpdate(node_id, update);
+
+    refresh_contacts_data();
+    const bool was_contact = existing_contact_matches(node_id);
+    bool added = was_contact || g_contacts_state.contact_service->addContact(node_id, nickname);
+    if (!added && std::strcmp(nickname, generated_nickname) != 0)
+    {
+        added = g_contacts_state.contact_service->addContact(node_id, generated_nickname);
+    }
+    if (!added)
+    {
+        ::ui::feedback::show_notice("Contact save failed", 2200);
+        contacts_focus_to_list();
+        return;
+    }
+
+    bool favorite_saved = false;
+    if (has_full_address)
+    {
+        const auto favorite_status =
+            rtdir::set_lxmf_address_favorite_now(identity.destination_hash, true);
+        favorite_saved = favorite_status.saved;
+        if (!favorite_saved)
+        {
+            std::printf("[Contacts][RT] favorite_save failed message=%s detail=%s\n",
+                        favorite_status.message,
+                        favorite_status.detail);
+        }
+    }
+
+    clear_search_query();
+    g_contacts_state.current_mode = ContactsMode::Contacts;
+    g_contacts_state.current_page = 0;
+    g_contacts_state.selected_index = -1;
+    refresh_contacts_data();
+    refresh_ui();
+    ::ui::feedback::show_notice(
+        has_full_address
+            ? (favorite_saved ? "Contact saved" : "Contact added; SD pending")
+            : "Contact added; wait announce",
+        1800);
+    contacts_focus_to_list();
+}
+
+static void on_lxmf_address_clear(void* /*user_data*/)
+{
+    contacts_focus_to_list();
+}
+
+static void on_lxmf_address_cancel(void* /*user_data*/)
+{
+    contacts_focus_to_list();
+}
+
+static void open_lxmf_address_modal()
+{
+    if (::ui::components::floating_search_box::is_open(g_contacts_state.lxmf_address_box))
+    {
+        ::ui::components::floating_search_box::focus(g_contacts_state.lxmf_address_box);
+        return;
+    }
+    if (!uses_reticulum_filter_profile())
+    {
+        ::ui::feedback::show_notice("LXMF address is Reticulum only", 1800);
+        return;
+    }
+    if (is_any_modal_open())
+    {
+        return;
+    }
+
+    ::ui::components::floating_search_box::Config config{};
+    config.title = "Add LXMF Address";
+    config.initial_text = "";
+    config.accepted_chars = kLxmfAddressAcceptedChars;
+    config.max_length = chat::kReticulumPeerHashSize * 2U + 5U;
+    config.restore_group = contacts_input_get_group();
+    config.callbacks.apply = on_lxmf_address_apply;
+    config.callbacks.clear = on_lxmf_address_clear;
+    config.callbacks.cancel = on_lxmf_address_cancel;
+    (void)::ui::components::floating_search_box::open(
+        g_contacts_state.lxmf_address_box,
+        g_contacts_state.root ? g_contacts_state.root : lv_screen_active(),
+        config);
+}
+
+static void contacts_handle_page_shortcut(lv_event_t* event)
+{
+    if (!event || lv_event_get_code(event) != LV_EVENT_KEY)
+    {
+        return;
+    }
+    const uint32_t key = lv_event_get_key(event);
+    if (is_search_shortcut_key(key))
+    {
+        open_search_modal();
+        lv_event_stop_processing(event);
+        return;
+    }
+    if (is_add_lxmf_shortcut_key(key))
+    {
+        open_lxmf_address_modal();
+        lv_event_stop_processing(event);
+        return;
+    }
+    if (is_filter_toggle_shortcut_key(key))
+    {
+        toggle_filter_panel_visibility();
+        lv_event_stop_processing(event);
+        return;
+    }
+    if (is_help_shortcut_key(key))
+    {
+        open_contacts_help_modal();
+        lv_event_stop_processing(event);
+        return;
+    }
+}
+
+static void close_contacts_help_modal()
+{
+    ::ui::components::shortcut_help_modal::close(s_help_modal);
+}
+
+static void open_contacts_help_modal()
+{
+    if (::ui::components::shortcut_help_modal::is_open(s_help_modal))
+    {
+        close_contacts_help_modal();
+        return;
+    }
+    if (is_any_modal_open())
+    {
+        return;
+    }
+
+    ::ui::components::shortcut_help_modal::Row rows[7] = {};
+    std::size_t row_count = 0;
+    rows[row_count++] = {"S", "/", "Search names"};
+    if (uses_reticulum_filter_profile())
+    {
+        rows[row_count++] = {"A", nullptr, "Add LXMF address"};
+    }
+    rows[row_count++] = {"F", nullptr, "Show or hide filters"};
+    rows[row_count++] = {"Enter", nullptr, "Open selected item"};
+    rows[row_count++] = {"Back", nullptr, "Return or close"};
+    rows[row_count++] = {"H", nullptr, "Close help"};
+    if (uses_reticulum_filter_profile())
+    {
+        rows[row_count++] = {"Groups", nullptr, "Add opens group config"};
+    }
+
+    ::ui::components::shortcut_help_modal::Config config{};
+    config.title = "Contacts Help";
+    config.rows = rows;
+    config.row_count = row_count;
+    config.width = 304;
+    config.height = 176;
+    config.restore_group = contacts_input_get_group();
+    (void)::ui::components::shortcut_help_modal::open(
+        s_help_modal,
+        g_contacts_state.root ? g_contacts_state.root : lv_screen_active(),
+        config);
 }
 
 static void open_add_edit_modal(bool is_edit)
@@ -1118,6 +2111,143 @@ static void open_add_edit_modal(bool is_edit)
     lv_group_focus_obj(g_contacts_state.add_edit_textarea);
 }
 
+static void show_reticulum_group_error(const char* message)
+{
+    if (!g_contacts_state.reticulum_group_error_label)
+    {
+        return;
+    }
+    ::ui::i18n::set_label_text(g_contacts_state.reticulum_group_error_label,
+                               message ? message : "Save failed");
+    lv_obj_clear_flag(g_contacts_state.reticulum_group_error_label, LV_OBJ_FLAG_HIDDEN);
+}
+
+static bool reticulum_group_storage_ready_for_edit()
+{
+    auto groups = std::unique_ptr<chat::ReticulumGroupDestinationConfig[]>(
+        new (std::nothrow)
+            chat::ReticulumGroupDestinationConfig[chat::kReticulumGroupDestinationMaxCount]);
+    if (!groups)
+    {
+        return false;
+    }
+
+    const auto status = ::platform::ui::reticulum_groups::load(
+        groups.get(),
+        chat::kReticulumGroupDestinationMaxCount);
+    g_contacts_state.reticulum_group_storage_supported = status.supported;
+    g_contacts_state.reticulum_group_storage_ready = status.sd_present;
+    g_contacts_state.reticulum_group_storage_loaded = status.loaded;
+    std::snprintf(g_contacts_state.reticulum_group_storage_message,
+                  sizeof(g_contacts_state.reticulum_group_storage_message),
+                  "%s",
+                  status.message);
+    std::snprintf(g_contacts_state.reticulum_group_storage_detail,
+                  sizeof(g_contacts_state.reticulum_group_storage_detail),
+                  "%s",
+                  status.detail);
+    return status.supported && status.sd_present;
+}
+
+static void open_reticulum_group_config_modal()
+{
+    if (g_contacts_state.reticulum_group_modal)
+    {
+        return;
+    }
+    if (!reticulum_group_storage_ready_for_edit())
+    {
+        const char* message = g_contacts_state.reticulum_group_storage_message[0] != '\0'
+                                  ? g_contacts_state.reticulum_group_storage_message
+                                  : "SD card required";
+        ::ui::feedback::show_notice(message, 2200);
+        contacts_focus_to_list();
+        return;
+    }
+
+    modal_prepare_group();
+    g_contacts_state.reticulum_group_modal = create_modal_root(280, 210);
+    lv_obj_t* win = lv_obj_get_child(g_contacts_state.reticulum_group_modal, 0);
+    if (!win)
+    {
+        modal_close(g_contacts_state.reticulum_group_modal);
+        return;
+    }
+
+    lv_obj_t* title = lv_label_create(win);
+    apply_primary_text(title);
+    ::ui::i18n::set_label_text(title, "Add Reticulum Group");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
+
+    lv_obj_t* name_label = lv_label_create(win);
+    apply_primary_text(name_label);
+    ::ui::i18n::set_label_text(name_label, "Name");
+    lv_obj_align(name_label, LV_ALIGN_TOP_LEFT, 0, 28);
+
+    g_contacts_state.reticulum_group_name_textarea = lv_textarea_create(win);
+    lv_textarea_set_one_line(g_contacts_state.reticulum_group_name_textarea, true);
+    lv_textarea_set_max_length(g_contacts_state.reticulum_group_name_textarea,
+                               chat::kReticulumGroupNameMaxLen - 1);
+    lv_obj_set_width(g_contacts_state.reticulum_group_name_textarea, LV_PCT(100));
+    lv_obj_align(g_contacts_state.reticulum_group_name_textarea, LV_ALIGN_TOP_MID, 0, 44);
+
+    lv_obj_t* destination_label = lv_label_create(win);
+    apply_primary_text(destination_label);
+    ::ui::i18n::set_label_text(destination_label, "Destination hash");
+    lv_obj_align(destination_label, LV_ALIGN_TOP_LEFT, 0, 78);
+
+    g_contacts_state.reticulum_group_destination_textarea = lv_textarea_create(win);
+    lv_textarea_set_one_line(g_contacts_state.reticulum_group_destination_textarea, true);
+    lv_textarea_set_max_length(g_contacts_state.reticulum_group_destination_textarea, 48);
+    lv_obj_set_width(g_contacts_state.reticulum_group_destination_textarea, LV_PCT(100));
+    lv_obj_align(g_contacts_state.reticulum_group_destination_textarea, LV_ALIGN_TOP_MID, 0, 94);
+
+    g_contacts_state.reticulum_group_error_label = lv_label_create(win);
+    lv_label_set_text(g_contacts_state.reticulum_group_error_label, "");
+    lv_obj_set_style_text_color(g_contacts_state.reticulum_group_error_label, lv_color_hex(kColorWarn), 0);
+    lv_obj_align(g_contacts_state.reticulum_group_error_label, LV_ALIGN_TOP_MID, 0, 126);
+    lv_obj_add_flag(g_contacts_state.reticulum_group_error_label, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t* btn_row = lv_obj_create(win);
+    lv_obj_set_size(btn_row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_align(btn_row, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_flex_flow(btn_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(btn_row, LV_FLEX_ALIGN_SPACE_EVENLY,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(btn_row, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(btn_row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(btn_row, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* save_btn = lv_btn_create(btn_row);
+    lv_obj_set_size(save_btn,
+                    ::ui::page_profile::resolve_control_button_min_width(),
+                    ::ui::page_profile::resolve_control_button_height());
+    contacts::ui::style::apply_btn_basic(save_btn);
+    lv_obj_t* save_label = lv_label_create(save_btn);
+    apply_primary_text(save_label);
+    ::ui::i18n::set_label_text(save_label, "Save");
+    lv_obj_center(save_label);
+    lv_obj_add_event_cb(save_btn, on_reticulum_group_save_clicked, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t* cancel_btn = lv_btn_create(btn_row);
+    lv_obj_set_size(cancel_btn,
+                    ::ui::page_profile::resolve_control_button_min_width(),
+                    ::ui::page_profile::resolve_control_button_height());
+    contacts::ui::style::apply_btn_basic(cancel_btn);
+    lv_obj_t* cancel_label = lv_label_create(cancel_btn);
+    apply_primary_text(cancel_label);
+    ::ui::i18n::set_label_text(cancel_label, "Cancel");
+    lv_obj_center(cancel_label);
+    lv_obj_add_event_cb(cancel_btn, on_reticulum_group_cancel_clicked, LV_EVENT_CLICKED, nullptr);
+
+    lv_group_add_obj(g_contacts_state.modal_group, g_contacts_state.reticulum_group_name_textarea);
+    lv_group_add_obj(g_contacts_state.modal_group, g_contacts_state.reticulum_group_destination_textarea);
+    lv_group_add_obj(g_contacts_state.modal_group, save_btn);
+    lv_group_add_obj(g_contacts_state.modal_group, cancel_btn);
+    lv_group_focus_obj(g_contacts_state.reticulum_group_name_textarea);
+}
+
 static void open_delete_confirm_modal()
 {
     if (g_contacts_state.del_confirm_modal)
@@ -1135,7 +2265,8 @@ static void open_delete_confirm_modal()
     g_contacts_state.del_confirm_modal = create_modal_root(280, 140);
     lv_obj_t* win = lv_obj_get_child(g_contacts_state.del_confirm_modal, 0);
 
-    const std::string msg = ::ui::i18n::format("Delete contact %s?", node->display_name.c_str());
+    const std::string delete_name = node_display_name_for_contacts(*node);
+    const std::string msg = ::ui::i18n::format("Delete contact %s?", delete_name.c_str());
     lv_obj_t* label = lv_label_create(win);
     apply_primary_text(label);
     ::ui::i18n::set_label_text_raw(label, msg.c_str());
@@ -1175,6 +2306,245 @@ static void open_delete_confirm_modal()
     lv_group_focus_obj(cancel_btn);
 }
 
+static bool reticulum_hash_is_zero(const uint8_t* hash)
+{
+    if (!hash)
+    {
+        return true;
+    }
+    for (std::size_t index = 0; index < chat::kReticulumPeerHashSize; ++index)
+    {
+        if (hash[index] != 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void format_reticulum_hash_or_empty(const uint8_t* hash, char* out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    if (!hash || reticulum_hash_is_zero(hash))
+    {
+        std::snprintf(out, out_len, "--");
+        return;
+    }
+    format_reticulum_hash_text(hash, out, out_len);
+}
+
+static void add_reticulum_detail_row(lv_obj_t* parent,
+                                     const char* label_text,
+                                     const char* value_text)
+{
+    if (!parent)
+    {
+        return;
+    }
+    lv_obj_t* row = lv_obj_create(parent);
+    lv_obj_set_width(row, LV_PCT(100));
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(row, 5, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(row, 2, LV_PART_MAIN);
+    lv_obj_set_style_radius(row, 6, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(row, lv_color_hex(kColorPanelBg), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(row, lv_color_hex(kColorLine), LV_PART_MAIN);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* label = lv_label_create(row);
+    ::ui::i18n::set_label_text(label, label_text);
+    contacts::ui::style::apply_label_muted(label);
+    lv_obj_set_width(label, LV_PCT(100));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(label, ::ui::page_profile::resolve_caption_font(), 0);
+
+    lv_obj_t* value = lv_label_create(row);
+    ::ui::i18n::set_content_label_text_raw(value,
+                                           value_text && value_text[0] != '\0' ? value_text : "--");
+    contacts::ui::style::apply_label_primary(value);
+    lv_obj_set_width(value, LV_PCT(100));
+    lv_label_set_long_mode(value, LV_LABEL_LONG_WRAP);
+}
+
+static const char* reticulum_node_status_text(const chat::contacts::PeerDirectoryItem& node,
+                                              char* out,
+                                              size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return "";
+    }
+    const std::string seen = format_time_status(node.last_seen);
+    std::snprintf(out,
+                  out_len,
+                  "%s%s%s",
+                  node.is_contact ? "Contact" : "Nearby",
+                  seen.empty() ? "" : " / ",
+                  seen.empty() ? "" : seen.c_str());
+    return out;
+}
+
+static const char* reticulum_link_text(const chat::contacts::PeerDirectoryItem& node,
+                                       char* out,
+                                       size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return "";
+    }
+    std::string text;
+    if (node.hops_away != 0xFF)
+    {
+        text = std::to_string(static_cast<unsigned>(node.hops_away)) + " hops";
+    }
+    else
+    {
+        text = "--";
+    }
+    if (!std::isnan(node.snr))
+    {
+        text += " / SNR ";
+        text += std::to_string(static_cast<int>(std::round(node.snr)));
+    }
+    if (!std::isnan(node.rssi))
+    {
+        text += " / RSSI ";
+        text += std::to_string(static_cast<int>(std::round(node.rssi)));
+        text += " dBm";
+    }
+    std::snprintf(out, out_len, "%s", text.c_str());
+    return out;
+}
+
+static void reticulum_node_info_back_requested(void*)
+{
+    close_node_info_screen();
+}
+
+static void open_reticulum_node_info_screen(const chat::contacts::PeerDirectoryItem& node,
+                                            lv_obj_t* parent)
+{
+    if (!parent)
+    {
+        return;
+    }
+
+    g_contacts_state.reticulum_node_info_active = true;
+    s_reticulum_node_info_top_bar = ::ui::widgets::TopBar{};
+
+    lv_obj_t* root = lv_obj_create(parent);
+    g_contacts_state.node_info_root = root;
+    lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_pos(root, 0, 0);
+    lv_obj_add_flag(root, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_bg_color(root, lv_color_hex(0xF6E6C6), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(root, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(root, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_move_foreground(root);
+
+    lv_obj_t* header = lv_obj_create(root);
+    lv_obj_set_size(header, LV_PCT(100), ::ui::page_profile::current().top_bar_height);
+    lv_obj_set_style_border_width(header, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(header, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
+
+    ::ui::widgets::TopBarConfig cfg{};
+    cfg.height = ::ui::page_profile::current().top_bar_height;
+    ::ui::widgets::top_bar_init(s_reticulum_node_info_top_bar, header, cfg);
+    ::ui::widgets::top_bar_set_title(s_reticulum_node_info_top_bar, ::ui::i18n::tr("Reticulum Peer"));
+    ::ui::widgets::top_bar_set_back_callback(s_reticulum_node_info_top_bar,
+                                             reticulum_node_info_back_requested,
+                                             nullptr);
+    ui_update_top_bar_battery(s_reticulum_node_info_top_bar);
+
+    lv_obj_t* content = lv_obj_create(root);
+    lv_obj_set_width(content, LV_PCT(100));
+    lv_obj_set_height(content, 0);
+    lv_obj_set_flex_grow(content, 1);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(content, 5, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(content, 4, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(content, lv_color_hex(0xFAF0D8), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(content, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(content, 0, LV_PART_MAIN);
+    lv_obj_set_scroll_dir(content, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_add_flag(content, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(content, on_node_info_key, LV_EVENT_KEY, nullptr);
+
+    const std::string display_name = node_display_name_for_contacts(node);
+    lv_obj_t* title = lv_label_create(content);
+    ::ui::i18n::set_content_label_text_raw(title, display_name.c_str());
+    contacts::ui::style::apply_label_primary(title);
+    lv_obj_set_width(title, LV_PCT(100));
+    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+
+    char destination_hash[chat::kReticulumPeerHashSize * 2U + 1U] = {};
+    char identity_hash[chat::kReticulumPeerHashSize * 2U + 1U] = {};
+    if (chat::hasReticulumDestinationIdentity(node.reticulum_identity))
+    {
+        format_reticulum_hash_or_empty(node.reticulum_identity.destination_hash,
+                                       destination_hash,
+                                       sizeof(destination_hash));
+        format_reticulum_hash_or_empty(node.reticulum_identity.identity_hash,
+                                       identity_hash,
+                                       sizeof(identity_hash));
+    }
+    else
+    {
+        std::snprintf(destination_hash, sizeof(destination_hash), "--");
+        std::snprintf(identity_hash, sizeof(identity_hash), "--");
+    }
+
+    char node_id[16] = {};
+    char status[64] = {};
+    char link[80] = {};
+    std::snprintf(node_id, sizeof(node_id), "%08lX", static_cast<unsigned long>(node.node_id));
+
+    add_reticulum_detail_row(content, "Display Name", display_name.c_str());
+    add_reticulum_detail_row(content, "LXMF Address", destination_hash);
+    add_reticulum_detail_row(content, "Identity Hash", identity_hash);
+    add_reticulum_detail_row(content, "Node ID", node_id);
+    add_reticulum_detail_row(content, "Status", reticulum_node_status_text(node, status, sizeof(status)));
+    add_reticulum_detail_row(content, "Link", reticulum_link_text(node, link, sizeof(link)));
+    add_reticulum_detail_row(content, "Protocol", "Reticulum / LXMF");
+
+    if (!g_contacts_state.node_info_group)
+    {
+        g_contacts_state.node_info_group = lv_group_create();
+    }
+    g_contacts_state.node_info_prev_group = lv_group_get_default();
+    set_default_group(g_contacts_state.node_info_group);
+    if (s_reticulum_node_info_top_bar.back_btn)
+    {
+        lv_group_add_obj(g_contacts_state.node_info_group, s_reticulum_node_info_top_bar.back_btn);
+        lv_obj_add_event_cb(s_reticulum_node_info_top_bar.back_btn,
+                            on_node_info_key,
+                            LV_EVENT_KEY,
+                            nullptr);
+        lv_group_focus_obj(s_reticulum_node_info_top_bar.back_btn);
+    }
+    lv_group_add_obj(g_contacts_state.node_info_group, content);
+
+    if (g_contacts_state.root)
+    {
+        lv_obj_add_flag(g_contacts_state.root, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (g_contacts_state.refresh_timer)
+    {
+        lv_timer_pause(g_contacts_state.refresh_timer);
+    }
+}
+
 static void open_node_info_screen_for_node(uint32_t node_id)
 {
     CONTACTS_NODE_INFO_LOG("open request node=%08lX existing_root=%p contacts_root=%p active=%p\n",
@@ -1188,10 +2558,10 @@ static void open_node_info_screen_for_node(uint32_t node_id)
         return;
     }
 
-    const chat::contacts::NodeInfo* node = find_node_by_id(node_id);
+    const chat::contacts::PeerDirectoryItem* node = find_node_by_id(node_id);
     if (!node && g_contacts_state.contact_service)
     {
-        node = g_contacts_state.contact_service->getNodeInfo(node_id);
+        node = g_contacts_state.contact_service->getPeerByNodeId(node_id);
     }
     if (!node)
     {
@@ -1221,6 +2591,27 @@ static void open_node_info_screen_for_node(uint32_t node_id)
                            static_cast<int>(lv_obj_get_height(parent)),
                            lv_obj_has_flag(parent, LV_OBJ_FLAG_HIDDEN) ? 1 : 0);
 
+    chat::contacts::PeerDirectoryItem detail_info = *node;
+    if (g_contacts_state.contact_service)
+    {
+        const auto* latest = g_contacts_state.contact_service->getPeerByNodeId(node->node_id);
+        if (latest)
+        {
+            detail_info = *latest;
+            merge_reticulum_projection_for_details(detail_info, *node);
+            CONTACTS_NODE_INFO_LOG("using latest contact_service snapshot node=%08lX pos_valid=%d\n",
+                                   static_cast<unsigned long>(latest->node_id),
+                                   latest->position.valid ? 1 : 0);
+        }
+    }
+
+    if (is_reticulum_node(detail_info))
+    {
+        open_reticulum_node_info_screen(detail_info, parent);
+        CONTACTS_NODE_INFO_LOG("reticulum node_info opened\n");
+        return;
+    }
+
     node_info::ui::NodeInfoWidgets widgets = node_info::ui::create(parent);
     g_contacts_state.node_info_root = widgets.root;
     CONTACTS_NODE_INFO_LOG("node_info created root=%p header=%p content=%p back_btn=%p\n",
@@ -1229,19 +2620,7 @@ static void open_node_info_screen_for_node(uint32_t node_id)
                            widgets.content,
                            widgets.back_btn);
 
-    const chat::contacts::NodeInfo* info = node;
-    if (g_contacts_state.contact_service)
-    {
-        const auto* latest = g_contacts_state.contact_service->getNodeInfo(node->node_id);
-        if (latest)
-        {
-            info = latest;
-            CONTACTS_NODE_INFO_LOG("using latest contact_service snapshot node=%08lX pos_valid=%d\n",
-                                   static_cast<unsigned long>(latest->node_id),
-                                   latest->position.valid ? 1 : 0);
-        }
-    }
-    node_info::ui::set_node_info(*info);
+    node_info::ui::set_node_info(detail_info);
     CONTACTS_NODE_INFO_LOG("set_node_info done root=%p hidden=%d size=%dx%d\n",
                            widgets.root,
                            widgets.root ? (lv_obj_has_flag(widgets.root, LV_OBJ_FLAG_HIDDEN) ? 1 : 0) : -1,
@@ -1260,20 +2639,11 @@ static void open_node_info_screen_for_node(uint32_t node_id)
                            g_contacts_state.node_info_prev_group,
                            g_contacts_state.node_info_group);
 
-    if (widgets.back_btn)
-    {
-        lv_group_add_obj(g_contacts_state.node_info_group, widgets.back_btn);
-        lv_group_focus_obj(widgets.back_btn);
-        lv_obj_add_event_cb(widgets.back_btn, on_node_info_back_clicked, LV_EVENT_CLICKED, nullptr);
-        lv_obj_add_event_cb(widgets.back_btn, on_node_info_key, LV_EVENT_KEY, nullptr);
-        CONTACTS_NODE_INFO_LOG("back button wired and focused back_btn=%p\n", widgets.back_btn);
-    }
-    if (widgets.layer_btn)
-    {
-        lv_group_add_obj(g_contacts_state.node_info_group, widgets.layer_btn);
-        lv_obj_add_event_cb(widgets.layer_btn, on_node_info_key, LV_EVENT_KEY, nullptr);
-        CONTACTS_NODE_INFO_LOG("layer button added layer_btn=%p\n", widgets.layer_btn);
-    }
+    node_info::ui::InputCallbacks input_callbacks{};
+    input_callbacks.back_requested = reticulum_node_info_back_requested;
+    node_info::ui::bind_input_group(g_contacts_state.node_info_group,
+                                    input_callbacks);
+    CONTACTS_NODE_INFO_LOG("node_info input bound back_btn=%p\n", widgets.back_btn);
 
     if (g_contacts_state.root)
     {
@@ -1302,7 +2672,19 @@ static void close_node_info_screen()
         return;
     }
 
-    node_info::ui::destroy();
+    if (g_contacts_state.reticulum_node_info_active)
+    {
+        if (g_contacts_state.node_info_root && lv_obj_is_valid(g_contacts_state.node_info_root))
+        {
+            lv_obj_del(g_contacts_state.node_info_root);
+        }
+        s_reticulum_node_info_top_bar = ::ui::widgets::TopBar{};
+        g_contacts_state.reticulum_node_info_active = false;
+    }
+    else
+    {
+        node_info::ui::destroy();
+    }
     g_contacts_state.node_info_root = nullptr;
     CONTACTS_NODE_INFO_LOG("node_info destroyed\n");
 
@@ -1351,9 +2733,15 @@ static void open_chat_compose()
         s_compose_from_conversation = false;
     }
     const auto* node = get_selected_node();
+    const auto* group = get_selected_reticulum_group();
     if (g_contacts_state.current_mode != ContactsMode::Broadcast &&
         g_contacts_state.current_mode != ContactsMode::Team &&
+        g_contacts_state.current_mode != ContactsMode::Groups &&
         !node)
+    {
+        return;
+    }
+    if (g_contacts_state.current_mode == ContactsMode::Groups && !group)
     {
         return;
     }
@@ -1377,6 +2765,7 @@ static void open_chat_compose()
     uint32_t peer_id = 0;
     chat::MeshProtocol protocol = chat_support::active_mesh_protocol();
     std::string title;
+    chat::ReticulumPeerIdentity reticulum_destination{};
     if (g_contacts_state.current_mode == ContactsMode::Broadcast)
     {
         BroadcastTargetSpec target_spec{};
@@ -1395,6 +2784,21 @@ static void open_chat_compose()
         peer_id = 0;
         title = target_title.empty() ? "Broadcast" : target_title;
     }
+    else if (g_contacts_state.current_mode == ContactsMode::Groups)
+    {
+        if (!chat_support::supports_reticulum_destination_text())
+        {
+            ::ui::feedback::show_notice(
+                chat_support::reticulum_destination_text_unavailable_message(),
+                2200);
+            return;
+        }
+        protocol = chat::MeshProtocol::Reticulum;
+        channel = chat::ChannelId::PRIMARY;
+        peer_id = 0;
+        reticulum_destination = group->reticulum_identity;
+        title = group->display_name.empty() ? "Group" : group->display_name;
+    }
     else if (g_contacts_state.current_mode == ContactsMode::Team)
     {
         if (!chat_support::supports_team_chat())
@@ -1408,11 +2812,6 @@ static void open_chat_compose()
     }
     else
     {
-        if (!chat_support::supports_local_text_chat())
-        {
-            ::ui::feedback::show_notice(chat_support::local_text_chat_unavailable_message(), 2200);
-            return;
-        }
         channel = chat::ChannelId::PRIMARY;
         peer_id = node->node_id;
         chat::MeshProtocol node_protocol = protocol;
@@ -1425,13 +2824,34 @@ static void open_chat_compose()
             ::ui::feedback::show_notice(msg.c_str(), 2200);
             return;
         }
+        const bool use_reticulum_destination =
+            protocol == chat::MeshProtocol::Reticulum &&
+            chat::hasReticulumDestinationIdentity(node->reticulum_identity);
+        const bool text_supported =
+            use_reticulum_destination
+                ? chat_support::supports_reticulum_destination_text()
+                : chat_support::supports_local_text_chat();
+        if (!text_supported)
+        {
+            ::ui::feedback::show_notice(
+                use_reticulum_destination
+                    ? chat_support::reticulum_destination_text_unavailable_message()
+                    : chat_support::local_text_chat_unavailable_message(),
+                2200);
+            return;
+        }
+        if (use_reticulum_destination)
+        {
+            peer_id = 0;
+            reticulum_destination = node->reticulum_identity;
+        }
         if (g_contacts_state.contact_service)
         {
             title = g_contacts_state.contact_service->getContactName(node->node_id);
         }
         if (title.empty())
         {
-            title = node->display_name;
+            title = node_display_name_for_contacts(*node);
         }
     }
 
@@ -1444,6 +2864,26 @@ static void open_chat_compose()
     set_default_group(s_compose_group);
 
     chat::ConversationId conv(channel, peer_id, protocol);
+    if (chat::hasReticulumDestinationIdentity(reticulum_destination))
+    {
+        conv.reticulum_identity = reticulum_destination;
+    }
+    else if (node && protocol == chat::MeshProtocol::Reticulum &&
+             chat::hasReticulumDestinationIdentity(node->reticulum_identity))
+    {
+        conv.reticulum_identity = node->reticulum_identity;
+    }
+    char compose_dest_hash[12] = {};
+    format_reticulum_hash_prefix(conv.reticulum_identity,
+                                 compose_dest_hash,
+                                 sizeof(compose_dest_hash));
+    std::printf("[Contacts][TX] compose_open protocol=%s group=%u target=\"%s\" ch=%u peer=%08lX dest=%s\n",
+                chat::infra::meshProtocolName(protocol),
+                g_contacts_state.current_mode == ContactsMode::Groups ? 1U : 0U,
+                title.c_str(),
+                static_cast<unsigned>(channel),
+                static_cast<unsigned long>(peer_id),
+                compose_dest_hash);
     g_contacts_state.compose_screen = new chat::ui::ChatComposeScreen(parent, conv);
     g_contacts_state.compose_screen->setActionCallback(on_compose_action, nullptr);
     g_contacts_state.compose_screen->setBackCallback(on_compose_back, nullptr);
@@ -1469,6 +2909,8 @@ static void open_chat_compose()
     s_compose_peer_id = peer_id;
     s_compose_channel = channel;
     s_compose_protocol = protocol;
+    s_compose_conversation = conv;
+    s_compose_target_display_name = title;
     s_compose_is_team = (g_contacts_state.current_mode == ContactsMode::Team);
     if (s_compose_is_team)
     {
@@ -1518,6 +2960,8 @@ static void close_chat_compose()
     s_compose_peer_id = 0;
     s_compose_channel = chat::ChannelId::PRIMARY;
     s_compose_protocol = chat::MeshProtocol::Meshtastic;
+    s_compose_conversation = chat::ConversationId{};
+    s_compose_target_display_name.clear();
     s_compose_is_team = false;
 
     if (s_compose_from_conversation && g_contacts_state.conversation_screen)
@@ -1623,16 +3067,27 @@ static void on_compose_action(chat::ui::ChatComposeScreen::ActionIntent intent, 
             return;
         }
 
-        if (s_compose_protocol != chat_support::active_mesh_protocol())
+        if (chat::infra::normalizeMeshProtocol(s_compose_protocol) !=
+            chat::infra::normalizeMeshProtocol(chat_support::active_mesh_protocol()))
         {
             ::ui::feedback::show_notice("Conversation protocol mismatch", 2000);
             close_chat_compose();
             return;
         }
 
-        if (!chat_support::supports_local_text_chat())
+        const bool reticulum_destination_send =
+            is_reticulum_destination_conversation(s_compose_conversation);
+        const bool send_supported =
+            reticulum_destination_send
+                ? chat_support::supports_reticulum_destination_text()
+                : chat_support::supports_local_text_chat();
+        if (!send_supported)
         {
-            ::ui::feedback::show_notice(chat_support::local_text_chat_unavailable_message(), 2200);
+            ::ui::feedback::show_notice(
+                reticulum_destination_send
+                    ? chat_support::reticulum_destination_text_unavailable_message()
+                    : chat_support::local_text_chat_unavailable_message(),
+                2200);
             close_chat_compose();
             return;
         }
@@ -1642,15 +3097,38 @@ static void on_compose_action(chat::ui::ChatComposeScreen::ActionIntent intent, 
         {
             if (g_contacts_state.chat_service)
             {
+                char dest_hash[12] = {};
+                char text_preview[64] = {};
+                format_reticulum_hash_prefix(s_compose_conversation.reticulum_identity,
+                                             dest_hash,
+                                             sizeof(dest_hash));
+                format_log_text_preview(text, text_preview, sizeof(text_preview));
+                std::printf("[Contacts][TX] send_begin destination=%u protocol=%s target=\"%s\" ch=%u peer=%08lX dest=%s len=%u text=\"%s\"\n",
+                            reticulum_destination_send ? 1U : 0U,
+                            chat::infra::meshProtocolName(s_compose_protocol),
+                            s_compose_target_display_name.c_str(),
+                            static_cast<unsigned>(s_compose_channel),
+                            static_cast<unsigned long>(s_compose_peer_id),
+                            dest_hash,
+                            static_cast<unsigned>(text.size()),
+                            text_preview);
                 const chat::MeshSendResult result =
-                    g_contacts_state.chat_service->sendTextDetailed(
-                        s_compose_channel,
-                        text,
-                        s_compose_peer_id);
+                    g_contacts_state.chat_service->sendTextToConversationDetailed(
+                        s_compose_conversation,
+                        text);
+                std::printf("[Contacts][TX] send_end ok=%u msg=%lu failure=%u target=\"%s\" dest=%s text=\"%s\"\n",
+                            result.ok ? 1U : 0U,
+                            static_cast<unsigned long>(result.msg_id),
+                            static_cast<unsigned>(result.failure),
+                            s_compose_target_display_name.c_str(),
+                            dest_hash,
+                            text_preview);
                 if (!result.ok || result.msg_id == 0)
                 {
                     ::ui::feedback::show_notice(
-                        local_text_failure_message(result.failure),
+                        compose_text_failure_message(result.failure,
+                                                     reticulum_destination_send,
+                                                     result.detail),
                         2000);
                 }
                 close_chat_compose();
@@ -1736,7 +3214,7 @@ static void on_team_conversation_back(void* /*user_data*/)
     lv_group_remove_all_objs(s_conv_group);
     set_default_group(s_conv_group);
 
-    const chat::MeshProtocol protocol = app::appFacade().getConfig().mesh_protocol;
+    const chat::MeshProtocol protocol = app::appFacade().readConfig().mesh_protocol;
     chat::ConversationId conv(chat::ChannelId::PRIMARY, 0, protocol);
     g_contacts_state.conversation_screen = new chat::ui::ChatConversationScreen(parent, conv);
     g_contacts_state.conversation_screen->setActionCallback(on_team_conversation_action, nullptr);
@@ -1925,6 +3403,22 @@ static void on_add_edit_save_clicked(lv_event_t* /*e*/)
     {
         return;
     }
+    chat::ReticulumPeerIdentity reticulum_identity{};
+    bool add_reticulum_contact = false;
+    if (!g_contacts_state.modal_is_edit)
+    {
+        if (const auto* node = find_node_by_id(g_contacts_state.modal_node_id))
+        {
+            add_reticulum_contact =
+                is_reticulum_node(*node) &&
+                chat::hasReticulumDestinationIdentity(node->reticulum_identity);
+            if (add_reticulum_contact)
+            {
+                reticulum_identity = node->reticulum_identity;
+            }
+        }
+    }
+
     auto contacts = g_contacts_state.contact_service->getContacts();
     for (const auto& c : contacts)
     {
@@ -1940,6 +3434,9 @@ static void on_add_edit_save_clicked(lv_event_t* /*e*/)
         }
     }
 
+    ScopedReticulumContactSaveOverlay save_overlay(
+        !g_contacts_state.modal_is_edit && add_reticulum_contact,
+        "Updating SD address book");
     bool ok = false;
     if (g_contacts_state.modal_is_edit)
     {
@@ -1948,6 +3445,19 @@ static void on_add_edit_save_clicked(lv_event_t* /*e*/)
     else
     {
         ok = g_contacts_state.contact_service->addContact(g_contacts_state.modal_node_id, nickname);
+    }
+
+    chat::MeshActionResult reticulum_persist_result{};
+    bool reticulum_persist_attempted = false;
+    if (!g_contacts_state.modal_is_edit && add_reticulum_contact)
+    {
+        reticulum_persist_attempted = true;
+        reticulum_persist_result =
+            persist_reticulum_contact_peer(reticulum_identity, true);
+        if (reticulum_persist_result.ok)
+        {
+            ok = true;
+        }
     }
 
     if (!ok)
@@ -1969,6 +3479,16 @@ static void on_add_edit_save_clicked(lv_event_t* /*e*/)
     g_contacts_state.selected_index = -1;
     refresh_contacts_data();
     refresh_ui();
+    if (reticulum_persist_attempted && !reticulum_persist_result.ok)
+    {
+        ::ui::feedback::show_notice(
+            reticulum_address_save_failure_message(reticulum_persist_result.failure),
+            1800);
+    }
+    else if (reticulum_persist_attempted)
+    {
+        ::ui::feedback::show_notice("Contact saved", 1400);
+    }
     contacts_focus_to_list();
 }
 
@@ -1980,11 +3500,170 @@ static void on_add_edit_cancel_clicked(lv_event_t* /*e*/)
     contacts_focus_to_list();
 }
 
+static void on_reticulum_group_save_clicked(lv_event_t* /*e*/)
+{
+    if (!g_contacts_state.reticulum_group_name_textarea ||
+        !g_contacts_state.reticulum_group_destination_textarea)
+    {
+        return;
+    }
+
+    const char* name = lv_textarea_get_text(g_contacts_state.reticulum_group_name_textarea);
+    const char* destination =
+        lv_textarea_get_text(g_contacts_state.reticulum_group_destination_textarea);
+    if (!name || name[0] == '\0')
+    {
+        show_reticulum_group_error("Name required");
+        return;
+    }
+
+    chat::ReticulumPeerIdentity identity{};
+    char error[96] = {};
+    if (!chat::parseReticulumDestinationHashText(destination,
+                                                 &identity,
+                                                 error,
+                                                 sizeof(error)))
+    {
+        show_reticulum_group_error(error[0] != '\0' ? error : "Invalid destination");
+        return;
+    }
+
+    if (!reticulum_group_storage_ready_for_edit())
+    {
+        show_reticulum_group_error(
+            g_contacts_state.reticulum_group_storage_message[0] != '\0'
+                ? g_contacts_state.reticulum_group_storage_message
+                : "SD card required");
+        return;
+    }
+
+    auto groups = std::unique_ptr<chat::ReticulumGroupDestinationConfig[]>(
+        new (std::nothrow)
+            chat::ReticulumGroupDestinationConfig[chat::kReticulumGroupDestinationMaxCount]);
+    if (!groups)
+    {
+        show_reticulum_group_error("Group storage unavailable");
+        return;
+    }
+    const auto load_status = ::platform::ui::reticulum_groups::load(
+        groups.get(),
+        chat::kReticulumGroupDestinationMaxCount);
+    if (!load_status.loaded)
+    {
+        show_reticulum_group_error(
+            load_status.message[0] != '\0' ? load_status.message
+                                           : "Cannot load groups");
+        return;
+    }
+
+    int free_slot = -1;
+    for (std::size_t index = 0; index < chat::kReticulumGroupDestinationMaxCount; ++index)
+    {
+        auto& group = groups[index];
+        if (group.enabled && chat::hasReticulumDestinationIdentity(group.identity) &&
+            chat::sameReticulumDestinationHash(group.identity, identity))
+        {
+            show_reticulum_group_error("Group already exists");
+            return;
+        }
+        if (free_slot < 0 &&
+            (!group.enabled || !chat::hasReticulumDestinationIdentity(group.identity)))
+        {
+            free_slot = static_cast<int>(index);
+        }
+    }
+
+    if (free_slot < 0)
+    {
+        show_reticulum_group_error("Group list full");
+        return;
+    }
+
+    auto& group = groups[free_slot];
+    group = chat::ReticulumGroupDestinationConfig{};
+    group.enabled = true;
+    std::snprintf(group.name, sizeof(group.name), "%s", name);
+    group.identity = identity;
+
+    app::AppConfigEdit edit = app::configFacade().beginConfigEdit();
+    if (!edit)
+    {
+        show_reticulum_group_error("Configuration busy");
+        return;
+    }
+
+    const auto save_status = ::platform::ui::reticulum_groups::submit(
+        groups.get(),
+        chat::kReticulumGroupDestinationMaxCount);
+    if (!save_status.queued)
+    {
+        show_reticulum_group_error(save_status.message[0] != '\0'
+                                       ? save_status.message
+                                       : "Save failed");
+        return;
+    }
+
+    std::memcpy(edit.config().reticulumConfig().reticulum_groups,
+                groups.get(),
+                chat::kReticulumGroupDestinationMaxCount *
+                    sizeof(chat::ReticulumGroupDestinationConfig));
+    edit.commit(app::AppConfigChangeSet::mesh());
+    app::configFacade().applyMeshConfig();
+
+    g_contacts_state.reticulum_group_name_textarea = nullptr;
+    g_contacts_state.reticulum_group_destination_textarea = nullptr;
+    g_contacts_state.reticulum_group_error_label = nullptr;
+    modal_close(g_contacts_state.reticulum_group_modal);
+
+    g_contacts_state.current_mode = ContactsMode::Groups;
+    g_contacts_state.current_page = 0;
+    g_contacts_state.selected_index = -1;
+    refresh_contacts_data();
+    refresh_ui();
+    contacts_focus_to_list();
+    ::ui::feedback::show_notice("Reticulum group saved", 1600);
+}
+
+static void on_reticulum_group_cancel_clicked(lv_event_t* /*e*/)
+{
+    g_contacts_state.reticulum_group_name_textarea = nullptr;
+    g_contacts_state.reticulum_group_destination_textarea = nullptr;
+    g_contacts_state.reticulum_group_error_label = nullptr;
+    modal_close(g_contacts_state.reticulum_group_modal);
+    contacts_focus_to_list();
+}
+
 static void on_del_confirm_clicked(lv_event_t* /*e*/)
 {
+    chat::ReticulumPeerIdentity reticulum_identity{};
+    bool reticulum_contact = false;
+    if (const auto* node = find_node_by_id(g_contacts_state.modal_node_id))
+    {
+        reticulum_contact =
+            is_reticulum_node(*node) &&
+            chat::hasReticulumDestinationIdentity(node->reticulum_identity);
+        if (reticulum_contact)
+        {
+            reticulum_identity = node->reticulum_identity;
+        }
+    }
+
+    ScopedReticulumContactSaveOverlay save_overlay(reticulum_contact,
+                                                   "Updating SD address book");
     if (g_contacts_state.contact_service)
     {
         g_contacts_state.contact_service->removeContact(g_contacts_state.modal_node_id);
+    }
+    if (reticulum_contact)
+    {
+        const auto favorite_status =
+            rtdir::set_lxmf_address_favorite_now(reticulum_identity.destination_hash, false);
+        if (favorite_status.sd_present && !favorite_status.saved)
+        {
+            std::printf("[Contacts][RT] favorite_clear failed message=%s detail=%s\n",
+                        favorite_status.message,
+                        favorite_status.detail);
+        }
     }
 
     modal_close(g_contacts_state.del_confirm_modal);
@@ -1998,12 +3677,6 @@ static void on_del_cancel_clicked(lv_event_t* /*e*/)
 {
     modal_close(g_contacts_state.del_confirm_modal);
     contacts_focus_to_list();
-}
-
-static void on_node_info_back_clicked(lv_event_t* /*e*/)
-{
-    CONTACTS_NODE_INFO_LOG("back button clicked\n");
-    close_node_info_screen();
 }
 
 static void on_node_info_key(lv_event_t* e)
@@ -2168,8 +3841,179 @@ enum class ActionMenuCommand : uint8_t
     Add = 5,
     Delete = 6,
     ToggleIgnore = 7,
-    Cancel = 8,
+    Ping = 8,
+    Call = 9,
+    Cancel = 10,
 };
+
+static const char* reticulum_ping_failure_message(const chat::MeshActionResult& result)
+{
+    if (result.failure == chat::MeshOperationFailure::NotReady && result.detail == 1)
+    {
+        return "Path requested";
+    }
+    if (result.failure == chat::MeshOperationFailure::NotReady && result.detail == 2)
+    {
+        return "Path pending";
+    }
+    switch (result.failure)
+    {
+    case chat::MeshOperationFailure::InvalidInput:
+        return "Ping unavailable";
+    case chat::MeshOperationFailure::Unsupported:
+        return "Ping unsupported";
+    case chat::MeshOperationFailure::NotReady:
+        return "Radio not ready";
+    case chat::MeshOperationFailure::PeerKeyMissing:
+        return "Peer identity missing";
+    case chat::MeshOperationFailure::CryptoFailed:
+        return "Ping setup failed";
+    case chat::MeshOperationFailure::RadioTxFailed:
+        return "Ping send failed";
+    case chat::MeshOperationFailure::TxDisabled:
+        return "TX disabled";
+    case chat::MeshOperationFailure::RadioOffline:
+        return "Radio offline";
+    case chat::MeshOperationFailure::DutyCycleLimited:
+        return "TX rate limited";
+    case chat::MeshOperationFailure::Busy:
+        return "Radio busy";
+    case chat::MeshOperationFailure::ChannelKeyMissing:
+        return "Key missing";
+    case chat::MeshOperationFailure::EncodeFailed:
+    case chat::MeshOperationFailure::LocalIdentityMissing:
+    case chat::MeshOperationFailure::None:
+    case chat::MeshOperationFailure::Unknown:
+        break;
+    }
+    return "Ping failed";
+}
+
+static const char* reticulum_call_failure_message(const chat::MeshActionResult& result)
+{
+    if (result.failure == chat::MeshOperationFailure::NotReady && result.detail == 1)
+    {
+        return "Path requested";
+    }
+    switch (result.failure)
+    {
+    case chat::MeshOperationFailure::InvalidInput:
+        return "Invalid peer";
+    case chat::MeshOperationFailure::Unsupported:
+        return "Call unsupported";
+    case chat::MeshOperationFailure::NotReady:
+        return "Wi-Fi gateway unavailable";
+    case chat::MeshOperationFailure::LocalIdentityMissing:
+        return "Identity missing";
+    case chat::MeshOperationFailure::PeerKeyMissing:
+        return "Peer identity missing";
+    case chat::MeshOperationFailure::Busy:
+        return "Call already active";
+    case chat::MeshOperationFailure::EncodeFailed:
+    case chat::MeshOperationFailure::CryptoFailed:
+        return "Call setup failed";
+    case chat::MeshOperationFailure::RadioTxFailed:
+        return "Gateway send failed";
+    case chat::MeshOperationFailure::TxDisabled:
+        return "TX disabled";
+    case chat::MeshOperationFailure::RadioOffline:
+        return "Radio offline";
+    case chat::MeshOperationFailure::DutyCycleLimited:
+        return "TX rate limited";
+    case chat::MeshOperationFailure::ChannelKeyMissing:
+        return "Key missing";
+    case chat::MeshOperationFailure::None:
+    case chat::MeshOperationFailure::Unknown:
+        break;
+    }
+    return "Call failed";
+}
+
+static bool selected_node_supports_reticulum_call(const chat::contacts::PeerDirectoryItem* node)
+{
+    if (!node || chat_support::active_mesh_protocol() != chat::MeshProtocol::Reticulum)
+    {
+        return false;
+    }
+    if (g_contacts_state.current_mode != ContactsMode::Contacts &&
+        g_contacts_state.current_mode != ContactsMode::Nearby &&
+        g_contacts_state.current_mode != ContactsMode::Ignored)
+    {
+        return false;
+    }
+    return chat_support::supports_reticulum_audio_call() &&
+           chat::hasReticulumDestinationIdentity(node->reticulum_identity);
+}
+
+static bool selected_node_supports_reticulum_ping(const chat::contacts::PeerDirectoryItem* node)
+{
+    if (!node || chat_support::active_mesh_protocol() != chat::MeshProtocol::Reticulum)
+    {
+        return false;
+    }
+    if (g_contacts_state.current_mode != ContactsMode::Contacts &&
+        g_contacts_state.current_mode != ContactsMode::Nearby &&
+        g_contacts_state.current_mode != ContactsMode::Ignored)
+    {
+        return false;
+    }
+    return chat_support::supports_reticulum_destination_ping() &&
+           chat::hasReticulumDestinationIdentity(node->reticulum_identity);
+}
+
+static void start_reticulum_ping_for_selected_node()
+{
+    const auto* node = get_selected_node();
+    if (!selected_node_supports_reticulum_ping(node) || !g_contacts_state.chat_service)
+    {
+        ::ui::feedback::show_notice("Ping unavailable", 1800);
+        contacts_focus_to_list();
+        return;
+    }
+
+    ::ui::widgets::reticulum_ping::show_loading(
+        node->reticulum_identity.destination_hash,
+        node->display_name.empty() ? node->long_name : node->display_name.c_str());
+    const chat::MeshActionResult result =
+        g_contacts_state.chat_service->pingReticulumDestination(node->reticulum_identity);
+    if (!result.ok)
+    {
+        ::ui::widgets::reticulum_ping::show_send_failure(
+            reticulum_ping_failure_message(result));
+    }
+    contacts_focus_to_list();
+}
+
+static void start_reticulum_call_for_selected_node()
+{
+    const auto* node = get_selected_node();
+    if (!selected_node_supports_reticulum_call(node) || !g_contacts_state.chat_service)
+    {
+        ::ui::feedback::show_notice("Call unavailable", 1800);
+        contacts_focus_to_list();
+        return;
+    }
+
+    const chat::MeshActionResult result =
+        g_contacts_state.chat_service->startReticulumAudioCall(node->reticulum_identity);
+    if (result.ok)
+    {
+        const std::string name = node_display_name_for_contacts(*node);
+        const std::string msg = name.empty()
+                                    ? std::string("Calling")
+                                    : ::ui::i18n::format("Calling %s", name.c_str());
+        ::ui::feedback::show_notice(msg.c_str(), 1600);
+    }
+    else if (result.failure == chat::MeshOperationFailure::NotReady && result.detail == 1)
+    {
+        ::ui::feedback::show_notice("Path requested", 2200);
+    }
+    else
+    {
+        ::ui::feedback::show_notice(reticulum_call_failure_message(result), 2200);
+    }
+    contacts_focus_to_list();
+}
 
 static void toggle_selected_node_ignore()
 {
@@ -2270,6 +4114,12 @@ static void on_action_menu_item_clicked(lv_event_t* e)
     case ActionMenuCommand::ToggleIgnore:
         toggle_selected_node_ignore();
         break;
+    case ActionMenuCommand::Ping:
+        start_reticulum_ping_for_selected_node();
+        break;
+    case ActionMenuCommand::Call:
+        start_reticulum_call_for_selected_node();
+        break;
     case ActionMenuCommand::Cancel:
     default:
         contacts_focus_to_list();
@@ -2283,7 +4133,8 @@ static void open_action_menu_modal()
     {
         return;
     }
-    if (g_contacts_state.current_mode == ContactsMode::Discover)
+    if (g_contacts_state.current_mode == ContactsMode::Discover ||
+        g_contacts_state.current_mode == ContactsMode::Public)
     {
         return;
     }
@@ -2292,16 +4143,28 @@ static void open_action_menu_modal()
         return;
     }
 
-    const chat::contacts::NodeInfo* node = get_selected_node();
+    const chat::contacts::PeerDirectoryItem* node = get_selected_node();
     const bool show_ignore = (node != nullptr) &&
                              (g_contacts_state.current_mode == ContactsMode::Contacts ||
                               g_contacts_state.current_mode == ContactsMode::Nearby);
+    const bool allow_reticulum_call = selected_node_supports_reticulum_call(node);
+    const bool allow_reticulum_ping = selected_node_supports_reticulum_ping(node);
 
     const bool allow_chat_action =
         (g_contacts_state.current_mode == ContactsMode::Team)
             ? chat_support::supports_team_chat()
+        : (g_contacts_state.current_mode == ContactsMode::Groups)
+            ? chat_support::supports_reticulum_destination_text()
             : chat_support::supports_local_text_chat();
     int action_count = allow_chat_action ? 2 : 1; // Chat + Cancel
+    if (allow_reticulum_call)
+    {
+        action_count += 1;
+    }
+    if (allow_reticulum_ping)
+    {
+        action_count += 1;
+    }
     if (g_contacts_state.current_mode == ContactsMode::Contacts)
     {
         action_count += 3; // Edit/Delete/Info
@@ -2340,17 +4203,27 @@ static void open_action_menu_modal()
     {
         title = ::ui::i18n::tr("Team Actions");
     }
+    else if (g_contacts_state.current_mode == ContactsMode::Groups)
+    {
+        title = ::ui::i18n::tr("Group Actions");
+        if (const auto* group = get_selected_reticulum_group())
+        {
+            const std::string name = group->display_name.empty()
+                                         ? std::string(group->long_name)
+                                         : group->display_name;
+            if (!name.empty())
+            {
+                title = ::ui::i18n::format("Actions: %s", name.c_str());
+            }
+        }
+    }
     else if (g_contacts_state.current_mode == ContactsMode::Broadcast)
     {
         title = ::ui::i18n::tr("Channel Actions");
     }
     else if (const auto* node = get_selected_node())
     {
-        std::string name = node->display_name;
-        if (name.empty())
-        {
-            name = node->short_name;
-        }
+        std::string name = node_display_name_for_contacts(*node);
         if (!name.empty())
         {
             title = ::ui::i18n::format("Actions: %s", name.c_str());
@@ -2404,6 +4277,14 @@ static void open_action_menu_modal()
     if (allow_chat_action)
     {
         add_action(ActionMenuCommand::Chat, "Chat");
+    }
+    if (allow_reticulum_ping)
+    {
+        add_action(ActionMenuCommand::Ping, "Ping");
+    }
+    if (allow_reticulum_call)
+    {
+        add_action(ActionMenuCommand::Call, "Call");
     }
     if (g_contacts_state.current_mode == ContactsMode::Contacts)
     {
@@ -2467,6 +4348,17 @@ void refresh_ui()
         CONTACTS_LOG("[Contacts] WARNING: list_panel is invalid\n");
     }
 
+    const bool same_render_context =
+        g_contacts_state.rendered_mode_valid &&
+        g_contacts_state.rendered_mode == g_contacts_state.current_mode &&
+        std::strcmp(g_contacts_state.rendered_search_query,
+                    g_contacts_state.search_query) == 0;
+    const int saved_scroll_y =
+        same_render_context && g_contacts_state.sub_container &&
+                lv_obj_is_valid(g_contacts_state.sub_container)
+            ? lv_obj_get_scroll_y(g_contacts_state.sub_container)
+            : 0;
+
     lv_obj_clear_flag(g_contacts_state.list_panel, LV_OBJ_FLAG_SCROLLABLE);
     if (g_contacts_state.sub_container)
     {
@@ -2475,10 +4367,11 @@ void refresh_ui()
     ::ui::components::air_status_footer::refresh(g_contacts_state.air_status_footer);
 
     bool team_available = is_team_available() && chat_support::supports_team_chat();
-    const bool meshcore_mode = (chat_support::active_mesh_protocol() == chat::MeshProtocol::MeshCore);
+    const bool reticulum_profile = uses_reticulum_filter_profile();
+    const bool meshcore_mode = uses_meshcore_filter_profile();
     if (g_contacts_state.team_btn)
     {
-        if (team_available)
+        if (team_available && !reticulum_profile)
         {
             lv_obj_clear_flag(g_contacts_state.team_btn, LV_OBJ_FLAG_HIDDEN);
         }
@@ -2498,13 +4391,31 @@ void refresh_ui()
             lv_obj_add_flag(g_contacts_state.discover_btn, LV_OBJ_FLAG_HIDDEN);
         }
     }
-    if (!team_available && g_contacts_state.current_mode == ContactsMode::Team)
+    if ((!team_available || reticulum_profile) && g_contacts_state.current_mode == ContactsMode::Team)
     {
         g_contacts_state.current_mode = ContactsMode::Contacts;
         g_contacts_state.current_page = 0;
         g_contacts_state.selected_index = -1;
     }
     if (!meshcore_mode && g_contacts_state.current_mode == ContactsMode::Discover)
+    {
+        g_contacts_state.current_mode = ContactsMode::Contacts;
+        g_contacts_state.current_page = 0;
+        g_contacts_state.selected_index = -1;
+    }
+    if (!reticulum_profile && g_contacts_state.current_mode == ContactsMode::Groups)
+    {
+        g_contacts_state.current_mode = ContactsMode::Contacts;
+        g_contacts_state.current_page = 0;
+        g_contacts_state.selected_index = -1;
+    }
+    if (reticulum_profile && g_contacts_state.current_mode == ContactsMode::Broadcast)
+    {
+        g_contacts_state.current_mode = ContactsMode::Contacts;
+        g_contacts_state.current_page = 0;
+        g_contacts_state.selected_index = -1;
+    }
+    if (g_contacts_state.current_mode == ContactsMode::Public)
     {
         g_contacts_state.current_mode = ContactsMode::Contacts;
         g_contacts_state.current_page = 0;
@@ -2533,6 +4444,15 @@ void refresh_ui()
     // Ensure list containers exist (structure handled in layout)
     contacts::ui::layout::ensure_list_subcontainers();
 
+    if (g_contacts_state.empty_label != nullptr)
+    {
+        if (lv_obj_is_valid(g_contacts_state.empty_label))
+        {
+            lv_obj_del(g_contacts_state.empty_label);
+        }
+        g_contacts_state.empty_label = nullptr;
+    }
+
     // Clear existing list items (unchanged)
     for (auto* item : g_contacts_state.list_items)
     {
@@ -2542,12 +4462,11 @@ void refresh_ui()
         }
     }
     g_contacts_state.list_items.clear();
-
     // Choose list by mode (unchanged)
-    std::vector<chat::contacts::NodeInfo> broadcast_list;
-    std::vector<chat::contacts::NodeInfo> team_list;
-    std::vector<chat::contacts::NodeInfo> discover_list;
-    const std::vector<chat::contacts::NodeInfo>* current_list = nullptr;
+    std::vector<chat::contacts::PeerDirectoryItem> broadcast_list;
+    std::vector<chat::contacts::PeerDirectoryItem> team_list;
+    std::vector<chat::contacts::PeerDirectoryItem> discover_list;
+    const std::vector<chat::contacts::PeerDirectoryItem>* current_list = nullptr;
     if (g_contacts_state.current_mode == ContactsMode::Contacts)
     {
         current_list = &g_contacts_state.contacts_list;
@@ -2555,6 +4474,10 @@ void refresh_ui()
     else if (g_contacts_state.current_mode == ContactsMode::Nearby)
     {
         current_list = &g_contacts_state.nearby_list;
+    }
+    else if (g_contacts_state.current_mode == ContactsMode::Groups)
+    {
+        current_list = &g_contacts_state.reticulum_group_list;
     }
     else if (g_contacts_state.current_mode == ContactsMode::Ignored)
     {
@@ -2564,7 +4487,7 @@ void refresh_ui()
     {
         contacts::ui::ContactsTeamSnapshot team_snapshot;
         (void)load_contacts_team_snapshot(team_snapshot);
-        chat::contacts::NodeInfo team_node{};
+        chat::contacts::PeerDirectoryItem team_node{};
         team_node.node_id = 0;
         team_node.last_seen = 0;
         team_node.snr = 0.0f;
@@ -2580,7 +4503,7 @@ void refresh_ui()
     {
         for (size_t i = 0; i < (sizeof(kDiscoveryActionSpecs) / sizeof(kDiscoveryActionSpecs[0])); ++i)
         {
-            chat::contacts::NodeInfo item{};
+            chat::contacts::PeerDirectoryItem item{};
             item.node_id = static_cast<uint32_t>(i + 1);
             item.display_name = ::ui::i18n::tr(kDiscoveryActionSpecs[i].label);
             item.protocol = chat::contacts::NodeProtocolType::MeshCore;
@@ -2598,26 +4521,41 @@ void refresh_ui()
             {
                 continue;
             }
-            chat::contacts::NodeInfo target{};
+            chat::contacts::PeerDirectoryItem target{};
             target.display_name = format_broadcast_target_label(spec);
             target.protocol = (spec.protocol == chat::MeshProtocol::MeshCore)
                                   ? chat::contacts::NodeProtocolType::MeshCore
-                                  : ((spec.protocol == chat::MeshProtocol::LXMF)
-                                         ? chat::contacts::NodeProtocolType::LXMF
-                                         : ((spec.protocol == chat::MeshProtocol::RNode)
-                                                ? chat::contacts::NodeProtocolType::RNode
-                                                : chat::contacts::NodeProtocolType::Meshtastic));
+                                  : (chat::infra::isReticulumMeshProtocol(spec.protocol)
+                                         ? chat::contacts::NodeProtocolType::Reticulum
+                                         : chat::contacts::NodeProtocolType::Meshtastic);
             target.channel = spec.channel_index;
             broadcast_list.push_back(target);
         }
         current_list = &broadcast_list;
     }
 
+    if (current_list && use_search_display_list_for_mode(g_contacts_state.current_mode))
+    {
+        build_display_list(*current_list);
+        current_list = &g_contacts_state.display_list;
+    }
+    else
+    {
+        g_contacts_state.display_list.clear();
+    }
+
+    const bool show_reticulum_group_add_item =
+        g_contacts_state.current_mode == ContactsMode::Groups;
     g_contacts_state.total_items = current_list->size();
+    if (show_reticulum_group_add_item)
+    {
+        g_contacts_state.total_items += 1;
+    }
 
     const bool use_scroll_list =
         (g_contacts_state.current_mode == ContactsMode::Contacts) ||
         (g_contacts_state.current_mode == ContactsMode::Nearby) ||
+        (g_contacts_state.current_mode == ContactsMode::Groups) ||
         (g_contacts_state.current_mode == ContactsMode::Ignored) ||
         (g_contacts_state.current_mode == ContactsMode::Broadcast) ||
         (g_contacts_state.current_mode == ContactsMode::Discover);
@@ -2625,6 +4563,11 @@ void refresh_ui()
     if (append_back_item)
     {
         g_contacts_state.total_items += 1;
+    }
+    int target_scroll_y = same_render_context ? saved_scroll_y : 0;
+    if (target_scroll_y < 0)
+    {
+        target_scroll_y = 0;
     }
 
     if (g_contacts_state.selected_index >= static_cast<int>(g_contacts_state.total_items))
@@ -2651,6 +4594,74 @@ void refresh_ui()
     {
         end_idx = static_cast<int>(current_list->size());
     }
+    if (show_reticulum_group_add_item)
+    {
+        chat::contacts::PeerDirectoryItem add_node{};
+        add_node.protocol = chat::contacts::NodeProtocolType::Reticulum;
+        std::snprintf(add_node.long_name, sizeof(add_node.long_name), "%s", "Add Group");
+        add_node.display_name = add_node.long_name;
+        std::snprintf(add_node.short_name, sizeof(add_node.short_name), "%s", "+");
+        const char* add_status =
+            g_contacts_state.reticulum_group_storage_ready
+                ? "Configure"
+                : (g_contacts_state.reticulum_group_storage_message[0] != '\0'
+                       ? g_contacts_state.reticulum_group_storage_message
+                       : "SD card required");
+        lv_obj_t* add_item = contacts::ui::layout::create_list_item(
+            g_contacts_state.sub_container,
+            add_node,
+            g_contacts_state.current_mode,
+            add_status);
+        lv_obj_set_user_data(add_item, reinterpret_cast<void*>(kAddReticulumGroupUserData));
+        lv_obj_add_event_cb(add_item, on_list_item_clicked, LV_EVENT_CLICKED, nullptr);
+        lv_obj_add_event_cb(add_item, on_list_item_focused, LV_EVENT_FOCUSED, nullptr);
+        bind_page_shortcuts(add_item);
+    }
+
+    const bool searchable_mode =
+        is_searchable_contacts_mode(g_contacts_state.current_mode);
+    const bool empty_contact_data_mode =
+        g_contacts_state.current_mode == ContactsMode::Contacts ||
+        g_contacts_state.current_mode == ContactsMode::Nearby ||
+        g_contacts_state.current_mode == ContactsMode::Ignored;
+    const bool show_hydration_loading =
+        current_list->empty() && !search_active() && empty_contact_data_mode &&
+        g_contacts_state.contacts_data_hydration_pending;
+    const bool show_empty_data_hint =
+        current_list->empty() && !search_active() && empty_contact_data_mode &&
+        !g_contacts_state.contacts_data_hydration_pending;
+    const bool show_no_matches =
+        current_list->empty() && search_active() && searchable_mode;
+    if (show_hydration_loading || show_empty_data_hint || show_no_matches)
+    {
+        const char* label_text = "";
+        if (show_hydration_loading)
+        {
+            label_text = "Loading contacts...";
+        }
+        else if (show_no_matches)
+        {
+            label_text = "No matches";
+        }
+        else if (g_contacts_state.current_mode == ContactsMode::Nearby)
+        {
+            label_text = "No nearby nodes";
+        }
+        else if (g_contacts_state.current_mode == ContactsMode::Ignored)
+        {
+            label_text = "No ignored nodes";
+        }
+        else
+        {
+            label_text = "No contacts yet";
+        }
+        g_contacts_state.empty_label = lv_label_create(g_contacts_state.sub_container);
+        ::ui::i18n::set_label_text(g_contacts_state.empty_label, label_text);
+        contacts::ui::style::apply_label_muted(g_contacts_state.empty_label);
+        lv_obj_set_width(g_contacts_state.empty_label, LV_PCT(100));
+        lv_obj_set_style_pad_all(g_contacts_state.empty_label, 8, LV_PART_MAIN);
+        lv_obj_set_style_text_align(g_contacts_state.empty_label, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+    }
 
     // Create list items for current page (structure in layout; status string computed here)
     for (int i = start_idx; i < end_idx; ++i)
@@ -2665,6 +4676,12 @@ void refresh_ui()
         else if (g_contacts_state.current_mode == ContactsMode::Nearby)
         {
             status_text = format_nearby_seen_age(node.last_seen);
+        }
+        else if (g_contacts_state.current_mode == ContactsMode::Groups)
+        {
+            status_text = chat_support::supports_reticulum_destination_text()
+                              ? ::ui::i18n::tr("Ready")
+                              : ::ui::i18n::tr("Unavailable");
         }
         else if (g_contacts_state.current_mode == ContactsMode::Ignored)
         {
@@ -2717,11 +4734,12 @@ void refresh_ui()
         // Clicking a list row opens the action menu.
         lv_obj_add_event_cb(item, on_list_item_clicked, LV_EVENT_CLICKED, nullptr);
         lv_obj_add_event_cb(item, on_list_item_focused, LV_EVENT_FOCUSED, nullptr);
+        bind_page_shortcuts(item);
     }
 
     if (append_back_item)
     {
-        chat::contacts::NodeInfo back_node{};
+        chat::contacts::PeerDirectoryItem back_node{};
         back_node.display_name = ::ui::i18n::tr("Back");
         lv_obj_t* back_item = contacts::ui::layout::create_list_item(
             g_contacts_state.sub_container,
@@ -2731,6 +4749,7 @@ void refresh_ui()
         lv_obj_set_user_data(back_item, reinterpret_cast<void*>(kBackListItemUserData));
         lv_obj_add_event_cb(back_item, on_list_item_clicked, LV_EVENT_CLICKED, nullptr);
         lv_obj_add_event_cb(back_item, on_list_item_focused, LV_EVENT_FOCUSED, nullptr);
+        bind_page_shortcuts(back_item);
     }
 
     // Create bottom buttons (create once; width follows label text)
@@ -2741,6 +4760,7 @@ void refresh_ui()
             "Next",
             kColorAmber,
             on_next_clicked);
+        bind_page_shortcuts(g_contacts_state.next_btn);
     }
 
     if (g_contacts_state.prev_btn == nullptr)
@@ -2750,6 +4770,7 @@ void refresh_ui()
             "Prev",
             kColorPanelBg,
             on_prev_clicked);
+        bind_page_shortcuts(g_contacts_state.prev_btn);
     }
 
     if (show_second_column_back() && g_contacts_state.back_btn == nullptr)
@@ -2759,6 +4780,7 @@ void refresh_ui()
             "Back",
             kColorAmber,
             on_back_clicked);
+        bind_page_shortcuts(g_contacts_state.back_btn);
     }
 
     if (g_contacts_state.back_btn)
@@ -2827,9 +4849,17 @@ void refresh_ui()
                                   use_scroll_list ? LV_SCROLLBAR_MODE_AUTO : LV_SCROLLBAR_MODE_OFF);
         if (use_scroll_list)
         {
-            lv_obj_scroll_to_y(g_contacts_state.sub_container, 0, LV_ANIM_OFF);
+            lv_obj_update_layout(g_contacts_state.sub_container);
+            lv_obj_scroll_to_y(g_contacts_state.sub_container, target_scroll_y, LV_ANIM_OFF);
         }
     }
+    g_contacts_state.rendered_mode = g_contacts_state.current_mode;
+    g_contacts_state.rendered_mode_valid = true;
+    g_contacts_state.rendered_data_revision = g_contacts_state.contacts_data_revision;
+    std::snprintf(g_contacts_state.rendered_search_query,
+                  sizeof(g_contacts_state.rendered_search_query),
+                  "%s",
+                  g_contacts_state.search_query);
     s_refreshing_ui = false;
     contacts_input_on_ui_refreshed();
 }
@@ -2838,6 +4868,16 @@ void refresh_ui()
 
 void cleanup_modals()
 {
+    ::ui::components::floating_search_box::close(g_contacts_state.search_box);
+    ::ui::components::floating_search_box::close(g_contacts_state.lxmf_address_box);
+    if (g_contacts_state.empty_label != nullptr)
+    {
+        if (lv_obj_is_valid(g_contacts_state.empty_label))
+        {
+            lv_obj_del(g_contacts_state.empty_label);
+        }
+        g_contacts_state.empty_label = nullptr;
+    }
     if (g_contacts_state.add_edit_modal != nullptr)
     {
         lv_obj_del(g_contacts_state.add_edit_modal);
@@ -2845,6 +4885,14 @@ void cleanup_modals()
     }
     g_contacts_state.add_edit_textarea = nullptr;
     g_contacts_state.add_edit_error_label = nullptr;
+    if (g_contacts_state.reticulum_group_modal != nullptr)
+    {
+        lv_obj_del(g_contacts_state.reticulum_group_modal);
+        g_contacts_state.reticulum_group_modal = nullptr;
+    }
+    g_contacts_state.reticulum_group_name_textarea = nullptr;
+    g_contacts_state.reticulum_group_destination_textarea = nullptr;
+    g_contacts_state.reticulum_group_error_label = nullptr;
     if (g_contacts_state.del_confirm_modal != nullptr)
     {
         lv_obj_del(g_contacts_state.del_confirm_modal);
@@ -2860,6 +4908,7 @@ void cleanup_modals()
         lv_obj_del(g_contacts_state.discover_modal);
         g_contacts_state.discover_modal = nullptr;
     }
+    ::ui::components::shortcut_help_modal::close(s_help_modal);
     if (g_contacts_state.discover_scan_timer != nullptr)
     {
         lv_timer_del(g_contacts_state.discover_scan_timer);
@@ -2867,7 +4916,19 @@ void cleanup_modals()
     }
     if (g_contacts_state.node_info_root != nullptr)
     {
-        node_info::ui::destroy();
+        if (g_contacts_state.reticulum_node_info_active)
+        {
+            if (lv_obj_is_valid(g_contacts_state.node_info_root))
+            {
+                lv_obj_del(g_contacts_state.node_info_root);
+            }
+            s_reticulum_node_info_top_bar = ::ui::widgets::TopBar{};
+            g_contacts_state.reticulum_node_info_active = false;
+        }
+        else
+        {
+            node_info::ui::destroy();
+        }
         g_contacts_state.node_info_root = nullptr;
     }
     if (g_contacts_state.node_info_group != nullptr)
@@ -2882,4 +4943,7 @@ void cleanup_modals()
         g_contacts_state.modal_group = nullptr;
     }
     g_contacts_state.prev_group = nullptr;
+    reset_compose_runtime_state();
+    reset_conversation_runtime_state();
+    reset_contacts_team_chat_runtime();
 }

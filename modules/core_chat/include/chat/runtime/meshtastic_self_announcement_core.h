@@ -32,6 +32,7 @@ struct MeshtasticAnnouncementPacket
     uint8_t wire[384] = {};
     size_t wire_size = 0;
     uint8_t channel_hash = 0;
+    meshtastic_Data data_scratch = meshtastic_Data_init_default;
 };
 
 class MeshtasticSelfAnnouncementCore final : public SelfAnnouncementCore

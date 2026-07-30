@@ -16,6 +16,9 @@ constexpr uint8_t kAppPayloadMagic[4] = {'T', 'M', 'A', 'P'};
 constexpr uint8_t kAppPayloadVersion = 1;
 constexpr uint8_t kAppPayloadFlagWantResponse = 0x01;
 constexpr size_t kAppPayloadHeaderLen = 18;
+constexpr uint32_t kSidebandSensorLocation = 0x02;
+constexpr uint32_t kSidebandCommandTelemetryRequest = 0x01;
+constexpr size_t kMaxPropagationWireItems = 64;
 
 struct Cursor
 {
@@ -138,6 +141,29 @@ bool appendBin(const uint8_t* data, size_t len, uint8_t* out, size_t out_len, si
     if (len <= 0xFFFFU)
     {
         return appendByte(0xC5, out, out_len, used) &&
+               appendByte(static_cast<uint8_t>((len >> 8) & 0xFFU), out, out_len, used) &&
+               appendByte(static_cast<uint8_t>(len & 0xFFU), out, out_len, used) &&
+               appendBytes(data, len, out, out_len, used);
+    }
+    return false;
+}
+
+bool appendString(const uint8_t* data, size_t len, uint8_t* out, size_t out_len, size_t& used)
+{
+    if (len <= 0x1FU)
+    {
+        return appendByte(static_cast<uint8_t>(0xA0U | (len & 0x1FU)), out, out_len, used) &&
+               appendBytes(data, len, out, out_len, used);
+    }
+    if (len <= 0xFFU)
+    {
+        return appendByte(0xD9, out, out_len, used) &&
+               appendByte(static_cast<uint8_t>(len), out, out_len, used) &&
+               appendBytes(data, len, out, out_len, used);
+    }
+    if (len <= 0xFFFFU)
+    {
+        return appendByte(0xDA, out, out_len, used) &&
                appendByte(static_cast<uint8_t>((len >> 8) & 0xFFU), out, out_len, used) &&
                appendByte(static_cast<uint8_t>(len & 0xFFU), out, out_len, used) &&
                appendBytes(data, len, out, out_len, used);
@@ -291,6 +317,31 @@ bool readFloat64(Cursor& cursor, double* out_value)
     return true;
 }
 
+bool readNonNegativeNumber(Cursor& cursor, uint32_t* out_value)
+{
+    if (!out_value)
+    {
+        return false;
+    }
+
+    uint8_t tag = 0;
+    if (!peekByte(cursor, &tag))
+    {
+        return false;
+    }
+    if (tag == 0xCB)
+    {
+        double value = 0.0;
+        if (!readFloat64(cursor, &value) || value < 0.0 || value > 4294967295.0)
+        {
+            return false;
+        }
+        *out_value = static_cast<uint32_t>(value);
+        return true;
+    }
+    return readUint(cursor, out_value);
+}
+
 bool readNil(Cursor& cursor)
 {
     uint8_t tag = 0;
@@ -341,12 +392,14 @@ uint32_t readU32Be(const uint8_t* data)
            static_cast<uint32_t>(data[3]);
 }
 
-bool readBinary(Cursor& cursor, std::vector<uint8_t>* out_data)
+bool readBinarySpan(Cursor& cursor, const uint8_t** out_data, size_t* out_len)
 {
-    if (!out_data)
+    if (!out_data || !out_len)
     {
         return false;
     }
+    *out_data = nullptr;
+    *out_len = 0;
 
     uint8_t tag = 0;
     if (!readByte(cursor, &tag))
@@ -387,6 +440,16 @@ bool readBinary(Cursor& cursor, std::vector<uint8_t>* out_data)
         }
         len = len8;
     }
+    else if (tag == 0xDA)
+    {
+        uint8_t hi = 0;
+        uint8_t lo = 0;
+        if (!readByte(cursor, &hi) || !readByte(cursor, &lo))
+        {
+            return false;
+        }
+        len = static_cast<size_t>((static_cast<uint16_t>(hi) << 8) | lo);
+    }
     else
     {
         return false;
@@ -397,8 +460,27 @@ bool readBinary(Cursor& cursor, std::vector<uint8_t>* out_data)
         return false;
     }
 
-    out_data->assign(cursor.data + cursor.pos, cursor.data + cursor.pos + len);
+    *out_data = cursor.data + cursor.pos;
+    *out_len = len;
     cursor.pos += len;
+    return true;
+}
+
+bool readBinary(Cursor& cursor, std::vector<uint8_t>* out_data)
+{
+    if (!out_data)
+    {
+        return false;
+    }
+
+    const uint8_t* data = nullptr;
+    size_t len = 0;
+    if (!readBinarySpan(cursor, &data, &len))
+    {
+        return false;
+    }
+
+    out_data->assign(data, data + len);
     return true;
 }
 
@@ -488,6 +570,10 @@ bool appendArrayOfBins(const std::vector<std::vector<uint8_t>>& items,
                        size_t out_len,
                        size_t& used)
 {
+    if (items.size() > kMaxPropagationWireItems)
+    {
+        return false;
+    }
     if (!appendArrayHeader(static_cast<uint8_t>(items.size()), out, out_len, used))
     {
         return false;
@@ -496,6 +582,53 @@ bool appendArrayOfBins(const std::vector<std::vector<uint8_t>>& items,
     for (const auto& item : items)
     {
         if (!appendBin(item.data(), item.size(), out, out_len, used))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool appendArrayOfBinSpans(ByteSpanList items,
+                           uint8_t* out,
+                           size_t out_len,
+                           size_t& used);
+
+bool appendArrayOfBinSpans(const std::vector<ByteSpan>& items,
+                           uint8_t* out,
+                           size_t out_len,
+                           size_t& used)
+{
+    return appendArrayOfBinSpans(ByteSpanList{items.data(), items.size()},
+                                 out,
+                                 out_len,
+                                 used);
+}
+
+bool appendArrayOfBinSpans(ByteSpanList items,
+                           uint8_t* out,
+                           size_t out_len,
+                           size_t& used)
+{
+    if (items.size > kMaxPropagationWireItems)
+    {
+        return false;
+    }
+    if (items.size != 0U && !items.items)
+    {
+        return false;
+    }
+    if (!appendArrayHeader(static_cast<uint8_t>(items.size), out, out_len, used))
+    {
+        return false;
+    }
+
+    for (size_t index = 0; index < items.size; ++index)
+    {
+        const ByteSpan& item = items.items[index];
+        if ((!item.data && item.size != 0U) ||
+            !appendBin(item.data, item.size, out, out_len, used))
         {
             return false;
         }
@@ -516,6 +649,11 @@ bool readArrayOfBins(Cursor& cursor, std::vector<std::vector<uint8_t>>* out_item
     {
         return false;
     }
+    if (count > kMaxPropagationWireItems ||
+        count > cursor.len - cursor.pos)
+    {
+        return false;
+    }
 
     std::vector<std::vector<uint8_t>> items;
     items.reserve(count);
@@ -530,6 +668,40 @@ bool readArrayOfBins(Cursor& cursor, std::vector<std::vector<uint8_t>>* out_item
     }
 
     *out_items = std::move(items);
+    return true;
+}
+
+bool readArrayOfBins(Cursor& cursor,
+                     BinItemCallback on_item,
+                     void* callback_context)
+{
+    if (!on_item)
+    {
+        return false;
+    }
+
+    size_t count = 0;
+    if (!readArrayHeader(cursor, &count))
+    {
+        return false;
+    }
+    if (count > kMaxPropagationWireItems ||
+        count > cursor.len - cursor.pos)
+    {
+        return false;
+    }
+
+    for (size_t i = 0; i < count; ++i)
+    {
+        const uint8_t* item_data = nullptr;
+        size_t item_len = 0;
+        if (!readBinarySpan(cursor, &item_data, &item_len) ||
+            !on_item(item_data, item_len, callback_context))
+        {
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -582,6 +754,24 @@ bool packPeerAnnounceAppData(const char* display_name,
     return true;
 }
 
+void copyAnnounceDisplayName(const std::vector<uint8_t>& name,
+                             char* out_display_name,
+                             size_t display_name_len)
+{
+    if (!out_display_name || display_name_len == 0)
+    {
+        return;
+    }
+    const size_t copy_len = std::min(name.size(), display_name_len - 1);
+    for (size_t i = 0; i < copy_len; ++i)
+    {
+        const uint8_t byte = name[i];
+        out_display_name[i] =
+            (byte == '\t' || byte == '\r' || byte == '\n') ? ' ' : static_cast<char>(byte);
+    }
+    out_display_name[copy_len] = '\0';
+}
+
 bool unpackPeerAnnounceAppData(const uint8_t* data, size_t len,
                                char* out_display_name, size_t display_name_len,
                                bool* out_has_stamp_cost,
@@ -607,7 +797,13 @@ bool unpackPeerAnnounceAppData(const uint8_t* data, size_t len,
     cursor.len = len;
     cursor.pos = 0;
     size_t count = 0;
-    if (!readArrayHeader(cursor, &count) || count != 2)
+    if (!readArrayHeader(cursor, &count))
+    {
+        std::vector<uint8_t> legacy_name(data, data + len);
+        copyAnnounceDisplayName(legacy_name, out_display_name, display_name_len);
+        return out_display_name[0] != '\0';
+    }
+    if (count < 1)
     {
         return false;
     }
@@ -631,9 +827,12 @@ bool unpackPeerAnnounceAppData(const uint8_t* data, size_t len,
         {
             return false;
         }
-        const size_t copy_len = std::min(name.size(), display_name_len - 1);
-        memcpy(out_display_name, name.data(), copy_len);
-        out_display_name[copy_len] = '\0';
+        copyAnnounceDisplayName(name, out_display_name, display_name_len);
+    }
+
+    if (count == 1)
+    {
+        return true;
     }
 
     if (!peekByte(cursor, &next))
@@ -642,21 +841,34 @@ bool unpackPeerAnnounceAppData(const uint8_t* data, size_t len,
     }
     if (next == 0xC0)
     {
-        return readNil(cursor);
+        if (!readNil(cursor))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        uint32_t stamp = 0;
+        if (!readUint(cursor, &stamp))
+        {
+            return false;
+        }
+        if (out_has_stamp_cost)
+        {
+            *out_has_stamp_cost = true;
+        }
+        if (out_stamp_cost)
+        {
+            *out_stamp_cost = static_cast<uint8_t>(stamp);
+        }
     }
 
-    uint32_t stamp = 0;
-    if (!readUint(cursor, &stamp))
+    for (size_t index = 2; index < count; ++index)
     {
-        return false;
-    }
-    if (out_has_stamp_cost)
-    {
-        *out_has_stamp_cost = true;
-    }
-    if (out_stamp_cost)
-    {
-        *out_stamp_cost = static_cast<uint8_t>(stamp);
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
     }
     return true;
 }
@@ -683,6 +895,105 @@ bool encodeTextPayload(double timestamp,
         !appendBin(title_bytes, title_len, out_payload, *inout_len, used) ||
         !appendBin(content_bytes, content_len, out_payload, *inout_len, used) ||
         !appendMapHeader(0, out_payload, *inout_len, used))
+    {
+        return false;
+    }
+
+    *inout_len = used;
+    return true;
+}
+
+bool encodeSidebandTelemetryLocationPayload(
+    double message_timestamp,
+    const SidebandTelemetryLocation& location,
+    uint8_t* out_payload,
+    size_t* inout_len)
+{
+    if (!out_payload || !inout_len ||
+        location.latitude_e6 < -90000000 ||
+        location.latitude_e6 > 90000000 ||
+        location.longitude_e6 < -180000000 ||
+        location.longitude_e6 > 180000000 ||
+        location.accuracy_cm > 0xFFFFU)
+    {
+        return false;
+    }
+
+    uint8_t packed_telemetry[48] = {};
+    size_t telemetry_used = 0;
+    uint8_t latitude[4] = {};
+    uint8_t longitude[4] = {};
+    uint8_t altitude[4] = {};
+    const uint8_t zero_u32[4] = {};
+    uint8_t accuracy[2] = {};
+    writeU32Be(static_cast<uint32_t>(location.latitude_e6), latitude);
+    writeU32Be(static_cast<uint32_t>(location.longitude_e6), longitude);
+    writeU32Be(static_cast<uint32_t>(location.altitude_cm), altitude);
+    accuracy[0] = static_cast<uint8_t>((location.accuracy_cm >> 8U) & 0xFFU);
+    accuracy[1] = static_cast<uint8_t>(location.accuracy_cm & 0xFFU);
+
+    if (!appendMapHeader(1,
+                         packed_telemetry,
+                         sizeof(packed_telemetry),
+                         telemetry_used) ||
+        !appendUint(kSidebandSensorLocation,
+                    packed_telemetry,
+                    sizeof(packed_telemetry),
+                    telemetry_used) ||
+        !appendArrayHeader(7,
+                           packed_telemetry,
+                           sizeof(packed_telemetry),
+                           telemetry_used) ||
+        !appendBin(latitude,
+                   sizeof(latitude),
+                   packed_telemetry,
+                   sizeof(packed_telemetry),
+                   telemetry_used) ||
+        !appendBin(longitude,
+                   sizeof(longitude),
+                   packed_telemetry,
+                   sizeof(packed_telemetry),
+                   telemetry_used) ||
+        !appendBin(altitude,
+                   sizeof(altitude),
+                   packed_telemetry,
+                   sizeof(packed_telemetry),
+                   telemetry_used) ||
+        !appendBin(zero_u32,
+                   sizeof(zero_u32),
+                   packed_telemetry,
+                   sizeof(packed_telemetry),
+                   telemetry_used) ||
+        !appendBin(zero_u32,
+                   sizeof(zero_u32),
+                   packed_telemetry,
+                   sizeof(packed_telemetry),
+                   telemetry_used) ||
+        !appendBin(accuracy,
+                   sizeof(accuracy),
+                   packed_telemetry,
+                   sizeof(packed_telemetry),
+                   telemetry_used) ||
+        !appendUint(location.timestamp,
+                    packed_telemetry,
+                    sizeof(packed_telemetry),
+                    telemetry_used))
+    {
+        return false;
+    }
+
+    size_t used = 0;
+    if (!appendArrayHeader(4, out_payload, *inout_len, used) ||
+        !appendFloat64(message_timestamp, out_payload, *inout_len, used) ||
+        !appendBin(nullptr, 0, out_payload, *inout_len, used) ||
+        !appendBin(nullptr, 0, out_payload, *inout_len, used) ||
+        !appendMapHeader(1, out_payload, *inout_len, used) ||
+        !appendUint(kFieldTelemetry, out_payload, *inout_len, used) ||
+        !appendBin(packed_telemetry,
+                   telemetry_used,
+                   out_payload,
+                   *inout_len,
+                   used))
     {
         return false;
     }
@@ -923,7 +1234,7 @@ bool encodeResourceAdvertisement(uint32_t transfer_size,
     }
 
     size_t used = 0;
-    if (!appendMapHeader(10, out_payload, *inout_len, used) ||
+    if (!appendMapHeader(11, out_payload, *inout_len, used) ||
         !appendBin(reinterpret_cast<const uint8_t*>("t"), 1, out_payload, *inout_len, used) ||
         !appendUint(transfer_size, out_payload, *inout_len, used) ||
         !appendBin(reinterpret_cast<const uint8_t*>("d"), 1, out_payload, *inout_len, used) ||
@@ -1256,6 +1567,39 @@ bool encodePropagationBatch(double remote_timebase,
     return true;
 }
 
+bool encodePropagationBatch(double remote_timebase,
+                            const std::vector<ByteSpan>& messages,
+                            uint8_t* out_payload,
+                            size_t* inout_len)
+{
+    return encodePropagationBatch(remote_timebase,
+                                  ByteSpanList{messages.data(), messages.size()},
+                                  out_payload,
+                                  inout_len);
+}
+
+bool encodePropagationBatch(double remote_timebase,
+                            ByteSpanList messages,
+                            uint8_t* out_payload,
+                            size_t* inout_len)
+{
+    if (!out_payload || !inout_len)
+    {
+        return false;
+    }
+
+    size_t used = 0;
+    if (!appendArrayHeader(2, out_payload, *inout_len, used) ||
+        !appendFloat64(remote_timebase, out_payload, *inout_len, used) ||
+        !appendArrayOfBinSpans(messages, out_payload, *inout_len, used))
+    {
+        return false;
+    }
+
+    *inout_len = used;
+    return true;
+}
+
 bool decodePropagationBatch(const uint8_t* data, size_t len,
                             DecodedPropagationBatch* out_batch)
 {
@@ -1277,12 +1621,43 @@ bool decodePropagationBatch(const uint8_t* data, size_t len,
 
     DecodedPropagationBatch decoded{};
     if (!readFloat64(cursor, &decoded.remote_timebase) ||
-        !readArrayOfBins(cursor, &decoded.messages))
+        !readArrayOfBins(cursor, &decoded.messages) ||
+        cursor.pos != cursor.len)
     {
         return false;
     }
 
     *out_batch = std::move(decoded);
+    return true;
+}
+
+bool decodePropagationBatch(const uint8_t* data,
+                            size_t len,
+                            BinItemCallback on_message,
+                            void* callback_context,
+                            double* out_remote_timebase)
+{
+    if (!data || len == 0 || !on_message || !out_remote_timebase)
+    {
+        return false;
+    }
+
+    Cursor cursor;
+    cursor.data = data;
+    cursor.len = len;
+    cursor.pos = 0;
+
+    size_t count = 0;
+    double remote_timebase = 0.0;
+    if (!readArrayHeader(cursor, &count) || count != 2 ||
+        !readFloat64(cursor, &remote_timebase) ||
+        !readArrayOfBins(cursor, on_message, callback_context) ||
+        cursor.pos != cursor.len)
+    {
+        return false;
+    }
+
+    *out_remote_timebase = remote_timebase;
     return true;
 }
 
@@ -1331,8 +1706,86 @@ bool decodePropagationOfferPayload(const uint8_t* data, size_t len,
     {
         return false;
     }
+    for (size_t index = 2; index < count; ++index)
+    {
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
+    }
+    if (cursor.pos != cursor.len)
+    {
+        return false;
+    }
 
     *out_offer = std::move(decoded);
+    return true;
+}
+
+bool decodePropagationOfferPayload(const uint8_t* data,
+                                   size_t len,
+                                   BinItemCallback on_transient_id,
+                                   void* callback_context,
+                                   DecodedPropagationOfferHeader* out_offer)
+{
+    if (!data || len == 0 || !on_transient_id || !out_offer)
+    {
+        return false;
+    }
+
+    Cursor cursor;
+    cursor.data = data;
+    cursor.len = len;
+    cursor.pos = 0;
+
+    size_t count = 0;
+    if (!readArrayHeader(cursor, &count) || count < 2)
+    {
+        return false;
+    }
+
+    DecodedPropagationOfferHeader decoded{};
+    uint8_t next = 0;
+    if (!peekByte(cursor, &next))
+    {
+        return false;
+    }
+    if (next == 0xC0)
+    {
+        if (!readNil(cursor))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        const uint8_t* peering_key = nullptr;
+        size_t peering_key_len = 0;
+        if (!readBinarySpan(cursor, &peering_key, &peering_key_len))
+        {
+            return false;
+        }
+        decoded.peering_key_is_nil = false;
+        decoded.peering_key = ByteSpan{peering_key, peering_key_len};
+    }
+
+    if (!readArrayOfBins(cursor, on_transient_id, callback_context))
+    {
+        return false;
+    }
+    for (size_t index = 2; index < count; ++index)
+    {
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
+    }
+    if (cursor.pos != cursor.len)
+    {
+        return false;
+    }
+
+    *out_offer = decoded;
     return true;
 }
 
@@ -1407,9 +1860,361 @@ bool decodePropagationGetRequestPayload(const uint8_t* data, size_t len,
         decoded.has_transfer_limit = true;
         decoded.transfer_limit_kb = limit_kb;
     }
+    for (size_t index = 3; index < count; ++index)
+    {
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
+    }
+    if (cursor.pos != cursor.len)
+    {
+        return false;
+    }
 
     *out_request = std::move(decoded);
     return true;
+}
+
+bool decodePropagationGetRequestPayload(
+    const uint8_t* data,
+    size_t len,
+    BinItemCallback on_want,
+    void* want_context,
+    BinItemCallback on_have,
+    void* have_context,
+    DecodedPropagationGetRequestHeader* out_request)
+{
+    if (!data || len == 0 || !out_request)
+    {
+        return false;
+    }
+
+    Cursor cursor;
+    cursor.data = data;
+    cursor.len = len;
+    cursor.pos = 0;
+
+    size_t count = 0;
+    if (!readArrayHeader(cursor, &count) || count < 2)
+    {
+        return false;
+    }
+
+    DecodedPropagationGetRequestHeader decoded{};
+    uint8_t next = 0;
+    if (!peekByte(cursor, &next))
+    {
+        return false;
+    }
+    if (next == 0xC0)
+    {
+        if (!readNil(cursor))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        if (!on_want ||
+            !readArrayOfBins(cursor, on_want, want_context))
+        {
+            return false;
+        }
+        decoded.wants_is_nil = false;
+    }
+
+    if (!peekByte(cursor, &next))
+    {
+        return false;
+    }
+    if (next == 0xC0)
+    {
+        if (!readNil(cursor))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        if (!on_have ||
+            !readArrayOfBins(cursor, on_have, have_context))
+        {
+            return false;
+        }
+        decoded.haves_is_nil = false;
+    }
+
+    if (count >= 3)
+    {
+        uint32_t limit_kb = 0;
+        if (!readUint(cursor, &limit_kb))
+        {
+            return false;
+        }
+        decoded.has_transfer_limit = true;
+        decoded.transfer_limit_kb = limit_kb;
+    }
+    for (size_t index = 3; index < count; ++index)
+    {
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
+    }
+    if (cursor.pos != cursor.len)
+    {
+        return false;
+    }
+
+    *out_request = decoded;
+    return true;
+}
+
+bool encodePropagationGetRequestPayload(
+    const std::vector<std::vector<uint8_t>>* wants,
+    const std::vector<std::vector<uint8_t>>* haves,
+    bool include_transfer_limit,
+    uint32_t transfer_limit_kb,
+    uint8_t* out_payload,
+    size_t* inout_len)
+{
+    if (!out_payload || !inout_len)
+    {
+        return false;
+    }
+
+    size_t used = 0;
+    if (!appendArrayHeader(include_transfer_limit ? 3 : 2,
+                           out_payload,
+                           *inout_len,
+                           used))
+    {
+        return false;
+    }
+    if (wants)
+    {
+        if (!appendArrayOfBins(*wants, out_payload, *inout_len, used))
+        {
+            return false;
+        }
+    }
+    else if (!appendNil(out_payload, *inout_len, used))
+    {
+        return false;
+    }
+    if (haves)
+    {
+        if (!appendArrayOfBins(*haves, out_payload, *inout_len, used))
+        {
+            return false;
+        }
+    }
+    else if (!appendNil(out_payload, *inout_len, used))
+    {
+        return false;
+    }
+    if (include_transfer_limit &&
+        !appendUint(transfer_limit_kb, out_payload, *inout_len, used))
+    {
+        return false;
+    }
+
+    *inout_len = used;
+    return true;
+}
+
+bool encodePropagationGetRequestPayloadSpans(const ByteSpanList* wants,
+                                             const ByteSpanList* haves,
+                                             bool include_transfer_limit,
+                                             uint32_t transfer_limit_kb,
+                                             uint8_t* out_payload,
+                                             size_t* inout_len)
+{
+    if (!out_payload || !inout_len)
+    {
+        return false;
+    }
+
+    size_t used = 0;
+    if (!appendArrayHeader(include_transfer_limit ? 3 : 2,
+                           out_payload,
+                           *inout_len,
+                           used))
+    {
+        return false;
+    }
+    if (wants)
+    {
+        if (!appendArrayOfBinSpans(*wants, out_payload, *inout_len, used))
+        {
+            return false;
+        }
+    }
+    else if (!appendNil(out_payload, *inout_len, used))
+    {
+        return false;
+    }
+    if (haves)
+    {
+        if (!appendArrayOfBinSpans(*haves, out_payload, *inout_len, used))
+        {
+            return false;
+        }
+    }
+    else if (!appendNil(out_payload, *inout_len, used))
+    {
+        return false;
+    }
+    if (include_transfer_limit &&
+        !appendUint(transfer_limit_kb, out_payload, *inout_len, used))
+    {
+        return false;
+    }
+
+    *inout_len = used;
+    return true;
+}
+
+bool decodePropagationIdListPayload(
+    const uint8_t* data,
+    size_t len,
+    std::vector<std::vector<uint8_t>>* out_ids)
+{
+    if (!data || len == 0 || !out_ids)
+    {
+        return false;
+    }
+    Cursor cursor{data, len, 0};
+    std::vector<std::vector<uint8_t>> ids;
+    if (!readArrayOfBins(cursor, &ids) || cursor.pos != cursor.len)
+    {
+        return false;
+    }
+    *out_ids = std::move(ids);
+    return true;
+}
+
+bool decodePropagationIdListPayload(const uint8_t* data,
+                                    size_t len,
+                                    BinItemCallback on_item,
+                                    void* callback_context)
+{
+    if (!data || len == 0 || !on_item)
+    {
+        return false;
+    }
+    Cursor cursor{data, len, 0};
+    if (!readArrayOfBins(cursor, on_item, callback_context) ||
+        cursor.pos != cursor.len)
+    {
+        return false;
+    }
+    return true;
+}
+
+bool decodePropagationMessageListPayload(
+    const uint8_t* data,
+    size_t len,
+    std::vector<std::vector<uint8_t>>* out_messages)
+{
+    return decodePropagationIdListPayload(data, len, out_messages);
+}
+
+bool decodePropagationMessageListPayload(const uint8_t* data,
+                                         size_t len,
+                                         BinItemCallback on_message,
+                                         void* callback_context)
+{
+    return decodePropagationIdListPayload(data, len, on_message, callback_context);
+}
+
+bool decodePropagationAnnounceAppData(
+    const uint8_t* data,
+    size_t len,
+    DecodedPropagationAnnounce* out_announce)
+{
+    if (!data || len == 0 || !out_announce)
+    {
+        return false;
+    }
+
+    Cursor cursor{data, len, 0};
+    size_t count = 0;
+    if (!readArrayHeader(cursor, &count) || count < 7)
+    {
+        return false;
+    }
+
+    DecodedPropagationAnnounce decoded{};
+    uint32_t stamp_cost = 0;
+    uint32_t stamp_flexibility = 0;
+    uint32_t peering_cost = 0;
+    size_t stamp_count = 0;
+    if (!readBool(cursor, &decoded.legacy_support) ||
+        !readNonNegativeNumber(cursor, &decoded.timebase_s) ||
+        !readBool(cursor, &decoded.node_active) ||
+        !readNonNegativeNumber(cursor, &decoded.transfer_limit_kb) ||
+        !readNonNegativeNumber(cursor, &decoded.sync_limit_kb) ||
+        !readArrayHeader(cursor, &stamp_count) || stamp_count < 3 ||
+        !readUint(cursor, &stamp_cost) ||
+        !readUint(cursor, &stamp_flexibility) ||
+        !readUint(cursor, &peering_cost))
+    {
+        return false;
+    }
+    for (size_t index = 3; index < stamp_count; ++index)
+    {
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
+    }
+
+    size_t metadata_count = 0;
+    if (!readMapHeader(cursor, &metadata_count))
+    {
+        return false;
+    }
+    for (size_t index = 0; index < metadata_count; ++index)
+    {
+        uint32_t key = 0;
+        if (!readUint(cursor, &key))
+        {
+            return false;
+        }
+        if (key == 0x01U)
+        {
+            std::vector<uint8_t> name;
+            if (!readBinary(cursor, &name))
+            {
+                return false;
+            }
+            decoded.display_name.assign(
+                reinterpret_cast<const char*>(name.data()),
+                name.size());
+        }
+        else if (!skipObject(cursor))
+        {
+            return false;
+        }
+    }
+    for (size_t index = 7; index < count; ++index)
+    {
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
+    }
+
+    decoded.stamp_cost = static_cast<uint8_t>(std::min<uint32_t>(stamp_cost, 255U));
+    decoded.stamp_cost_flexibility =
+        static_cast<uint8_t>(std::min<uint32_t>(stamp_flexibility, 255U));
+    decoded.peering_cost =
+        static_cast<uint8_t>(std::min<uint32_t>(peering_cost, 255U));
+    decoded.valid = decoded.node_active && cursor.pos == cursor.len;
+    *out_announce = std::move(decoded);
+    return cursor.pos == cursor.len;
 }
 
 bool encodePropagationIdListPayload(const std::vector<std::vector<uint8_t>>& ids,
@@ -1431,11 +2236,59 @@ bool encodePropagationIdListPayload(const std::vector<std::vector<uint8_t>>& ids
     return true;
 }
 
+bool encodePropagationIdListPayload(ByteSpanList ids,
+                                    uint8_t* out_payload,
+                                    size_t* inout_len)
+{
+    if (!out_payload || !inout_len)
+    {
+        return false;
+    }
+
+    size_t used = 0;
+    if (!appendArrayOfBinSpans(ids, out_payload, *inout_len, used))
+    {
+        return false;
+    }
+
+    *inout_len = used;
+    return true;
+}
+
 bool encodePropagationMessageListPayload(const std::vector<std::vector<uint8_t>>& messages,
                                          uint8_t* out_payload,
                                          size_t* inout_len)
 {
     return encodePropagationIdListPayload(messages, out_payload, inout_len);
+}
+
+bool encodePropagationMessageListPayload(const std::vector<ByteSpan>& messages,
+                                         uint8_t* out_payload,
+                                         size_t* inout_len)
+{
+    return encodePropagationMessageListPayload(
+        ByteSpanList{messages.data(), messages.size()},
+        out_payload,
+        inout_len);
+}
+
+bool encodePropagationMessageListPayload(ByteSpanList messages,
+                                         uint8_t* out_payload,
+                                         size_t* inout_len)
+{
+    if (!out_payload || !inout_len)
+    {
+        return false;
+    }
+
+    size_t used = 0;
+    if (!appendArrayOfBinSpans(messages, out_payload, *inout_len, used))
+    {
+        return false;
+    }
+
+    *inout_len = used;
+    return true;
 }
 
 void computeMessageHash(const uint8_t destination_hash[reticulum::kTruncatedHashSize],
@@ -1599,9 +2452,32 @@ bool unpackTextPayload(const uint8_t* data, size_t len, DecodedTextPayload* out_
     decoded.fields_empty = (map_count == 0);
     for (size_t i = 0; i < map_count; ++i)
     {
-        if (!skipObject(cursor) || !skipObject(cursor))
+        Cursor key_cursor = cursor;
+        uint32_t field_key = 0;
+        const bool numeric_key = readUint(key_cursor, &field_key);
+        if (numeric_key)
+        {
+            cursor = key_cursor;
+        }
+        else if (!skipObject(cursor))
         {
             return false;
+        }
+
+        const size_t value_start = cursor.pos;
+        if (!skipObject(cursor))
+        {
+            return false;
+        }
+        if (numeric_key &&
+            (field_key == kFieldTelemetry ||
+             field_key == kFieldTelemetryStream ||
+             field_key == kFieldCommands))
+        {
+            DecodedField field{};
+            field.key = field_key;
+            field.encoded_value.assign(data + value_start, data + cursor.pos);
+            decoded.fields.push_back(std::move(field));
         }
     }
 
@@ -1631,6 +2507,218 @@ bool unpackTextPayload(const uint8_t* data, size_t len, DecodedTextPayload* out_
 
     *out_payload = std::move(decoded);
     return true;
+}
+
+const DecodedField* findField(const DecodedTextPayload& payload, uint32_t key)
+{
+    const auto found = std::find_if(payload.fields.begin(),
+                                    payload.fields.end(),
+                                    [key](const DecodedField& field)
+                                    { return field.key == key; });
+    return found != payload.fields.end() ? &*found : nullptr;
+}
+
+bool decodeSidebandTelemetryLocation(const DecodedTextPayload& payload,
+                                     SidebandTelemetryLocation* out_location)
+{
+    if (!out_location)
+    {
+        return false;
+    }
+    *out_location = SidebandTelemetryLocation{};
+
+    const DecodedField* telemetry = findField(payload, kFieldTelemetry);
+    if (!telemetry || telemetry->encoded_value.empty())
+    {
+        return false;
+    }
+
+    Cursor field_cursor{};
+    field_cursor.data = telemetry->encoded_value.data();
+    field_cursor.len = telemetry->encoded_value.size();
+    std::vector<uint8_t> packed_telemetry;
+    if (!readBinary(field_cursor, &packed_telemetry) || packed_telemetry.empty())
+    {
+        return false;
+    }
+
+    Cursor telemetry_cursor{};
+    telemetry_cursor.data = packed_telemetry.data();
+    telemetry_cursor.len = packed_telemetry.size();
+    size_t sensor_count = 0;
+    if (!readMapHeader(telemetry_cursor, &sensor_count))
+    {
+        return false;
+    }
+
+    for (size_t sensor_index = 0; sensor_index < sensor_count; ++sensor_index)
+    {
+        Cursor key_cursor = telemetry_cursor;
+        uint32_t sensor_id = 0;
+        const bool numeric_key = readUint(key_cursor, &sensor_id);
+        if (numeric_key)
+        {
+            telemetry_cursor = key_cursor;
+        }
+        else
+        {
+            if (!skipObject(telemetry_cursor) || !skipObject(telemetry_cursor))
+            {
+                return false;
+            }
+            continue;
+        }
+
+        if (sensor_id != kSidebandSensorLocation)
+        {
+            if (!skipObject(telemetry_cursor))
+            {
+                return false;
+            }
+            continue;
+        }
+
+        size_t location_elements = 0;
+        if (!readArrayHeader(telemetry_cursor, &location_elements) ||
+            location_elements < 7)
+        {
+            return false;
+        }
+
+        std::vector<uint8_t> latitude;
+        std::vector<uint8_t> longitude;
+        std::vector<uint8_t> altitude;
+        std::vector<uint8_t> speed;
+        std::vector<uint8_t> bearing;
+        std::vector<uint8_t> accuracy;
+        uint32_t timestamp = 0;
+        if (!readBinary(telemetry_cursor, &latitude) || latitude.size() != 4 ||
+            !readBinary(telemetry_cursor, &longitude) || longitude.size() != 4 ||
+            !readBinary(telemetry_cursor, &altitude) || altitude.size() != 4 ||
+            !readBinary(telemetry_cursor, &speed) || speed.size() != 4 ||
+            !readBinary(telemetry_cursor, &bearing) || bearing.size() != 4 ||
+            !readBinary(telemetry_cursor, &accuracy) || accuracy.size() != 2 ||
+            !readUint(telemetry_cursor, &timestamp))
+        {
+            return false;
+        }
+        for (size_t index = 7; index < location_elements; ++index)
+        {
+            if (!skipObject(telemetry_cursor))
+            {
+                return false;
+            }
+        }
+
+        SidebandTelemetryLocation decoded{};
+        decoded.latitude_e6 = static_cast<int32_t>(readU32Be(latitude.data()));
+        decoded.longitude_e6 = static_cast<int32_t>(readU32Be(longitude.data()));
+        decoded.altitude_cm = static_cast<int32_t>(readU32Be(altitude.data()));
+        decoded.accuracy_cm =
+            (static_cast<uint32_t>(accuracy[0]) << 8) | accuracy[1];
+        decoded.timestamp = timestamp;
+        decoded.valid = decoded.latitude_e6 >= -90000000 &&
+                        decoded.latitude_e6 <= 90000000 &&
+                        decoded.longitude_e6 >= -180000000 &&
+                        decoded.longitude_e6 <= 180000000;
+        if (!decoded.valid)
+        {
+            return false;
+        }
+        *out_location = decoded;
+        return true;
+    }
+
+    return false;
+}
+
+bool decodeSidebandTelemetryRequest(const DecodedTextPayload& payload,
+                                    SidebandTelemetryRequest* out_request)
+{
+    if (!out_request)
+    {
+        return false;
+    }
+    *out_request = SidebandTelemetryRequest{};
+
+    const DecodedField* commands = findField(payload, kFieldCommands);
+    if (!commands || commands->encoded_value.empty())
+    {
+        return false;
+    }
+
+    Cursor cursor{};
+    cursor.data = commands->encoded_value.data();
+    cursor.len = commands->encoded_value.size();
+    size_t command_count = 0;
+    if (!readArrayHeader(cursor, &command_count))
+    {
+        return false;
+    }
+
+    for (size_t command_index = 0; command_index < command_count; ++command_index)
+    {
+        size_t entry_count = 0;
+        if (!readMapHeader(cursor, &entry_count))
+        {
+            return false;
+        }
+        for (size_t entry_index = 0; entry_index < entry_count; ++entry_index)
+        {
+            uint32_t command = 0;
+            if (!readUint(cursor, &command))
+            {
+                return false;
+            }
+            if (command != kSidebandCommandTelemetryRequest)
+            {
+                if (!skipObject(cursor))
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            SidebandTelemetryRequest decoded{};
+            uint8_t next = 0;
+            if (!peekByte(cursor, &next))
+            {
+                return false;
+            }
+            if ((next & 0xF0U) == 0x90U || next == 0xDC || next == 0xDD)
+            {
+                size_t request_elements = 0;
+                if (!readArrayHeader(cursor, &request_elements) ||
+                    request_elements < 1 ||
+                    !readUint(cursor, &decoded.timebase))
+                {
+                    return false;
+                }
+                if (request_elements >= 2 &&
+                    !readBool(cursor, &decoded.collector_request))
+                {
+                    return false;
+                }
+                for (size_t index = 2; index < request_elements; ++index)
+                {
+                    if (!skipObject(cursor))
+                    {
+                        return false;
+                    }
+                }
+            }
+            else if (!readUint(cursor, &decoded.timebase))
+            {
+                return false;
+            }
+
+            decoded.valid = true;
+            *out_request = decoded;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 bool decodeAppDataPayload(const uint8_t* data, size_t len, DecodedAppData* out_payload)
@@ -1689,6 +2777,7 @@ bool unpackMessage(const uint8_t* data, size_t len, DecodedMessage* out_message)
     decoded.has_stamp = payload.has_stamp;
     decoded.stamp = std::move(payload.stamp);
     decoded.fields_empty = payload.fields_empty;
+    decoded.fields = std::move(payload.fields);
     *out_message = std::move(decoded);
     return true;
 }

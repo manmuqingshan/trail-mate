@@ -6,9 +6,10 @@
 #include "platform/esp/arduino_common/chat/infra/rnode/rnode_adapter.h"
 
 #include "chat/time_utils.h"
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
 #include "platform/esp/arduino_common/app_tasks.h"
-#include <Arduino.h>
-#include <RadioLib.h>
+#endif
+#include "platform/esp/common/reticulum_runtime_compat.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -27,6 +28,8 @@ constexpr float kDefaultBandwidthKHz = 125.0f;
 constexpr uint8_t kDefaultSpreadingFactor = 9;
 constexpr uint8_t kDefaultCodingRate = 5;
 constexpr int8_t kDefaultTxPowerDbm = 17;
+constexpr int kRadioOk = 0;
+constexpr int kRadioUnsupported = -1;
 
 template <typename T>
 T clampValue(T value, T min_value, T max_value)
@@ -111,7 +114,8 @@ bool RNodeAdapter::sendAppData(ChannelId channel, uint32_t portnum,
         return false;
     }
 
-    EncodedAirPacketSet air_packets{};
+    tx_air_packets_scratch_ = EncodedAirPacketSet{};
+    EncodedAirPacketSet& air_packets = tx_air_packets_scratch_;
     const uint8_t sequence = static_cast<uint8_t>(((packet_id != 0 ? packet_id : next_sequence_) & 0x0FU));
     next_sequence_ = static_cast<uint8_t>((sequence + 1U) & 0x0FU);
     if (!encodeAirPacketSet(payload, len, sequence, &air_packets))
@@ -119,28 +123,47 @@ bool RNodeAdapter::sendAppData(ChannelId channel, uint32_t portnum,
         return false;
     }
 
-    int first_state = RADIOLIB_ERR_UNSUPPORTED;
-    int second_state = RADIOLIB_ERR_NONE;
+    Serial.printf("[RNode][TX] raw_len=%u seq=%u air_count=%u first_len=%u second_len=%u\n",
+                  static_cast<unsigned>(len),
+                  static_cast<unsigned>(sequence),
+                  static_cast<unsigned>(air_packets.count),
+                  static_cast<unsigned>(air_packets.first_len),
+                  static_cast<unsigned>(air_packets.second_len));
+
+    int first_state = kRadioUnsupported;
+    int second_state = kRadioOk;
     {
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
         app::AppTasks::ScopedRadioTransmitActivity tx_activity;
+#endif
         first_state = board_.transmitRadio(air_packets.first, air_packets.first_len);
-        if (first_state == RADIOLIB_ERR_NONE && air_packets.count > 1U)
+        if (first_state == kRadioOk && air_packets.count > 1U)
         {
             second_state = board_.transmitRadio(air_packets.second, air_packets.second_len);
         }
     }
-    if (first_state != RADIOLIB_ERR_NONE)
+    if (first_state != kRadioOk)
     {
+        Serial.printf("[RNode][TX] result ok=0 first=%d second=%d\n",
+                      first_state,
+                      second_state);
         startRadioReceive();
         return false;
     }
 
-    if (second_state != RADIOLIB_ERR_NONE)
+    if (second_state != kRadioOk)
     {
+        Serial.printf("[RNode][TX] result ok=0 first=%d second=%d\n",
+                      first_state,
+                      second_state);
         startRadioReceive();
         return false;
     }
 
+    Serial.printf("[RNode][TX] result ok=1 first=%d second=%d raw_len=%u\n",
+                  first_state,
+                  second_state,
+                  static_cast<unsigned>(len));
     startRadioReceive();
     return true;
 }
@@ -210,18 +233,23 @@ void RNodeAdapter::handleRawPacket(const uint8_t* data, size_t size)
         return;
     }
 
-    uint8_t payload[chat::rnode::kRNodeMaxPayloadSize] = {};
-    size_t payload_len = sizeof(payload);
+    size_t payload_len = sizeof(rx_payload_scratch_);
     bool complete = false;
-    if (!feedAirPacket(&reassembly_, data, size, payload, &payload_len, &complete) || !complete)
+    if (!feedAirPacket(&reassembly_, data, size, rx_payload_scratch_, &payload_len, &complete) || !complete)
     {
+        Serial.printf("[RNode][RX] air_len=%u complete=%u accepted=0\n",
+                      static_cast<unsigned>(size),
+                      complete ? 1U : 0U);
         return;
     }
 
-    memcpy(last_raw_packet_.data, payload, payload_len);
+    memcpy(last_raw_packet_.data, rx_payload_scratch_, payload_len);
     last_raw_packet_.len = payload_len;
     has_pending_raw_packet_ = true;
-    enqueueIncomingData(payload, payload_len);
+    Serial.printf("[RNode][RX] air_len=%u raw_len=%u complete=1\n",
+                  static_cast<unsigned>(size),
+                  static_cast<unsigned>(payload_len));
+    enqueueIncomingData(rx_payload_scratch_, payload_len);
 }
 
 void RNodeAdapter::startRadioReceive()

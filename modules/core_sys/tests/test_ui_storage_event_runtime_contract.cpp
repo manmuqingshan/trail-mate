@@ -1,11 +1,11 @@
 #include "gps/track_runtime.h"
 #include "sys/feedback_runtime.h"
-#include "sys/persistence_runtime.h"
 #include "sys/runtime_harness.h"
 #include "ui_map_runtime/map_tiles/map_tile_async_runtime.h"
 
 #include <cassert>
 #include <cstddef>
+#include <cstring>
 
 namespace
 {
@@ -70,7 +70,7 @@ class TrackEvents final : public gps::runtime::ITrackEventSink
   public:
     bool publish(const gps::runtime::TrackEvent& event) override
     {
-        if (count >= 8)
+        if (count >= 64)
         {
             return false;
         }
@@ -78,60 +78,81 @@ class TrackEvents final : public gps::runtime::ITrackEventSink
         return true;
     }
 
-    gps::runtime::TrackEvent events[8]{};
+    gps::runtime::TrackEvent events[64]{};
     std::size_t count = 0;
 };
 
 class TrackFiles final : public gps::runtime::ITrackFileAdapter
 {
   public:
-    bool open(uint32_t track_id) override
+    bool open(const gps::runtime::TrackStorageDescriptor& storage) override
     {
-        active_track = track_id;
+        active_track = storage.track_id;
+        last_storage = storage;
         ++open_count;
-        return true;
+        return open_ok;
     }
 
-    bool append(uint32_t track_id,
+    bool append(const gps::runtime::TrackStorageDescriptor& storage,
                 const gps::runtime::TrackPoint* points,
                 std::size_t count) override
     {
-        assert(track_id == active_track);
+        assert(storage.track_id == active_track);
         assert(points != nullptr || count == 0);
+        last_storage = storage;
         appended += count;
         return true;
     }
 
-    bool flush(uint32_t track_id) override
+    bool flush(const gps::runtime::TrackStorageDescriptor& storage) override
     {
-        assert(track_id == active_track);
+        assert(storage.track_id == active_track);
+        last_storage = storage;
         ++flush_count;
         return true;
     }
 
-    bool close(uint32_t track_id) override
+    bool close(const gps::runtime::TrackStorageDescriptor& storage) override
     {
-        assert(track_id == active_track);
+        assert(storage.track_id == active_track);
+        last_storage = storage;
         ++close_count;
         return true;
     }
 
-    std::size_t list(uint32_t* track_ids, std::size_t capacity) override
+    std::size_t list(gps::runtime::TrackStorageDescriptor* tracks,
+                     std::size_t capacity) override
     {
-        if (track_ids && capacity > 0)
+        if (tracks && capacity > 0)
         {
-            track_ids[0] = active_track;
+            tracks[0] = last_storage;
             return 1;
         }
         return 0;
     }
 
     uint32_t active_track = 0;
+    gps::runtime::TrackStorageDescriptor last_storage{};
     std::size_t appended = 0;
     std::size_t open_count = 0;
     std::size_t flush_count = 0;
     std::size_t close_count = 0;
+    bool open_ok = true;
 };
+
+gps::runtime::TrackStorageDescriptor trackDescriptor()
+{
+    gps::runtime::TrackStorageDescriptor storage{};
+    storage.track_id = 123;
+    storage.path = "/trackers/session.gpx";
+    storage.format = gps::runtime::TrackStorageFormat::Gpx;
+    storage.active_state_path = "/trackers/active.bin";
+    storage.manual_recording = true;
+    storage.auto_recording = false;
+    storage.persist_active_state = true;
+    storage.append_footer_on_close = true;
+    return storage;
+}
 
 ui::map_tiles::MapTileRef tileRef()
 {
@@ -168,30 +189,6 @@ void test_map_tile_runtime_contract()
     assert(runtime.snapshot().ready_count == 1);
 }
 
-void test_persistence_runtime_contract()
-{
-    sys::runtime::RuntimeHarness harness;
-    sys::runtime::DirtyStoreRegistry<4> registry;
-    sys::runtime::DefaultPersistencePolicy policy;
-    sys::runtime::PersistenceWorker worker(harness.storage(),
-                                           harness.storage(),
-                                           harness.bus(),
-                                           harness.events(),
-                                           policy);
-    sys::runtime::PersistenceRuntime<4> runtime(registry,
-                                                worker,
-                                                harness.events(),
-                                                policy);
-
-    assert(runtime.markDirty("nodes", 0));
-    runtime.tick(100);
-    assert(harness.storage().writeCount() == 0);
-    runtime.tick(150);
-    assert(harness.storage().writeCount() == 1);
-    assert(harness.bus().acquireCount() == 1);
-    assert(harness.events().persistenceCount() >= 3);
-}
-
 void test_feedback_runtime_contract()
 {
     sys::runtime::RuntimeHarness harness;
@@ -221,16 +218,20 @@ void test_track_runtime_contract()
     TrackFiles files;
     TrackEvents events;
     gps::runtime::DefaultTrackFlushPolicy policy;
-    gps::runtime::TrackStorageWorker worker(files, harness.bus(), events, policy);
+    gps::runtime::TrackStorageWorker worker(files, events, policy);
     gps::runtime::TrackPointBuffer<8> points;
     gps::runtime::TrackStateMachine states;
     gps::runtime::TrackRuntime<8> runtime(points, states, policy, worker, events);
 
-    assert(runtime.startNewTrack(123, 0));
+    const gps::runtime::TrackStorageDescriptor storage = trackDescriptor();
+    assert(runtime.startNewTrack(storage, 0));
     runtime.tick(1);
     assert(events.count == 1);
     runtime.handle(events.events[0]);
     assert(states.state() == gps::runtime::TrackRecorderStatus::Recording);
+    assert(events.events[0].storage.track_id == storage.track_id);
+    assert(events.events[0].storage.format == storage.format);
+    assert(std::strcmp(events.events[0].storage.path, storage.path) == 0);
 
     gps::runtime::TrackPoint point{};
     point.latitude = 1.0;
@@ -243,6 +244,103 @@ void test_track_runtime_contract()
     runtime.tick(30);
     assert(files.appended == 8);
     assert(files.flush_count == 1);
+}
+
+void test_track_worker_failure_completes_semantically()
+{
+    sys::runtime::RuntimeHarness harness;
+    TrackFiles files;
+    files.open_ok = false;
+    TrackEvents events;
+    gps::runtime::DefaultTrackFlushPolicy policy;
+    gps::runtime::TrackStorageWorker worker(files, events, policy);
+
+    gps::runtime::TrackCommand command{};
+    command.command_id = 44;
+    command.kind = gps::runtime::TrackCommandKind::StartNewTrack;
+    command.storage = trackDescriptor();
+
+    assert(worker.submit(command));
+    worker.tick(10);
+    assert(!worker.busy());
+    assert(files.open_count == 1);
+    assert(events.count == 1);
+    assert(events.events[0].kind == gps::runtime::TrackEventKind::Failed);
+}
+
+void test_track_runtime_keeps_buffered_points_while_worker_busy()
+{
+    sys::runtime::RuntimeHarness harness;
+    TrackFiles files;
+    TrackEvents events;
+    gps::runtime::DefaultTrackFlushPolicy policy;
+    gps::runtime::TrackStorageWorker worker(files, events, policy);
+    gps::runtime::TrackPointBuffer<8> points;
+    gps::runtime::TrackStateMachine states;
+    gps::runtime::TrackRuntime<8> runtime(points, states, policy, worker, events);
+
+    const gps::runtime::TrackStorageDescriptor storage = trackDescriptor();
+    assert(runtime.startNewTrack(storage, 0));
+    runtime.tick(1);
+    runtime.handle(events.events[0]);
+    assert(states.state() == gps::runtime::TrackRecorderStatus::Recording);
+
+    gps::runtime::TrackPoint point{};
+    point.latitude = 1.0;
+    point.longitude = 2.0;
+
+    for (int i = 0; i < 8; ++i)
+    {
+        point.timestamp_ms = static_cast<uint32_t>(i);
+        assert(runtime.appendPoint(point, 10 + static_cast<uint32_t>(i)));
+    }
+    runtime.tick(30);
+    assert(!worker.busy());
+    assert(files.appended == 8);
+
+    for (int i = 0; i < 8; ++i)
+    {
+        point.timestamp_ms = static_cast<uint32_t>(100 + i);
+        assert(runtime.appendPoint(point, 40 + static_cast<uint32_t>(i)));
+    }
+
+    runtime.tick(60);
+    assert(files.appended == 16);
+    assert(!worker.busy());
+}
+
+void test_track_stop_appends_pending_points_before_close()
+{
+    sys::runtime::RuntimeHarness harness;
+    TrackFiles files;
+    TrackEvents events;
+    gps::runtime::DefaultTrackFlushPolicy policy;
+    gps::runtime::TrackStorageWorker worker(files, events, policy);
+    gps::runtime::TrackPointBuffer<8> points;
+    gps::runtime::TrackStateMachine states;
+    gps::runtime::TrackRuntime<8> runtime(points, states, policy, worker, events);
+
+    const gps::runtime::TrackStorageDescriptor storage = trackDescriptor();
+    assert(runtime.startNewTrack(storage, 0));
+    runtime.tick(1);
+    runtime.handle(events.events[0]);
+
+    gps::runtime::TrackPoint point{};
+    point.latitude = 1.0;
+    point.longitude = 2.0;
+    point.timestamp_ms = 10;
+    assert(runtime.appendPoint(point, 10));
+    point.timestamp_ms = 11;
+    assert(runtime.appendPoint(point, 11));
+
+    assert(runtime.stopTrack(20));
+    runtime.tick(21);
+    assert(files.appended == 2);
+    assert(files.flush_count == 1);
+    assert(files.close_count == 1);
+    assert(files.last_storage.track_id == storage.track_id);
+    assert(files.last_storage.append_footer_on_close);
+    assert(std::strcmp(files.last_storage.active_state_path, storage.active_state_path) == 0);
 }
 
 void test_runtime_harness_keeps_ui_drain_separate()
@@ -258,9 +356,11 @@ void test_runtime_harness_keeps_ui_drain_separate()
 int main()
 {
     test_map_tile_runtime_contract();
-    test_persistence_runtime_contract();
     test_feedback_runtime_contract();
     test_track_runtime_contract();
+    test_track_worker_failure_completes_semantically();
+    test_track_runtime_keeps_buffered_points_while_worker_busy();
+    test_track_stop_appends_pending_points_before_close();
     test_runtime_harness_keeps_ui_drain_separate();
     return 0;
 }

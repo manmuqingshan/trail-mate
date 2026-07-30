@@ -25,8 +25,8 @@ class MtDedup
     MtDedup();
     ~MtDedup();
 
-    bool isDuplicate(NodeId from_node, uint32_t packet_id);
-    void markSeen(NodeId from_node, uint32_t packet_id);
+    bool isDuplicate(NodeId from_node, uint32_t packet_id, uint8_t channel_hash);
+    void markSeen(NodeId from_node, uint32_t packet_id, uint8_t channel_hash);
     void cleanup();
 
   private:
@@ -34,6 +34,7 @@ class MtDedup
     {
         NodeId from;
         uint32_t id;
+        uint8_t channel;
 
         bool operator<(const PacketKey& other) const
         {
@@ -41,7 +42,11 @@ class MtDedup
             {
                 return from < other.from;
             }
-            return id < other.id;
+            if (id != other.id)
+            {
+                return id < other.id;
+            }
+            return channel < other.channel;
         }
     };
 

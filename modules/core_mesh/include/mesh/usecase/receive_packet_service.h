@@ -28,6 +28,7 @@ class ReceivePacketService
     IMeshEventSink& events_;
     IClock& clock_;
     MeshDedupService* dedup_ = nullptr;
+    MeshProtocolEvent event_scratch_{};
 };
 
 } // namespace mesh

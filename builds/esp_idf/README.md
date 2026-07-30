@@ -1,11 +1,23 @@
-# ESP-IDF Build Entrypoint
+# ESP-IDF Build Assets
 
-Authoritative ESP build entrypoint.
+Authoritative ESP-IDF component assets and target defaults.
 
 Build authority:
 
 ```text
-ESP / ESP32-P4 -> ESP-IDF
+ESP / ESP32-P4 -> root CMakeLists.txt -> ESP-IDF
+```
+
+This directory is intentionally not an `idf.py -C builds/esp_idf` project. The
+repository root `CMakeLists.txt` is the single ESP-IDF project entrypoint; it
+selects a concrete board through `TRAIL_MATE_IDF_TARGET` and consumes the
+component assets stored here.
+
+Correct invocation examples:
+
+```bash
+idf.py -B build.t_display_p4_tft -DTRAIL_MATE_IDF_TARGET=t_display_p4_tft build
+idf.py -B build.t_display_p4_amoled -DTRAIL_MATE_IDF_TARGET=t_display_p4_amoled build
 ```
 
 Removed historical component root:
@@ -14,17 +26,20 @@ Removed historical component root:
 esp_idf implementation root
 ```
 
-Final wrapper direction:
+Final asset ownership:
 
 ```text
 builds/esp_idf
-  -> invokes apps/esp32_lvgl app shell
+  -> main ESP-IDF component registration
+  -> ESP_IDF_COMPONENT_SOURCES.cmake
+  -> target sdkconfig.defaults files
 ```
 
 This directory now owns the migrated ESP-IDF source list and target defaults
 introduced in Batch 2:
 
 - `ESP_IDF_COMPONENT_SOURCES.cmake`
+- `main/CMakeLists.txt`
 - `targets/tab5/sdkconfig.defaults`
 - `targets/t_display_p4_tft/sdkconfig.defaults`
 - `targets/t_display_p4_amoled/sdkconfig.defaults`
@@ -35,9 +50,9 @@ ownership, not under a restored historical source root.
 
 Rules:
 
-- thin wrapper only
-- Build Entrypoint invokes
-- App Shell composes
+- no local ESP-IDF project wrapper
+- root `CMakeLists.txt` is the only ESP-IDF entrypoint
+- this directory contributes components and target defaults only
 - do not assemble Chat/Map/GPS runtime here
 - do not choose UX pack here
 - do not define board facts here

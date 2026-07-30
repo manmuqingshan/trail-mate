@@ -4,10 +4,12 @@
 #include <ctime>
 #include <vector>
 
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/timezone_profile.h"
+#include "ui/widgets/top_bar_power_presenter.h"
 
 extern "C" lv_draw_buf_t* lv_snapshot_take(lv_obj_t* obj, lv_color_format_t cf);
 extern "C" void lv_draw_buf_destroy(lv_draw_buf_t* draw_buf);
@@ -45,16 +47,8 @@ void ensure_timezone_loaded()
 
 void ui_update_top_bar_battery(ui::widgets::TopBar& bar)
 {
-    const platform::ui::device::BatteryInfo info = platform::ui::device::battery_info();
-    if (info.level < 0)
-    {
-        ui::widgets::top_bar_set_right_text_ascii(bar, info.charging ? "USB" : "--");
-        return;
-    }
-
-    char battery_buf[32] = "--";
-    ui_format_battery(info.level, info.charging, battery_buf, sizeof(battery_buf));
-    ui::widgets::top_bar_set_right_text_ascii(bar, battery_buf);
+    ui::widgets::top_bar_power::bind(bar);
+    ui::widgets::top_bar_power::tick();
 }
 
 int ui_get_timezone_offset_min()
@@ -153,12 +147,11 @@ bool ui_take_screenshot_to_sd()
     }
     snprintf(path,
              sizeof(path),
-             "%s/screenshot_%s.bmp",
-             platform::esp::idf_common::bsp_runtime::sdcard_mount_point(),
+             "/screenshot_%s.bmp",
              ts);
 
-    FILE* file = fopen(path, "wb");
-    if (!file)
+    platform::esp::arduino_common::storage::SdRuntimeFile file;
+    if (!file.open(path, "wb"))
     {
         lv_draw_buf_destroy(snap);
         return false;
@@ -175,7 +168,7 @@ bool ui_take_screenshot_to_sd()
         static_cast<uint8_t>((data_offset >> 8) & 0xFF),
         static_cast<uint8_t>((data_offset >> 16) & 0xFF),
         static_cast<uint8_t>((data_offset >> 24) & 0xFF)};
-    fwrite(file_hdr, 1, sizeof(file_hdr), file);
+    file.write(file_hdr, sizeof(file_hdr));
 
     uint8_t info_hdr[40] = {0};
     info_hdr[0] = 40;
@@ -193,7 +186,7 @@ bool ui_take_screenshot_to_sd()
     info_hdr[21] = static_cast<uint8_t>((pixel_bytes >> 8) & 0xFF);
     info_hdr[22] = static_cast<uint8_t>((pixel_bytes >> 16) & 0xFF);
     info_hdr[23] = static_cast<uint8_t>((pixel_bytes >> 24) & 0xFF);
-    fwrite(info_hdr, 1, sizeof(info_hdr), file);
+    file.write(info_hdr, sizeof(info_hdr));
 
     const uint8_t* pixels = static_cast<const uint8_t*>(snap->data);
     std::vector<uint8_t> rowbuf(row24, 0);
@@ -214,11 +207,11 @@ bool ui_take_screenshot_to_sd()
             rowbuf[idx++] = g;
             rowbuf[idx++] = r;
         }
-        fwrite(rowbuf.data(), 1, rowbuf.size(), file);
+        file.write(rowbuf.data(), rowbuf.size());
     }
 
-    fflush(file);
-    fclose(file);
+    file.flush();
+    file.close();
     lv_draw_buf_destroy(snap);
     return true;
 #else

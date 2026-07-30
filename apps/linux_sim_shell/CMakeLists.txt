@@ -53,6 +53,8 @@ target_compile_features(trailmate_linux_sim_shell PUBLIC cxx_std_17)
 
 if(BUILD_TESTING)
     enable_language(C)
+    find_package(SQLite3 QUIET)
+    find_package(OpenSSL QUIET)
 
     add_executable(trailmate_linux_sim_app_shell_smoke
         tests/linux_sim_app_shell_smoke.cpp)
@@ -100,10 +102,16 @@ if(BUILD_TESTING)
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_chat_presentation_source.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/domain/chat_model.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/usecase/chat_service.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/read/chat_read_state_ledger.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_message_ledger.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_outbox_service.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_message_projection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_send_result_projection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_event_projector.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_protocol_utils.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_peer_directory_core.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/store/ram_store.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_read_model.cpp"
-        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_event_projector.cpp"
-        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_message_projection.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/usecase/contact_service.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/presentation_sources/chat_presentation_source.cpp"
@@ -122,10 +130,72 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_chat_presentation_source_smoke
              COMMAND trailmate_chat_presentation_source_smoke)
 
+    add_executable(trailmate_chat_conversation_mapper_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/chat_presentation_adapters/tests/test_chat_conversation_mapper.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/chat_presentation_adapters/src/chat_conversation_mapper.cpp")
+    target_include_directories(trailmate_chat_conversation_mapper_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/chat_presentation_adapters/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/ui_presentation/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_features(trailmate_chat_conversation_mapper_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_chat_conversation_mapper_smoke
+             COMMAND trailmate_chat_conversation_mapper_smoke)
+
+    add_executable(trailmate_mesh_protocol_utils_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_mesh_protocol_utils.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_protocol_utils.cpp")
+    target_include_directories(trailmate_mesh_protocol_utils_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_features(trailmate_mesh_protocol_utils_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_mesh_protocol_utils_smoke
+             COMMAND trailmate_mesh_protocol_utils_smoke)
+
+    if(SQLite3_FOUND)
+        add_executable(trailmate_uconsole_chat_sqlite_store_smoke
+            "${TRAIL_MATE_REPO_ROOT}/apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/src/chat/linux_sqlite_chat_store.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/src/platform/linux/runtime_paths.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/domain/chat_model.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/usecase/chat_service.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/read/chat_read_state_ledger.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_message_ledger.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_outbox_service.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_message_projection.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_send_result_projection.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_event_projector.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_read_model.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_protocol_utils.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/store/ram_store.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp")
+        target_include_directories(trailmate_uconsole_chat_sqlite_store_smoke
+            PRIVATE
+                "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/include"
+                "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+                "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+        target_compile_features(trailmate_uconsole_chat_sqlite_store_smoke
+            PRIVATE cxx_std_17)
+        target_link_libraries(trailmate_uconsole_chat_sqlite_store_smoke
+            PRIVATE SQLite::SQLite3)
+        add_test(NAME trailmate_uconsole_chat_sqlite_store_smoke
+                 COMMAND trailmate_uconsole_chat_sqlite_store_smoke)
+    endif()
+
     add_executable(trailmate_chat_service_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_chat_service_resend.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/domain/chat_model.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/usecase/chat_service.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/read/chat_read_state_ledger.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_message_ledger.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_outbox_service.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_message_projection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_send_result_projection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_event_projector.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_read_model.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_protocol_utils.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/store/ram_store.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp")
     target_include_directories(trailmate_chat_service_smoke
@@ -136,6 +206,226 @@ if(BUILD_TESTING)
         PRIVATE cxx_std_17)
     add_test(NAME trailmate_chat_service_smoke
              COMMAND trailmate_chat_service_smoke)
+
+    add_executable(trailmate_chat_delivery_message_projection_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_chat_delivery_message_projection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_message_projection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_event_projector.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_read_model.cpp")
+    target_include_directories(trailmate_chat_delivery_message_projection_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_features(trailmate_chat_delivery_message_projection_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_chat_delivery_message_projection_smoke
+             COMMAND trailmate_chat_delivery_message_projection_smoke)
+
+    add_executable(trailmate_chat_delivery_send_result_projection_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_chat_delivery_send_result_projection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_send_result_projection.cpp")
+    target_include_directories(trailmate_chat_delivery_send_result_projection_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_features(trailmate_chat_delivery_send_result_projection_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_chat_delivery_send_result_projection_smoke
+             COMMAND trailmate_chat_delivery_send_result_projection_smoke)
+
+    add_executable(trailmate_chat_outbox_service_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_chat_outbox_service.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_outbox_service.cpp")
+    target_include_directories(trailmate_chat_outbox_service_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_features(trailmate_chat_outbox_service_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_chat_outbox_service_smoke
+             COMMAND trailmate_chat_outbox_service_smoke)
+
+    add_executable(trailmate_chat_message_ledger_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_chat_message_ledger.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/domain/chat_model.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/store/ram_store.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_message_ledger.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_outbox_service.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_message_projection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_send_result_projection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_event_projector.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_read_model.cpp")
+    target_include_directories(trailmate_chat_message_ledger_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_features(trailmate_chat_message_ledger_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_chat_message_ledger_smoke
+             COMMAND trailmate_chat_message_ledger_smoke)
+
+    add_executable(trailmate_chat_read_state_ledger_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_chat_read_state_ledger.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/read/chat_read_state_ledger.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/domain/chat_model.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/store/ram_store.cpp")
+    target_include_directories(trailmate_chat_read_state_ledger_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_features(trailmate_chat_read_state_ledger_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_chat_read_state_ledger_smoke
+             COMMAND trailmate_chat_read_state_ledger_smoke)
+
+    add_executable(trailmate_esp_sd_store_read_state_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_esp_sd_store_read_state_contract.cpp")
+    target_compile_features(trailmate_esp_sd_store_read_state_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_esp_sd_store_read_state_contract_smoke
+             COMMAND trailmate_esp_sd_store_read_state_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
+    add_executable(trailmate_reticulum_projection_policy_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_reticulum_projection_policy.cpp")
+    target_include_directories(trailmate_reticulum_projection_policy_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+    target_compile_features(trailmate_reticulum_projection_policy_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_reticulum_projection_policy_smoke
+             COMMAND trailmate_reticulum_projection_policy_smoke)
+
+    add_executable(trailmate_reticulum_call_product_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_reticulum_call_product_contract.cpp")
+    target_compile_features(trailmate_reticulum_call_product_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_reticulum_call_product_contract_smoke
+             COMMAND trailmate_reticulum_call_product_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
+    add_executable(trailmate_lxmf_runtime_budget_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_lxmf_runtime_budget.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_runtime_budget.cpp")
+    target_include_directories(trailmate_lxmf_runtime_budget_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/include")
+    target_compile_features(trailmate_lxmf_runtime_budget_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_lxmf_runtime_budget_smoke
+             COMMAND trailmate_lxmf_runtime_budget_smoke)
+
+    add_executable(trailmate_lxmf_announce_scheduler_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_lxmf_announce_scheduler.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_announce_scheduler.cpp")
+    target_include_directories(trailmate_lxmf_announce_scheduler_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/include")
+    target_compile_features(trailmate_lxmf_announce_scheduler_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_lxmf_announce_scheduler_smoke
+             COMMAND trailmate_lxmf_announce_scheduler_smoke)
+
+    add_executable(trailmate_lxmf_deferred_discovery_queue_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_lxmf_deferred_discovery_queue.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_deferred_discovery_queue.cpp")
+    target_include_directories(trailmate_lxmf_deferred_discovery_queue_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include"
+            "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/include"
+            "${TRAIL_MATE_REPO_ROOT}/platform/shared/include")
+    target_compile_features(trailmate_lxmf_deferred_discovery_queue_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_lxmf_deferred_discovery_queue_smoke
+             COMMAND trailmate_lxmf_deferred_discovery_queue_smoke)
+
+    add_executable(trailmate_storage_maintenance_state_machine_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/common/tests/test_storage_maintenance_state_machine.cpp")
+    target_include_directories(trailmate_storage_maintenance_state_machine_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/platform/esp/common/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+    target_compile_features(trailmate_storage_maintenance_state_machine_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_storage_maintenance_state_machine_smoke
+             COMMAND trailmate_storage_maintenance_state_machine_smoke)
+
+    add_executable(trailmate_protocol_chat_storage_v2_codec_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_protocol_chat_storage_v2_codec.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/store/protocol_chat_codec.cpp")
+    target_include_directories(trailmate_protocol_chat_storage_v2_codec_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/include")
+    target_compile_features(trailmate_protocol_chat_storage_v2_codec_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_protocol_chat_storage_v2_codec_smoke
+             COMMAND trailmate_protocol_chat_storage_v2_codec_smoke)
+
+    add_executable(trailmate_protocol_peer_storage_v2_codec_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_protocol_peer_storage_v2_codec.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/store/protocol_peer_codec.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/store/protocol_chat_codec.cpp")
+    target_include_directories(trailmate_protocol_peer_storage_v2_codec_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/include")
+    target_compile_features(trailmate_protocol_peer_storage_v2_codec_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_protocol_peer_storage_v2_codec_smoke
+             COMMAND trailmate_protocol_peer_storage_v2_codec_smoke)
+
+    add_executable(trailmate_chat_delivery_event_projection_adapter_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_chat_runtime/tests/test_chat_delivery_event_projection_adapter.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_chat_runtime/src/chat_delivery_event_projection_adapter.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/domain/chat_model.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/usecase/chat_service.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/read/chat_read_state_ledger.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_message_ledger.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_outbox_service.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_protocol_utils.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/store/ram_store.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_read_model.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_event_projector.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_event_port.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_message_projection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_send_result_projection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp")
+    target_include_directories(trailmate_chat_delivery_event_projection_adapter_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/ui_chat_runtime/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+    target_compile_features(trailmate_chat_delivery_event_projection_adapter_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_chat_delivery_event_projection_adapter_smoke
+             COMMAND trailmate_chat_delivery_event_projection_adapter_smoke)
+
+    add_executable(trailmate_mesh_peer_directory_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_mesh_peer_directory_contract.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_peer_directory_core.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/usecase/contact_service.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp")
+    target_include_directories(trailmate_mesh_peer_directory_contract_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+    target_compile_features(trailmate_mesh_peer_directory_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_mesh_peer_directory_contract_smoke
+             COMMAND trailmate_mesh_peer_directory_contract_smoke)
+
+    add_executable(trailmate_linux_reticulum_directory_runtime_smoke
+        tests/linux_reticulum_directory_runtime_smoke.cpp
+        "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/src/platform/ui/reticulum_directory_runtime.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/src/platform/linux/runtime_paths.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_peer_directory_core.cpp")
+    target_include_directories(trailmate_linux_reticulum_directory_runtime_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_features(trailmate_linux_reticulum_directory_runtime_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_linux_reticulum_directory_runtime_smoke
+             COMMAND trailmate_linux_reticulum_directory_runtime_smoke)
 
     add_executable(trailmate_mesh_adapter_router_core_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_mesh_adapter_router_core.cpp"
@@ -159,6 +449,69 @@ if(BUILD_TESTING)
         PRIVATE cxx_std_17)
     add_test(NAME trailmate_meshtastic_protocol_policy_smoke
              COMMAND trailmate_meshtastic_protocol_policy_smoke)
+
+    add_executable(trailmate_auto_reply_policy_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_auto_reply_policy.cpp")
+    target_include_directories(trailmate_auto_reply_policy_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_features(trailmate_auto_reply_policy_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_auto_reply_policy_smoke
+             COMMAND trailmate_auto_reply_policy_smoke)
+
+    add_executable(trailmate_settings_text_font_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_settings_text_font_contract.cpp")
+    target_compile_features(trailmate_settings_text_font_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_settings_text_font_contract_smoke
+             COMMAND trailmate_settings_text_font_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/screens/settings/settings_page_components.cpp")
+
+    add_executable(trailmate_auto_reply_settings_persistence_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_auto_reply_settings_persistence_contract.cpp")
+    target_compile_features(trailmate_auto_reply_settings_persistence_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_auto_reply_settings_persistence_contract_smoke
+             COMMAND trailmate_auto_reply_settings_persistence_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
+    add_executable(trailmate_reticulum_network_defaults_refresh_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_reticulum_network_defaults_refresh_contract.cpp")
+    target_compile_features(trailmate_reticulum_network_defaults_refresh_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_reticulum_network_defaults_refresh_contract_smoke
+             COMMAND trailmate_reticulum_network_defaults_refresh_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
+    add_executable(trailmate_reticulum_wifi_gateway_pending_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_reticulum_wifi_gateway_pending_contract.cpp")
+    target_compile_features(trailmate_reticulum_wifi_gateway_pending_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_reticulum_wifi_gateway_pending_contract_smoke
+             COMMAND trailmate_reticulum_wifi_gateway_pending_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
+    add_executable(trailmate_mt_dedup_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_mt_dedup.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshtastic/mt_dedup.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp")
+    target_include_directories(trailmate_mt_dedup_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+    target_compile_features(trailmate_mt_dedup_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_mt_dedup_smoke
+             COMMAND trailmate_mt_dedup_smoke)
+
+    add_executable(trailmate_meshtastic_mqtt_downlink_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_meshtastic_mqtt_downlink_contract.cpp")
+    target_compile_features(trailmate_meshtastic_mqtt_downlink_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_meshtastic_mqtt_downlink_contract_smoke
+             COMMAND trailmate_meshtastic_mqtt_downlink_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
 
     add_executable(trailmate_protocol_effect_executor_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_protocol_effect_executor.cpp"
@@ -211,6 +564,109 @@ if(BUILD_TESTING)
         PRIVATE cxx_std_17)
     add_test(NAME trailmate_protocol_runtime_factory_smoke
              COMMAND trailmate_protocol_runtime_factory_smoke)
+
+    add_executable(trailmate_reticulum_announce_vectors_smoke
+        "${TRAIL_MATE_REPO_ROOT}/tests/reticulum_conformance/test_reticulum_announce_vectors.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/reticulum/reticulum_wire.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshcore/crypto/ed25519/fe.c"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshcore/crypto/ed25519/ge.c"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshcore/crypto/ed25519/key_exchange.c"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshcore/crypto/ed25519/keypair.c"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshcore/crypto/ed25519/sc.c"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshcore/crypto/ed25519/sha512.c"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshcore/crypto/ed25519/sign.c"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshcore/crypto/ed25519/verify.c")
+    target_include_directories(trailmate_reticulum_announce_vectors_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+    target_compile_definitions(trailmate_reticulum_announce_vectors_smoke
+        PRIVATE TRAIL_MATE_RETICULUM_PARSE_ONLY=1)
+    target_compile_features(trailmate_reticulum_announce_vectors_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_reticulum_announce_vectors_smoke
+             COMMAND trailmate_reticulum_announce_vectors_smoke)
+
+    add_executable(trailmate_reticulum_supported_subset_vectors_smoke
+        "${TRAIL_MATE_REPO_ROOT}/tests/reticulum_conformance/test_reticulum_supported_subset_vectors.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/lxmf/lxmf_wire.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/reticulum/lxst_call_state_machine.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/reticulum/lxst_telephony_wire.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/reticulum/reticulum_wire.cpp")
+    target_include_directories(trailmate_reticulum_supported_subset_vectors_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_team/include")
+    target_compile_definitions(trailmate_reticulum_supported_subset_vectors_smoke
+        PRIVATE TRAIL_MATE_RETICULUM_HASH_ONLY=1)
+    target_compile_features(trailmate_reticulum_supported_subset_vectors_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_reticulum_supported_subset_vectors_smoke
+             COMMAND trailmate_reticulum_supported_subset_vectors_smoke)
+
+    if(OpenSSL_FOUND)
+        add_executable(trailmate_reticulum_token_crypto_smoke
+            "${TRAIL_MATE_REPO_ROOT}/tests/reticulum_conformance/test_reticulum_token_crypto.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/reticulum/reticulum_wire.cpp")
+        target_include_directories(trailmate_reticulum_token_crypto_smoke
+            PRIVATE
+                "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include")
+        target_compile_definitions(trailmate_reticulum_token_crypto_smoke
+            PRIVATE
+                TRAIL_MATE_HAS_OPENSSL=1
+                TRAIL_MATE_RETICULUM_SOFTWARE_AES=1)
+        target_link_libraries(trailmate_reticulum_token_crypto_smoke
+            PRIVATE OpenSSL::Crypto)
+        target_compile_features(trailmate_reticulum_token_crypto_smoke
+            PRIVATE cxx_std_17)
+        add_test(NAME trailmate_reticulum_token_crypto_smoke
+                 COMMAND trailmate_reticulum_token_crypto_smoke)
+    endif()
+
+    add_executable(trailmate_reticulum_runtime_state_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/tests/reticulum_conformance/test_reticulum_runtime_state_contract.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_send_result_projection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_outbox_service.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/lxmf/lxmf_wire.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/reticulum/lxst_call_state_machine.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/reticulum/lxst_telephony_wire.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/reticulum/reticulum_wire.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_destination_registry.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_delivery_attempt_ledger.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_delivery_notifier.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_delivery_planner.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_delivery_runtime.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_link_manager.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_link_runtime.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_lxst_telephony_client.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_network_page_client.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_packet_router.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_path_manager.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_peer_directory.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_ping_service.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_propagation_client.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_propagation_runtime.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_propagation_service_runtime.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_resource_runtime.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_transport_runtime.cpp")
+    target_include_directories(trailmate_reticulum_runtime_state_contract_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_team/include"
+            "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/include")
+    # This is a Linux host contract test. Keep ESP task/event-bus integration
+    # out of the target even when OpenSSL is available for crypto vectors.
+    target_compile_definitions(trailmate_reticulum_runtime_state_contract_smoke
+        PRIVATE TRAIL_MATE_RETICULUM_PARSE_ONLY=1)
+    if(OpenSSL_FOUND)
+        target_compile_definitions(trailmate_reticulum_runtime_state_contract_smoke
+            PRIVATE TRAIL_MATE_HAS_OPENSSL=1)
+        target_link_libraries(trailmate_reticulum_runtime_state_contract_smoke
+            PRIVATE OpenSSL::Crypto)
+    endif()
+    target_compile_features(trailmate_reticulum_runtime_state_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_reticulum_runtime_state_contract_smoke
+             COMMAND trailmate_reticulum_runtime_state_contract_smoke)
 
     add_executable(trailmate_meshtastic_runtime_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_meshtastic_runtime.cpp"
@@ -351,6 +807,7 @@ if(BUILD_TESTING)
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_key_verification_runtime/tests/test_key_verification_runtime_adapters.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_key_verification_runtime/src/key_verification_action_sink.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_key_verification_runtime/src/key_verification_presentation_source.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_peer_directory_core.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/usecase/contact_service.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp")
     target_include_directories(trailmate_key_verification_runtime_adapters_smoke
@@ -388,15 +845,75 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_runtime_async_smoke
              COMMAND trailmate_runtime_async_smoke)
 
-    add_executable(trailmate_storage_event_runtime_smoke
-        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_storage_event_runtime.cpp")
-    target_include_directories(trailmate_storage_event_runtime_smoke
+    add_executable(trailmate_app_config_defaults_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_app_config_defaults.cpp")
+    target_include_directories(trailmate_app_config_defaults_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_gps/include")
+    target_compile_definitions(trailmate_app_config_defaults_smoke
+        PRIVATE TRAIL_MATE_LORA_TX_POWER_MAX_DBM=22)
+    target_compile_features(trailmate_app_config_defaults_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_app_config_defaults_smoke
+             COMMAND trailmate_app_config_defaults_smoke)
+
+    add_executable(trailmate_app_config_change_detection_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_app_config_change_detection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_protocol_utils.cpp")
+    target_include_directories(trailmate_app_config_change_detection_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_gps/include")
+    target_compile_definitions(trailmate_app_config_change_detection_smoke
+        PRIVATE TRAIL_MATE_LORA_TX_POWER_MAX_DBM=22)
+    target_compile_features(trailmate_app_config_change_detection_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_app_config_change_detection_smoke
+             COMMAND trailmate_app_config_change_detection_smoke)
+
+    add_executable(trailmate_config_persistence_runtime_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_config_persistence_runtime.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_protocol_utils.cpp")
+    target_include_directories(trailmate_config_persistence_runtime_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_gps/include")
+    target_compile_definitions(trailmate_config_persistence_runtime_smoke
+        PRIVATE TRAIL_MATE_LORA_TX_POWER_MAX_DBM=22)
+    target_compile_features(trailmate_config_persistence_runtime_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_config_persistence_runtime_smoke
+             COMMAND trailmate_config_persistence_runtime_smoke)
+
+    add_executable(trailmate_screen_brightness_steps_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_screen_brightness_steps.cpp")
+    target_include_directories(trailmate_screen_brightness_steps_smoke
         PRIVATE
             "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
-    target_compile_features(trailmate_storage_event_runtime_smoke
+    target_compile_features(trailmate_screen_brightness_steps_smoke
         PRIVATE cxx_std_17)
-    add_test(NAME trailmate_storage_event_runtime_smoke
-             COMMAND trailmate_storage_event_runtime_smoke)
+    add_test(NAME trailmate_screen_brightness_steps_smoke
+             COMMAND trailmate_screen_brightness_steps_smoke)
+
+    # MinGW.org's libstdc++ is built without gthreads and does not expose
+    # std::mutex. Linux and modern host toolchains exercise this runtime test.
+    if(NOT MINGW)
+        add_executable(trailmate_reticulum_call_runtime_smoke
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_reticulum_call_runtime.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/platform/ui/reticulum_call_runtime.cpp"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp")
+        target_include_directories(trailmate_reticulum_call_runtime_smoke
+            PRIVATE
+                "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+        target_compile_features(trailmate_reticulum_call_runtime_smoke
+            PRIVATE cxx_std_17)
+        add_test(NAME trailmate_reticulum_call_runtime_smoke
+                 COMMAND trailmate_reticulum_call_runtime_smoke)
+    endif()
 
     add_executable(trailmate_map_tile_async_runtime_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_map_runtime/tests/test_map_tile_async_runtime.cpp"
@@ -460,6 +977,79 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_ime_input_mode_descriptor_smoke
              COMMAND trailmate_ime_input_mode_descriptor_smoke)
 
+    add_executable(trailmate_node_info_input_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_node_info_input_contract.cpp")
+    target_compile_features(trailmate_node_info_input_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_node_info_input_contract_smoke
+             COMMAND trailmate_node_info_input_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
+    add_executable(trailmate_node_info_map_runtime_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_node_info_map_runtime_contract.cpp")
+    target_compile_features(trailmate_node_info_map_runtime_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_node_info_map_runtime_contract_smoke
+             COMMAND trailmate_node_info_map_runtime_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
+    add_executable(trailmate_wifi_connect_backoff_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_wifi_connect_backoff_contract.cpp")
+    target_compile_features(trailmate_wifi_connect_backoff_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_wifi_connect_backoff_contract_smoke
+             COMMAND trailmate_wifi_connect_backoff_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
+    add_executable(trailmate_boot_network_independence_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_boot_network_independence_contract.cpp")
+    target_compile_features(trailmate_boot_network_independence_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_boot_network_independence_contract_smoke
+             COMMAND trailmate_boot_network_independence_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
+    add_executable(trailmate_screen_sleep_wake_race_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_screen_sleep_wake_race_contract.cpp")
+    target_compile_features(trailmate_screen_sleep_wake_race_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_screen_sleep_wake_race_contract_smoke
+             COMMAND trailmate_screen_sleep_wake_race_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
+    add_executable(trailmate_screen_power_state_machine_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_screen_power_state_machine.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/platform/ui/screen_power_state_machine.cpp")
+    target_include_directories(trailmate_screen_power_state_machine_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include")
+    target_compile_features(trailmate_screen_power_state_machine_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_screen_power_state_machine_smoke
+             COMMAND trailmate_screen_power_state_machine_smoke)
+
+    add_executable(trailmate_network_micron_markup_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_network_micron_markup_contract.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/screens/network/micron_markup_contract.cpp")
+    target_include_directories(trailmate_network_micron_markup_contract_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/include")
+    target_compile_features(trailmate_network_micron_markup_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_network_micron_markup_contract_smoke
+             COMMAND trailmate_network_micron_markup_contract_smoke)
+
+    add_executable(trailmate_network_micron_renderer_fixture_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_network_micron_renderer_fixture.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/screens/network/micron_markup_contract.cpp")
+    target_include_directories(trailmate_network_micron_renderer_fixture_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/include")
+    target_compile_features(trailmate_network_micron_renderer_fixture_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_network_micron_renderer_fixture_smoke
+             COMMAND trailmate_network_micron_renderer_fixture_smoke)
+
     add_executable(trailmate_pinyin_lookup_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_pinyin_lookup.cpp")
     target_include_directories(trailmate_pinyin_lookup_smoke
@@ -522,6 +1112,14 @@ if(BUILD_TESTING)
         "${TRAIL_MATE_REPO_ROOT}/modules/core_team/tests/test_team_app_data_poll_order.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/domain/chat_model.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/usecase/chat_service.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/read/chat_read_state_ledger.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_message_ledger.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_outbox_service.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_message_projection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_send_result_projection.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_event_projector.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/delivery/chat_delivery_read_model.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_protocol_utils.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_team/src/protocol/team_chat.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_team/src/protocol/team_wire.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_team/src/protocol/team_waypoint.cpp"

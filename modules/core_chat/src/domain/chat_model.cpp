@@ -18,13 +18,13 @@ ChatModel::~ChatModel()
 
 void ChatModel::onIncoming(const ChatMessage& msg)
 {
-    ConversationId conv(msg.channel, msg.peer, msg.protocol);
+    ConversationId conv = conversationIdForMessage(msg);
     appendMessage(conv, msg);
 }
 
 void ChatModel::onSendQueued(const ChatMessage& msg)
 {
-    ConversationId conv(msg.channel, msg.peer, msg.protocol);
+    ConversationId conv = conversationIdForMessage(msg);
 
     ChatMessage copy = msg;
     if (copy.msg_id == 0)
@@ -68,6 +68,44 @@ bool ChatModel::updateMessageStatus(MessageId msg_id, MessageStatus status)
                 }
                 return true;
             }
+        }
+    }
+    return false;
+}
+
+bool ChatModel::updateMessageStatusForProtocol(MessageId msg_id,
+                                               MeshProtocol protocol,
+                                               MessageStatus status)
+{
+    for (auto& pair : conversations_)
+    {
+        ConversationData& data = pair.second;
+        for (size_t i = 0; i < data.messages.size(); i++)
+        {
+            ChatMessage* msg = &data.messages[i].message;
+            if (!msg || msg->msg_id != msg_id || msg->protocol != protocol)
+            {
+                continue;
+            }
+            msg->status = status;
+            failed_messages_.erase(
+                std::remove_if(failed_messages_.begin(),
+                               failed_messages_.end(),
+                               [msg_id, protocol](const ChatMessage& failed)
+                               {
+                                   return failed.msg_id == msg_id &&
+                                          failed.protocol == protocol;
+                               }),
+                failed_messages_.end());
+            if (status == MessageStatus::Failed)
+            {
+                if (failed_messages_.size() >= MAX_FAILED_MESSAGES)
+                {
+                    failed_messages_.erase(failed_messages_.begin());
+                }
+                failed_messages_.push_back(*msg);
+            }
+            return true;
         }
     }
     return false;
@@ -136,12 +174,51 @@ const ChatMessage* ChatModel::getMessage(MessageId msg_id) const
     return nullptr;
 }
 
+const ChatMessage* ChatModel::getMessageForProtocol(MessageId msg_id,
+                                                    MeshProtocol protocol) const
+{
+    for (const auto& pair : conversations_)
+    {
+        const ConversationData& data = pair.second;
+        for (size_t i = 0; i < data.messages.size(); i++)
+        {
+            const ChatMessage* msg = &data.messages[i].message;
+            if (msg && msg->msg_id == msg_id && msg->protocol == protocol)
+            {
+                return msg;
+            }
+        }
+    }
+    return nullptr;
+}
+
 void ChatModel::clearAll()
 {
     conversations_.clear();
     failed_messages_.clear();
     total_message_count_ = 0;
     next_sequence_ = 1;
+}
+
+void ChatModel::clearConversation(const ConversationId& conv)
+{
+    auto it = conversations_.find(conv);
+    if (it == conversations_.end())
+    {
+        return;
+    }
+
+    const size_t removed_count = it->second.messages.size();
+    conversations_.erase(it);
+    total_message_count_ -= std::min(total_message_count_, removed_count);
+    failed_messages_.erase(
+        std::remove_if(failed_messages_.begin(),
+                       failed_messages_.end(),
+                       [&](const ChatMessage& failed)
+                       {
+                           return conversationIdForMessage(failed) == conv;
+                       }),
+        failed_messages_.end());
 }
 
 std::vector<ConversationMeta> ChatModel::getConversations() const
@@ -160,6 +237,7 @@ std::vector<ConversationMeta> ChatModel::getConversations() const
         meta.preview = pair.second.preview;
         meta.last_timestamp = pair.second.last_ts;
         meta.unread = pair.second.unread_count;
+        meta.reticulum_identity = pair.second.messages.back().message.reticulum_identity;
         // Naming: broadcast vs peer short id
         if (pair.first.peer == 0)
         {

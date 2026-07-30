@@ -22,7 +22,7 @@ const char* protocol_short_label(chat::MeshProtocol protocol)
 
 chat::MeshProtocol active_mesh_protocol()
 {
-    return app::configFacade().getConfig().mesh_protocol;
+    return app::configFacade().readConfig().mesh_protocol;
 }
 } // namespace
 
@@ -69,7 +69,10 @@ ChatMessageListScreen::~ChatMessageListScreen()
         lv_obj_del(container_);
         container_ = nullptr;
     }
-    delete guard_;
+    if (guard_ && guard_->pending_async == 0)
+    {
+        delete guard_;
+    }
     guard_ = nullptr;
 }
 
@@ -399,7 +402,7 @@ void ChatMessageListScreen::rebuildList()
 
 void ChatMessageListScreen::schedule_action_async(ActionIntent intent, const chat::ConversationId& conv)
 {
-    if (!action_cb_)
+    if (!guard_ || !guard_->alive || !action_cb_)
     {
         return;
     }
@@ -411,7 +414,12 @@ void ChatMessageListScreen::schedule_action_async(ActionIntent intent, const cha
     payload->intent = intent;
     payload->conv = conv;
 
-    lv_async_call(async_action_cb, payload);
+    guard_->pending_async++;
+    if (lv_async_call(async_action_cb, payload) != LV_RESULT_OK)
+    {
+        release_async_guard(payload->guard);
+        delete payload;
+    }
 }
 
 void ChatMessageListScreen::menu_event_cb(lv_event_t* e)
@@ -467,6 +475,22 @@ void ChatMessageListScreen::menu_event_cb(lv_event_t* e)
     }
 }
 
+void ChatMessageListScreen::release_async_guard(LifetimeGuard* guard)
+{
+    if (!guard)
+    {
+        return;
+    }
+    if (guard->pending_async > 0)
+    {
+        guard->pending_async--;
+    }
+    if (!guard->alive && guard->pending_async == 0)
+    {
+        delete guard;
+    }
+}
+
 void ChatMessageListScreen::async_action_cb(void* user_data)
 {
     auto* payload = static_cast<ActionPayload*>(user_data);
@@ -474,10 +498,12 @@ void ChatMessageListScreen::async_action_cb(void* user_data)
     {
         return;
     }
-    if (payload->guard && payload->guard->alive && payload->action_cb)
+    LifetimeGuard* guard = payload->guard;
+    if (guard && guard->alive && payload->action_cb)
     {
         payload->action_cb(payload->intent, payload->conv, payload->user_data);
     }
+    release_async_guard(guard);
     delete payload;
 }
 

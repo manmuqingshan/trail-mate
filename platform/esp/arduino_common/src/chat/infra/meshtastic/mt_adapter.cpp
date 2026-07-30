@@ -7,7 +7,6 @@
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
 #include "chat/domain/contact_types.h"
-#include "chat/ports/i_node_store.h"
 #include "chat/time_utils.h"
 #include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/gps/gps_service_api.h"
@@ -62,7 +61,6 @@ constexpr uint8_t kDefaultPskIndex = 1;
 constexpr uint8_t kBitfieldWantResponseMask = 0x02;
 constexpr uint32_t kBroadcastNodeId = 0xFFFFFFFFu;
 
-using chat::meshtastic::allowPkiForPortnum;
 using chat::meshtastic::computeHopsAway;
 using chat::meshtastic::computeKeyVerificationHashes;
 using chat::meshtastic::decryptPkiAesCcm;
@@ -72,6 +70,7 @@ using chat::meshtastic::hashSharedKey;
 using chat::meshtastic::initPkiNonce;
 using chat::meshtastic::makeEncryptedPacketFromWire;
 using chat::meshtastic::readPbString;
+using chat::meshtastic::requirePkiForDirectPort;
 using chat::meshtastic::shouldSetAirWantAck;
 
 static const char* portName(uint32_t portnum)
@@ -113,13 +112,63 @@ static const char* portName(uint32_t portnum)
     }
 }
 
-bool shouldRequireDirectPki(uint8_t encrypt_mode, uint32_t dest_node, uint32_t portnum)
+chat::delivery::SendFailureKind failureKindFromRoutingError(
+    meshtastic_Routing_Error reason)
 {
-    // Match upstream Meshtastic: direct unicast app traffic uses PKI outside
-    // cleartext/Ham-style operation, and must not silently fall back to channel crypto.
-    return encrypt_mode != 0 &&
-           dest_node != kBroadcastNodeId &&
-           allowPkiForPortnum(portnum);
+    switch (reason)
+    {
+    case meshtastic_Routing_Error_NONE:
+        return chat::delivery::SendFailureKind::None;
+    case meshtastic_Routing_Error_TIMEOUT:
+    case meshtastic_Routing_Error_MAX_RETRANSMIT:
+    case meshtastic_Routing_Error_NO_RESPONSE:
+    case meshtastic_Routing_Error_NO_ROUTE:
+        return chat::delivery::SendFailureKind::AckTimeout;
+    case meshtastic_Routing_Error_NO_INTERFACE:
+    case meshtastic_Routing_Error_DUTY_CYCLE_LIMIT:
+    case meshtastic_Routing_Error_RATE_LIMIT_EXCEEDED:
+        return chat::delivery::SendFailureKind::RadioSendFailed;
+    case meshtastic_Routing_Error_NO_CHANNEL:
+        return chat::delivery::SendFailureKind::ChannelKeyMissing;
+    case meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY:
+    case meshtastic_Routing_Error_PKI_FAILED:
+        return chat::delivery::SendFailureKind::PeerKeyMissing;
+    case meshtastic_Routing_Error_GOT_NAK:
+    case meshtastic_Routing_Error_BAD_REQUEST:
+    case meshtastic_Routing_Error_NOT_AUTHORIZED:
+    case meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY:
+    case meshtastic_Routing_Error_ADMIN_PUBLIC_KEY_UNAUTHORIZED:
+    case meshtastic_Routing_Error_TOO_LARGE:
+        return chat::delivery::SendFailureKind::Rejected;
+    }
+    return chat::delivery::SendFailureKind::Unknown;
+}
+
+bool isPermanentQueuedTextFailure(meshtastic_Routing_Error reason)
+{
+    switch (reason)
+    {
+    case meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY:
+    case meshtastic_Routing_Error_PKI_FAILED:
+    case meshtastic_Routing_Error_NO_CHANNEL:
+    case meshtastic_Routing_Error_BAD_REQUEST:
+    case meshtastic_Routing_Error_NOT_AUTHORIZED:
+    case meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY:
+    case meshtastic_Routing_Error_ADMIN_PUBLIC_KEY_UNAUTHORIZED:
+    case meshtastic_Routing_Error_TOO_LARGE:
+        return true;
+    case meshtastic_Routing_Error_NONE:
+    case meshtastic_Routing_Error_NO_ROUTE:
+    case meshtastic_Routing_Error_GOT_NAK:
+    case meshtastic_Routing_Error_TIMEOUT:
+    case meshtastic_Routing_Error_NO_INTERFACE:
+    case meshtastic_Routing_Error_MAX_RETRANSMIT:
+    case meshtastic_Routing_Error_NO_RESPONSE:
+    case meshtastic_Routing_Error_DUTY_CYCLE_LIMIT:
+    case meshtastic_Routing_Error_RATE_LIMIT_EXCEEDED:
+        return false;
+    }
+    return false;
 }
 
 int16_t coreRadioRssi(float rssi)
@@ -277,8 +326,9 @@ MeshCapabilities MtAdapter::getCapabilities() const
     return caps;
 }
 
-MtAdapter::MtAdapter(LoraBoard& board)
+MtAdapter::MtAdapter(LoraBoard& board, IMeshPeerDirectory* peer_directory)
     : board_(board),
+      peer_directory_(peer_directory),
       next_packet_id_(1),
       ready_(false),
       node_id_(0),
@@ -306,7 +356,10 @@ MtAdapter::MtAdapter(LoraBoard& board)
       has_pending_raw_packet_(false)
 {
     config_ = MeshConfig(); // Default config
-    core_bridge_.reset(new ::platform::esp::arduino_common::mesh::EspMeshtasticAdapterBridge(board_));
+    core_bridge_.reset(
+        new ::platform::esp::arduino_common::mesh::EspMeshtasticAdapterBridge(
+            board_,
+            peer_directory_));
     initNodeIdentity();
     next_packet_id_ = static_cast<MessageId>(random(1, 0x7FFFFFFF));
     LORA_LOG("[LORA] packet id start=%lu\n", static_cast<unsigned long>(next_packet_id_));
@@ -393,6 +446,8 @@ bool MtAdapter::sendTextWithId(ChannelId channel, const std::string& text,
     pending.dest = (peer != 0) ? peer : 0xFFFFFFFF;
     pending.retry_count = 0;
     pending.last_attempt = 0;
+    pending.key_exchange_count = 0;
+    pending.waiting_for_peer_key = false;
 
     send_queue_.append(pending);
     mt_diag_log("[MT][TX] queue text id=%08lX dest=%08lX logical_ch=%u len=%u\n",
@@ -429,10 +484,47 @@ bool MtAdapter::sendAppData(ChannelId channel, uint32_t portnum,
         return false;
     }
 
+    runtime::SendPacketEffect packet{};
+    packet.protocol = MeshProtocol::Meshtastic;
+    packet.channel = channel;
+    packet.dest = dest;
+    packet.portnum = portnum;
+    packet.request_id = (packet_id != 0) ? packet_id : next_packet_id_++;
+    if (packet_id != 0 && packet_id >= next_packet_id_)
+    {
+        next_packet_id_ = packet_id + 1;
+        if (next_packet_id_ == 0)
+        {
+            next_packet_id_ = 1;
+        }
+    }
+    packet.want_ack = want_ack;
+    packet.want_response = want_response;
+    if (!packet.payload.assign(payload, len))
+    {
+        return false;
+    }
+    return enqueueSendPacketAction(packet);
+}
+
+bool MtAdapter::sendAppDataNow(ChannelId channel, uint32_t portnum,
+                               const uint8_t* payload, size_t len,
+                               NodeId dest, bool want_ack,
+                               MessageId packet_id,
+                               bool want_response)
+{
+    last_send_error_ = meshtastic_Routing_Error_NONE;
+    if (!ready_ || !config_.tx_enabled)
+    {
+        last_send_error_ = meshtastic_Routing_Error_NO_INTERFACE;
+        return false;
+    }
+
     uint32_t now_ms = millis();
     if (min_tx_interval_ms_ > 0 && last_tx_ms_ > 0 &&
         (now_ms - last_tx_ms_) < min_tx_interval_ms_)
     {
+        last_send_error_ = meshtastic_Routing_Error_DUTY_CYCLE_LIMIT;
         return false;
     }
 
@@ -449,8 +541,15 @@ bool MtAdapter::sendAppData(ChannelId channel, uint32_t portnum,
     const auto send_policy =
         chat::runtime::resolveMeshtasticAppDataSendPolicy(dest, want_ack, want_response);
     bool effective_want_response = send_policy.effective_want_response;
-    if (!encodeAppData(portnum, payload, len, effective_want_response, data_buffer.data(), &data_size))
+    if (!encodeAppData(portnum,
+                       payload,
+                       len,
+                       effective_want_response,
+                       data_buffer.data(),
+                       &data_size,
+                       &scratch.decoded))
     {
+        last_send_error_ = meshtastic_Routing_Error_BAD_REQUEST;
         return false;
     }
 
@@ -479,12 +578,14 @@ bool MtAdapter::sendAppData(ChannelId channel, uint32_t portnum,
     const uint8_t* out_payload = data_buffer.data();
     size_t out_len = data_size;
     bool use_pki = false;
-    if (shouldRequireDirectPki(encrypt_mode_, dest_node, portnum))
+    if (requirePkiForDirectPort(dest_node, portnum))
     {
         const bool have_dest_key = findPkiNodeKey(dest_node) != nullptr;
         if (!pki_ready_ || !have_dest_key)
         {
             const char* reason = !pki_ready_ ? "pki_not_ready" : "pki_key_missing";
+            last_send_error_ = !pki_ready_ ? meshtastic_Routing_Error_PKI_FAILED
+                                           : meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY;
             mt_diag_log("[MT][TX_BLOCK] id=%08lX dest=%08lX port=%u reason=%s path=PKI\n",
                         static_cast<unsigned long>(msg_id),
                         static_cast<unsigned long>(dest_node),
@@ -493,6 +594,12 @@ bool MtAdapter::sendAppData(ChannelId channel, uint32_t portnum,
             LORA_LOG("[LORA] TX app PKI required but unavailable dest=%08lX port=%u\n",
                      (unsigned long)dest_node,
                      (unsigned)portnum);
+            executePkiResync(!pki_ready_
+                                 ? runtime::MeshtasticPkiResyncCause::LocalPkiNotReady
+                                 : runtime::MeshtasticPkiResyncCause::PeerKeyMissing,
+                             dest_node,
+                             msg_id,
+                             out_channel);
             return false;
         }
 
@@ -500,6 +607,7 @@ bool MtAdapter::sendAppData(ChannelId channel, uint32_t portnum,
         size_t pki_len = pki_buffer.size();
         if (!encryptPkiPayload(dest_node, msg_id, data_buffer.data(), data_size, pki_buffer.data(), &pki_len))
         {
+            last_send_error_ = meshtastic_Routing_Error_PKI_FAILED;
             mt_diag_log("[MT][TX_BLOCK] id=%08lX dest=%08lX port=%u reason=pki_encrypt_fail path=PKI\n",
                         static_cast<unsigned long>(msg_id),
                         static_cast<unsigned long>(dest_node),
@@ -548,10 +656,12 @@ bool MtAdapter::sendAppData(ChannelId channel, uint32_t portnum,
                              dest_node, channel_hash, hop_limit, air_want_ack,
                              psk, psk_len, wire_buffer.data(), &wire_size))
         {
+            last_send_error_ = meshtastic_Routing_Error_TOO_LARGE;
             return false;
         }
         if (!board_.isRadioOnline())
         {
+            last_send_error_ = meshtastic_Routing_Error_NO_INTERFACE;
             return false;
         }
         ok = transmitWirePacket(wire_buffer.data(), wire_size);
@@ -562,10 +672,12 @@ bool MtAdapter::sendAppData(ChannelId channel, uint32_t portnum,
                              dest_node, channel_hash, hop_limit, air_want_ack,
                              psk, psk_len, wire_buffer.data(), &wire_size))
         {
+            last_send_error_ = meshtastic_Routing_Error_TOO_LARGE;
             return false;
         }
         if (!board_.isRadioOnline())
         {
+            last_send_error_ = meshtastic_Routing_Error_NO_INTERFACE;
             return false;
         }
         ok = transmitWirePacket(wire_buffer.data(), wire_size);
@@ -623,6 +735,12 @@ bool MtAdapter::sendAppData(ChannelId channel, uint32_t portnum,
         queueMqttProxyPublishFromWire(wire_buffer.data(), wire_size,
                                       use_pki ? nullptr : &mqtt_data,
                                       out_channel);
+    }
+    else
+    {
+        last_send_error_ = board_.isRadioOnline()
+                               ? meshtastic_Routing_Error_RATE_LIMIT_EXCEEDED
+                               : meshtastic_Routing_Error_NO_INTERFACE;
     }
     return ok;
 }
@@ -795,7 +913,12 @@ bool MtAdapter::isPkiReady() const
 
 bool MtAdapter::hasPkiKey(NodeId dest) const
 {
-    return findPkiNodeKey(dest) != nullptr;
+    if (findPkiNodeKey(dest))
+    {
+        return true;
+    }
+    uint8_t key[32] = {};
+    return readPkiNodeKeyFromDirectory(dest, key, nullptr);
 }
 
 bool MtAdapter::getNodePublicKey(NodeId node_id, uint8_t out_key[32]) const
@@ -804,13 +927,13 @@ bool MtAdapter::getNodePublicKey(NodeId node_id, uint8_t out_key[32]) const
     {
         return false;
     }
-    auto* entry = findPkiNodeKey(node_id);
-    if (!entry)
+    const auto* entry = findPkiNodeKey(node_id);
+    if (entry)
     {
-        return false;
+        memcpy(out_key, entry->key.data(), 32);
+        return true;
     }
-    memcpy(out_key, entry->key.data(), 32);
-    return true;
+    return readPkiNodeKeyFromDirectory(node_id, out_key, nullptr);
 }
 
 bool MtAdapter::getOwnPublicKey(uint8_t out_key[32]) const
@@ -840,7 +963,11 @@ void MtAdapter::forgetNodePublicKey(NodeId node_id)
     }
     (void)erasePkiNodeKey(node_id);
     eraseNodeRuntime(node_id);
-    savePkiKeysToPrefs();
+    if (peer_directory_)
+    {
+        (void)peer_directory_->remove(
+            makeMeshPeerNodeIdentity(MeshProtocol::Meshtastic, node_id));
+    }
 }
 
 meshtastic_Routing_Error MtAdapter::getLastRoutingError() const
@@ -850,6 +977,16 @@ meshtastic_Routing_Error MtAdapter::getLastRoutingError() const
 
 void MtAdapter::setMqttProxySettings(const MqttProxySettings& settings)
 {
+    const bool root_changed = mqtt_proxy_settings_.root != settings.root;
+    const bool downlink_policy_changed =
+        mqtt_proxy_settings_.enabled != settings.enabled ||
+        mqtt_proxy_settings_.proxy_to_client_enabled != settings.proxy_to_client_enabled ||
+        mqtt_proxy_settings_.encryption_enabled != settings.encryption_enabled ||
+        mqtt_proxy_settings_.primary_downlink_enabled != settings.primary_downlink_enabled ||
+        mqtt_proxy_settings_.secondary_downlink_enabled != settings.secondary_downlink_enabled ||
+        mqtt_proxy_settings_.root != settings.root ||
+        mqtt_proxy_settings_.primary_channel_id != settings.primary_channel_id ||
+        mqtt_proxy_settings_.secondary_channel_id != settings.secondary_channel_id;
     const bool changed = mqtt_proxy_settings_.enabled != settings.enabled ||
                          mqtt_proxy_settings_.proxy_to_client_enabled != settings.proxy_to_client_enabled ||
                          mqtt_proxy_settings_.encryption_enabled != settings.encryption_enabled ||
@@ -860,6 +997,30 @@ void MtAdapter::setMqttProxySettings(const MqttProxySettings& settings)
                          mqtt_proxy_settings_.root != settings.root ||
                          mqtt_proxy_settings_.primary_channel_id != settings.primary_channel_id ||
                          mqtt_proxy_settings_.secondary_channel_id != settings.secondary_channel_id;
+    if (root_changed && !mqtt_proxy_queue_.empty())
+    {
+        const size_t dropped = mqtt_proxy_queue_.size();
+        mqtt_proxy_queue_.clear();
+        LORA_LOG("[MQTT] settings root changed drop queued=%u old_root=%s new_root=%s\n",
+                 static_cast<unsigned>(dropped),
+                 mqtt_proxy_settings_.root.c_str(),
+                 settings.root.c_str());
+    }
+    if (downlink_policy_changed)
+    {
+        const size_t dropped = mqtt_downlink_tx_queue_.size();
+        mqtt_downlink_tx_queue_.clear();
+        for (auto& entry : mqtt_downlink_seen_)
+        {
+            entry = MqttDownlinkSeenEntry{};
+        }
+        mqtt_downlink_seen_next_ = 0;
+        if (dropped > 0)
+        {
+            LORA_LOG("[MQTT][DownlinkTX] settings changed drop pending=%u\n",
+                     static_cast<unsigned>(dropped));
+        }
+    }
     mqtt_proxy_settings_ = settings;
     if (changed)
     {
@@ -1225,8 +1386,8 @@ bool MtAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& packet,
         }
         else
         {
-            const bool tx_ok = transmitWirePacket(wire_buffer, wire_size);
-            LORA_LOG("[MQTT] downlink mesh tx id=%08lX ch=0x%02X len=%u ok=%u\n",
+            const bool tx_ok = enqueueMqttDownlinkTx(wire_buffer, wire_size, *tx_header);
+            LORA_LOG("[MQTT] downlink mesh tx scheduled id=%08lX ch=0x%02X len=%u ok=%u\n",
                      (unsigned long)tx_header->id,
                      (unsigned)tx_header->channel,
                      (unsigned)wire_size,
@@ -1235,6 +1396,147 @@ bool MtAdapter::injectMqttEnvelope(const meshtastic_MeshPacket& packet,
     }
 
     processReceivedPacket(wire_buffer, wire_size);
+    LORA_LOG("[MQTT] downlink local rx complete id=%08lX origin=mqtt\n",
+             (unsigned long)tx_header->id);
+    return true;
+}
+
+bool MtAdapter::isMqttDownlinkRecentlySeen(NodeId from,
+                                           MessageId msg_id,
+                                           uint8_t channel_hash,
+                                           uint32_t now_ms)
+{
+    for (auto& entry : mqtt_downlink_seen_)
+    {
+        if (!entry.used)
+        {
+            continue;
+        }
+        if (now_ms - entry.seen_ms > kMqttDownlinkSeenTtlMs)
+        {
+            entry = MqttDownlinkSeenEntry{};
+            continue;
+        }
+        if (entry.from == from &&
+            entry.msg_id == msg_id &&
+            entry.channel_hash == channel_hash)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void MtAdapter::rememberMqttDownlinkSeen(NodeId from,
+                                         MessageId msg_id,
+                                         uint8_t channel_hash,
+                                         uint32_t now_ms)
+{
+    for (auto& entry : mqtt_downlink_seen_)
+    {
+        if (entry.used &&
+            entry.from == from &&
+            entry.msg_id == msg_id &&
+            entry.channel_hash == channel_hash)
+        {
+            entry.seen_ms = now_ms;
+            return;
+        }
+    }
+
+    for (auto& entry : mqtt_downlink_seen_)
+    {
+        if (!entry.used || now_ms - entry.seen_ms > kMqttDownlinkSeenTtlMs)
+        {
+            entry.used = true;
+            entry.from = from;
+            entry.msg_id = msg_id;
+            entry.channel_hash = channel_hash;
+            entry.seen_ms = now_ms;
+            return;
+        }
+    }
+
+    MqttDownlinkSeenEntry& entry = mqtt_downlink_seen_[mqtt_downlink_seen_next_];
+    mqtt_downlink_seen_next_ = (mqtt_downlink_seen_next_ + 1U) % mqtt_downlink_seen_.size();
+    entry.used = true;
+    entry.from = from;
+    entry.msg_id = msg_id;
+    entry.channel_hash = channel_hash;
+    entry.seen_ms = now_ms;
+}
+
+bool MtAdapter::enqueueMqttDownlinkTx(const uint8_t* wire_data,
+                                      size_t wire_size,
+                                      const PacketHeaderWire& header)
+{
+    if (!wire_data || wire_size == 0 || wire_size > kMqttDownlinkWireMaxLen)
+    {
+        LORA_LOG("[MQTT][DownlinkTX] drop reason=invalid_wire id=%08lX len=%u\n",
+                 static_cast<unsigned long>(header.id),
+                 static_cast<unsigned>(wire_size));
+        return false;
+    }
+
+    const uint32_t now_ms = millis();
+    if (isMqttDownlinkRecentlySeen(header.from, header.id, header.channel, now_ms))
+    {
+        LORA_LOG("[MQTT][DownlinkTX] skip reason=duplicate from=%08lX id=%08lX ch=0x%02X depth=%u\n",
+                 static_cast<unsigned long>(header.from),
+                 static_cast<unsigned long>(header.id),
+                 static_cast<unsigned>(header.channel),
+                 static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+        return true;
+    }
+
+    for (size_t i = 0; i < mqtt_downlink_tx_queue_.size(); ++i)
+    {
+        const PendingMqttDownlinkTx* pending = mqtt_downlink_tx_queue_.get(i);
+        if (pending &&
+            pending->from == header.from &&
+            pending->msg_id == header.id &&
+            pending->channel_hash == header.channel)
+        {
+            rememberMqttDownlinkSeen(header.from, header.id, header.channel, now_ms);
+            LORA_LOG("[MQTT][DownlinkTX] skip reason=already_queued from=%08lX id=%08lX ch=0x%02X depth=%u\n",
+                     static_cast<unsigned long>(header.from),
+                     static_cast<unsigned long>(header.id),
+                     static_cast<unsigned>(header.channel),
+                     static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+            return true;
+        }
+    }
+
+    if (mqtt_downlink_tx_queue_.isFull())
+    {
+        rememberMqttDownlinkSeen(header.from, header.id, header.channel, now_ms);
+        LORA_LOG("[MQTT][DownlinkTX] drop reason=pending_queue_full from=%08lX to=%08lX id=%08lX ch=0x%02X depth=%u\n",
+                 static_cast<unsigned long>(header.from),
+                 static_cast<unsigned long>(header.to),
+                 static_cast<unsigned long>(header.id),
+                 static_cast<unsigned>(header.channel),
+                 static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+        return false;
+    }
+
+    PendingMqttDownlinkTx pending{};
+    std::memcpy(pending.wire.data(), wire_data, wire_size);
+    pending.wire_size = wire_size;
+    pending.from = header.from;
+    pending.to = header.to;
+    pending.msg_id = header.id;
+    pending.channel_hash = header.channel;
+    pending.first_seen_ms = now_ms;
+
+    mqtt_downlink_tx_queue_.append(pending);
+    rememberMqttDownlinkSeen(header.from, header.id, header.channel, now_ms);
+    LORA_LOG("[MQTT][DownlinkTX] queued from=%08lX to=%08lX id=%08lX ch=0x%02X len=%u depth=%u\n",
+             static_cast<unsigned long>(header.from),
+             static_cast<unsigned long>(header.to),
+             static_cast<unsigned long>(header.id),
+             static_cast<unsigned>(header.channel),
+             static_cast<unsigned>(wire_size),
+             static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
     return true;
 }
 
@@ -1315,7 +1617,8 @@ bool MtAdapter::queueMqttProxyPublish(const meshtastic_MeshPacket& packet,
 
     bool dropped = false;
     mqtt_proxy_queue_.pushDropOldest(proxy, &dropped);
-    LORA_LOG("[MQTT] uplink queue topic='%s' bytes=%u q=%u\n",
+    LORA_LOG("[MQTT] uplink queue root='%s' topic='%s' bytes=%u q=%u\n",
+             root.c_str(),
              proxy.topic,
              static_cast<unsigned>(proxy.payload_variant.data.size),
              static_cast<unsigned>(mqtt_proxy_queue_.size()));
@@ -1377,7 +1680,7 @@ bool MtAdapter::queueMqttProxyPublishFromWire(const uint8_t* wire_data,
         return false;
     }
 
-    if (mqtt_proxy_settings_.encryption_enabled)
+    if (mqtt_proxy_settings_.encryption_enabled || is_pki)
     {
         std::memset(&scratch.packet, 0, sizeof(scratch.packet));
         if (!makeEncryptedPacketFromWire(wire_data, wire_size, &scratch.packet))
@@ -1510,6 +1813,45 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
         return;
     }
 
+    PacketHeaderWire header;
+    if (size < sizeof(header))
+    {
+        mt_diag_log("[MT][RX_DROP] reason=parse_fail len=%u\n",
+                    static_cast<unsigned>(size));
+#if LORA_LOG_ENABLE
+        std::string raw_hex = toHex(data, size);
+        LORA_LOG("[LORA] RX parse fail len=%u hex=%s\n",
+                 (unsigned)size,
+                 raw_hex.c_str());
+#endif
+        return;
+    }
+
+    memcpy(&header, data, sizeof(header));
+    const size_t wire_payload_size = size - sizeof(header);
+    const bool matches_primary_channel = (header.channel == primary_channel_hash_);
+    const bool matches_secondary_channel =
+        (secondary_psk_len_ > 0 && header.channel == secondary_channel_hash_);
+    const bool can_try_pki =
+        (header.to == node_id_ && header.to != kBroadcastNodeId && wire_payload_size > 12);
+    const bool from_self = (header.from == node_id_);
+    if (!from_self && !(matches_primary_channel || matches_secondary_channel) && !can_try_pki)
+    {
+        char detail[64];
+        std::snprintf(detail,
+                      sizeof(detail),
+                      "primary=0x%02X secondary=0x%02X",
+                      static_cast<unsigned>(primary_channel_hash_),
+                      static_cast<unsigned>(secondary_channel_hash_));
+        mt_diag_dropf(&header, "unknown_channel", "%s", detail);
+        LORA_LOG("[LORA] RX unknown channel hash=0x%02X from=%08lX id=%08lX len=%u (early skip)\n",
+                 header.channel,
+                 (unsigned long)header.from,
+                 (unsigned long)header.id,
+                 (unsigned)wire_payload_size);
+        return;
+    }
+
     // Store raw packet data for protocol detection
     if (size <= sizeof(last_raw_packet_))
     {
@@ -1527,7 +1869,6 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
     }
 
     // Parse wire packet header
-    PacketHeaderWire header;
     auto& scratch = rx_scratch_;
     uint8_t* payload = scratch.payload.data();
     size_t payload_size = scratch.payload.size();
@@ -1544,10 +1885,6 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
 #endif
         return;
     }
-
-    const bool matches_primary_channel = (header.channel == primary_channel_hash_);
-    const bool matches_secondary_channel =
-        (secondary_psk_len_ > 0 && header.channel == secondary_channel_hash_);
 
     LORA_LOG("[LORA] RX wire from=%08lX to=%08lX id=%08lX ch=0x%02X flags=0x%02X len=%u\n",
              (unsigned long)header.from,
@@ -1576,7 +1913,7 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
 #endif
 
     // Check for duplicates
-    if (dedup_.isDuplicate(header.from, header.id))
+    if (dedup_.isDuplicate(header.from, header.id, header.channel))
     {
         mt_diag_dropf(&header, "dedup");
         LORA_LOG("[LORA] RX dedup from=%08lX id=%08lX\n",
@@ -1636,7 +1973,7 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
     if (header.from == node_id_)
     {
         auto* pending_slot = pending_ack_states_.find(header.id);
-        if (header.to == kBroadcastNodeId && pending_slot)
+        if (header.to == kBroadcastNodeId && pending_slot && !from_is)
         {
             const ChannelId channel_id = pending_slot->meta.channel;
             const uint8_t channel_hash = pending_slot->meta.channel_hash;
@@ -1676,8 +2013,6 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
     std::memset(&decoded, 0, sizeof(decoded));
     ChannelId decoded_channel_id = ChannelId::PRIMARY;
     bool used_pki_transport = false;
-    const bool can_try_pki =
-        (header.to == node_id_ && header.to != kBroadcastNodeId && payload_size > 12);
     const char* last_drop_reason = nullptr;
     char last_drop_detail[96] = {};
 
@@ -1890,7 +2225,7 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
 
     // Only mark packets as seen after we have successfully identified and decoded them.
     // This avoids poisoning dedup for retries when a packet failed due to stale PKI state.
-    dedup_.markSeen(header.from, header.id);
+    dedup_.markSeen(header.from, header.id, header.channel);
 
     if (plaintext_len > 0)
     {
@@ -2102,10 +2437,13 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
                 if (decoded.request_id != 0 && header.to == node_id_)
                 {
                     bool ok = true;
+                    meshtastic_Routing_Error routing_reason =
+                        meshtastic_Routing_Error_NONE;
                     if (routing.which_variant == meshtastic_Routing_error_reason_tag &&
                         routing.error_reason != meshtastic_Routing_Error_NONE)
                     {
                         ok = false;
+                        routing_reason = routing.error_reason;
                     }
                     if (routing.which_variant == meshtastic_Routing_error_reason_tag &&
                         (routing.error_reason == meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY ||
@@ -2137,7 +2475,13 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
                              (unsigned long)decoded.request_id,
                              ok ? 1 : 0);
                     sys::EventBus::publish(
-                        new sys::ChatSendResultEvent(decoded.request_id, ok), 0);
+                        new sys::ChatSendResultEvent(
+                            decoded.request_id,
+                            ok ? chat::MessageStatus::Delivered
+                               : chat::MessageStatus::Failed,
+                            chat::MeshProtocol::Meshtastic,
+                            failureKindFromRoutingError(routing_reason)),
+                        0);
                 }
             }
             else
@@ -2151,7 +2495,10 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
         if (decoded.portnum == meshtastic_PortNum_KEY_VERIFICATION_APP && decoded.payload.size > 0)
         {
             meshtastic_KeyVerification kv = meshtastic_KeyVerification_init_default;
-            if (decodeKeyVerificationMessage(plaintext, plaintext_len, &kv))
+            if (decodeKeyVerificationMessage(plaintext,
+                                             plaintext_len,
+                                             &kv,
+                                             &scratch.candidate_decoded))
             {
                 mt_diag_log("[MT][KEY_VERIFY] from=%08lX id=%08lX stage=%s hash1=%u hash2=%u\n",
                             static_cast<unsigned long>(header.from),
@@ -2214,7 +2561,10 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
         ChannelId channel_id = decoded_channel_id;
         if (header.channel != 0 && header.from != node_id_)
         {
-            rememberNodeLastChannel(header.from, channel_id, millis());
+            rememberNodeRuntimeRx(header.from,
+                                  channel_id,
+                                  rx_meta.origin == chat::RxOrigin::External,
+                                  millis());
         }
         if (node_metadata_decoded)
         {
@@ -2425,9 +2775,11 @@ void MtAdapter::processReceivedPacket(const uint8_t* data, size_t size)
 void MtAdapter::processSendQueue()
 {
     uint32_t now = millis();
+    uint8_t tx_budget_remaining = kLoRaAirTxBudgetPerTick;
 
     maybeBroadcastNodeInfo(now);
-    processProtocolActionQueue(now);
+    const bool protocol_tx_queued =
+        processProtocolActionQueue(now, tx_budget_remaining);
 
     for (std::size_t index = 0; index < pending_ack_states_.capacity();)
     {
@@ -2444,7 +2796,11 @@ void MtAdapter::processSendQueue()
         {
             if (pending.retransmit_count < MAX_ACK_RETRIES)
             {
-                retryPendingAck(msg_id, *slot);
+                if (retryPendingAck(msg_id, *slot, now, tx_budget_remaining))
+                {
+                    ++index;
+                    continue;
+                }
                 ++index;
                 continue;
             }
@@ -2472,74 +2828,234 @@ void MtAdapter::processSendQueue()
         ++index;
     }
 
-    if (!send_queue_.empty())
+    uint8_t drained = 0;
+    uint8_t inspected = 0;
+    const uint8_t queue_snapshot =
+        static_cast<uint8_t>(std::min<std::size_t>(send_queue_.size(), kPendingSendQueueDepth));
+    while (!send_queue_.empty() &&
+           drained < kSendQueueDrainPerTick &&
+           tx_budget_remaining > 0 &&
+           inspected < queue_snapshot)
     {
-        LORA_LOG("[LORA] TX queue pending=%u\n", (unsigned)send_queue_.size());
+        PendingSend pending{};
+        if (!send_queue_.popOldest(&pending))
+        {
+            break;
+        }
+        ++inspected;
+
+        if (min_tx_interval_ms_ > 0 && last_tx_ms_ > 0 &&
+            (now - last_tx_ms_) < min_tx_interval_ms_)
+        {
+            send_queue_.append(pending);
+            break;
+        }
+
+        if (pending.waiting_for_peer_key &&
+            pending.dest != 0 &&
+            pending.dest != kBroadcastNodeId &&
+            findPkiNodeKey(pending.dest))
+        {
+            pending.waiting_for_peer_key = false;
+        }
+
+        // Check if ready to send
+        const uint32_t retry_delay_ms =
+            pending.waiting_for_peer_key ? PKI_KEY_EXCHANGE_RETRY_MS
+                                         : RETRY_DELAY_MS;
+        if (now - pending.last_attempt < retry_delay_ms &&
+            (pending.retry_count > 0 || pending.waiting_for_peer_key))
+        {
+            send_queue_.append(pending);
+            continue;
+        }
+
+        // Try to send
+        if (sendPacket(pending))
+        {
+            // Success, remove from queue
+            last_tx_ms_ = now;
+            --tx_budget_remaining;
+            ++drained;
+        }
+        else
+        {
+            const meshtastic_Routing_Error failure_reason =
+                last_send_error_ != meshtastic_Routing_Error_NONE
+                    ? last_send_error_
+                    : meshtastic_Routing_Error_NO_INTERFACE;
+            if (failure_reason == meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY &&
+                pending.dest != 0 &&
+                pending.dest != kBroadcastNodeId &&
+                pending.key_exchange_count < MAX_PKI_KEY_EXCHANGE_RETRIES)
+            {
+                ++pending.key_exchange_count;
+                pending.waiting_for_peer_key = true;
+                pending.last_attempt = now;
+                executePkiResync(runtime::MeshtasticPkiResyncCause::PeerKeyMissing,
+                                 pending.dest,
+                                 pending.msg_id,
+                                 pending.channel);
+                LORA_LOG("[LORA] TX text waiting peer key dest=%08lX id=%08lX exchange=%u\n",
+                         static_cast<unsigned long>(pending.dest),
+                         static_cast<unsigned long>(pending.msg_id),
+                         static_cast<unsigned>(pending.key_exchange_count));
+                send_queue_.append(pending);
+                continue;
+            }
+
+            if (isPermanentQueuedTextFailure(failure_reason))
+            {
+                const uint8_t channel_hash =
+                    (pending.channel == ChannelId::SECONDARY) ? secondary_channel_hash_ : primary_channel_hash_;
+                emitRoutingResultToPhone(pending.msg_id,
+                                         failure_reason,
+                                         node_id_,
+                                         pending.dest,
+                                         pending.channel,
+                                         channel_hash,
+                                         nullptr);
+                continue;
+            }
+
+            // Failed, retry or drop
+            pending.retry_count++;
+            pending.last_attempt = now;
+
+            if (pending.retry_count > MAX_RETRIES)
+            {
+                // Max retries reached, drop
+                const uint8_t channel_hash =
+                    (pending.channel == ChannelId::SECONDARY) ? secondary_channel_hash_ : primary_channel_hash_;
+                last_send_error_ = failure_reason;
+                emitRoutingResultToPhone(pending.msg_id,
+                                         failure_reason,
+                                         node_id_,
+                                         pending.dest,
+                                         pending.channel,
+                                         channel_hash,
+                                         nullptr);
+            }
+            else
+            {
+                // Will retry later
+                send_queue_.append(pending);
+                break;
+            }
+        }
     }
 
-    while (!send_queue_.empty())
+    const bool downlink_tx_queued =
+        processMqttDownlinkTxQueue(now, tx_budget_remaining);
+    if (protocol_tx_queued || downlink_tx_queued)
     {
-        PendingSend* pending = send_queue_.get(0);
+        LORA_LOG("[LORA] airtime tick_budget protocol=%u downlink=%u remaining=%u\n",
+                 protocol_tx_queued ? 1U : 0U,
+                 downlink_tx_queued ? 1U : 0U,
+                 static_cast<unsigned>(tx_budget_remaining));
+    }
+}
+
+bool MtAdapter::processMqttDownlinkTxQueue(uint32_t now_ms,
+                                           uint8_t& tx_budget_remaining)
+{
+    bool tx_queued = false;
+    uint8_t drained = 0;
+    while (!mqtt_downlink_tx_queue_.empty() &&
+           drained < kSendQueueDrainPerTick &&
+           tx_budget_remaining > 0)
+    {
+        PendingMqttDownlinkTx* pending = mqtt_downlink_tx_queue_.get(0);
         if (!pending)
         {
             break;
         }
 
+        if (!config_.tx_enabled)
+        {
+            LORA_LOG("[MQTT][DownlinkTX] drop reason=tx_disabled from=%08lX id=%08lX ch=0x%02X depth=%u\n",
+                     static_cast<unsigned long>(pending->from),
+                     static_cast<unsigned long>(pending->msg_id),
+                     static_cast<unsigned>(pending->channel_hash),
+                     static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+            PendingMqttDownlinkTx discarded{};
+            mqtt_downlink_tx_queue_.popOldest(&discarded);
+            continue;
+        }
+
         if (min_tx_interval_ms_ > 0 && last_tx_ms_ > 0 &&
-            (now - last_tx_ms_) < min_tx_interval_ms_)
+            (now_ms - last_tx_ms_) < min_tx_interval_ms_)
+        {
+            LORA_LOG("[MQTT][DownlinkTX] deferred reason=airtime_budget id=%08lX wait_ms=%lu depth=%u\n",
+                     static_cast<unsigned long>(pending->msg_id),
+                     static_cast<unsigned long>(min_tx_interval_ms_ - (now_ms - last_tx_ms_)),
+                     static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+            break;
+        }
+
+        if (pending->retry_count > 0 &&
+            (now_ms - pending->last_attempt_ms) < RETRY_DELAY_MS)
         {
             break;
         }
 
-        // Check if ready to send
-        if (now - pending->last_attempt < RETRY_DELAY_MS && pending->retry_count > 0)
+        pending->last_attempt_ms = now_ms;
+        if (transmitWirePacket(pending->wire.data(), pending->wire_size))
         {
-            break; // Wait before retry
+            last_tx_ms_ = now_ms;
+            --tx_budget_remaining;
+            tx_queued = true;
+            LORA_LOG("[MQTT][DownlinkTX] sent_to_radio from=%08lX to=%08lX id=%08lX ch=0x%02X len=%u retries=%u age_ms=%lu depth=%u\n",
+                     static_cast<unsigned long>(pending->from),
+                     static_cast<unsigned long>(pending->to),
+                     static_cast<unsigned long>(pending->msg_id),
+                     static_cast<unsigned>(pending->channel_hash),
+                     static_cast<unsigned>(pending->wire_size),
+                     static_cast<unsigned>(pending->retry_count),
+                     static_cast<unsigned long>(now_ms - pending->first_seen_ms),
+                     static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+            PendingMqttDownlinkTx discarded{};
+            mqtt_downlink_tx_queue_.popOldest(&discarded);
+            ++drained;
+            continue;
         }
 
-        // Try to send
-        if (sendPacket(*pending))
+        ++pending->retry_count;
+        const char* reason = board_.isRadioOnline() ? "radio_queue_full" : "radio_offline";
+        if (pending->retry_count > kMqttDownlinkTxMaxRetries)
         {
-            // Success, remove from queue
-            last_tx_ms_ = now;
-            PendingSend discarded{};
-            send_queue_.popOldest(&discarded);
+            LORA_LOG("[MQTT][DownlinkTX] drop reason=%s from=%08lX to=%08lX id=%08lX ch=0x%02X retries=%u age_ms=%lu depth=%u\n",
+                     reason,
+                     static_cast<unsigned long>(pending->from),
+                     static_cast<unsigned long>(pending->to),
+                     static_cast<unsigned long>(pending->msg_id),
+                     static_cast<unsigned>(pending->channel_hash),
+                     static_cast<unsigned>(pending->retry_count),
+                     static_cast<unsigned long>(now_ms - pending->first_seen_ms),
+                     static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+            PendingMqttDownlinkTx discarded{};
+            mqtt_downlink_tx_queue_.popOldest(&discarded);
+            continue;
         }
-        else
-        {
-            // Failed, retry or drop
-            pending->retry_count++;
-            pending->last_attempt = now;
 
-            if (pending->retry_count > MAX_RETRIES)
-            {
-                // Max retries reached, drop
-                const uint8_t channel_hash =
-                    (pending->channel == ChannelId::SECONDARY) ? secondary_channel_hash_ : primary_channel_hash_;
-                last_send_error_ = meshtastic_Routing_Error_NO_INTERFACE;
-                emitRoutingResultToPhone(pending->msg_id,
-                                         meshtastic_Routing_Error_NO_INTERFACE,
-                                         node_id_,
-                                         pending->dest,
-                                         pending->channel,
-                                         channel_hash,
-                                         nullptr);
-                PendingSend discarded{};
-                send_queue_.popOldest(&discarded);
-            }
-            else
-            {
-                // Will retry later
-                break;
-            }
-        }
+        LORA_LOG("[MQTT][DownlinkTX] deferred reason=%s from=%08lX id=%08lX ch=0x%02X retries=%u depth=%u\n",
+                 reason,
+                 static_cast<unsigned long>(pending->from),
+                 static_cast<unsigned long>(pending->msg_id),
+                 static_cast<unsigned>(pending->channel_hash),
+                 static_cast<unsigned>(pending->retry_count),
+                 static_cast<unsigned>(mqtt_downlink_tx_queue_.size()));
+        break;
     }
+    return tx_queued;
 }
 
 bool MtAdapter::sendPacket(const PendingSend& pending)
 {
+    last_send_error_ = meshtastic_Routing_Error_NONE;
     if (!config_.tx_enabled)
     {
+        last_send_error_ = meshtastic_Routing_Error_NO_INTERFACE;
         return false;
     }
 
@@ -2558,8 +3074,10 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
                                 pending.msg_id,
                                 pending.dest,
                                 data_buffer.data(),
-                                &data_size))
+                                &data_size,
+                                &scratch.decoded))
     {
+        last_send_error_ = meshtastic_Routing_Error_BAD_REQUEST;
         return false;
     }
     auto& decoded = scratch.decoded;
@@ -2593,7 +3111,10 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
         (channel == ChannelId::SECONDARY) ? secondary_channel_hash_ : primary_channel_hash_;
     uint8_t hop_limit = config_.hop_limit;
     uint32_t dest = (pending.dest != 0) ? pending.dest : kBroadcastNodeId;
-    bool track_ack = true;
+    const bool is_broadcast = dest == kBroadcastNodeId;
+    const bool dest_last_seen_via_mqtt =
+        !is_broadcast && nodeLastSeenViaMqtt(dest);
+    bool track_ack = !is_broadcast && !dest_last_seen_via_mqtt;
     bool air_want_ack = shouldSetAirWantAck(dest, track_ack);
 
     // Upstream Meshtastic requires PKI for direct unicast traffic on
@@ -2603,12 +3124,14 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
     const uint8_t* psk = nullptr;
     size_t psk_len = 0;
     bool use_pki = false;
-    if (shouldRequireDirectPki(encrypt_mode_, dest, pending.portnum))
+    if (requirePkiForDirectPort(dest, pending.portnum))
     {
         const bool have_dest_key = findPkiNodeKey(dest) != nullptr;
         if (!pki_ready_ || !have_dest_key)
         {
             const char* reason = !pki_ready_ ? "pki_not_ready" : "pki_key_missing";
+            last_send_error_ = !pki_ready_ ? meshtastic_Routing_Error_PKI_FAILED
+                                           : meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY;
             mt_diag_log("[MT][TX_BLOCK] id=%08lX dest=%08lX port=%u reason=%s path=PKI\n",
                         static_cast<unsigned long>(pending.msg_id),
                         static_cast<unsigned long>(dest),
@@ -2622,6 +3145,7 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
         size_t pki_len = pki_buffer.size();
         if (!encryptPkiPayload(dest, pending.msg_id, data_buffer.data(), data_size, pki_buffer.data(), &pki_len))
         {
+            last_send_error_ = meshtastic_Routing_Error_PKI_FAILED;
             mt_diag_log("[MT][TX_BLOCK] id=%08lX dest=%08lX port=%u reason=pki_encrypt_fail path=PKI\n",
                         static_cast<unsigned long>(pending.msg_id),
                         static_cast<unsigned long>(dest),
@@ -2633,8 +3157,8 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
         payload = pki_buffer.data();
         payload_len = pki_len;
         channel_hash = 0; // PKI channel
-        track_ack = true;
-        air_want_ack = true;
+        track_ack = !dest_last_seen_via_mqtt;
+        air_want_ack = shouldSetAirWantAck(dest, track_ack);
         use_pki = true;
     }
 
@@ -2672,6 +3196,7 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
                          dest, channel_hash, hop_limit, air_want_ack,
                          psk, psk_len, wire_buffer.data(), &wire_size))
     {
+        last_send_error_ = meshtastic_Routing_Error_TOO_LARGE;
         return false;
     }
     LORA_LOG("[LORA] TX wire ch=0x%02X hop=%u air_ack=%d track_ack=%d psk=%u wire=%u dest=%08lX\n",
@@ -2682,12 +3207,34 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
              (unsigned)psk_len,
              (unsigned)wire_size,
              (unsigned long)dest);
-    if (!board_.isRadioOnline())
+    bool tx_ok = false;
+    if (board_.isRadioOnline())
     {
+        tx_ok = transmitWirePacket(wire_buffer.data(), wire_size);
+    }
+    else if (!dest_last_seen_via_mqtt && !is_broadcast)
+    {
+        last_send_error_ = meshtastic_Routing_Error_NO_INTERFACE;
         return false;
     }
-
-    bool ok = transmitWirePacket(wire_buffer.data(), wire_size);
+    bool mqtt_ok = false;
+    if (tx_ok || dest_last_seen_via_mqtt || is_broadcast)
+    {
+        mqtt_ok = queueMqttProxyPublishFromWire(wire_buffer.data(),
+                                                wire_size,
+                                                use_pki
+                                                    ? nullptr
+                                                    : (decoded_ok ? &decoded
+                                                                  : nullptr),
+                                                channel);
+    }
+    const bool ok = (dest_last_seen_via_mqtt || is_broadcast) ? (tx_ok || mqtt_ok) : tx_ok;
+    if (!ok)
+    {
+        last_send_error_ = board_.isRadioOnline()
+                               ? meshtastic_Routing_Error_RATE_LIMIT_EXCEEDED
+                               : meshtastic_Routing_Error_NO_INTERFACE;
+    }
     LORA_LOG("[LORA] TX text id=%08lX ch=%u len=%u ok=%d\n",
              (unsigned long)pending.msg_id,
              static_cast<unsigned>(channel),
@@ -2697,11 +3244,13 @@ bool MtAdapter::sendPacket(const PendingSend& pending)
     {
         trackPendingAck(pending.msg_id, dest, channel, channel_hash, wire_buffer.data(), wire_size);
     }
-    if (ok)
+    else if (ok)
     {
-        queueMqttProxyPublishFromWire(wire_buffer.data(), wire_size,
-                                      decoded_ok ? &decoded : nullptr,
-                                      channel);
+        sys::EventBus::publish(
+            new sys::ChatSendResultEvent(pending.msg_id,
+                                         chat::MessageStatus::Sent,
+                                         chat::MeshProtocol::Meshtastic),
+            0);
     }
     return ok;
 }
@@ -2719,7 +3268,7 @@ bool MtAdapter::sendNodeInfoTo(uint32_t dest, bool want_response, ChannelId chan
     (void)chat::runtime::resolveEffectiveSelfIdentity(identity_input, &identity);
 
     char user_id_override[16] = {};
-    const app::AppConfig& cfg = app::configFacade().getConfig();
+    const app::AppConfig& cfg = app::configFacade().readConfig();
     if (cfg.aprs.self_enable && cfg.aprs.self_callsign[0] != '\0')
     {
         strncpy(user_id_override, cfg.aprs.self_callsign, sizeof(user_id_override) - 1);
@@ -2754,8 +3303,8 @@ bool MtAdapter::sendNodeInfoTo(uint32_t dest, bool want_response, ChannelId chan
         request.public_key_len = pki_public_key_.size();
     }
 
-    chat::runtime::MeshtasticAnnouncementPacket packet{};
-    if (!chat::runtime::MeshtasticSelfAnnouncementCore::buildNodeInfoPacket(request, &packet))
+    if (!chat::runtime::MeshtasticSelfAnnouncementCore::buildNodeInfoPacket(
+            request, &node_info_packet_scratch_))
     {
         return false;
     }
@@ -2770,23 +3319,24 @@ bool MtAdapter::sendNodeInfoTo(uint32_t dest, bool want_response, ChannelId chan
     LORA_LOG("[LORA] NodeInfo user_id=%s short=%s long=%s\n",
              logged_user_id, identity.short_name, identity.long_name);
     LORA_LOG("[LORA] TX nodeinfo wire ch=0x%02X idx=%u hop=%u wire=%u\n",
-             packet.channel_hash,
+             node_info_packet_scratch_.channel_hash,
              (unsigned)(channel == ChannelId::SECONDARY ? 1 : 0),
              request.hop_limit,
-             (unsigned)packet.wire_size);
+             (unsigned)node_info_packet_scratch_.wire_size);
     if (!board_.isRadioOnline())
     {
         return false;
     }
 
-    bool ok = transmitWirePacket(packet.wire, packet.wire_size);
+    bool ok = transmitWirePacket(node_info_packet_scratch_.wire,
+                                 node_info_packet_scratch_.wire_size);
     if (ok && dest == kBroadcastNodeId)
     {
         last_nodeinfo_ms_ = millis();
     }
     LORA_LOG("[LORA] TX nodeinfo id=%08lX len=%u ok=%d\n",
              (unsigned long)request.packet_id,
-             (unsigned)packet.wire_size,
+             (unsigned)node_info_packet_scratch_.wire_size,
              ok ? 1 : 0);
     return ok;
 }
@@ -2969,20 +3519,14 @@ void MtAdapter::updateChannelKeys()
         computeChannelHash(secondary_name,
                            (secondary_psk_len_ > 0) ? secondary_psk_ : nullptr,
                            secondary_psk_len_);
-    std::string primary_psk_hex = toHex(primary_psk_, primary_psk_len_, primary_psk_len_);
-    std::string secondary_psk_hex = toHex(secondary_psk_, secondary_psk_len_, secondary_psk_len_);
-    if (primary_psk_hex.empty()) primary_psk_hex = "-";
-    if (secondary_psk_hex.empty()) secondary_psk_hex = "-";
-    LORA_LOG("[LORA] channel primary='%s' hash=0x%02X psk=%u hex=%s\n",
+    LORA_LOG("[LORA] channel primary='%s' hash=0x%02X psk=%u key=<redacted>\n",
              primary_name,
              primary_channel_hash_,
-             (unsigned)primary_psk_len_,
-             primary_psk_hex.c_str());
-    LORA_LOG("[LORA] channel secondary='%s' hash=0x%02X psk=%u hex=%s\n",
+             (unsigned)primary_psk_len_);
+    LORA_LOG("[LORA] channel secondary='%s' hash=0x%02X psk=%u key=<redacted>\n",
              secondary_name,
              secondary_channel_hash_,
-             (unsigned)secondary_psk_len_,
-             secondary_psk_hex.c_str());
+             (unsigned)secondary_psk_len_);
 }
 
 void MtAdapter::startRadioReceive()
@@ -3193,10 +3737,14 @@ bool MtAdapter::executeProtocolAction(const PendingProtocolAction& action)
     }
 }
 
-void MtAdapter::processProtocolActionQueue(uint32_t now_ms)
+bool MtAdapter::processProtocolActionQueue(uint32_t now_ms,
+                                           uint8_t& tx_budget_remaining)
 {
+    bool tx_queued = false;
     size_t processed = 0;
-    while (protocol_action_count_ > 0 && processed < protocol_action_queue_.size())
+    while (protocol_action_count_ > 0 &&
+           processed < protocol_action_queue_.size() &&
+           tx_budget_remaining > 0)
     {
         PendingProtocolAction& action = protocol_action_queue_[protocol_action_head_];
         if (min_tx_interval_ms_ > 0 && last_tx_ms_ > 0 &&
@@ -3215,6 +3763,8 @@ void MtAdapter::processProtocolActionQueue(uint32_t now_ms)
                 setNodeInfoReplyMs(action.peer, action.nodeinfo_reply_ms);
             }
             last_tx_ms_ = now_ms;
+            --tx_budget_remaining;
+            tx_queued = true;
             popProtocolAction();
         }
         else
@@ -3233,6 +3783,7 @@ void MtAdapter::processProtocolActionQueue(uint32_t now_ms)
         }
         ++processed;
     }
+    return tx_queued;
 }
 
 bool MtAdapter::sendChannelAppDataViaCore(uint32_t portnum,
@@ -3344,10 +3895,22 @@ void MtAdapter::clearPendingAck(uint32_t msg_id)
     pending_ack_states_.erase(msg_id);
 }
 
-void MtAdapter::retryPendingAck(uint32_t msg_id, PendingAckSlot& slot)
+bool MtAdapter::retryPendingAck(uint32_t msg_id,
+                                PendingAckSlot& slot,
+                                uint32_t now_ms,
+                                uint8_t& tx_budget_remaining)
 {
+    if (tx_budget_remaining == 0)
+    {
+        return false;
+    }
+    if (min_tx_interval_ms_ > 0 && last_tx_ms_ > 0 &&
+        (now_ms - last_tx_ms_) < min_tx_interval_ms_)
+    {
+        return false;
+    }
     PendingAckState& pending = slot.meta;
-    pending.last_attempt_ms = millis();
+    pending.last_attempt_ms = now_ms;
     ++pending.retransmit_count;
     mt_diag_log("[MT][RETX] req=%08lX dest=%08lX try=%u len=%u\n",
                 static_cast<unsigned long>(msg_id),
@@ -3362,11 +3925,13 @@ void MtAdapter::retryPendingAck(uint32_t msg_id, PendingAckSlot& slot)
     if (transmitWirePacket(slot.wire.data(), slot.wire_size))
     {
         last_tx_ms_ = pending.last_attempt_ms;
-        return;
+        --tx_budget_remaining;
+        return true;
     }
     LORA_LOG("[LORA] TX retry immediate fail req=%08lX try=%u\n",
              static_cast<unsigned long>(msg_id),
              static_cast<unsigned>(pending.retransmit_count));
+    return false;
 }
 
 bool MtAdapter::initPkiKeys()
@@ -3428,7 +3993,7 @@ bool MtAdapter::initPkiKeys()
     return pki_ready_;
 }
 
-MtAdapter::PkiNodeKeyEntry* MtAdapter::findPkiNodeKey(uint32_t node_id)
+MtAdapter::PkiNodeKeyEntry* MtAdapter::findCachedPkiNodeKey(uint32_t node_id)
 {
     for (auto& entry : pki_node_keys_)
     {
@@ -3440,7 +4005,7 @@ MtAdapter::PkiNodeKeyEntry* MtAdapter::findPkiNodeKey(uint32_t node_id)
     return nullptr;
 }
 
-const MtAdapter::PkiNodeKeyEntry* MtAdapter::findPkiNodeKey(uint32_t node_id) const
+const MtAdapter::PkiNodeKeyEntry* MtAdapter::findCachedPkiNodeKey(uint32_t node_id) const
 {
     for (const auto& entry : pki_node_keys_)
     {
@@ -3450,6 +4015,24 @@ const MtAdapter::PkiNodeKeyEntry* MtAdapter::findPkiNodeKey(uint32_t node_id) co
         }
     }
     return nullptr;
+}
+
+MtAdapter::PkiNodeKeyEntry* MtAdapter::findPkiNodeKey(uint32_t node_id)
+{
+    if (auto* entry = findCachedPkiNodeKey(node_id))
+    {
+        return entry;
+    }
+    if (loadPkiNodeKeyFromDirectory(node_id))
+    {
+        return findCachedPkiNodeKey(node_id);
+    }
+    return nullptr;
+}
+
+const MtAdapter::PkiNodeKeyEntry* MtAdapter::findPkiNodeKey(uint32_t node_id) const
+{
+    return findCachedPkiNodeKey(node_id);
 }
 
 MtAdapter::PkiNodeKeyEntry* MtAdapter::upsertPkiNodeKey(uint32_t node_id,
@@ -3474,7 +4057,7 @@ MtAdapter::PkiNodeKeyEntry* MtAdapter::upsertPkiNodeKey(uint32_t node_id,
     const uint32_t seen = last_seen_s != 0
                               ? last_seen_s
                               : static_cast<uint32_t>(time(nullptr));
-    if (auto* existing = findPkiNodeKey(node_id))
+    if (auto* existing = findCachedPkiNodeKey(node_id))
     {
         const bool changed = memcmp(existing->key.data(), key, existing->key.size()) != 0;
         if (changed)
@@ -3652,6 +4235,25 @@ void MtAdapter::rememberNodeLastChannel(uint32_t node_id, ChannelId channel, uin
     }
 }
 
+void MtAdapter::rememberNodeRuntimeRx(uint32_t node_id,
+                                      ChannelId channel,
+                                      bool via_mqtt,
+                                      uint32_t now_ms)
+{
+    if (auto* entry = upsertNodeRuntime(node_id, now_ms))
+    {
+        entry->last_channel = channel;
+        entry->has_last_channel = true;
+        entry->last_seen_via_mqtt = via_mqtt;
+    }
+}
+
+bool MtAdapter::nodeLastSeenViaMqtt(uint32_t node_id) const
+{
+    const auto* entry = findNodeRuntime(node_id);
+    return entry && entry->last_seen_via_mqtt;
+}
+
 uint32_t MtAdapter::getNodeInfoReplyMs(uint32_t node_id) const
 {
     const auto* entry = findNodeRuntime(node_id);
@@ -3668,40 +4270,100 @@ void MtAdapter::setNodeInfoReplyMs(uint32_t node_id, uint32_t now_ms)
 
 void MtAdapter::loadPkiNodeKeys()
 {
-    ::platform::esp::arduino_common::mesh::EspPreferencesPeerKeyStore store;
-    std::vector<::mesh::PeerPublicKey> keys;
-    auto loaded = store.loadAll(keys);
-    if (!loaded.ok)
+    if (!peer_directory_)
     {
-        if (loaded.failure != ::mesh::StoreFailure::NotFound)
-        {
-            LORA_LOG("[LORA] PKI key load failed ns=%s status=%u\n",
-                     kPkiPrefsNs,
-                     static_cast<unsigned>(loaded.failure));
-        }
+        LORA_LOG("[LORA] PKI peer directory unavailable, hot cache empty\n");
         return;
     }
 
     clearPkiNodeKeys();
-    for (const auto& peer_key : keys)
+    size_t count = 0;
+    const auto loaded =
+        peer_directory_->loadRecent(MeshProtocol::Meshtastic,
+                                    pki_directory_load_entries_.data(),
+                                    pki_directory_load_entries_.size(),
+                                    &count);
+    if (!loaded.succeeded())
     {
+        LORA_LOG("[LORA] PKI peer directory load failed status=%u\n",
+                 static_cast<unsigned>(loaded.code));
+        return;
+    }
+
+    size_t loaded_keys = 0;
+    for (size_t index = 0; index < count; ++index)
+    {
+        const MeshPeerRecord& peer = pki_directory_load_entries_[index];
+        if (peer.identity.kind != MeshPeerIdentityKind::NodeId ||
+            peer.identity.node_id == 0 ||
+            !peer.meshtastic.has_public_key)
+        {
+            continue;
+        }
         bool evicted = false;
-        (void)upsertPkiNodeKey(peer_key.node_id.value,
-                               peer_key.public_key,
-                               peer_key.updated_at_ms,
+        (void)upsertPkiNodeKey(peer.identity.node_id,
+                               peer.meshtastic.public_key,
+                               peer.last_seen_s,
                                nullptr,
                                &evicted);
         LORA_LOG("[LORA] PKI key loaded for %08lX\n",
-                 static_cast<unsigned long>(peer_key.node_id.value));
+                 static_cast<unsigned long>(peer.identity.node_id));
+        ++loaded_keys;
         if (evicted)
         {
             LORA_LOG("[LORA] PKI key load evicted oldest cap=%u\n",
                      static_cast<unsigned>(pki_node_keys_.size()));
         }
     }
-    LORA_LOG("[LORA] PKI keys loaded=%u ns=%s\n",
-             static_cast<unsigned>(keys.size()),
-             kPkiPrefsNs);
+    LORA_LOG("[LORA] PKI hot keys loaded=%u directory=mesh_peer_directory\n",
+             static_cast<unsigned>(loaded_keys));
+}
+
+bool MtAdapter::readPkiNodeKeyFromDirectory(uint32_t node_id,
+                                            uint8_t out_key[32],
+                                            uint32_t* out_last_seen_s) const
+{
+    if (!peer_directory_ || node_id == 0 || node_id == kBroadcastNodeId || !out_key)
+    {
+        return false;
+    }
+
+    MeshPeerRecord record{};
+    const auto status =
+        peer_directory_->findByNodeId(MeshProtocol::Meshtastic, node_id, record);
+    if (!status.succeeded() ||
+        !record.meshtastic.has_public_key ||
+        !meshPeerHasNonZeroBytes(record.meshtastic.public_key,
+                                 sizeof(record.meshtastic.public_key)))
+    {
+        return false;
+    }
+
+    memcpy(out_key, record.meshtastic.public_key, sizeof(record.meshtastic.public_key));
+    if (out_last_seen_s)
+    {
+        *out_last_seen_s = record.last_seen_s;
+    }
+    return true;
+}
+
+bool MtAdapter::loadPkiNodeKeyFromDirectory(uint32_t node_id)
+{
+    uint8_t key[32] = {};
+    uint32_t last_seen_s = 0;
+    if (!readPkiNodeKeyFromDirectory(node_id, key, &last_seen_s))
+    {
+        return false;
+    }
+    bool evicted = false;
+    if (!upsertPkiNodeKey(node_id, key, last_seen_s, nullptr, &evicted))
+    {
+        return false;
+    }
+    LORA_LOG("[LORA] PKI key loaded on demand for %08lX%s\n",
+             static_cast<unsigned long>(node_id),
+             evicted ? " evicted=1" : "");
+    return true;
 }
 
 void MtAdapter::savePkiNodeKey(uint32_t node_id, const uint8_t* key, size_t key_len)
@@ -3710,55 +4372,44 @@ void MtAdapter::savePkiNodeKey(uint32_t node_id, const uint8_t* key, size_t key_
     {
         return;
     }
-    bool changed = false;
-    bool evicted = false;
-    if (!upsertPkiNodeKey(node_id, key, static_cast<uint32_t>(time(nullptr)), &changed, &evicted))
+    const uint32_t seen = static_cast<uint32_t>(time(nullptr));
+    if (!upsertPkiNodeKey(node_id, key, seen))
     {
         return;
     }
     touchPkiNodeKey(node_id);
-    if (changed || evicted)
-    {
-        savePkiKeysToPrefs();
-    }
+    savePkiNodeKeyToDirectory(node_id, key, seen);
 }
 
-void MtAdapter::savePkiKeysToPrefs()
+void MtAdapter::savePkiNodeKeyToDirectory(uint32_t node_id,
+                                          const uint8_t* key,
+                                          uint32_t last_seen_s)
 {
-    size_t count = 0;
-    for (const auto& item : pki_node_keys_)
+    if (!peer_directory_ || node_id == 0 || !key)
     {
-        if (!item.used)
-        {
-            continue;
-        }
-        if (count >= pki_save_entries_.size())
-        {
-            break;
-        }
-        ::mesh::PeerPublicKey entry{};
-        entry.node_id = ::mesh::NodeId{item.node_id};
-        entry.updated_at_ms = item.last_seen_s;
-        entry.verified = false;
-        memcpy(entry.public_key, item.key.data(), sizeof(entry.public_key));
-        pki_save_entries_[count++] = entry;
-    }
-
-    ::platform::esp::arduino_common::mesh::EspPreferencesPeerKeyStore store;
-    auto saved = store.replaceAll(count == 0 ? nullptr : pki_save_entries_.data(), count);
-    if (!saved.ok)
-    {
-        LORA_LOG("[LORA] PKI key save failed ns=%s status=%u\n",
-                 kPkiPrefsNs,
-                 static_cast<unsigned>(saved.failure));
         return;
     }
-    if (count > 0)
+
+    MeshPeerRecord record{};
+    record.valid = true;
+    record.identity = makeMeshPeerNodeIdentity(MeshProtocol::Meshtastic, node_id);
+    record.source = MeshPeerSource::RuntimeRx;
+    record.first_seen_s = last_seen_s;
+    record.last_seen_s = last_seen_s;
+    record.meshtastic.has_public_key = true;
+    memcpy(record.meshtastic.public_key,
+           key,
+           sizeof(record.meshtastic.public_key));
+
+    const auto saved = peer_directory_->record(record);
+    if (!saved.succeeded())
     {
-        LORA_LOG("[LORA] PKI key saved (total=%u ns=%s)\n",
-                 static_cast<unsigned>(count),
-                 kPkiPrefsNs);
+        LORA_LOG("[LORA] PKI key directory save failed status=%u\n",
+                 static_cast<unsigned>(saved.code));
+        return;
     }
+    LORA_LOG("[LORA] PKI key saved directory=mesh_peer_directory node=%08lX\n",
+             static_cast<unsigned long>(node_id));
 }
 
 void MtAdapter::touchPkiNodeKey(uint32_t node_id)
@@ -4204,41 +4855,19 @@ bool MtAdapter::sendKeyVerificationPacket(uint32_t dest, const meshtastic_KeyVer
         return false;
     }
 
-    auto& tx = tx_scratch_;
-    auto& data_buf = tx.data;
-    auto& pki_buf = tx.pki;
-    auto& wire_buffer = tx.wire;
-    size_t data_size = data_buf.size();
-    if (!encodeAppData(meshtastic_PortNum_KEY_VERIFICATION_APP,
-                       kv_buf, kv_stream.bytes_written,
-                       want_response, data_buf.data(), &data_size))
+    runtime::SendPacketEffect packet{};
+    packet.protocol = MeshProtocol::Meshtastic;
+    packet.channel = ChannelId::PRIMARY;
+    packet.dest = dest;
+    packet.portnum = meshtastic_PortNum_KEY_VERIFICATION_APP;
+    packet.request_id = next_packet_id_++;
+    packet.want_ack = false;
+    packet.want_response = want_response;
+    if (!packet.payload.assign(kv_buf, kv_stream.bytes_written))
     {
         return false;
     }
-
-    size_t pki_len = pki_buf.size();
-    MessageId msg_id = next_packet_id_++;
-    if (!encryptPkiPayload(dest, msg_id, data_buf.data(), data_size, pki_buf.data(), &pki_len))
-    {
-        return false;
-    }
-
-    size_t wire_size = wire_buffer.size();
-    uint8_t hop_limit = config_.hop_limit;
-    uint8_t channel_hash = 0;
-    bool want_ack = false;
-    if (!buildWirePacket(pki_buf.data(), pki_len, node_id_, msg_id,
-                         dest, channel_hash, hop_limit, want_ack,
-                         nullptr, 0, wire_buffer.data(), &wire_size))
-    {
-        return false;
-    }
-
-    if (transmitWirePacket(wire_buffer.data(), wire_size))
-    {
-        return true;
-    }
-    return false;
+    return enqueueSendPacketAction(packet);
 }
 
 bool MtAdapter::sendRoutingAck(uint32_t dest, uint32_t request_id, uint8_t channel_hash,
@@ -4456,14 +5085,14 @@ bool MtAdapter::sendProtocolPacketEffect(const runtime::SendPacketEffect& packet
     const size_t payload_len = packet.payload.size();
     if (packet.response_request_id == 0)
     {
-        return sendAppData(packet.channel,
-                           packet.portnum,
-                           payload,
-                           payload_len,
-                           packet.dest,
-                           packet.want_ack,
-                           packet.request_id,
-                           packet.want_response);
+        return sendAppDataNow(packet.channel,
+                              packet.portnum,
+                              payload,
+                              payload_len,
+                              packet.dest,
+                              packet.want_ack,
+                              packet.request_id,
+                              packet.want_response);
     }
 
     auto& mesh_packet = protocol_effect_packet_scratch_;
@@ -4644,8 +5273,18 @@ void MtAdapter::emitRoutingResultToPhone(uint32_t request_id,
                  static_cast<unsigned>(app_receive_queue_.size()));
     }
 
+    const bool own_self_echo = from == node_id_ && to == node_id_;
+    const chat::MessageStatus status =
+        reason != meshtastic_Routing_Error_NONE
+            ? chat::MessageStatus::Failed
+            : (own_self_echo ? chat::MessageStatus::Sent
+                             : chat::MessageStatus::Delivered);
     sys::EventBus::publish(
-        new sys::ChatSendResultEvent(request_id, reason == meshtastic_Routing_Error_NONE), 0);
+        new sys::ChatSendResultEvent(request_id,
+                                     status,
+                                     chat::MeshProtocol::Meshtastic,
+                                     failureKindFromRoutingError(reason)),
+        0);
 }
 
 } // namespace meshtastic

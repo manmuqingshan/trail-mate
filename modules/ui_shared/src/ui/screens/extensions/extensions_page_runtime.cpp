@@ -18,7 +18,7 @@
 #include "ui/page/page_profile.h"
 #include "ui/runtime/ui_feedback.h"
 #include "ui/ui_theme.h"
-#include "ui/widgets/busy_overlay.h"
+#include "ui/widgets/foreground_operation_overlay.h"
 #include "ui/widgets/top_bar.h"
 
 #if !defined(LV_FONT_MONTSERRAT_16) || !LV_FONT_MONTSERRAT_16
@@ -74,7 +74,6 @@ struct RuntimeState
     MainView view = MainView::List;
     PackageFilter filter = PackageFilter::Installed;
     bool remote_catalog_loaded = false;
-    bool install_overlay_owned = false;
     bool install_was_busy = false;
     std::string catalog_error;
     std::string selected_package_id;
@@ -659,25 +658,21 @@ void sync_install_ui(bool notify_completion)
         const char* detail = !status.detail.empty()
                                  ? status.detail.c_str()
                                  : (status.package_id.empty() ? nullptr : status.package_id.c_str());
-        if (!s_runtime.install_overlay_owned)
-        {
-            ::ui::widgets::busy_overlay::show(title, detail);
-            s_runtime.install_overlay_owned = true;
-        }
-        else
-        {
-            ::ui::widgets::busy_overlay::update(title, detail);
-        }
+        namespace foreground = ::ui::widgets::foreground_operation;
+        foreground::publish(
+            foreground::make_snapshot(foreground::Slot::PackageInstall,
+                                      foreground::Policy::Overlay,
+                                      foreground::Priority::Foreground,
+                                      title,
+                                      detail,
+                                      status.progress_percent));
         set_status_text(title);
         set_install_action_buttons_disabled(true);
     }
     else
     {
-        if (s_runtime.install_overlay_owned)
-        {
-            ::ui::widgets::busy_overlay::hide();
-            s_runtime.install_overlay_owned = false;
-        }
+        ::ui::widgets::foreground_operation::clear(
+            ::ui::widgets::foreground_operation::Slot::PackageInstall);
         set_install_action_buttons_disabled(false);
     }
 
@@ -895,8 +890,19 @@ void on_connect_wifi_clicked(lv_event_t* event)
         return;
     }
 
-    ::ui::feedback::show_notice(::ui::i18n::tr("Wi-Fi connected"), 2000);
-    refresh_catalog_and_render();
+    const platform::ui::wifi::Status wifi = platform::ui::wifi::status();
+    if (wifi.connected)
+    {
+        ::ui::feedback::show_notice(::ui::i18n::tr("Wi-Fi connected"), 2000);
+        refresh_catalog_and_render();
+        return;
+    }
+
+    const char* text =
+        wifi.message[0] ? wifi.message : ::ui::i18n::tr("Wi-Fi connecting");
+    set_status_text(text);
+    ::ui::feedback::show_notice(text, 2500);
+    update_top_bar_status();
 }
 
 void show_message_body(const char* text)
@@ -1310,7 +1316,9 @@ void enter(const shell::Host* host, lv_obj_t* parent)
     s_runtime.root = two_pane_layout::create_root(parent, root_spec);
     apply_root_style(s_runtime.root);
 
-    ::ui::widgets::top_bar_init(s_runtime.top_bar, s_runtime.root);
+    ::ui::widgets::TopBarConfig top_bar_config{};
+    top_bar_config.power_indicator = false;
+    ::ui::widgets::top_bar_init(s_runtime.top_bar, s_runtime.root, top_bar_config);
     ::ui::widgets::top_bar_set_title(s_runtime.top_bar, ::ui::i18n::tr("Extensions"));
     ::ui::widgets::top_bar_set_back_callback(s_runtime.top_bar, on_back, nullptr);
 
@@ -1345,11 +1353,8 @@ void exit(lv_obj_t* parent)
         lv_timer_del(s_runtime.install_timer);
         s_runtime.install_timer = nullptr;
     }
-    if (s_runtime.install_overlay_owned)
-    {
-        ::ui::widgets::busy_overlay::hide();
-        s_runtime.install_overlay_owned = false;
-    }
+    ::ui::widgets::foreground_operation::clear(
+        ::ui::widgets::foreground_operation::Slot::PackageInstall);
     if (s_runtime.root != nullptr)
     {
         lv_obj_del(s_runtime.root);

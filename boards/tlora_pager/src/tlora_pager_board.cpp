@@ -9,6 +9,7 @@
 #include "freertos/timers.h"
 
 #include <cmath>
+#include <cstring>
 #include <driver/gpio.h>
 #include <esp_heap_caps.h>
 #include <esp_sleep.h>
@@ -19,8 +20,11 @@
 #include "pins_arduino.h"
 #include "platform/esp/arduino_common/power/battery_adc.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/common/shared_spi_coordinator.h"
+#include "platform/ui/audio/call_notification_tone.h"
 #include "platform/ui/audio/pager_notification_tone.h"
 #include "platform/ui/settings_store.h"
+#include "sys/bus_access_scope.h"
 #include "ui/runtime/ui_feedback.h"
 #include <Preferences.h>
 
@@ -43,6 +47,10 @@ namespace boards::tlora_pager
 static constexpr uint8_t I2C_XL9555 = 0x20;
 static constexpr uint8_t I2C_BQ25896 = 0x6B;
 static constexpr uint32_t kPagerDisplaySpiClockMhz = 80;
+static constexpr uint32_t kRadioSpiLockTimeoutLogIntervalMs = 1000;
+static constexpr uint32_t kSharedSpiBusResource = 1;
+static constexpr uint32_t kSharedSpiBusOwnerId = 0x50414752U; // 'PAGR'
+static constexpr const char* kSharedSpiBusOwner = "pager_board";
 
 // ------------------------------
 // I2C bus mutex (Gauge, PMU, RTC, XL9555 share Wire)
@@ -72,6 +80,70 @@ struct I2CGuard
 // ------------------------------
 static int s_gauge_error_streak = 0;
 static int s_gauge_reinit_count = 0;
+static uint32_t s_last_radio_spi_lock_timeout_log_ms = 0;
+static uint32_t s_suppressed_radio_spi_lock_timeout_logs = 0;
+static portMUX_TYPE s_audio_owner_mux = portMUX_INITIALIZER_UNLOCKED;
+static PagerAudioOwner s_audio_owner = PagerAudioOwner::None;
+
+const char* audioOwnerLabel(PagerAudioOwner owner)
+{
+    switch (owner)
+    {
+    case PagerAudioOwner::MessageTone:
+        return "message_tone";
+    case PagerAudioOwner::IncomingCallTone:
+        return "incoming_call_tone";
+    case PagerAudioOwner::ReticulumCall:
+        return "reticulum_call";
+    case PagerAudioOwner::Walkie:
+        return "walkie";
+    case PagerAudioOwner::Sstv:
+        return "sstv";
+    case PagerAudioOwner::None:
+    default:
+        return "none";
+    }
+}
+
+PagerAudioOwner currentAudioOwner()
+{
+    portENTER_CRITICAL(&s_audio_owner_mux);
+    const PagerAudioOwner owner = s_audio_owner;
+    portEXIT_CRITICAL(&s_audio_owner_mux);
+    return owner;
+}
+
+bool claimAudioOwner(PagerAudioOwner owner)
+{
+    if (owner == PagerAudioOwner::None)
+    {
+        return false;
+    }
+
+    portENTER_CRITICAL(&s_audio_owner_mux);
+    const bool claimed = s_audio_owner == PagerAudioOwner::None;
+    if (claimed)
+    {
+        s_audio_owner = owner;
+    }
+    portEXIT_CRITICAL(&s_audio_owner_mux);
+    return claimed;
+}
+
+bool audioOwnerMatches(PagerAudioOwner owner)
+{
+    return owner != PagerAudioOwner::None && currentAudioOwner() == owner;
+}
+
+void releaseAudioOwner(PagerAudioOwner owner)
+{
+    portENTER_CRITICAL(&s_audio_owner_mux);
+    if (s_audio_owner == owner)
+    {
+        s_audio_owner = PagerAudioOwner::None;
+    }
+    portEXIT_CRITICAL(&s_audio_owner_mux);
+}
 
 // Temperature state (from BQ27220), used for safety / UI hints / brightness caps.
 static float s_last_temp_c = NAN;
@@ -95,6 +167,53 @@ uint32_t radio_tx_timeout_ms(RadioT& radio, size_t len)
         timeout_ms = 120000ULL;
     }
     return static_cast<uint32_t>(timeout_ms);
+}
+
+void log_radio_spi_lock_timeout(const char* owner, TickType_t wait_ticks)
+{
+    const uint32_t now_ms = millis();
+    ++s_suppressed_radio_spi_lock_timeout_logs;
+    if (s_last_radio_spi_lock_timeout_log_ms != 0 &&
+        now_ms - s_last_radio_spi_lock_timeout_log_ms <
+            kRadioSpiLockTimeoutLogIntervalMs)
+    {
+        return;
+    }
+    Serial.printf("[SPI][RADIO] lock_timeout board=tlora_pager owner=%s wait_ticks=%lu suppressed=%lu\n",
+                  owner ? owner : "-",
+                  static_cast<unsigned long>(wait_ticks),
+                  static_cast<unsigned long>(s_suppressed_radio_spi_lock_timeout_logs - 1));
+    s_suppressed_radio_spi_lock_timeout_logs = 0;
+    s_last_radio_spi_lock_timeout_log_ms = now_ms;
+}
+
+template <typename Fn>
+bool withSharedSpiRadioAccess(const char* owner,
+                              TickType_t wait_ticks,
+                              Fn&& fn)
+{
+    const uint32_t wait_ms =
+        static_cast<uint32_t>(wait_ticks) * portTICK_PERIOD_MS;
+    sys::runtime::BusAcquireRequest request{};
+    request.resource = kSharedSpiBusResource;
+    request.policy = sys::runtime::BusAccessPolicy::InteractiveWorkerBounded;
+    request.command_id = kSharedSpiBusOwnerId + 1;
+    request.origin = kSharedSpiBusOwnerId;
+    request.deadline_ms = sys::millis_now() + wait_ms;
+    request.owner_label = owner ? owner : kSharedSpiBusOwner;
+    sys::runtime::ScopedBusAccessToken bus_token(
+        ::platform::esp::common::shared_spi_coordinator(),
+        request);
+    if (!bus_token.acquired())
+    {
+        if (wait_ticks != 0)
+        {
+            log_radio_spi_lock_timeout(owner, wait_ticks);
+        }
+        return false;
+    }
+    fn();
+    return true;
 }
 
 #ifdef USING_XL9555_EXPANDS
@@ -256,126 +375,214 @@ void TLoRaPagerBoard::initShareSPIPins()
     }
 }
 
+uint32_t TLoRaPagerBoard::beginDisplayHardware(uint32_t disable_hw_init)
+{
+    display_only_boot_ = true;
+    const uint32_t result = begin(disable_hw_init);
+    display_only_boot_ = false;
+    return result;
+}
+
+uint32_t TLoRaPagerBoard::beginServices(uint32_t disable_hw_init)
+{
+    display_only_boot_ = false;
+    return begin(disable_hw_init);
+}
+
 uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
 {
     Serial.printf("[TLoRaPagerBoard::begin] ===== HARDWARE INITIALIZATION START =====\n");
     Serial.printf("[TLoRaPagerBoard::begin] disable_hw_init=0x%08X\n", disable_hw_init);
     Serial.printf("[TLoRaPagerBoard::begin] NO_HW_GPS flag: %s\n", (disable_hw_init & NO_HW_GPS) ? "SET (GPS will be SKIPPED)" : "NOT SET (GPS will be initialized)");
 
-    static bool initialized = false;
-    if (initialized)
+    if (services_initialized_)
     {
         Serial.printf("[TLoRaPagerBoard::begin] Already initialized, returning devices_probe=0x%08X\n", devices_probe);
         return devices_probe;
     }
-    initialized = true;
-
-    bool res = false;
-
-    devices_probe = 0x00;
-
-    while (!psramFound())
+    if (display_hardware_initialized_ && display_only_boot_)
     {
-        log_d("ERROR:PSRAM NOT FOUND!");
-        delay(1000);
+        return devices_probe;
     }
 
-    devices_probe |= HW_PSRAM_ONLINE;
+    if (!display_hardware_initialized_)
+    {
+        bool res = false;
 
-    Wire.begin(SDA, SCL);
-    if (s_i2c_mutex == nullptr)
-    {
-        s_i2c_mutex = xSemaphoreCreateMutex();
-    }
+        devices_probe = 0x00;
 
-    // Initialize battery gauge (BQ27220)
-    if (!gauge.begin(Wire, SDA, SCL))
-    {
-        log_w("Battery gauge (BQ27220) not found");
-    }
-    else
-    {
-        log_d("Battery gauge initialized successfully");
-        devices_probe |= HW_GAUGE_ONLINE;
-        Serial.printf("[TLoRaPagerBoard::begin] gauge capacity startup profile deferred\n");
-    }
+        while (!psramFound())
+        {
+            log_d("ERROR:PSRAM NOT FOUND!");
+            delay(1000);
+        }
 
-    // Initialize PMU (BQ25896 power management)
-    Serial.printf("[TLoRaPagerBoard::begin] PMU init begin\n");
-    res = initPMU();
-    Serial.printf("[TLoRaPagerBoard::begin] PMU init end ok=%d\n", res ? 1 : 0);
-    if (!res)
-    {
-        log_w("PMU (BQ25896) not found");
-    }
-    else
-    {
-        log_d("PMU initialized successfully");
-        devices_probe |= HW_PMU_ONLINE;
-    }
-    Serial.printf("[TLoRaPagerBoard::begin] PMU settle begin ms=20\n");
-    delay(20);
-    Serial.printf("[TLoRaPagerBoard::begin] PMU settle end\n");
+        devices_probe |= HW_PSRAM_ONLINE;
 
-    // Initialize GPIO expander (XL9555) - controls power for various peripherals
+        Wire.begin(SDA, SCL);
+        if (s_i2c_mutex == nullptr)
+        {
+            s_i2c_mutex = xSemaphoreCreateMutex();
+        }
+
+        // Initialize battery gauge (BQ27220)
+        if (!gauge.begin(Wire, SDA, SCL))
+        {
+            log_w("Battery gauge (BQ27220) not found");
+        }
+        else
+        {
+            log_d("Battery gauge initialized successfully");
+            devices_probe |= HW_GAUGE_ONLINE;
+            Serial.printf("[TLoRaPagerBoard::begin] gauge capacity startup profile deferred\n");
+        }
+
+        // Initialize PMU (BQ25896 power management)
+        Serial.printf("[TLoRaPagerBoard::begin] PMU init begin\n");
+        res = initPMU();
+        Serial.printf("[TLoRaPagerBoard::begin] PMU init end ok=%d\n", res ? 1 : 0);
+        if (!res)
+        {
+            log_w("PMU (BQ25896) not found");
+        }
+        else
+        {
+            log_d("PMU initialized successfully");
+            devices_probe |= HW_PMU_ONLINE;
+        }
+        Serial.printf("[TLoRaPagerBoard::begin] PMU settle begin ms=20\n");
+        delay(20);
+        Serial.printf("[TLoRaPagerBoard::begin] PMU settle end\n");
+
+        // Initialize GPIO expander (XL9555) - controls power for various peripherals
 #ifdef USING_XL9555_EXPANDS
-    Serial.printf("[TLoRaPagerBoard::begin] expander init begin addr=0x20\n");
-    if (io.begin(Wire, 0x20))
-    {
-        log_d("GPIO expander (XL9555) initialized successfully");
-        Serial.printf("[TLoRaPagerBoard::begin] expander init end ok=1\n");
-        devices_probe |= HW_EXPAND_ONLINE;
+        Serial.printf("[TLoRaPagerBoard::begin] expander init begin addr=0x20\n");
+        if (io.begin(Wire, 0x20))
+        {
+            log_d("GPIO expander (XL9555) initialized successfully");
+            Serial.printf("[TLoRaPagerBoard::begin] expander init end ok=1\n");
+            devices_probe |= HW_EXPAND_ONLINE;
 
-        // Configure GPIO expander pins as outputs and set them HIGH (enable peripherals)
-        const uint8_t expand_pins[] = {
-            EXPANDS_KB_RST,  // Keyboard reset
-            EXPANDS_LORA_EN, // LoRa enable
-            EXPANDS_GPS_EN,  // GPS enable
-            EXPANDS_DRV_EN,  // Haptic driver enable
-            EXPANDS_AMP_EN,  // Audio amplifier enable
+            // Configure GPIO expander pins as outputs and set them HIGH (enable peripherals)
+            const uint8_t expand_pins[] = {
+                EXPANDS_KB_RST,  // Keyboard reset
+                EXPANDS_LORA_EN, // LoRa enable
+                EXPANDS_GPS_EN,  // GPS enable
+                EXPANDS_DRV_EN,  // Haptic driver enable
+                EXPANDS_AMP_EN,  // Audio amplifier enable
 #ifdef EXPANDS_GPS_RST
-            EXPANDS_GPS_RST, // GPS reset
+                EXPANDS_GPS_RST, // GPS reset
 #endif
 #ifdef EXPANDS_KB_EN
-            EXPANDS_KB_EN, // Keyboard enable
+                EXPANDS_KB_EN, // Keyboard enable
 #endif
 #ifdef EXPANDS_GPIO_EN
-            EXPANDS_GPIO_EN, // GPIO enable
+                EXPANDS_GPIO_EN, // GPIO enable
 #endif
 #ifdef EXPANDS_SD_EN
-            EXPANDS_SD_EN, // SD card enable
+                EXPANDS_SD_EN, // SD card enable
 #endif
-        };
+            };
 
-        Serial.printf("[TLoRaPagerBoard::begin] expander power rails begin count=%u\n",
-                      static_cast<unsigned>(sizeof(expand_pins) / sizeof(expand_pins[0])));
-        for (auto pin : expand_pins)
-        {
-            io.pinMode(pin, OUTPUT);
-            io.digitalWrite(pin, HIGH); // Enable peripheral power
-            delay(1);                   // Small delay for power stabilization
+            Serial.printf("[TLoRaPagerBoard::begin] expander power rails begin count=%u\n",
+                          static_cast<unsigned>(sizeof(expand_pins) / sizeof(expand_pins[0])));
+            for (auto pin : expand_pins)
+            {
+                io.pinMode(pin, OUTPUT);
+                io.digitalWrite(pin, HIGH); // Enable peripheral power
+                delay(1);                   // Small delay for power stabilization
+            }
+            Serial.printf("[TLoRaPagerBoard::begin] expander power rails settle begin ms=50\n");
+            delay(50);
+            Serial.printf("[TLoRaPagerBoard::begin] expander power rails settle end\n");
+
+            io.pinMode(EXPANDS_UNUSED_SPI_AUX_EN, OUTPUT);
+            io.digitalWrite(EXPANDS_UNUSED_SPI_AUX_EN, LOW);
+            Serial.printf("[TLoRaPagerBoard::begin] unused spi aux rail off pin=%d\n", EXPANDS_UNUSED_SPI_AUX_EN);
+
+            // SD card pull-up enable (input pin)
+            Serial.printf("[TLoRaPagerBoard::begin] expander sd pull enable pin mode begin\n");
+            io.pinMode(EXPANDS_SD_PULLEN, INPUT);
+            Serial.printf("[TLoRaPagerBoard::begin] expander sd pull enable pin mode end\n");
         }
-        Serial.printf("[TLoRaPagerBoard::begin] expander power rails settle begin ms=50\n");
-        delay(50);
-        Serial.printf("[TLoRaPagerBoard::begin] expander power rails settle end\n");
-
-        io.pinMode(EXPANDS_UNUSED_SPI_AUX_EN, OUTPUT);
-        io.digitalWrite(EXPANDS_UNUSED_SPI_AUX_EN, LOW);
-        Serial.printf("[TLoRaPagerBoard::begin] unused spi aux rail off pin=%d\n", EXPANDS_UNUSED_SPI_AUX_EN);
-
-        // SD card pull-up enable (input pin)
-        Serial.printf("[TLoRaPagerBoard::begin] expander sd pull enable pin mode begin\n");
-        io.pinMode(EXPANDS_SD_PULLEN, INPUT);
-        Serial.printf("[TLoRaPagerBoard::begin] expander sd pull enable pin mode end\n");
-    }
-    else
-    {
-        log_w("GPIO expander (XL9555) initialization failed");
-        Serial.printf("[TLoRaPagerBoard::begin] expander init end ok=0\n");
-    }
+        else
+        {
+            log_w("GPIO expander (XL9555) initialization failed");
+            Serial.printf("[TLoRaPagerBoard::begin] expander init end ok=0\n");
+        }
 #endif
 
-    // Initialize sensor (BHI260AP) - optional, can be disabled
+        // Initialize backlight driver (AW9364)
+        Serial.printf("[TLoRaPagerBoard::begin] backlight init begin\n");
+        backlight.begin(DISP_BL);
+        log_d("Backlight driver initialized (pin %d)", DISP_BL);
+        Serial.printf("[TLoRaPagerBoard::begin] backlight init end\n");
+
+        // Initialize shared SPI pins (CS pins for LoRa and SD)
+        Serial.printf("[TLoRaPagerBoard::begin] shared spi pins init begin\n");
+        initShareSPIPins();
+        Serial.printf("[TLoRaPagerBoard::begin] shared spi pins init end\n");
+
+        // Initialize display (ST7796)
+        Serial.printf("[TLoRaPagerBoard::begin] display bus init begin\n");
+        const bool display_init_ok =
+            LilyGoDispArduinoSPI::init(DISP_SCK,
+                                       DISP_MISO,
+                                       DISP_MOSI,
+                                       DISP_CS,
+                                       DISP_RST,
+                                       DISP_DC,
+                                       -1,
+                                       kPagerDisplaySpiClockMhz,
+                                       SPI);
+        Serial.printf("[TLoRaPagerBoard::begin] display bus init result ok=%d\n",
+                      display_init_ok ? 1 : 0);
+        if (!display_init_ok)
+        {
+            Serial.printf("[TLoRaPagerBoard::begin] display hardware not ready; "
+                          "services will not claim display readiness\n");
+            return devices_probe;
+        }
+        log_d("Display (ST7796) initialized: logical=%dx%d raw=%dx%d",
+              LilyGoDispArduinoSPI::_width, LilyGoDispArduinoSPI::_height, DISP_WIDTH, DISP_HEIGHT);
+        Serial.printf("[TLoRaPagerBoard::begin] display bus init end logical=%dx%d raw=%dx%d spi=%luMHz\n",
+                      LilyGoDispArduinoSPI::_width,
+                      LilyGoDispArduinoSPI::_height,
+                      DISP_WIDTH,
+                      DISP_HEIGHT,
+                      static_cast<unsigned long>(kPagerDisplaySpiClockMhz));
+
+        // DisplayInterface::init() is the sole SPI controller initializer for
+        // this board. Do not call SPI.begin() again after the panel has been
+        // initialized: reinitializing the shared peripheral here can reset
+        // controller state after the ST7796 command sequence has completed.
+        Serial.printf("[TLoRaPagerBoard::begin] shared spi bus ready owner=display "
+                      "sck=%d miso=%d mosi=%d\n",
+                      LORA_SCK,
+                      LORA_MISO,
+                      LORA_MOSI);
+
+        display_hardware_initialized_ = true;
+        Serial.printf("[TLoRaPagerBoard::begin] ===== DISPLAY HARDWARE READY =====\n");
+        if (display_only_boot_)
+        {
+            // LVGL creates its input devices immediately after the display
+            // hardware phase. The keyboard must therefore be online before
+            // returning from this phase, otherwise beginLvglHelper() sees
+            // hasKeyboard() == false and never creates keypad_read().
+            if (!(disable_hw_init & NO_HW_KEYBOARD))
+            {
+                Serial.printf("[TLoRaPagerBoard::begin] keyboard init for display phase begin\n");
+                const bool keyboard_ready = initKeyboard();
+                Serial.printf("[TLoRaPagerBoard::begin] keyboard init for display phase end ok=%d\n",
+                              keyboard_ready ? 1 : 0);
+            }
+            return devices_probe;
+        }
+    }
+
+    // Initialize sensor (BHI260AP) - optional, can be disabled. This is
+    // deliberately deferred until after the display boot frame is visible.
     if (!(disable_hw_init & NO_HW_SENSOR))
     {
         Serial.printf("[TLoRaPagerBoard::begin] sensor init begin\n");
@@ -393,46 +600,6 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
     {
         Serial.printf("[TLoRaPagerBoard::begin] sensor init skipped\n");
     }
-
-    // Initialize backlight driver (AW9364)
-    Serial.printf("[TLoRaPagerBoard::begin] backlight init begin\n");
-    backlight.begin(DISP_BL);
-    log_d("Backlight driver initialized (pin %d)", DISP_BL);
-    Serial.printf("[TLoRaPagerBoard::begin] backlight init end\n");
-
-    // Initialize shared SPI pins (CS pins for LoRa and SD)
-    Serial.printf("[TLoRaPagerBoard::begin] shared spi pins init begin\n");
-    initShareSPIPins();
-    Serial.printf("[TLoRaPagerBoard::begin] shared spi pins init end\n");
-
-    // Initialize display (ST7796)
-    Serial.printf("[TLoRaPagerBoard::begin] display bus init begin\n");
-    LilyGoDispArduinoSPI::init(DISP_SCK,
-                               DISP_MISO,
-                               DISP_MOSI,
-                               DISP_CS,
-                               DISP_RST,
-                               DISP_DC,
-                               -1,
-                               kPagerDisplaySpiClockMhz,
-                               SPI);
-    log_d("Display (ST7796) initialized: logical=%dx%d raw=%dx%d",
-          LilyGoDispArduinoSPI::_width, LilyGoDispArduinoSPI::_height, DISP_WIDTH, DISP_HEIGHT);
-    Serial.printf("[TLoRaPagerBoard::begin] display bus init end logical=%dx%d raw=%dx%d spi=%luMHz\n",
-                  LilyGoDispArduinoSPI::_width,
-                  LilyGoDispArduinoSPI::_height,
-                  DISP_WIDTH,
-                  DISP_HEIGHT,
-                  static_cast<unsigned long>(kPagerDisplaySpiClockMhz));
-
-    // Initialize SPI bus for LoRa/SD (shared SPI bus)
-    Serial.printf("[TLoRaPagerBoard::begin] shared spi bus begin sck=%d miso=%d mosi=%d\n",
-                  LORA_SCK,
-                  LORA_MISO,
-                  LORA_MOSI);
-    SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI);
-    log_d("SPI bus initialized (SCK=%d, MISO=%d, MOSI=%d)", LORA_SCK, LORA_MISO, LORA_MOSI);
-    Serial.printf("[TLoRaPagerBoard::begin] shared spi bus end\n");
 
     // Initialize RTC (PCF85063) - optional
     if (!(disable_hw_init & NO_HW_RTC))
@@ -552,13 +719,16 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
         if (codec.begin(Wire, 0x18, CODEC_TYPE_ES8311))
         {
             devices_probe |= HW_CODEC_ONLINE;
+            powerControl(POWER_SPEAK, false);
+            codec.setPaPinCallback(
+                [](bool enable, void* user_data)
+                {
+                    static_cast<ExtensionIOXL9555*>(user_data)->digitalWrite(
+                        EXPANDS_AMP_EN, enable);
+                },
+                &io);
             log_d("Audio codec (ES8311) initialized successfully");
             Serial.printf("[TLoRaPagerBoard::begin] audio codec init end ok=1\n");
-
-            // Set power amplifier control callback
-            codec.setPaPinCallback([](bool enable, void* user_data)
-                                   { ((ExtensionIOXL9555*)user_data)->digitalWrite(EXPANDS_AMP_EN, enable); },
-                                   &io);
         }
         else
         {
@@ -628,6 +798,7 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
     const char* gps_state =
         (devices_probe & HW_GPS_ONLINE) ? "YES" : ((disable_hw_init & NO_HW_GPS) ? "SKIPPED" : "DEFERRED");
     Serial.printf("[TLoRaPagerBoard::begin] GPS online: %s\n", gps_state);
+    services_initialized_ = true;
     return devices_probe;
 }
 
@@ -738,6 +909,11 @@ bool TLoRaPagerBoard::initDrv()
 bool TLoRaPagerBoard::initKeyboard()
 {
 #ifdef USING_INPUT_DEV_KEYBOARD
+    if (devices_probe & HW_KEYBOARD_ONLINE)
+    {
+        return true;
+    }
+
     if (devices_probe & HW_EXPAND_ONLINE)
     {
         powerControl(POWER_KEYBOARD, true);
@@ -773,9 +949,21 @@ bool TLoRaPagerBoard::initKeyboard()
 
 bool TLoRaPagerBoard::initLoRa()
 {
-    radio_.reset();
+    int state = RADIOLIB_ERR_NONE;
+    const bool bus_acquired = withSharedSpiRadioAccess(
+        "radio_init",
+        pdMS_TO_TICKS(200),
+        [&]()
+        {
+            radio_.reset();
+            state = radio_.begin();
+        });
 
-    int state = radio_.begin();
+    if (!bus_acquired)
+    {
+        devices_probe &= ~HW_RADIO_ONLINE;
+        return false;
+    }
 
     if (state != RADIOLIB_ERR_NONE)
     {
@@ -805,8 +993,18 @@ bool TLoRaPagerBoard::initLoRa()
     };
 
     radio_.setRfSwitchTable(rfswitch_dio_pins, rfswitch_table);
-    state = radio_.setTCXO(3.0f);
-    if (state != RADIOLIB_ERR_NONE)
+    const bool tcxo_bus_acquired = withSharedSpiRadioAccess(
+        "radio_tcxo",
+        pdMS_TO_TICKS(200),
+        [&]()
+        {
+            state = radio_.setTCXO(3.0f);
+        });
+    if (!tcxo_bus_acquired)
+    {
+        log_w("LR1121 TCXO configuration skipped: shared SPI unavailable");
+    }
+    else if (state != RADIOLIB_ERR_NONE)
     {
         log_w("LR1121 TCXO config returned code: %d", state);
     }
@@ -891,29 +1089,13 @@ bool TLoRaPagerBoard::ensureSDReady()
 
 void TLoRaPagerBoard::uninstallSD()
 {
-    // Safely unmount SD card (requires SPI lock)
-    if (LilyGoDispArduinoSPI::lock(portMAX_DELAY))
-    {
-        ::platform::esp::arduino_common::storage::unmount_sd_card();
-        LilyGoDispArduinoSPI::unlock();
-        log_d("SD card unmounted");
-    }
-    else
-    {
-        log_w("Failed to acquire SPI lock for SD card unmount");
-    }
+    ::platform::esp::arduino_common::storage::unmount_sd_card();
+    log_d("SD card unmounted");
 }
 
 bool TLoRaPagerBoard::isCardReady()
 {
-    // Check if SD card is ready (requires SPI lock)
-    bool ready = false;
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(100)))
-    {
-        ready = ::platform::esp::arduino_common::storage::sd_card_ready();
-        LilyGoDispArduinoSPI::unlock();
-    }
-    return ready;
+    return ::platform::esp::arduino_common::storage::sd_card_ready();
 }
 
 void TLoRaPagerBoard::powerControl(PowerCtrlChannel_t ch, bool enable)
@@ -1063,6 +1245,197 @@ void TLoRaPagerBoard::stopVibrator()
     log_d("[stopVibrator] Power disabled, function completed");
 }
 
+int TLoRaPagerBoard::openAudioSession(PagerAudioOwner owner, uint8_t bits_per_sample,
+                                      uint8_t channels, uint32_t sample_rate,
+                                      bool speaker_enabled)
+{
+#ifndef USING_AUDIO_CODEC
+    (void)owner;
+    (void)bits_per_sample;
+    (void)channels;
+    (void)sample_rate;
+    (void)speaker_enabled;
+    return -1;
+#else
+    if (!(devices_probe & HW_CODEC_ONLINE) || owner == PagerAudioOwner::None ||
+        channels == 0)
+    {
+        return -1;
+    }
+    if (!claimAudioOwner(owner))
+    {
+        Serial.printf("[Audio][Pager] busy requested=%s owner=%s\n",
+                      audioOwnerLabel(owner),
+                      audioOwnerLabel(currentAudioOwner()));
+        return -2;
+    }
+
+    powerControl(POWER_SPEAK, false);
+    int state = -1;
+    {
+        I2CGuard i2c;
+        state = codec.open(bits_per_sample, channels, sample_rate);
+        if (state == 0)
+        {
+            codec.setMute(true);
+            codec.setOutMute(true);
+        }
+    }
+    if (state != 0)
+    {
+        releaseAudioOwner(owner);
+        Serial.printf("[Audio][Pager] open failed owner=%s rc=%d rate=%lu logical_ch=%u hw_ch=%u\n",
+                      audioOwnerLabel(owner),
+                      state,
+                      static_cast<unsigned long>(sample_rate),
+                      static_cast<unsigned>(channels),
+                      static_cast<unsigned>(channels));
+        return state;
+    }
+
+    if (!speaker_enabled)
+    {
+        powerControl(POWER_SPEAK, false);
+    }
+    else
+    {
+        delay(10);
+    }
+    Serial.printf("[Audio][Pager] open owner=%s rate=%lu logical_ch=%u hw_ch=%u speaker=%u\n",
+                  audioOwnerLabel(owner),
+                  static_cast<unsigned long>(sample_rate),
+                  static_cast<unsigned>(channels),
+                  static_cast<unsigned>(channels),
+                  speaker_enabled ? 1U : 0U);
+    return 0;
+#endif
+}
+
+void TLoRaPagerBoard::closeAudioSession(PagerAudioOwner owner)
+{
+#ifdef USING_AUDIO_CODEC
+    if (!audioOwnerMatches(owner))
+    {
+        return;
+    }
+
+    {
+        I2CGuard i2c;
+        codec.setMute(true);
+        codec.setOutMute(true);
+    }
+    powerControl(POWER_SPEAK, false);
+    {
+        I2CGuard i2c;
+        codec.close();
+    }
+    releaseAudioOwner(owner);
+    Serial.printf("[Audio][Pager] close owner=%s\n", audioOwnerLabel(owner));
+#else
+    (void)owner;
+#endif
+}
+
+int TLoRaPagerBoard::audioRead(PagerAudioOwner owner, uint8_t* buffer, size_t size)
+{
+#ifdef USING_AUDIO_CODEC
+    if (!buffer || size == 0 || !audioOwnerMatches(owner))
+    {
+        return -1;
+    }
+    return codec.read(buffer, size);
+#else
+    (void)owner;
+    (void)buffer;
+    (void)size;
+    return -1;
+#endif
+}
+
+int TLoRaPagerBoard::audioWrite(PagerAudioOwner owner, const uint8_t* buffer, size_t size)
+{
+#ifdef USING_AUDIO_CODEC
+    if (!buffer || size == 0 || !audioOwnerMatches(owner))
+    {
+        return -1;
+    }
+    return codec.write(const_cast<uint8_t*>(buffer), size);
+#else
+    (void)owner;
+    (void)buffer;
+    (void)size;
+    return -1;
+#endif
+}
+
+bool TLoRaPagerBoard::audioSetVolume(PagerAudioOwner owner, uint8_t level)
+{
+#ifdef USING_AUDIO_CODEC
+    if (!audioOwnerMatches(owner))
+    {
+        return false;
+    }
+    I2CGuard i2c;
+    codec.setVolume(level);
+    return true;
+#else
+    (void)owner;
+    (void)level;
+    return false;
+#endif
+}
+
+bool TLoRaPagerBoard::audioSetGain(PagerAudioOwner owner, float db_value)
+{
+#ifdef USING_AUDIO_CODEC
+    if (!audioOwnerMatches(owner))
+    {
+        return false;
+    }
+    I2CGuard i2c;
+    codec.setGain(db_value);
+    return true;
+#else
+    (void)owner;
+    (void)db_value;
+    return false;
+#endif
+}
+
+bool TLoRaPagerBoard::audioSetMute(PagerAudioOwner owner, bool enabled)
+{
+#ifdef USING_AUDIO_CODEC
+    if (!audioOwnerMatches(owner))
+    {
+        return false;
+    }
+    I2CGuard i2c;
+    codec.setMute(enabled);
+    return true;
+#else
+    (void)owner;
+    (void)enabled;
+    return false;
+#endif
+}
+
+bool TLoRaPagerBoard::audioSetOutMute(PagerAudioOwner owner, bool enabled)
+{
+#ifdef USING_AUDIO_CODEC
+    if (!audioOwnerMatches(owner))
+    {
+        return false;
+    }
+    I2CGuard i2c;
+    codec.setOutMute(enabled);
+    return true;
+#else
+    (void)owner;
+    (void)enabled;
+    return false;
+#endif
+}
+
 void TLoRaPagerBoard::playMessageTone()
 {
 #ifndef USING_AUDIO_CODEC
@@ -1097,42 +1470,152 @@ void TLoRaPagerBoard::playMessageTone()
     static constexpr size_t kFramesPerChunk = 128;
     namespace pager_tone = ::platform::ui::audio::pager_notification;
 
-    int prev_volume = codec.getVolume();
-    if (prev_volume < 0 || prev_volume > 100)
+    constexpr PagerAudioOwner kOwner = PagerAudioOwner::MessageTone;
+    const int open_result = openAudioSession(
+        kOwner, 16, 1, pager_tone::kPlaybackSampleRateHz, true);
+    if (open_result != 0)
     {
-        prev_volume = 50;
-    }
-    bool prev_out_mute = codec.getOutMute();
-
-    bool opened =
-        (codec.open(16, pager_tone::kChannels, pager_tone::kPlaybackSampleRateHz) == 0);
-    if (!opened)
-    {
+        Serial.printf("[Audio][PagerTone] open failed kind=message rc=%d rate=%lu channels=1\n",
+                      open_result,
+                      static_cast<unsigned long>(pager_tone::kPlaybackSampleRateHz));
         s_playing = false;
         return;
     }
 
-    codec.setOutMute(false);
-    codec.setVolume(_message_tone_volume);
+    if (!audioSetMute(kOwner, true) ||
+        !audioSetVolume(kOwner, _message_tone_volume) ||
+        !audioSetOutMute(kOwner, false))
+    {
+        closeAudioSession(kOwner);
+        s_playing = false;
+        return;
+    }
 
-    int16_t pcm[kFramesPerChunk * pager_tone::kChannels];
+    int16_t pcm[kFramesPerChunk];
     pager_tone::AdpcmPlaybackState tone_state{};
     while (pager_tone::hasMore(tone_state))
     {
-        const uint16_t frames = pager_tone::fillStereoInterleaved(
-            tone_state, pcm, static_cast<uint16_t>(kFramesPerChunk));
+        uint16_t frames = 0;
+        while (frames < kFramesPerChunk &&
+               pager_tone::nextPlaybackSample(tone_state, pcm[frames]))
+        {
+            ++frames;
+        }
         if (frames == 0)
         {
             break;
         }
-        codec.write(reinterpret_cast<uint8_t*>(pcm),
-                    frames * pager_tone::kChannels * sizeof(int16_t));
+        const int write_result = audioWrite(
+            kOwner, reinterpret_cast<const uint8_t*>(pcm), frames * sizeof(int16_t));
+        if (write_result != 0)
+        {
+            Serial.printf("[Audio][PagerTone] write failed kind=message rc=%d frames=%u\n",
+                          write_result,
+                          static_cast<unsigned>(frames));
+            break;
+        }
         delay(1);
     }
 
-    codec.setVolume(static_cast<uint8_t>(prev_volume));
-    codec.setOutMute(prev_out_mute);
-    codec.close();
+    memset(pcm, 0, sizeof(pcm));
+    (void)audioWrite(kOwner, reinterpret_cast<const uint8_t*>(pcm), sizeof(pcm));
+    (void)audioWrite(kOwner, reinterpret_cast<const uint8_t*>(pcm), sizeof(pcm));
+    delay(7);
+    closeAudioSession(kOwner);
+    s_playing = false;
+#endif
+}
+
+void TLoRaPagerBoard::playIncomingCallTone(const volatile bool* stop_requested)
+{
+#ifndef USING_AUDIO_CODEC
+    return;
+#else
+    if ((stop_requested && *stop_requested) || _message_tone_volume == 0)
+    {
+        return;
+    }
+    if (!(devices_probe & HW_CODEC_ONLINE))
+    {
+        return;
+    }
+
+    static bool s_playing = false;
+    static uint32_t s_last_play_ms = 0;
+
+    if (s_playing)
+    {
+        return;
+    }
+
+    const uint32_t now = millis();
+    if ((now - s_last_play_ms) < 240)
+    {
+        return;
+    }
+
+    s_playing = true;
+    s_last_play_ms = now;
+
+    static constexpr size_t kFramesPerChunk = 128;
+    namespace call_tone = ::platform::ui::audio::call_notification;
+
+    constexpr PagerAudioOwner kOwner = PagerAudioOwner::IncomingCallTone;
+    const int open_result = openAudioSession(
+        kOwner, 16, 1, call_tone::kPlaybackSampleRateHz, true);
+    if (open_result != 0)
+    {
+        Serial.printf("[Audio][PagerTone] open failed kind=call rc=%d rate=%lu channels=1\n",
+                      open_result,
+                      static_cast<unsigned long>(call_tone::kPlaybackSampleRateHz));
+        s_playing = false;
+        return;
+    }
+
+    if (!audioSetMute(kOwner, true) ||
+        !audioSetVolume(kOwner, _message_tone_volume) ||
+        !audioSetOutMute(kOwner, false))
+    {
+        closeAudioSession(kOwner);
+        s_playing = false;
+        return;
+    }
+
+    int16_t pcm[kFramesPerChunk];
+    call_tone::AdpcmPlaybackState tone_state{};
+    while (call_tone::hasMore(tone_state))
+    {
+        if (stop_requested && *stop_requested)
+        {
+            break;
+        }
+        uint16_t frames = 0;
+        while (frames < kFramesPerChunk &&
+               call_tone::nextPlaybackSample(tone_state, pcm[frames]))
+        {
+            ++frames;
+        }
+        if (frames == 0)
+        {
+            break;
+        }
+        const int write_result = audioWrite(
+            kOwner, reinterpret_cast<const uint8_t*>(pcm), frames * sizeof(int16_t));
+        if (write_result != 0)
+        {
+            Serial.printf("[Audio][PagerTone] write failed kind=call rc=%d frames=%u\n",
+                          write_result,
+                          static_cast<unsigned>(frames));
+            break;
+        }
+        delay(1);
+    }
+
+    memset(pcm, 0, sizeof(pcm));
+    (void)audioWrite(kOwner, reinterpret_cast<const uint8_t*>(pcm), sizeof(pcm));
+    (void)audioWrite(kOwner, reinterpret_cast<const uint8_t*>(pcm), sizeof(pcm));
+    delay(7);
+    closeAudioSession(kOwner);
     s_playing = false;
 #endif
 }
@@ -1167,6 +1650,7 @@ int TLoRaPagerBoard::getKey(char* c)
 #ifdef USING_INPUT_DEV_KEYBOARD
     if (devices_probe & HW_KEYBOARD_ONLINE)
     {
+        I2CGuard i2c;
         return kb.getKey(c);
     }
 #endif
@@ -1261,13 +1745,22 @@ void TLoRaPagerBoard::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t
     LilyGoDispArduinoSPI::pushColors(x1, y1, x2, y2, color);
 }
 
+bool TLoRaPagerBoard::pushColorsResult(uint16_t x1,
+                                       uint16_t y1,
+                                       uint16_t x2,
+                                       uint16_t y2,
+                                       uint16_t* color)
+{
+    return LilyGoDispArduinoSPI::pushColorsResult(x1, y1, x2, y2, color);
+}
+
 int TLoRaPagerBoard::transmitRadio(const uint8_t* data, size_t len)
 {
     const uint32_t timeout_ms = radio_tx_timeout_ms(radio_, len);
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx"))
+    int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    if (withSharedSpiRadioAccess("radio_tx", pdMS_TO_TICKS(50), [&]()
+                                 { rc = radio_.startTransmit(data, len); }))
     {
-        int rc = radio_.startTransmit(data, len);
-        LilyGoDispArduinoSPI::unlock();
         if (rc != RADIOLIB_ERR_NONE)
         {
             return rc;
@@ -1283,20 +1776,18 @@ int TLoRaPagerBoard::transmitRadio(const uint8_t* data, size_t len)
     {
         if (static_cast<uint32_t>(millis() - started_ms) > timeout_ms)
         {
-            if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx_finish"))
-            {
-                (void)radio_.finishTransmit();
-                LilyGoDispArduinoSPI::unlock();
-            }
+            (void)withSharedSpiRadioAccess("radio_tx_finish",
+                                           pdMS_TO_TICKS(50),
+                                           [&]()
+                                           { (void)radio_.finishTransmit(); });
             return RADIOLIB_ERR_TX_TIMEOUT;
         }
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx_finish"))
+    if (withSharedSpiRadioAccess("radio_tx_finish", pdMS_TO_TICKS(50), [&]()
+                                 { rc = radio_.finishTransmit(); }))
     {
-        const int rc = radio_.finishTransmit();
-        LilyGoDispArduinoSPI::unlock();
         return rc;
     }
     return RADIOLIB_ERR_SPI_WRITE_FAILED;
@@ -1304,10 +1795,10 @@ int TLoRaPagerBoard::transmitRadio(const uint8_t* data, size_t len)
 
 int TLoRaPagerBoard::radioStandby()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_cfg"))
+    int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    if (withSharedSpiRadioAccess("radio_cfg", pdMS_TO_TICKS(50), [&]()
+                                 { rc = radio_.standby(); }))
     {
-        int rc = radio_.standby();
-        LilyGoDispArduinoSPI::unlock();
         return rc;
     }
     return RADIOLIB_ERR_SPI_WRITE_FAILED;
@@ -1315,10 +1806,10 @@ int TLoRaPagerBoard::radioStandby()
 
 int TLoRaPagerBoard::startRadioReceive()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_rx"))
+    int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    if (withSharedSpiRadioAccess("radio_rx", pdMS_TO_TICKS(50), [&]()
+                                 { rc = radio_.startReceive(); }))
     {
-        int rc = radio_.startReceive();
-        LilyGoDispArduinoSPI::unlock();
         return rc;
     }
     return RADIOLIB_ERR_SPI_WRITE_FAILED;
@@ -1326,10 +1817,10 @@ int TLoRaPagerBoard::startRadioReceive()
 
 uint32_t TLoRaPagerBoard::getRadioIrqFlags()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_irq"))
+    uint32_t flags = 0;
+    if (withSharedSpiRadioAccess("radio_irq", 0, [&]()
+                                 { flags = radio_.getIrqFlags(); }))
     {
-        uint32_t flags = radio_.getIrqFlags();
-        LilyGoDispArduinoSPI::unlock();
         return flags;
     }
     return 0;
@@ -1337,10 +1828,10 @@ uint32_t TLoRaPagerBoard::getRadioIrqFlags()
 
 int TLoRaPagerBoard::getRadioPacketLength(bool update)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rx"))
+    int len = 0;
+    if (withSharedSpiRadioAccess("radio_rx", pdMS_TO_TICKS(20), [&]()
+                                 { len = static_cast<int>(radio_.getPacketLength(update)); }))
     {
-        int len = static_cast<int>(radio_.getPacketLength(update));
-        LilyGoDispArduinoSPI::unlock();
         return len;
     }
     return 0;
@@ -1348,10 +1839,10 @@ int TLoRaPagerBoard::getRadioPacketLength(bool update)
 
 int TLoRaPagerBoard::readRadioData(uint8_t* buf, size_t len)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_rx"))
+    int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    if (withSharedSpiRadioAccess("radio_rx", pdMS_TO_TICKS(50), [&]()
+                                 { rc = radio_.readData(buf, len); }))
     {
-        int rc = radio_.readData(buf, len);
-        LilyGoDispArduinoSPI::unlock();
         return rc;
     }
     return RADIOLIB_ERR_SPI_WRITE_FAILED;
@@ -1359,19 +1850,16 @@ int TLoRaPagerBoard::readRadioData(uint8_t* buf, size_t len)
 
 void TLoRaPagerBoard::clearRadioIrqFlags(uint32_t flags)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_irq"))
-    {
-        radio_.clearIrqFlags(flags);
-        LilyGoDispArduinoSPI::unlock();
-    }
+    (void)withSharedSpiRadioAccess("radio_irq", pdMS_TO_TICKS(20), [&]()
+                                   { radio_.clearIrqFlags(flags); });
 }
 
 float TLoRaPagerBoard::getRadioRSSI()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))
+    float rssi = std::numeric_limits<float>::quiet_NaN();
+    if (withSharedSpiRadioAccess("radio_rssi", pdMS_TO_TICKS(20), [&]()
+                                 { rssi = radio_.getRSSI(); }))
     {
-        float rssi = radio_.getRSSI();
-        LilyGoDispArduinoSPI::unlock();
         return rssi;
     }
     return std::numeric_limits<float>::quiet_NaN();
@@ -1379,14 +1867,17 @@ float TLoRaPagerBoard::getRadioRSSI()
 
 float TLoRaPagerBoard::getRadioInstantRSSI()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))
+    float rssi = std::numeric_limits<float>::quiet_NaN();
+    auto read_instant_rssi = [&]()
     {
 #if defined(ARDUINO_LILYGO_LORA_SX1262)
-        const float rssi = radio_.getRSSI(false);
+        rssi = radio_.getRSSI(false);
 #else
-        const float rssi = radio_.getRSSI();
+        rssi = radio_.getRSSI();
 #endif
-        LilyGoDispArduinoSPI::unlock();
+    };
+    if (withSharedSpiRadioAccess("radio_rssi", pdMS_TO_TICKS(20), read_instant_rssi))
+    {
         return rssi;
     }
     return std::numeric_limits<float>::quiet_NaN();
@@ -1394,10 +1885,10 @@ float TLoRaPagerBoard::getRadioInstantRSSI()
 
 float TLoRaPagerBoard::getRadioSNR()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))
+    float snr = std::numeric_limits<float>::quiet_NaN();
+    if (withSharedSpiRadioAccess("radio_rssi", pdMS_TO_TICKS(20), [&]()
+                                 { snr = radio_.getSNR(); }))
     {
-        float snr = radio_.getSNR();
-        LilyGoDispArduinoSPI::unlock();
         return snr;
     }
     return std::numeric_limits<float>::quiet_NaN();
@@ -1412,9 +1903,10 @@ int TLoRaPagerBoard::configureFskRadio(float freq_mhz, float bit_rate_kbps, floa
         return -1;
     }
 
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(200), "radio_cfg"))
+    int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    auto configure = [&]()
     {
-        int rc = radio_.standby();
+        rc = radio_.standby();
         if (rc == RADIOLIB_ERR_NONE)
         {
 #if defined(ARDUINO_LILYGO_LORA_LR1121)
@@ -1437,7 +1929,9 @@ int TLoRaPagerBoard::configureFskRadio(float freq_mhz, float bit_rate_kbps, floa
         {
             rc = radio_.setPreambleLength(preamble_len);
         }
-        LilyGoDispArduinoSPI::unlock();
+    };
+    if (withSharedSpiRadioAccess("radio_cfg", pdMS_TO_TICKS(200), configure))
+    {
         return rc;
     }
     return RADIOLIB_ERR_SPI_WRITE_FAILED;
@@ -1447,21 +1941,24 @@ int TLoRaPagerBoard::restoreLoRaRadio()
 {
     CachedLoRaConfig cached = lora_config_;
 
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(200), "radio_cfg"))
+    int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    auto restore = [&]()
     {
 #if defined(ARDUINO_LILYGO_LORA_LR1121)
-        int rc = radio_.begin(cached.valid ? cached.freq_mhz : 434.0f,
-                              cached.valid ? cached.bw_khz : 125.0f,
-                              cached.valid ? cached.sf : 9,
-                              cached.valid ? cached.cr_denom : 7,
-                              cached.valid ? cached.sync_word : RADIOLIB_LR11X0_LORA_SYNC_WORD_PRIVATE,
-                              cached.valid ? cached.tx_power : 10,
-                              cached.valid ? cached.preamble_len : 8,
-                              3.0f);
+        rc = radio_.begin(cached.valid ? cached.freq_mhz : 434.0f,
+                          cached.valid ? cached.bw_khz : 125.0f,
+                          cached.valid ? cached.sf : 9,
+                          cached.valid ? cached.cr_denom : 7,
+                          cached.valid ? cached.sync_word : RADIOLIB_LR11X0_LORA_SYNC_WORD_PRIVATE,
+                          cached.valid ? cached.tx_power : 10,
+                          cached.valid ? cached.preamble_len : 8,
+                          3.0f);
 #else
-        int rc = radio_.begin();
+        rc = radio_.begin();
 #endif
-        LilyGoDispArduinoSPI::unlock();
+    };
+    if (withSharedSpiRadioAccess("radio_cfg", pdMS_TO_TICKS(200), restore))
+    {
         if (rc != RADIOLIB_ERR_NONE)
         {
             return rc;
@@ -1485,10 +1982,10 @@ int TLoRaPagerBoard::restoreLoRaRadio()
 
 int TLoRaPagerBoard::startRadioTransmit(const uint8_t* data, size_t len)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx"))
+    int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    if (withSharedSpiRadioAccess("radio_tx", pdMS_TO_TICKS(50), [&]()
+                                 { rc = radio_.startTransmit(const_cast<uint8_t*>(data), len); }))
     {
-        int rc = radio_.startTransmit(const_cast<uint8_t*>(data), len);
-        LilyGoDispArduinoSPI::unlock();
         return rc;
     }
     return RADIOLIB_ERR_SPI_WRITE_FAILED;
@@ -1518,7 +2015,7 @@ void TLoRaPagerBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t s
     lora_config_.sync_word = sync_word;
     lora_config_.crc_len = crc_len;
 
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(100), "radio_cfg"))
+    auto configure = [&]()
     {
         int first_error = RADIOLIB_ERR_NONE;
         const char* failed_step = nullptr;
@@ -1543,14 +2040,14 @@ void TLoRaPagerBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t s
         note_error("setPreambleLength", radio_.setPreambleLength(preamble_len));
         note_error("setSyncWord", radio_.setSyncWord(sync_word));
         note_error("setCRC", radio_.setCRC(crc_len));
-        LilyGoDispArduinoSPI::unlock();
         if (first_error != RADIOLIB_ERR_NONE)
         {
             log_w("LoRa config step %s returned code: %d",
                   failed_step ? failed_step : "unknown",
                   first_error);
         }
-    }
+    };
+    (void)withSharedSpiRadioAccess("radio_cfg", pdMS_TO_TICKS(100), configure);
 }
 
 bool TLoRaPagerBoard::hasEncoder()
@@ -2268,6 +2765,15 @@ int TLoRaPagerBoard::readADCVoltage(uint8_t pin, uint8_t samples, uint8_t attenu
 RotaryMsg_t TLoRaPagerBoard::getRotary()
 {
     static RotaryMsg_t msg;
+    // LVGL polls input while the display-first boot frame is presented. The
+    // rotary queue is deliberately created later in beginServices(), so an
+    // uninitialized queue means "no input yet", not a valid FreeRTOS queue.
+    if (rotaryMsg == nullptr)
+    {
+        msg.centerBtnPressed = false;
+        msg.dir = ROTARY_DIR_NONE;
+        return msg;
+    }
     if (xQueueReceive(rotaryMsg, &msg, pdMS_TO_TICKS(50)) == pdPASS)
     {
         return msg;

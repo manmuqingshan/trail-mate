@@ -3,6 +3,8 @@
 #include "chat/domain/chat_types.h"
 #include "lvgl.h"
 #include "ui_presentation/chat/chat_message_ref.h"
+#include "ui_presentation/chat/chat_workspace_snapshot.h"
+#include <cstdint>
 #include <vector>
 
 namespace ui::chat
@@ -18,7 +20,9 @@ class ChatConversationScreen
   public:
     enum class ActionIntent
     {
-        Reply
+        Reply,
+        LoadOlder,
+        LoadLatest
     };
 
     enum class MessageActionIntent
@@ -32,7 +36,11 @@ class ChatConversationScreen
     void addMessage(const ::ui::chat::MessageRow& row);
     void clearMessages();
     void scrollToBottom();
-    bool updateMessageStatus(chat::MessageId msg_id, chat::MessageStatus status);
+    bool updateMessageStatus(
+        chat::MessageId msg_id,
+        chat::MessageStatus status,
+        bool has_protocol = false,
+        chat::MeshProtocol protocol = chat::MeshProtocol::Meshtastic);
 
     void setActionCallback(void (*cb)(ActionIntent intent, void*), void* user_data);
     void setMessageActionCallback(
@@ -54,11 +62,16 @@ class ChatConversationScreen
     void setBackCallback(void (*cb)(void*), void* user_data);
     void setReplyEnabled(bool enabled);
     bool isReplyEnabled() const { return reply_enabled_; }
+    void setHistoryPaging(bool has_older,
+                          bool has_newer,
+                          uint16_t offset,
+                          uint16_t total_count);
 
   private:
     struct LifetimeGuard
     {
         bool alive = false;
+        int pending_async = 0;
     };
 
     struct ActionPayload
@@ -99,7 +112,8 @@ class ChatConversationScreen
     void* back_cb_user_data_ = nullptr;
 
     std::vector<MessageItem> messages_;
-    static constexpr size_t MAX_DISPLAY_MESSAGES = 100;
+    static constexpr size_t MAX_DISPLAY_MESSAGES =
+        ::ui::chat::ChatWorkspaceSnapshot::kMaxMessages;
 
     LifetimeGuard* guard_ = nullptr;
     bool reply_enabled_ = true;
@@ -108,6 +122,7 @@ class ChatConversationScreen
 
     void schedule_action_async(ActionIntent intent);
     void schedule_back_async();
+    static void release_async_guard(LifetimeGuard* guard);
 
     static void action_event_cb(lv_event_t* e);
     static void back_event_cb(lv_event_t* e);

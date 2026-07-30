@@ -43,10 +43,16 @@ lv_indev_t* lv_get_encoder_indev()
     return find_indev(LV_INDEV_TYPE_ENCODER);
 }
 
-void lv_begin_external_font_load_fs_scope()
+bool lv_begin_external_font_load_fs_scope()
 {
+    return true;
 }
 
 void lv_end_external_font_load_fs_scope()
 {
+}
+
+bool lv_external_font_load_fs_was_busy()
+{
+    return false;
 }

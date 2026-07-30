@@ -11,9 +11,13 @@ Render queue owns the current visible tile plan.
 Renderer draws widgets from the visible plan. It must not own tile path policy.
 
 The render queue is a UI-facing projection of tile state. It is not the owner of
-slow tile work. File lookup, SD access, shared-SPI arbitration, image decode,
-and cache fill must run through the command/worker/event design described in
+slow tile work. File lookup, SD access, device I/O, image decode, and cache fill
+must run through the command/worker/event design described in
 `UI_STORAGE_EVENT_RUNTIME_DESIGN_SPEC.md`.
+
+The shared-SPI arbitration itself is specified only in
+`docs/spi_bus_architecture.md`; this render specification does not expose or
+restate its lock details.
 
 ## Objects
 

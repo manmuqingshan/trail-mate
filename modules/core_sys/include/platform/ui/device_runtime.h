@@ -34,6 +34,7 @@ bool supports_keyboard_backlight();
 bool supports_configurable_battery_gauge();
 void reload_configurable_battery_gauge();
 uint8_t screen_brightness();
+uint8_t screen_brightness_max();
 void set_screen_brightness(uint8_t level);
 uint8_t keyboard_backlight();
 uint8_t keyboard_backlight_max();

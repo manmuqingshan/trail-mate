@@ -16,7 +16,6 @@ enum class ScreenId : uint8_t
     SkyPlot,
     Team,
     Tracker,
-    PcLink,
     EnergySweep,
     Settings,
     WalkieTalkie,

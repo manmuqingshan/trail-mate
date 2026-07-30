@@ -130,7 +130,7 @@ void BleManager::restartService(chat::MeshProtocol protocol)
 
     shutdownNimble();
 
-    if (protocol == chat::MeshProtocol::RNode || protocol == chat::MeshProtocol::LXMF)
+    if (chat::infra::isReticulumMeshProtocol(protocol))
     {
         active_protocol_ = protocol;
         Serial.printf("[BLE] protocol=%s has no BLE service yet\n",

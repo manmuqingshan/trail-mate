@@ -11,7 +11,7 @@ set(TRAIL_MATE_REPO_ROOT
 include("${TRAIL_MATE_REPO_ROOT}/cmake/TrailMateUxPacks.cmake")
 trailmate_add_ui_lvgl_ux_packs(trailmate_ui_lvgl_ux_packs)
 
-set(TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_VERSION "0.1.29-alpha"
+set(TRAIL_MATE_CARDPUTER_ZERO_PACKAGE_VERSION "0.1.38-alpha"
     CACHE STRING "Debian package version for trailmate-cardputer-zero")
 option(TRAIL_MATE_CARDPUTER_ZERO_BUILD_SCREENSHOT_CAPTURE
        "Build the Cardputer Zero shared-LVGL screenshot capture tool."
@@ -192,7 +192,8 @@ if(TRAIL_MATE_CARDPUTER_ZERO_BUILD_DEVICE AND CMAKE_SYSTEM_NAME STREQUAL "Linux"
             trailmate_cardputer_zero_ui_shell
             trailmate_cardputer_zero_wayland_protocol
             PkgConfig::WAYLAND_CLIENT
-            PkgConfig::XKBCOMMON)
+            PkgConfig::XKBCOMMON
+            rt)
     target_compile_features(trailmate_cardputer_zero_wayland PRIVATE cxx_std_20)
     set_target_properties(trailmate_cardputer_zero_wayland
         PROPERTIES OUTPUT_NAME "trailmate-cardputer-zero")

@@ -828,8 +828,13 @@ bool MeshCoreBleService::handleCustomVarSet(const char* key, const char* value)
     }
     else if (strcmp(key, "channel_name") == 0)
     {
-        copyBounded(mesh_cfg.mesh.meshcore_channel_name,
-                    sizeof(mesh_cfg.mesh.meshcore_channel_name), value);
+        auto& channel = mesh_cfg.mesh.activeMeshCoreChannel();
+        copyBounded(channel.name, sizeof(channel.name), value);
+        if (mesh_cfg.mesh.meshcore_channel_slot != 0U && channel.name[0] != '\0')
+        {
+            channel.enabled = true;
+        }
+        mesh_cfg.mesh.syncMeshCoreLegacyChannelMirror();
         save_cfg = true;
         save_mesh_cfg = true;
         apply_mesh = true;
@@ -2023,17 +2028,15 @@ bool MeshCoreBleService::buildContactFrame(const chat::meshcore::MeshCoreAdapter
     i += kMaxPathSize;
 
     char name[32] = {};
-    const auto* store = ctx_.getNodeStore();
-    if (store)
+    const auto* directory_peer =
+        ctx_.getContactService().getPeerByNodeId(peer.node_id);
+    if (directory_peer)
     {
-        for (const auto& entry : store->getEntries())
-        {
-            if (entry.node_id == peer.node_id)
-            {
-                copyBounded(name, sizeof(name), entry.long_name[0] != '\0' ? entry.long_name : entry.short_name);
-                break;
-            }
-        }
+        copyBounded(name,
+                    sizeof(name),
+                    directory_peer->long_name[0] != '\0'
+                        ? directory_peer->long_name
+                        : directory_peer->short_name);
     }
     if (name[0] == '\0')
     {

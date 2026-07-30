@@ -24,21 +24,19 @@ class FakeFileSystem final : public ui::map_tiles::IMapTileFileSystem
         return contains(dirs, path);
     }
 
-    bool readFile(const char* path,
-                  uint8_t* buffer,
-                  std::size_t capacity,
-                  std::size_t& out_size) const override
+    ui::map_tiles::MapTileReadResult readFile(
+        const char* path,
+        uint8_t* buffer,
+        std::size_t capacity) const override
     {
-        out_size = 0;
         if (!exists(path) || capacity < 3 || buffer == nullptr)
         {
-            return false;
+            return {ui::map_tiles::MapTileReadStatus::Missing, 0, -1};
         }
         buffer[0] = 1;
         buffer[1] = 2;
         buffer[2] = 3;
-        out_size = 3;
-        return true;
+        return {ui::map_tiles::MapTileReadStatus::Ready, 3, 0};
     }
 
   private:
@@ -76,16 +74,17 @@ void test_lookup_and_read()
     assert(hit.format == ui::map_tiles::MapTileFormat::Png);
 
     uint8_t buffer[4]{};
-    std::size_t out_size = 0;
-    ui::map_tiles::MapTileFormat format = ui::map_tiles::MapTileFormat::Unknown;
-    assert(source.read(ref, buffer, sizeof(buffer), out_size, format));
-    assert(out_size == 3);
-    assert(format == ui::map_tiles::MapTileFormat::Png);
+    const auto read_result = source.read(ref, buffer, sizeof(buffer));
+    assert(read_result.status == ui::map_tiles::MapTileReadStatus::Ready);
+    assert(read_result.size == 3);
+    assert(read_result.format == ui::map_tiles::MapTileFormat::Png);
     assert(buffer[0] == 1 && buffer[1] == 2 && buffer[2] == 3);
 
     ref.y = 7;
     const auto miss = source.lookup(ref);
     assert(miss.status == ui::map_tiles::MapTileStatus::Missing);
+    const auto missing_read = source.read(ref, buffer, sizeof(buffer));
+    assert(missing_read.status == ui::map_tiles::MapTileReadStatus::Missing);
 }
 
 void test_directories()

@@ -13,6 +13,10 @@
 #include "ui/localization.h"
 #include "ui/menu/dashboard/dashboard_state.h"
 
+#if !defined(LV_FONT_MONTSERRAT_12) || !LV_FONT_MONTSERRAT_12
+#define lv_font_montserrat_12 lv_font_montserrat_14
+#endif
+
 namespace ui::menu::dashboard
 {
 namespace
@@ -45,7 +49,7 @@ void set_label_text_if_changed(lv_obj_t* label, const char* english)
     }
 }
 
-std::string best_name_for(const chat::contacts::NodeInfo& info)
+std::string best_name_for(const chat::contacts::PeerDirectoryItem& info)
 {
     if (!info.display_name.empty())
     {
@@ -181,7 +185,7 @@ void refresh_compass_widget()
                     continue;
                 }
 
-                const chat::contacts::NodeInfo* info = contacts.getNodeInfo(member.node_id);
+                const chat::contacts::PeerDirectoryItem* info = contacts.getPeerByNodeId(member.node_id);
                 if (info == nullptr || !info->position.valid)
                 {
                     continue;

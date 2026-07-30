@@ -6,6 +6,8 @@
 #include "ui/screens/contacts/contacts_page_input.h"
 
 #include "ui/components/two_pane_nav.h"
+#include "ui/screens/contacts/contacts_filter_profile.h"
+#include "ui/screens/contacts/contacts_page_components.h"
 #include "ui/screens/contacts/contacts_state.h"
 
 namespace
@@ -18,12 +20,33 @@ static ::ui::components::two_pane_nav::Controller s_controller{};
 
 static int mode_to_index(contacts::ui::ContactsMode mode)
 {
+    if (contacts::ui::uses_reticulum_filter_profile())
+    {
+        switch (mode)
+        {
+        case contacts::ui::ContactsMode::Contacts:
+            return 0;
+        case contacts::ui::ContactsMode::Nearby:
+            return 1;
+        case contacts::ui::ContactsMode::Groups:
+            return 2;
+        case contacts::ui::ContactsMode::Ignored:
+            return 3;
+        case contacts::ui::ContactsMode::Broadcast:
+        case contacts::ui::ContactsMode::Public:
+        default:
+            return 0;
+        }
+    }
+
     switch (mode)
     {
     case contacts::ui::ContactsMode::Contacts:
         return 0;
     case contacts::ui::ContactsMode::Nearby:
         return 1;
+    case contacts::ui::ContactsMode::Groups:
+        return 0;
     case contacts::ui::ContactsMode::Ignored:
         return 2;
     case contacts::ui::ContactsMode::Broadcast:
@@ -32,6 +55,8 @@ static int mode_to_index(contacts::ui::ContactsMode mode)
         return 4;
     case contacts::ui::ContactsMode::Discover:
         return 5;
+    case contacts::ui::ContactsMode::Public:
+        return 0;
     }
     return 0;
 }
@@ -50,12 +75,33 @@ static lv_obj_t* get_top_back_button(void* /*ctx*/)
 
 static size_t get_filter_count(void* /*ctx*/)
 {
-    return 6;
+    if (!contacts::ui::g_contacts_state.filter_panel_visible)
+    {
+        return 0;
+    }
+    return contacts::ui::uses_reticulum_filter_profile() ? 4U : 6U;
 }
 
 static lv_obj_t* get_filter_button(void* /*ctx*/, size_t index)
 {
     using namespace contacts::ui;
+    if (uses_reticulum_filter_profile())
+    {
+        switch (index)
+        {
+        case 0:
+            return g_contacts_state.contacts_btn;
+        case 1:
+            return g_contacts_state.nearby_btn;
+        case 2:
+            return g_contacts_state.groups_btn;
+        case 3:
+            return g_contacts_state.ignored_btn;
+        default:
+            return nullptr;
+        }
+    }
+
     switch (index)
     {
     case 0:
@@ -77,7 +123,15 @@ static lv_obj_t* get_filter_button(void* /*ctx*/, size_t index)
 
 static int get_preferred_filter_index(void* /*ctx*/)
 {
-    return mode_to_index(contacts::ui::g_contacts_state.current_mode);
+    if (!contacts::ui::g_contacts_state.filter_panel_visible)
+    {
+        return -1;
+    }
+    const contacts::ui::ContactsMode mode =
+        contacts::ui::g_contacts_state.focused_filter_mode_valid
+            ? contacts::ui::g_contacts_state.focused_filter_mode
+            : contacts::ui::g_contacts_state.current_mode;
+    return mode_to_index(mode);
 }
 
 static size_t get_list_count(void* /*ctx*/)
@@ -94,12 +148,47 @@ static lv_obj_t* get_list_button(void* /*ctx*/, size_t index)
 static int get_preferred_list_index(void* /*ctx*/)
 {
     const int selected = contacts::ui::g_contacts_state.selected_index;
-    return selected >= 0 ? selected : -1;
+    if (selected < 0)
+    {
+        return -1;
+    }
+
+    const auto& items = contacts::ui::g_contacts_state.list_items;
+    for (size_t i = 0; i < items.size(); ++i)
+    {
+        lv_obj_t* item = items[i];
+        if (item == nullptr || !lv_obj_is_valid(item))
+        {
+            continue;
+        }
+        const intptr_t item_index =
+            reinterpret_cast<intptr_t>(lv_obj_get_user_data(item));
+        if (item_index == selected)
+        {
+            return static_cast<int>(i);
+        }
+    }
+
+    return -1;
 }
 
 static lv_obj_t* get_list_back_button(void* /*ctx*/)
 {
     return contacts::ui::g_contacts_state.back_btn;
+}
+
+static bool handle_filter_activate(void* /*ctx*/, lv_obj_t* focused)
+{
+    return activate_contacts_filter(focused);
+}
+
+static void handle_column_changed(void* /*ctx*/,
+                                  ::ui::components::two_pane_nav::FocusColumn column)
+{
+    if (column == ::ui::components::two_pane_nav::FocusColumn::List)
+    {
+        contacts::ui::g_contacts_state.focused_filter_mode_valid = false;
+    }
 }
 
 static bool handle_list_enter(void* /*ctx*/, lv_obj_t* focused)
@@ -139,7 +228,9 @@ static Adapter make_adapter()
     adapter.get_list_button = get_list_button;
     adapter.get_preferred_list_index = get_preferred_list_index;
     adapter.get_list_back_button = get_list_back_button;
+    adapter.handle_filter_activate = handle_filter_activate;
     adapter.handle_list_enter = handle_list_enter;
+    adapter.on_column_changed = handle_column_changed;
     adapter.filter_top_back_placement = BackPlacement::Trailing;
     return adapter;
 }

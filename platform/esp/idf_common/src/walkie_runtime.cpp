@@ -1,13 +1,18 @@
 #include "platform/esp/common/walkie_runtime.h"
-#include "boards/tab5/tab5_board.h"
 
 #include <cstdio>
 #include <cstring>
 
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
 #include "boards/tab5/codec_compat.h"
+#include "boards/tab5/tab5_board.h"
+#elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+#include "boards/t_display_p4/t_display_p4_board.h"
+#include "platform/esp/idf_common/t_display_p4_codec_compat.h"
+#endif
 #include "platform/esp/idf_common/sx126x_radio.h"
 
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
 namespace
 {
 constexpr float kFskBitRateKbps = 9.6f;
@@ -18,16 +23,26 @@ constexpr uint8_t kFskSyncWord[] = {0x2D, 0x01};
 
 struct BackendState
 {
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     ::boards::tab5::CodecCompat codec;
+#else
+    ::platform::esp::idf_common::TDisplayP4CodecCompat codec{
+        TRAIL_MATE_T_DISPLAY_P4_AUDIO_OWNER_WALKIE};
+#endif
 };
 
 BackendState s_backend_state;
 
 bool board_supports_walkie()
 {
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     return ::boards::tab5::Tab5Board::hasAudio() &&
            (::boards::tab5::Tab5Board::hasLora() ||
             ::boards::tab5::Tab5Board::hasM5BusLoraRouting());
+#else
+    return ::boards::t_display_p4::TDisplayP4Board::hasAudio() &&
+           ::boards::t_display_p4::TDisplayP4Board::hasLora();
+#endif
 }
 
 platform::esp::idf_common::Sx126xRadio& radio()
@@ -59,7 +74,7 @@ void write_error(char* error_buffer, size_t error_buffer_size, const char* messa
 namespace platform::esp::common::walkie_runtime
 {
 
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5) || defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
 bool isSupported()
 {
     return board_supports_walkie();

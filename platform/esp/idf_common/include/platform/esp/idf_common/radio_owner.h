@@ -29,7 +29,7 @@ namespace platform::esp::idf_common
 enum class RadioOwner : std::uint8_t
 {
     None = 0,
-    Mesh,        // Meshtastic / MeshCore / RNode / LXMF adapter
+    Mesh,        // Meshtastic / MeshCore / Reticulum adapter
     Walkie,      // Walkie-talkie RX/TX
     Sstv,        // SSTV reception
     Diagnostics, // Energy sweep / spectrum scan

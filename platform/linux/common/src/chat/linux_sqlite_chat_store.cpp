@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <utility>
@@ -61,6 +62,150 @@ bool execSql(sqlite3* db, const char* sql)
     return rc == SQLITE_OK;
 }
 
+bool tableHasColumn(sqlite3* db, const char* table, const char* column)
+{
+    if (db == nullptr || table == nullptr || column == nullptr)
+    {
+        return false;
+    }
+
+    std::string sql = "PRAGMA table_info(";
+    sql += table;
+    sql += ");";
+
+    sqlite3_stmt* stmt = nullptr;
+    bool found = false;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK)
+    {
+        while (sqlite3_step(stmt) == SQLITE_ROW)
+        {
+            const unsigned char* name = sqlite3_column_text(stmt, 1);
+            if (name != nullptr &&
+                std::strcmp(reinterpret_cast<const char*>(name), column) == 0)
+            {
+                found = true;
+                break;
+            }
+        }
+    }
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+bool tableExists(sqlite3* db, const char* table)
+{
+    if (db == nullptr || table == nullptr)
+    {
+        return false;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    constexpr const char* kSql =
+        "SELECT 1 FROM sqlite_master "
+        "WHERE type='table' AND name=?1 LIMIT 1;";
+    bool found = false;
+    if (sqlite3_prepare_v2(db, kSql, -1, &stmt, nullptr) == SQLITE_OK &&
+        sqlite3_bind_text(stmt, 1, table, -1, SQLITE_TRANSIENT) == SQLITE_OK &&
+        sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        found = true;
+    }
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+bool ensureColumn(sqlite3* db,
+                  const char* table,
+                  const char* column,
+                  const char* definition)
+{
+    if (tableHasColumn(db, table, column))
+    {
+        return true;
+    }
+
+    std::string sql = "ALTER TABLE ";
+    sql += table;
+    sql += " ADD COLUMN ";
+    sql += definition;
+    sql += ";";
+    return execSql(db, sql.c_str()) || tableHasColumn(db, table, column);
+}
+
+bool ensureUnreadSchema(sqlite3* db)
+{
+    constexpr const char* kCreateSql =
+        "CREATE TABLE IF NOT EXISTS chat_unread ("
+        "protocol INTEGER NOT NULL,"
+        "channel INTEGER NOT NULL,"
+        "peer INTEGER NOT NULL,"
+        "reticulum_destination_key TEXT NOT NULL DEFAULT '',"
+        "unread INTEGER NOT NULL DEFAULT 0,"
+        "PRIMARY KEY(protocol, channel, peer, reticulum_destination_key)"
+        ");";
+
+    if (!tableExists(db, "chat_unread"))
+    {
+        return execSql(db, kCreateSql);
+    }
+
+    if (tableHasColumn(db, "chat_unread", "reticulum_destination_key"))
+    {
+        return true;
+    }
+
+    if (!execSql(db, "BEGIN IMMEDIATE;"))
+    {
+        return false;
+    }
+
+    const bool migrated =
+        execSql(db, "ALTER TABLE chat_unread RENAME TO chat_unread_legacy;") &&
+        execSql(db, kCreateSql) &&
+        execSql(db,
+                "INSERT OR REPLACE INTO chat_unread("
+                "protocol, channel, peer, reticulum_destination_key, unread) "
+                "SELECT protocol, channel, peer, '', unread "
+                "FROM chat_unread_legacy;") &&
+        execSql(db,
+                "INSERT OR REPLACE INTO chat_unread("
+                "protocol, channel, peer, reticulum_destination_key, unread) "
+                "SELECT u.protocol, u.channel, 0, "
+                "lower(hex(m.reticulum_destination_hash)), SUM(u.unread) "
+                "FROM chat_unread_legacy u "
+                "JOIN ("
+                "SELECT protocol, channel, peer, reticulum_destination_hash "
+                "FROM chat_messages "
+                "WHERE protocol=4 AND reticulum_identity_valid != 0 AND "
+                "reticulum_destination_hash IS NOT NULL "
+                "GROUP BY protocol, channel, peer, reticulum_destination_hash"
+                ") m ON m.protocol=u.protocol AND m.channel=u.channel "
+                "AND m.peer=u.peer "
+                "WHERE u.protocol=4 AND u.unread != 0 "
+                "GROUP BY u.protocol, u.channel, "
+                "lower(hex(m.reticulum_destination_hash));") &&
+        execSql(db, "DROP TABLE chat_unread_legacy;");
+    (void)execSql(db, migrated ? "COMMIT;" : "ROLLBACK;");
+    return migrated;
+}
+
+bool dedupeReticulumIncomingMessages(sqlite3* db)
+{
+    return execSql(db,
+                   "DELETE FROM chat_messages "
+                   "WHERE status=0 AND msg_id != 0 AND "
+                   "reticulum_identity_valid != 0 AND "
+                   "reticulum_destination_hash IS NOT NULL AND "
+                   "sequence NOT IN ("
+                   "SELECT MIN(sequence) FROM chat_messages "
+                   "WHERE status=0 AND msg_id != 0 AND "
+                   "reticulum_identity_valid != 0 AND "
+                   "reticulum_destination_hash IS NOT NULL "
+                   "GROUP BY protocol, channel, reticulum_destination_hash, "
+                   "msg_id"
+                   ");");
+}
+
 bool ensureSchema(sqlite3* db)
 {
     return execSql(db, "PRAGMA busy_timeout=5000;") &&
@@ -79,29 +224,53 @@ bool ensureSchema(sqlite3* db)
                    "has_geo INTEGER NOT NULL DEFAULT 0,"
                    "geo_lat_e7 INTEGER NOT NULL DEFAULT 0,"
                    "geo_lon_e7 INTEGER NOT NULL DEFAULT 0,"
-                   "status INTEGER NOT NULL"
+                   "status INTEGER NOT NULL,"
+                   "reticulum_identity_valid INTEGER NOT NULL DEFAULT 0,"
+                   "reticulum_destination_hash BLOB,"
+                   "reticulum_identity_hash BLOB"
                    ");") &&
+           ensureColumn(db,
+                        "chat_messages",
+                        "reticulum_identity_valid",
+                        "reticulum_identity_valid INTEGER NOT NULL DEFAULT 0") &&
+           ensureColumn(db,
+                        "chat_messages",
+                        "reticulum_destination_hash",
+                        "reticulum_destination_hash BLOB") &&
+           ensureColumn(db,
+                        "chat_messages",
+                        "reticulum_identity_hash",
+                        "reticulum_identity_hash BLOB") &&
            execSql(db,
                    "CREATE UNIQUE INDEX IF NOT EXISTS "
                    "chat_messages_unique_incoming "
                    "ON chat_messages(protocol, channel, peer, from_node, "
                    "msg_id) "
                    "WHERE status=0 AND msg_id != 0;") &&
+           dedupeReticulumIncomingMessages(db) &&
+           execSql(db,
+                   "CREATE UNIQUE INDEX IF NOT EXISTS "
+                   "chat_messages_unique_reticulum_incoming "
+                   "ON chat_messages(protocol, channel, reticulum_destination_hash, "
+                   "msg_id) "
+                   "WHERE status=0 AND msg_id != 0 AND "
+                   "reticulum_identity_valid != 0 AND "
+                   "reticulum_destination_hash IS NOT NULL;") &&
            execSql(db,
                    "CREATE INDEX IF NOT EXISTS "
                    "chat_messages_conversation_idx "
                    "ON chat_messages(protocol, channel, peer, sequence);") &&
            execSql(db,
+                   "CREATE INDEX IF NOT EXISTS "
+                   "chat_messages_reticulum_conversation_idx "
+                   "ON chat_messages(protocol, channel, reticulum_destination_hash, "
+                   "sequence) "
+                   "WHERE reticulum_identity_valid != 0 AND "
+                   "reticulum_destination_hash IS NOT NULL;") &&
+           execSql(db,
                    "CREATE INDEX IF NOT EXISTS chat_messages_msg_id_idx "
                    "ON chat_messages(msg_id, from_node, sequence);") &&
-           execSql(db,
-                   "CREATE TABLE IF NOT EXISTS chat_unread ("
-                   "protocol INTEGER NOT NULL,"
-                   "channel INTEGER NOT NULL,"
-                   "peer INTEGER NOT NULL,"
-                   "unread INTEGER NOT NULL DEFAULT 0,"
-                   "PRIMARY KEY(protocol, channel, peer)"
-                   ");");
+           ensureUnreadSchema(db);
 }
 
 struct DatabaseHandle
@@ -157,9 +326,8 @@ int statusValue(::chat::MessageStatus status)
     case static_cast<int>(::chat::MeshProtocol::MeshCore):
         return ::chat::MeshProtocol::MeshCore;
     case static_cast<int>(::chat::MeshProtocol::RNode):
-        return ::chat::MeshProtocol::RNode;
-    case static_cast<int>(::chat::MeshProtocol::LXMF):
-        return ::chat::MeshProtocol::LXMF;
+    case static_cast<int>(::chat::MeshProtocol::Reticulum):
+        return ::chat::MeshProtocol::Reticulum;
     case static_cast<int>(::chat::MeshProtocol::Meshtastic):
     default:
         return ::chat::MeshProtocol::Meshtastic;
@@ -209,6 +377,139 @@ bool bindConversation(sqlite3_stmt* stmt,
                SQLITE_OK;
 }
 
+bool hasReticulumConversationKey(const ::chat::ConversationId& conv)
+{
+    return conv.protocol == ::chat::MeshProtocol::Reticulum &&
+           ::chat::hasReticulumDestinationIdentity(conv.reticulum_identity);
+}
+
+std::string reticulumDestinationKey(
+    const ::chat::ReticulumPeerIdentity& identity)
+{
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::uint8_t destination_hash[::chat::kReticulumPeerHashSize] = {};
+    if (!::chat::copyReticulumDestinationHash(destination_hash, identity))
+    {
+        return {};
+    }
+
+    std::string key;
+    key.resize(::chat::kReticulumPeerHashSize * 2U);
+    for (std::size_t index = 0; index < ::chat::kReticulumPeerHashSize; ++index)
+    {
+        const std::uint8_t value = destination_hash[index];
+        key[index * 2U] = kHex[(value >> 4U) & 0x0FU];
+        key[(index * 2U) + 1U] = kHex[value & 0x0FU];
+    }
+    return key;
+}
+
+::chat::NodeId unreadPeerForConversation(const ::chat::ConversationId& conv)
+{
+    return hasReticulumConversationKey(conv) ? 0U : conv.peer;
+}
+
+bool bindReticulumDestinationHash(sqlite3_stmt* stmt,
+                                  int index,
+                                  const ::chat::ReticulumPeerIdentity& identity)
+{
+    std::uint8_t destination_hash[::chat::kReticulumPeerHashSize] = {};
+    if (!::chat::copyReticulumDestinationHash(destination_hash, identity))
+    {
+        return false;
+    }
+    return sqlite3_bind_blob(stmt,
+                             index,
+                             destination_hash,
+                             static_cast<int>(sizeof(destination_hash)),
+                             SQLITE_TRANSIENT) == SQLITE_OK;
+}
+
+bool bindUnreadConversation(sqlite3_stmt* stmt,
+                            int first_index,
+                            const ::chat::ConversationId& conv)
+{
+    const std::string key = hasReticulumConversationKey(conv)
+                                ? reticulumDestinationKey(conv.reticulum_identity)
+                                : std::string();
+    return sqlite3_bind_int(stmt, first_index, protocolValue(conv.protocol)) ==
+               SQLITE_OK &&
+           sqlite3_bind_int(stmt,
+                            first_index + 1,
+                            channelValue(conv.channel)) == SQLITE_OK &&
+           sqlite3_bind_int64(stmt,
+                              first_index + 2,
+                              static_cast<sqlite3_int64>(
+                                  unreadPeerForConversation(conv))) ==
+               SQLITE_OK &&
+           sqlite3_bind_text(stmt,
+                             first_index + 3,
+                             key.c_str(),
+                             -1,
+                             SQLITE_TRANSIENT) == SQLITE_OK;
+}
+
+bool bindReticulumIdentity(sqlite3_stmt* stmt,
+                           int first_index,
+                           const ::chat::ReticulumPeerIdentity& identity)
+{
+    if (sqlite3_bind_int(stmt, first_index, identity.valid ? 1 : 0) !=
+        SQLITE_OK)
+    {
+        return false;
+    }
+
+    if (!identity.valid)
+    {
+        return sqlite3_bind_null(stmt, first_index + 1) == SQLITE_OK &&
+               sqlite3_bind_null(stmt, first_index + 2) == SQLITE_OK;
+    }
+
+    std::uint8_t destination_hash[::chat::kReticulumPeerHashSize] = {};
+    std::uint8_t identity_hash[::chat::kReticulumPeerHashSize] = {};
+    if (!::chat::copyReticulumIdentityHashes(destination_hash,
+                                             identity_hash,
+                                             identity))
+    {
+        return false;
+    }
+
+    return sqlite3_bind_blob(stmt,
+                             first_index + 1,
+                             destination_hash,
+                             static_cast<int>(sizeof(destination_hash)),
+                             SQLITE_TRANSIENT) == SQLITE_OK &&
+           sqlite3_bind_blob(stmt,
+                             first_index + 2,
+                             identity_hash,
+                             static_cast<int>(sizeof(identity_hash)),
+                             SQLITE_TRANSIENT) == SQLITE_OK;
+}
+
+::chat::ReticulumPeerIdentity readReticulumIdentity(sqlite3_stmt* stmt,
+                                                    int first_column)
+{
+    if (sqlite3_column_int(stmt, first_column) == 0)
+    {
+        return {};
+    }
+
+    const void* destination_hash = sqlite3_column_blob(stmt, first_column + 1);
+    const void* identity_hash = sqlite3_column_blob(stmt, first_column + 2);
+    if (destination_hash == nullptr || identity_hash == nullptr ||
+        sqlite3_column_bytes(stmt, first_column + 1) !=
+            static_cast<int>(::chat::kReticulumPeerHashSize) ||
+        sqlite3_column_bytes(stmt, first_column + 2) !=
+            static_cast<int>(::chat::kReticulumPeerHashSize))
+    {
+        return {};
+    }
+
+    return ::chat::makeReticulumPeerIdentity(
+        static_cast<const std::uint8_t*>(destination_hash),
+        static_cast<const std::uint8_t*>(identity_hash));
+}
+
 bool bindMessage(sqlite3_stmt* stmt, const ::chat::ChatMessage& msg)
 {
     return sqlite3_bind_int(stmt, 1, protocolValue(msg.protocol)) ==
@@ -245,7 +546,8 @@ bool bindMessage(sqlite3_stmt* stmt, const ::chat::ChatMessage& msg)
                               11,
                               static_cast<sqlite3_int64>(msg.geo_lon_e7)) ==
                SQLITE_OK &&
-           sqlite3_bind_int(stmt, 12, statusValue(msg.status)) == SQLITE_OK;
+           sqlite3_bind_int(stmt, 12, statusValue(msg.status)) == SQLITE_OK &&
+           bindReticulumIdentity(stmt, 13, msg.reticulum_identity);
 }
 
 ::chat::ChatMessage readMessage(sqlite3_stmt* stmt, int first_column)
@@ -273,6 +575,7 @@ bool bindMessage(sqlite3_stmt* stmt, const ::chat::ChatMessage& msg)
     msg.geo_lon_e7 = static_cast<std::int32_t>(
         sqlite3_column_int64(stmt, first_column + 10));
     msg.status = statusFromInt(sqlite3_column_int(stmt, first_column + 11));
+    msg.reticulum_identity = readReticulumIdentity(stmt, first_column + 12);
     return msg;
 }
 
@@ -311,8 +614,11 @@ void LinuxSqliteChatStore::append(const ::chat::ChatMessage& msg)
     constexpr const char* kSql =
         "INSERT OR IGNORE INTO chat_messages("
         "protocol, channel, peer, from_node, msg_id, timestamp, text, "
-        "team_location_icon, has_geo, geo_lat_e7, geo_lon_e7, status) "
-        "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12);";
+        "team_location_icon, has_geo, geo_lat_e7, geo_lon_e7, status, "
+        "reticulum_identity_valid, reticulum_destination_hash, "
+        "reticulum_identity_hash) "
+        "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, "
+        "?13, ?14, ?15);";
     bool inserted = false;
     if (sqlite3_prepare_v2(handle.db, kSql, -1, &stmt, nullptr) == SQLITE_OK)
     {
@@ -324,11 +630,13 @@ void LinuxSqliteChatStore::append(const ::chat::ChatMessage& msg)
 
     if (inserted && msg.status == ::chat::MessageStatus::Incoming)
     {
-        const ::chat::ConversationId conv(msg.channel, msg.peer, msg.protocol);
+        const ::chat::ConversationId conv = ::chat::conversationIdForMessage(msg);
         constexpr const char* kUnreadSql =
-            "INSERT INTO chat_unread(protocol, channel, peer, unread) "
-            "VALUES(?1, ?2, ?3, 1) "
-            "ON CONFLICT(protocol, channel, peer) DO UPDATE SET "
+            "INSERT INTO chat_unread("
+            "protocol, channel, peer, reticulum_destination_key, unread) "
+            "VALUES(?1, ?2, ?3, ?4, 1) "
+            "ON CONFLICT(protocol, channel, peer, reticulum_destination_key) "
+            "DO UPDATE SET "
             "unread=chat_unread.unread + 1;";
         if (sqlite3_prepare_v2(handle.db,
                                kUnreadSql,
@@ -336,7 +644,7 @@ void LinuxSqliteChatStore::append(const ::chat::ChatMessage& msg)
                                &stmt,
                                nullptr) == SQLITE_OK)
         {
-            (void)(bindConversation(stmt, 1, conv) &&
+            (void)(bindUnreadConversation(stmt, 1, conv) &&
                    sqlite3_step(stmt) == SQLITE_DONE);
         }
         sqlite3_finalize(stmt);
@@ -349,7 +657,20 @@ std::vector<::chat::ChatMessage> LinuxSqliteChatStore::loadRecent(
     const ::chat::ConversationId& conv,
     std::size_t n)
 {
-    if (n == 0U)
+    return loadPageFromLatest(conv, 0, n, nullptr);
+}
+
+std::vector<::chat::ChatMessage> LinuxSqliteChatStore::loadPageFromLatest(
+    const ::chat::ConversationId& conv,
+    std::size_t offset_from_latest,
+    std::size_t limit,
+    std::size_t* total)
+{
+    if (total != nullptr)
+    {
+        *total = 0;
+    }
+    if (limit == 0U)
     {
         return {};
     }
@@ -362,21 +683,101 @@ std::vector<::chat::ChatMessage> LinuxSqliteChatStore::loadRecent(
     }
 
     sqlite3_stmt* stmt = nullptr;
-    constexpr const char* kSql =
+    constexpr const char* kLegacyCountSql =
+        "SELECT COUNT(*) FROM chat_messages "
+        "WHERE protocol=?1 AND channel=?2 AND peer=?3;";
+    constexpr const char* kReticulumCountSql =
+        "SELECT COUNT(*) FROM chat_messages "
+        "WHERE protocol=?1 AND channel=?2 AND "
+        "reticulum_identity_valid != 0 AND reticulum_destination_hash=?3;";
+    constexpr const char* kLegacySql =
         "SELECT protocol, channel, peer, from_node, msg_id, timestamp, text, "
-        "team_location_icon, has_geo, geo_lat_e7, geo_lon_e7, status "
+        "team_location_icon, has_geo, geo_lat_e7, geo_lon_e7, status, "
+        "reticulum_identity_valid, reticulum_destination_hash, "
+        "reticulum_identity_hash "
         "FROM chat_messages "
         "WHERE protocol=?1 AND channel=?2 AND peer=?3 "
-        "ORDER BY sequence DESC LIMIT ?4;";
-    if (sqlite3_prepare_v2(handle.db, kSql, -1, &stmt, nullptr) != SQLITE_OK)
+        "ORDER BY sequence DESC LIMIT ?4 OFFSET ?5;";
+    constexpr const char* kReticulumSql =
+        "SELECT protocol, channel, peer, from_node, msg_id, timestamp, text, "
+        "team_location_icon, has_geo, geo_lat_e7, geo_lon_e7, status, "
+        "reticulum_identity_valid, reticulum_destination_hash, "
+        "reticulum_identity_hash "
+        "FROM chat_messages "
+        "WHERE protocol=?1 AND channel=?2 AND "
+        "reticulum_identity_valid != 0 AND reticulum_destination_hash=?3 "
+        "ORDER BY sequence DESC LIMIT ?4 OFFSET ?5;";
+    const bool use_reticulum_key = hasReticulumConversationKey(conv);
+
+    if (total != nullptr)
+    {
+        const char* count_sql =
+            use_reticulum_key ? kReticulumCountSql : kLegacyCountSql;
+        if (sqlite3_prepare_v2(handle.db,
+                               count_sql,
+                               -1,
+                               &stmt,
+                               nullptr) == SQLITE_OK)
+        {
+            const bool bound =
+                use_reticulum_key
+                    ? (sqlite3_bind_int(stmt, 1, protocolValue(conv.protocol)) ==
+                           SQLITE_OK &&
+                       sqlite3_bind_int(stmt, 2, channelValue(conv.channel)) ==
+                           SQLITE_OK &&
+                       bindReticulumDestinationHash(
+                           stmt, 3, conv.reticulum_identity))
+                    : bindConversation(stmt, 1, conv);
+            if (bound && sqlite3_step(stmt) == SQLITE_ROW)
+            {
+                *total = static_cast<std::size_t>(
+                    std::max<sqlite3_int64>(
+                        0, sqlite3_column_int64(stmt, 0)));
+            }
+        }
+        sqlite3_finalize(stmt);
+        stmt = nullptr;
+    }
+
+    const char* sql = use_reticulum_key ? kReticulumSql : kLegacySql;
+    if (sqlite3_prepare_v2(handle.db, sql, -1, &stmt, nullptr) != SQLITE_OK)
     {
         return {};
     }
 
     std::vector<::chat::ChatMessage> result;
-    if (bindConversation(stmt, 1, conv) &&
-        sqlite3_bind_int64(stmt, 4, static_cast<sqlite3_int64>(n)) ==
-            SQLITE_OK)
+    bool bound = false;
+    if (use_reticulum_key)
+    {
+        bound = sqlite3_bind_int(stmt, 1, protocolValue(conv.protocol)) ==
+                    SQLITE_OK &&
+                sqlite3_bind_int(stmt, 2, channelValue(conv.channel)) ==
+                    SQLITE_OK &&
+                bindReticulumDestinationHash(stmt, 3, conv.reticulum_identity) &&
+                sqlite3_bind_int64(stmt,
+                                   4,
+                                   static_cast<sqlite3_int64>(limit)) ==
+                    SQLITE_OK &&
+                sqlite3_bind_int64(
+                    stmt,
+                    5,
+                    static_cast<sqlite3_int64>(offset_from_latest)) ==
+                    SQLITE_OK;
+    }
+    else
+    {
+        bound = bindConversation(stmt, 1, conv) &&
+                sqlite3_bind_int64(stmt,
+                                   4,
+                                   static_cast<sqlite3_int64>(limit)) ==
+                    SQLITE_OK &&
+                sqlite3_bind_int64(
+                    stmt,
+                    5,
+                    static_cast<sqlite3_int64>(offset_from_latest)) ==
+                    SQLITE_OK;
+    }
+    if (bound)
     {
         while (sqlite3_step(stmt) == SQLITE_ROW)
         {
@@ -409,7 +810,13 @@ std::vector<::chat::ConversationMeta> LinuxSqliteChatStore::loadConversationPage
         sqlite3_stmt* count_stmt = nullptr;
         constexpr const char* kCountSql =
             "SELECT COUNT(*) FROM ("
-            "SELECT 1 FROM chat_messages GROUP BY protocol, channel, peer"
+            "SELECT 1 FROM chat_messages "
+            "GROUP BY protocol, channel, "
+            "CASE WHEN protocol=4 AND reticulum_identity_valid != 0 AND "
+            "reticulum_destination_hash IS NOT NULL THEN 0 ELSE peer END, "
+            "CASE WHEN protocol=4 AND reticulum_identity_valid != 0 AND "
+            "reticulum_destination_hash IS NOT NULL "
+            "THEN hex(reticulum_destination_hash) ELSE '' END"
             ");";
         *total = 0;
         if (sqlite3_prepare_v2(handle.db,
@@ -426,16 +833,32 @@ std::vector<::chat::ConversationMeta> LinuxSqliteChatStore::loadConversationPage
     }
 
     std::string sql =
-        "WITH latest AS ("
-        "SELECT protocol, channel, peer, MAX(sequence) AS sequence "
-        "FROM chat_messages GROUP BY protocol, channel, peer"
+        "WITH keyed AS ("
+        "SELECT sequence, protocol, channel, peer, "
+        "CASE WHEN protocol=4 AND reticulum_identity_valid != 0 AND "
+        "reticulum_destination_hash IS NOT NULL THEN 0 ELSE peer END "
+        "AS group_peer, "
+        "CASE WHEN protocol=4 AND reticulum_identity_valid != 0 AND "
+        "reticulum_destination_hash IS NOT NULL "
+        "THEN hex(reticulum_destination_hash) ELSE '' END "
+        "AS reticulum_destination_key "
+        "FROM chat_messages"
+        "), "
+        "latest AS ("
+        "SELECT protocol, channel, group_peer, reticulum_destination_key, "
+        "MAX(sequence) AS sequence "
+        "FROM keyed "
+        "GROUP BY protocol, channel, group_peer, reticulum_destination_key"
         ") "
         "SELECT m.protocol, m.channel, m.peer, m.text, m.timestamp, "
-        "COALESCE(u.unread, 0), m.sequence "
+        "COALESCE(u.unread, 0), m.sequence, "
+        "m.reticulum_identity_valid, m.reticulum_destination_hash, "
+        "m.reticulum_identity_hash "
         "FROM latest l "
         "JOIN chat_messages m ON m.sequence=l.sequence "
-        "LEFT JOIN chat_unread u ON u.protocol=m.protocol "
-        "AND u.channel=m.channel AND u.peer=m.peer "
+        "LEFT JOIN chat_unread u ON u.protocol=l.protocol "
+        "AND u.channel=l.channel AND u.peer=l.group_peer "
+        "AND u.reticulum_destination_key=lower(l.reticulum_destination_key) "
         "ORDER BY m.timestamp DESC, m.sequence DESC";
     if (limit != 0U)
     {
@@ -491,6 +914,8 @@ std::vector<::chat::ConversationMeta> LinuxSqliteChatStore::loadConversationPage
             meta.last_timestamp = static_cast<std::uint32_t>(
                 sqlite3_column_int64(stmt, 4));
             meta.unread = sqlite3_column_int(stmt, 5);
+            meta.reticulum_identity = readReticulumIdentity(stmt, 7);
+            meta.id.reticulum_identity = meta.reticulum_identity;
             meta.name = conversationName(meta.id);
             list.push_back(std::move(meta));
         }
@@ -499,29 +924,33 @@ std::vector<::chat::ConversationMeta> LinuxSqliteChatStore::loadConversationPage
     return list;
 }
 
-void LinuxSqliteChatStore::setUnread(const ::chat::ConversationId& conv,
+bool LinuxSqliteChatStore::setUnread(const ::chat::ConversationId& conv,
                                      int unread)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     DatabaseHandle handle;
     if (!handle)
     {
-        return;
+        return false;
     }
 
     sqlite3_stmt* stmt = nullptr;
     constexpr const char* kSql =
-        "INSERT INTO chat_unread(protocol, channel, peer, unread) "
-        "VALUES(?1, ?2, ?3, ?4) "
-        "ON CONFLICT(protocol, channel, peer) DO UPDATE SET "
+        "INSERT INTO chat_unread("
+        "protocol, channel, peer, reticulum_destination_key, unread) "
+        "VALUES(?1, ?2, ?3, ?4, ?5) "
+        "ON CONFLICT(protocol, channel, peer, reticulum_destination_key) "
+        "DO UPDATE SET "
         "unread=excluded.unread;";
+    bool ok = false;
     if (sqlite3_prepare_v2(handle.db, kSql, -1, &stmt, nullptr) == SQLITE_OK)
     {
-        (void)(bindConversation(stmt, 1, conv) &&
-               sqlite3_bind_int(stmt, 4, std::max(0, unread)) == SQLITE_OK &&
-               sqlite3_step(stmt) == SQLITE_DONE);
+        ok = bindUnreadConversation(stmt, 1, conv) &&
+             sqlite3_bind_int(stmt, 5, std::max(0, unread)) == SQLITE_OK &&
+             sqlite3_step(stmt) == SQLITE_DONE;
     }
     sqlite3_finalize(stmt);
+    return ok;
 }
 
 int LinuxSqliteChatStore::getUnread(
@@ -537,10 +966,11 @@ int LinuxSqliteChatStore::getUnread(
     sqlite3_stmt* stmt = nullptr;
     constexpr const char* kSql =
         "SELECT unread FROM chat_unread "
-        "WHERE protocol=?1 AND channel=?2 AND peer=?3;";
+        "WHERE protocol=?1 AND channel=?2 AND peer=?3 "
+        "AND reticulum_destination_key=?4;";
     int unread = 0;
     if (sqlite3_prepare_v2(handle.db, kSql, -1, &stmt, nullptr) == SQLITE_OK &&
-        bindConversation(stmt, 1, conv) &&
+        bindUnreadConversation(stmt, 1, conv) &&
         sqlite3_step(stmt) == SQLITE_ROW)
     {
         unread = sqlite3_column_int(stmt, 0);
@@ -561,30 +991,52 @@ void LinuxSqliteChatStore::clearConversation(
 
     (void)execSql(handle.db, "BEGIN IMMEDIATE;");
     sqlite3_stmt* stmt = nullptr;
-    constexpr const char* kDeleteMessages =
+    constexpr const char* kDeleteLegacyMessages =
         "DELETE FROM chat_messages "
         "WHERE protocol=?1 AND channel=?2 AND peer=?3;";
+    constexpr const char* kDeleteReticulumMessages =
+        "DELETE FROM chat_messages "
+        "WHERE protocol=?1 AND channel=?2 AND "
+        "reticulum_identity_valid != 0 AND reticulum_destination_hash=?3;";
+    const bool use_reticulum_key = hasReticulumConversationKey(conv);
+    const char* delete_messages =
+        use_reticulum_key ? kDeleteReticulumMessages : kDeleteLegacyMessages;
     if (sqlite3_prepare_v2(handle.db,
-                           kDeleteMessages,
+                           delete_messages,
                            -1,
                            &stmt,
                            nullptr) == SQLITE_OK)
     {
-        (void)(bindConversation(stmt, 1, conv) &&
-               sqlite3_step(stmt) == SQLITE_DONE);
+        bool bound = false;
+        if (use_reticulum_key)
+        {
+            bound = sqlite3_bind_int(stmt, 1, protocolValue(conv.protocol)) ==
+                        SQLITE_OK &&
+                    sqlite3_bind_int(stmt, 2, channelValue(conv.channel)) ==
+                        SQLITE_OK &&
+                    bindReticulumDestinationHash(stmt,
+                                                 3,
+                                                 conv.reticulum_identity);
+        }
+        else
+        {
+            bound = bindConversation(stmt, 1, conv);
+        }
+        (void)(bound && sqlite3_step(stmt) == SQLITE_DONE);
     }
     sqlite3_finalize(stmt);
 
     constexpr const char* kDeleteUnread =
         "DELETE FROM chat_unread "
-        "WHERE protocol=?1 AND channel=?2 AND peer=?3;";
+        "WHERE protocol=?1 AND channel=?2 AND peer=?3 "
+        "AND reticulum_destination_key=?4;";
     if (sqlite3_prepare_v2(handle.db,
                            kDeleteUnread,
                            -1,
                            &stmt,
                            nullptr) == SQLITE_OK)
     {
-        (void)(bindConversation(stmt, 1, conv) &&
+        (void)(bindUnreadConversation(stmt, 1, conv) &&
                sqlite3_step(stmt) == SQLITE_DONE);
     }
     sqlite3_finalize(stmt);
@@ -647,6 +1099,47 @@ bool LinuxSqliteChatStore::updateMessageStatus(
     return ok;
 }
 
+bool LinuxSqliteChatStore::updateMessageStatusForProtocol(
+    ::chat::MessageId msg_id,
+    ::chat::MeshProtocol protocol,
+    ::chat::MessageStatus status)
+{
+    if (msg_id == 0)
+    {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    DatabaseHandle handle;
+    if (!handle)
+    {
+        return false;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    constexpr const char* kSql =
+        "UPDATE chat_messages SET status=?1 "
+        "WHERE sequence=("
+        "SELECT sequence FROM chat_messages "
+        "WHERE msg_id=?2 AND protocol=?3 AND from_node=0 "
+        "ORDER BY sequence DESC LIMIT 1"
+        ");";
+    bool ok = false;
+    if (sqlite3_prepare_v2(handle.db, kSql, -1, &stmt, nullptr) == SQLITE_OK)
+    {
+        ok = sqlite3_bind_int(stmt, 1, statusValue(status)) == SQLITE_OK &&
+             sqlite3_bind_int64(stmt,
+                                2,
+                                static_cast<sqlite3_int64>(msg_id)) ==
+                 SQLITE_OK &&
+             sqlite3_bind_int(stmt, 3, protocolValue(protocol)) == SQLITE_OK &&
+             sqlite3_step(stmt) == SQLITE_DONE &&
+             sqlite3_changes(handle.db) > 0;
+    }
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
 bool LinuxSqliteChatStore::getMessage(::chat::MessageId msg_id,
                                       ::chat::ChatMessage* out) const
 {
@@ -665,13 +1158,58 @@ bool LinuxSqliteChatStore::getMessage(::chat::MessageId msg_id,
     sqlite3_stmt* stmt = nullptr;
     constexpr const char* kSql =
         "SELECT protocol, channel, peer, from_node, msg_id, timestamp, text, "
-        "team_location_icon, has_geo, geo_lat_e7, geo_lon_e7, status "
+        "team_location_icon, has_geo, geo_lat_e7, geo_lon_e7, status, "
+        "reticulum_identity_valid, reticulum_destination_hash, "
+        "reticulum_identity_hash "
         "FROM chat_messages "
         "WHERE msg_id=?1 ORDER BY sequence DESC LIMIT 1;";
     bool found = false;
     if (sqlite3_prepare_v2(handle.db, kSql, -1, &stmt, nullptr) == SQLITE_OK &&
         sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(msg_id)) ==
             SQLITE_OK &&
+        sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        if (out != nullptr)
+        {
+            *out = readMessage(stmt, 0);
+        }
+        found = true;
+    }
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+bool LinuxSqliteChatStore::getMessageForProtocol(
+    ::chat::MessageId msg_id,
+    ::chat::MeshProtocol protocol,
+    ::chat::ChatMessage* out) const
+{
+    if (msg_id == 0)
+    {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    DatabaseHandle handle;
+    if (!handle)
+    {
+        return false;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    constexpr const char* kSql =
+        "SELECT protocol, channel, peer, from_node, msg_id, timestamp, text, "
+        "team_location_icon, has_geo, geo_lat_e7, geo_lon_e7, status, "
+        "reticulum_identity_valid, reticulum_destination_hash, "
+        "reticulum_identity_hash "
+        "FROM chat_messages "
+        "WHERE msg_id=?1 AND protocol=?2 "
+        "ORDER BY sequence DESC LIMIT 1;";
+    bool found = false;
+    if (sqlite3_prepare_v2(handle.db, kSql, -1, &stmt, nullptr) == SQLITE_OK &&
+        sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(msg_id)) ==
+            SQLITE_OK &&
+        sqlite3_bind_int(stmt, 2, protocolValue(protocol)) == SQLITE_OK &&
         sqlite3_step(stmt) == SQLITE_ROW)
     {
         if (out != nullptr)

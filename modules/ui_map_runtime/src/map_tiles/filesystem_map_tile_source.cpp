@@ -30,23 +30,20 @@ MapTileLookupResult FilesystemMapTileSource::lookup(const MapTileRef& ref) const
     return result;
 }
 
-bool FilesystemMapTileSource::read(const MapTileRef& ref,
-                                   uint8_t* buffer,
-                                   std::size_t capacity,
-                                   std::size_t& out_size,
-                                   MapTileFormat& out_format) const
+MapTileReadResult FilesystemMapTileSource::read(
+    const MapTileRef& ref,
+    uint8_t* buffer,
+    std::size_t capacity) const
 {
-    out_size = 0;
-    out_format = mapTileFormatForLayer(ref.layer);
-
     char path[160]{};
     if (!resolver_.resolvePath(ref, path, sizeof(path)))
     {
-        out_format = MapTileFormat::Unknown;
-        return false;
+        return {MapTileReadStatus::Invalid, 0, -1, MapTileFormat::Unknown};
     }
 
-    return file_system_.readFile(path, buffer, capacity, out_size);
+    MapTileReadResult result = file_system_.readFile(path, buffer, capacity);
+    result.format = mapTileFormatForLayer(ref.layer);
+    return result;
 }
 
 bool FilesystemMapTileSource::resolvePath(const MapTileRef& ref,

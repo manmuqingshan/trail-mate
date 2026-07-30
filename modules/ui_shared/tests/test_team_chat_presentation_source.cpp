@@ -1,5 +1,6 @@
 #include "platform/ui/team_ui_chat_log_store.h"
 #include "platform/ui/team_ui_snapshot_store.h"
+#include "platform/ui/team_ui_store_runtime.h"
 #include "team/protocol/team_chat.h"
 #include "team/protocol/team_location_marker.h"
 #include "ui/presentation_sources/team_chat_presentation_source.h"
@@ -24,6 +25,7 @@ team::TeamId testTeamId()
 team::ui::TeamUiSnapshot makeSnapshot()
 {
     team::ui::TeamUiSnapshot snap;
+    snap.in_team = true;
     snap.has_team_id = true;
     snap.team_id = testTeamId();
     snap.team_name = "Alpha";
@@ -55,6 +57,20 @@ bool contains(const ui::FixedText<160>& text, const char* needle)
     return std::strstr(text.c_str(), needle) != nullptr;
 }
 
+const ui::chat::ConversationLocationParticipant* findLocationParticipant(
+    const ui::chat::ChatWorkspaceSnapshot& snapshot,
+    uint32_t node_id)
+{
+    for (size_t i = 0; i < snapshot.location_participant_count; ++i)
+    {
+        if (snapshot.location_participants[i].node_id == node_id)
+        {
+            return &snapshot.location_participants[i];
+        }
+    }
+    return nullptr;
+}
+
 } // namespace
 
 int main()
@@ -64,6 +80,14 @@ int main()
 
     const team::ui::TeamUiSnapshot snap = makeSnapshot();
     store.save(snap);
+    assert(team::ui::team_ui_posring_append(
+        snap.team_id,
+        0x12345678,
+        312345678,
+        1219876543,
+        42,
+        0,
+        100));
 
     assert(team::ui::team_ui_chat_log_store().appendText(
         snap.team_id, 0x12345678, true, 100, "hello team"));
@@ -117,6 +141,13 @@ int main()
     assert(selected.message_count == 3);
     assert(selected.can_send);
     assert(selected.composer_enabled);
+    assert(selected.location_participant_count == 1);
+    const auto* member_location =
+        findLocationParticipant(selected, 0x12345678);
+    assert(member_location != nullptr);
+    assert(member_location->valid);
+    assert(member_location->lat > 31.23 && member_location->lat < 31.24);
+    assert(member_location->lon > 121.98 && member_location->lon < 121.99);
 
     assert(selected.messages[0].conversation.kind ==
            ui::chat::ConversationKind::Team);

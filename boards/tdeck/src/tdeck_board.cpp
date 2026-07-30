@@ -4,8 +4,8 @@
 #include "display/drivers/ST7789TDeck.h"
 #include "platform/esp/arduino_common/power/battery_adc.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/ui/audio/pager_notification_tone.h"
-#include <AudioOutputI2S.h>
+#include "platform/esp/common/shared_spi_coordinator.h"
+#include "sys/bus_access_scope.h"
 #include <Wire.h>
 #include <ctime>
 #include <driver/gpio.h>
@@ -32,15 +32,19 @@ constexpr uint8_t kTDeckBacklightStepMax = 16;
 constexpr uint32_t kTDeckBacklightOffDelayMs = 3;
 constexpr uint32_t kTDeckBacklightWakeDelayUs = 30;
 constexpr uint32_t kTDeckDisplaySpiClockMhz = 80;
+constexpr uint32_t kRadioSpiLockTimeoutLogIntervalMs = 1000;
+constexpr uint32_t kSharedSpiBusResource = 1;
+constexpr uint32_t kSharedSpiBusOwnerId = 0x54444543U; // 'TDEC'
+constexpr const char* kSharedSpiBusOwner = "tdeck_board";
 // LilyGo's T-Deck GPSShield reference starts the L76K/CASIC path at 9600.
 constexpr uint32_t kGpsDefaultBaud = 9600;
 constexpr uint8_t kGpsProfileAuto = 0;
 constexpr uint8_t kGpsProfileNmeaPassive = 1;
 constexpr uint8_t kGpsProfileUbxLegacy = 2;
 constexpr uint8_t kGpsProfileUbxModern = 3;
-constexpr size_t kMessageToneMinDmaHeapBytes = 24 * 1024;
-constexpr size_t kMessageToneMinInternalHeapBytes = 48 * 1024;
 uint8_t s_backlight_level = 0;
+uint32_t s_last_radio_spi_lock_timeout_log_ms = 0;
+uint32_t s_suppressed_radio_spi_lock_timeout_logs = 0;
 
 #if DEVICE_MAX_BRIGHTNESS_LEVEL > 0
 constexpr uint32_t kBacklightLevelMax = DEVICE_MAX_BRIGHTNESS_LEVEL;
@@ -86,6 +90,53 @@ uint32_t radio_tx_timeout_ms(RadioT& radio, size_t len)
         timeout_ms = 120000ULL;
     }
     return static_cast<uint32_t>(timeout_ms);
+}
+
+void log_radio_spi_lock_timeout(const char* owner, TickType_t wait_ticks)
+{
+    const uint32_t now_ms = millis();
+    ++s_suppressed_radio_spi_lock_timeout_logs;
+    if (s_last_radio_spi_lock_timeout_log_ms != 0 &&
+        now_ms - s_last_radio_spi_lock_timeout_log_ms <
+            kRadioSpiLockTimeoutLogIntervalMs)
+    {
+        return;
+    }
+    Serial.printf("[SPI][RADIO] lock_timeout board=tdeck owner=%s wait_ticks=%lu suppressed=%lu\n",
+                  owner ? owner : "-",
+                  static_cast<unsigned long>(wait_ticks),
+                  static_cast<unsigned long>(s_suppressed_radio_spi_lock_timeout_logs - 1));
+    s_suppressed_radio_spi_lock_timeout_logs = 0;
+    s_last_radio_spi_lock_timeout_log_ms = now_ms;
+}
+
+template <typename Fn>
+bool withSharedSpiRadioAccess(const char* owner,
+                              TickType_t wait_ticks,
+                              Fn&& fn)
+{
+    const uint32_t wait_ms =
+        static_cast<uint32_t>(wait_ticks) * portTICK_PERIOD_MS;
+    sys::runtime::BusAcquireRequest request{};
+    request.resource = kSharedSpiBusResource;
+    request.policy = sys::runtime::BusAccessPolicy::InteractiveWorkerBounded;
+    request.command_id = kSharedSpiBusOwnerId + 1;
+    request.origin = kSharedSpiBusOwnerId;
+    request.deadline_ms = sys::millis_now() + wait_ms;
+    request.owner_label = owner ? owner : kSharedSpiBusOwner;
+    sys::runtime::ScopedBusAccessToken bus_token(
+        ::platform::esp::common::shared_spi_coordinator(),
+        request);
+    if (!bus_token.acquired())
+    {
+        if (wait_ticks != 0)
+        {
+            log_radio_spi_lock_timeout(owner, wait_ticks);
+        }
+        return false;
+    }
+    fn();
+    return true;
 }
 
 void write_backlight_level(uint8_t level)
@@ -335,6 +386,7 @@ uint32_t TDeckBoard::begin(uint32_t disable_hw_init)
     delay(50);
     Serial.println("[TDeckBoard] poweron=HIGH");
 #endif
+    audio_runtime_.begin();
 
     // Follow LilyGo T-Deck examples: de-conflict shared SPI bus early.
 #ifdef SD_CS
@@ -711,16 +763,8 @@ bool TDeckBoard::ensureSDReady()
 
 void TDeckBoard::uninstallSD()
 {
-    if (LilyGoDispArduinoSPI::lock(portMAX_DELAY))
-    {
-        ::platform::esp::arduino_common::storage::unmount_sd_card();
-        LilyGoDispArduinoSPI::unlock();
-        Serial.println("[TDeckBoard] SD unmounted");
-    }
-    else
-    {
-        Serial.println("[TDeckBoard] SD unmount: SPI lock failed");
-    }
+    ::platform::esp::arduino_common::storage::unmount_sd_card();
+    Serial.println("[TDeckBoard] SD unmounted");
 }
 
 bool TDeckBoard::isRTCReady() const
@@ -807,13 +851,7 @@ uint8_t TDeckBoard::keyboardGetBrightness()
 
 bool TDeckBoard::isCardReady()
 {
-    bool ready = false;
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(100)))
-    {
-        ready = ::platform::esp::arduino_common::storage::sd_card_ready();
-        LilyGoDispArduinoSPI::unlock();
-    }
-    return ready;
+    return ::platform::esp::arduino_common::storage::sd_card_ready();
 }
 
 void TDeckBoard::setRotation(uint8_t rotation)
@@ -830,6 +868,15 @@ uint8_t TDeckBoard::getRotation()
 void TDeckBoard::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color)
 {
     LilyGoDispArduinoSPI::pushColors(x1, y1, x2, y2, color);
+}
+
+bool TDeckBoard::pushColorsResult(uint16_t x1,
+                                  uint16_t y1,
+                                  uint16_t x2,
+                                  uint16_t y2,
+                                  uint16_t* color)
+{
+    return LilyGoDispArduinoSPI::pushColorsResult(x1, y1, x2, y2, color);
 }
 
 uint16_t TDeckBoard::width()
@@ -1009,10 +1056,10 @@ bool TDeckBoard::syncTimeFromGPS(uint32_t gps_task_interval_ms)
 int TDeckBoard::transmitRadio(const uint8_t* data, size_t len)
 {
     const uint32_t timeout_ms = radio_tx_timeout_ms(radio_, len);
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx"))
+    int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    if (withSharedSpiRadioAccess("radio_tx", pdMS_TO_TICKS(50), [&]()
+                                 { rc = radio_.startTransmit(data, len); }))
     {
-        int rc = radio_.startTransmit(data, len);
-        LilyGoDispArduinoSPI::unlock();
         if (rc != RADIOLIB_ERR_NONE)
         {
             return rc;
@@ -1028,20 +1075,18 @@ int TDeckBoard::transmitRadio(const uint8_t* data, size_t len)
     {
         if (static_cast<uint32_t>(millis() - started_ms) > timeout_ms)
         {
-            if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx_finish"))
-            {
-                (void)radio_.finishTransmit();
-                LilyGoDispArduinoSPI::unlock();
-            }
+            (void)withSharedSpiRadioAccess("radio_tx_finish",
+                                           pdMS_TO_TICKS(50),
+                                           [&]()
+                                           { (void)radio_.finishTransmit(); });
             return RADIOLIB_ERR_TX_TIMEOUT;
         }
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_tx_finish"))
+    if (withSharedSpiRadioAccess("radio_tx_finish", pdMS_TO_TICKS(50), [&]()
+                                 { rc = radio_.finishTransmit(); }))
     {
-        const int rc = radio_.finishTransmit();
-        LilyGoDispArduinoSPI::unlock();
         return rc;
     }
     return RADIOLIB_ERR_SPI_WRITE_FAILED;
@@ -1049,10 +1094,10 @@ int TDeckBoard::transmitRadio(const uint8_t* data, size_t len)
 
 int TDeckBoard::startRadioReceive()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_rx"))
+    int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    if (withSharedSpiRadioAccess("radio_rx", pdMS_TO_TICKS(50), [&]()
+                                 { rc = radio_.startReceive(); }))
     {
-        int rc = radio_.startReceive();
-        LilyGoDispArduinoSPI::unlock();
         return rc;
     }
     return RADIOLIB_ERR_SPI_WRITE_FAILED;
@@ -1060,10 +1105,10 @@ int TDeckBoard::startRadioReceive()
 
 uint32_t TDeckBoard::getRadioIrqFlags()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_irq"))
+    uint32_t flags = 0;
+    if (withSharedSpiRadioAccess("radio_irq", 0, [&]()
+                                 { flags = radio_.getIrqFlags(); }))
     {
-        uint32_t flags = radio_.getIrqFlags();
-        LilyGoDispArduinoSPI::unlock();
         return flags;
     }
     return 0;
@@ -1071,10 +1116,10 @@ uint32_t TDeckBoard::getRadioIrqFlags()
 
 int TDeckBoard::getRadioPacketLength(bool update)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rx"))
+    int len = 0;
+    if (withSharedSpiRadioAccess("radio_rx", pdMS_TO_TICKS(20), [&]()
+                                 { len = static_cast<int>(radio_.getPacketLength(update)); }))
     {
-        int len = static_cast<int>(radio_.getPacketLength(update));
-        LilyGoDispArduinoSPI::unlock();
         return len;
     }
     return 0;
@@ -1082,10 +1127,10 @@ int TDeckBoard::getRadioPacketLength(bool update)
 
 int TDeckBoard::readRadioData(uint8_t* buf, size_t len)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(50), "radio_rx"))
+    int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    if (withSharedSpiRadioAccess("radio_rx", pdMS_TO_TICKS(50), [&]()
+                                 { rc = radio_.readData(buf, len); }))
     {
-        int rc = radio_.readData(buf, len);
-        LilyGoDispArduinoSPI::unlock();
         return rc;
     }
     return RADIOLIB_ERR_SPI_WRITE_FAILED;
@@ -1093,19 +1138,16 @@ int TDeckBoard::readRadioData(uint8_t* buf, size_t len)
 
 void TDeckBoard::clearRadioIrqFlags(uint32_t flags)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_irq"))
-    {
-        radio_.clearIrqFlags(flags);
-        LilyGoDispArduinoSPI::unlock();
-    }
+    (void)withSharedSpiRadioAccess("radio_irq", pdMS_TO_TICKS(20), [&]()
+                                   { radio_.clearIrqFlags(flags); });
 }
 
 float TDeckBoard::getRadioRSSI()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))
+    float rssi = std::numeric_limits<float>::quiet_NaN();
+    if (withSharedSpiRadioAccess("radio_rssi", pdMS_TO_TICKS(20), [&]()
+                                 { rssi = radio_.getRSSI(); }))
     {
-        float rssi = radio_.getRSSI();
-        LilyGoDispArduinoSPI::unlock();
         return rssi;
     }
     return std::numeric_limits<float>::quiet_NaN();
@@ -1113,10 +1155,10 @@ float TDeckBoard::getRadioRSSI()
 
 float TDeckBoard::getRadioInstantRSSI()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))
+    float rssi = std::numeric_limits<float>::quiet_NaN();
+    if (withSharedSpiRadioAccess("radio_rssi", pdMS_TO_TICKS(20), [&]()
+                                 { rssi = radio_.getRSSI(false); }))
     {
-        const float rssi = radio_.getRSSI(false);
-        LilyGoDispArduinoSPI::unlock();
         return rssi;
     }
     return std::numeric_limits<float>::quiet_NaN();
@@ -1124,10 +1166,10 @@ float TDeckBoard::getRadioInstantRSSI()
 
 float TDeckBoard::getRadioSNR()
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(20), "radio_rssi"))
+    float snr = std::numeric_limits<float>::quiet_NaN();
+    if (withSharedSpiRadioAccess("radio_rssi", pdMS_TO_TICKS(20), [&]()
+                                 { snr = radio_.getSNR(); }))
     {
-        float snr = radio_.getSNR();
-        LilyGoDispArduinoSPI::unlock();
         return snr;
     }
     return std::numeric_limits<float>::quiet_NaN();
@@ -1147,8 +1189,8 @@ void TDeckBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, ui
                                     int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
                                     uint8_t crc_len)
 {
-    if (LilyGoDispArduinoSPI::lock(pdMS_TO_TICKS(100), "radio_cfg"))
-    {
+    (void)withSharedSpiRadioAccess("radio_cfg", pdMS_TO_TICKS(100), [&]()
+                                   {
 #if defined(ARDUINO_LILYGO_LORA_SX1262)
         radio_.setDio2AsRfSwitch(true);
         radio_.setCurrentLimit(kTDeckRadioCurrentLimitMa);
@@ -1164,9 +1206,7 @@ void TDeckBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, ui
 #endif
         radio_.setPreambleLength(preamble_len);
         radio_.setSyncWord(sync_word);
-        radio_.setCRC(crc_len);
-        LilyGoDispArduinoSPI::unlock();
-    }
+        radio_.setCRC(crc_len); });
 }
 
 RotaryMsg_t TDeckBoard::getRotary()
@@ -1314,95 +1354,9 @@ int TDeckBoard::getNavKey(uint32_t* key)
 void TDeckBoard::playMessageTone()
 {
 #if defined(DAC_I2S_BCK) && defined(DAC_I2S_WS) && defined(DAC_I2S_DOUT)
-    if (message_tone_volume_ == 0)
-    {
-        return;
-    }
-
-    static bool s_playing = false;
-    static uint32_t s_last_play_ms = 0;
-
-    if (s_playing)
-    {
-        return;
-    }
-
-    const uint32_t now = millis();
-    if ((now - s_last_play_ms) < 240)
-    {
-        return;
-    }
-
-    s_playing = true;
-    s_last_play_ms = now;
-
-    if (heap_caps_get_free_size(MALLOC_CAP_DMA) < kMessageToneMinDmaHeapBytes ||
-        heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) <
-            kMessageToneMinInternalHeapBytes)
-    {
-        std::printf("[TDeck] message tone skipped: low heap dma=%u internal=%u\n",
-                    static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_DMA)),
-                    static_cast<unsigned>(
-                        heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
-        s_playing = false;
-        return;
-    }
-
-    static constexpr size_t kFramesPerChunk = 128;
-    namespace pager_tone = ::platform::ui::audio::pager_notification;
-
-    AudioOutputI2S audio_out(1, AudioOutputI2S::EXTERNAL_I2S);
-#if defined(DAC_I2S_MCLK)
-    audio_out.SetPinout(DAC_I2S_BCK, DAC_I2S_WS, DAC_I2S_DOUT, DAC_I2S_MCLK);
-#else
-    audio_out.SetPinout(DAC_I2S_BCK, DAC_I2S_WS, DAC_I2S_DOUT);
-#endif
-    audio_out.SetRate(pager_tone::kPlaybackSampleRateHz);
-    audio_out.SetBitsPerSample(16);
-    audio_out.SetChannels(pager_tone::kChannels);
-    float gain = static_cast<float>(message_tone_volume_) / 250.0f;
-    if (gain < 0.0f)
-    {
-        gain = 0.0f;
-    }
-    if (gain > 0.40f)
-    {
-        gain = 0.40f;
-    }
-    audio_out.SetGain(gain);
-
-    if (audio_out.begin())
-    {
-        const uint32_t deadline = millis() + 1600U;
-        int16_t pcm[kFramesPerChunk * pager_tone::kChannels];
-        pager_tone::AdpcmPlaybackState tone_state{};
-        while (pager_tone::hasMore(tone_state) && millis() < deadline)
-        {
-            const uint16_t frames = pager_tone::fillStereoInterleaved(
-                tone_state, pcm, static_cast<uint16_t>(kFramesPerChunk));
-            if (frames == 0U)
-            {
-                break;
-            }
-
-            uint16_t written = 0U;
-            while (written < frames && millis() < deadline)
-            {
-                const uint16_t consumed =
-                    audio_out.ConsumeSamples(&pcm[written * pager_tone::kChannels],
-                                             static_cast<uint16_t>(frames - written));
-                if (consumed == 0U)
-                {
-                    delay(1);
-                    continue;
-                }
-                written = static_cast<uint16_t>(written + consumed);
-            }
-        }
-        audio_out.flush();
-    }
-    audio_out.stop();
-    s_playing = false;
+    std::printf("[TDeck][Audio] message tone requested volume=%u\n",
+                static_cast<unsigned>(message_tone_volume_));
+    audio_runtime_.requestMessageTone(message_tone_volume_);
 #endif
 }
 

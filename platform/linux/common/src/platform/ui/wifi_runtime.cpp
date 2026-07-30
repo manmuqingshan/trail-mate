@@ -68,6 +68,19 @@ bool save_config(const Config& config)
     return ssid_ok && password_ok;
 }
 
+bool find_saved_config(const char* ssid, Config& out)
+{
+    out = Config{};
+    Config config{};
+    (void)load_config(config);
+    if (ssid && ssid[0] != '\0' && std::strcmp(config.ssid, ssid) == 0)
+    {
+        out = config;
+        return true;
+    }
+    return false;
+}
+
 bool apply_enabled(bool enabled)
 {
     return !enabled;
@@ -82,9 +95,11 @@ void disconnect()
 {
 }
 
-bool scan(std::vector<ScanResult>& out_results)
+bool scan(ScanResult* out_results, std::size_t capacity, std::size_t& out_count)
 {
-    out_results.clear();
+    (void)out_results;
+    (void)capacity;
+    out_count = 0;
     return false;
 }
 

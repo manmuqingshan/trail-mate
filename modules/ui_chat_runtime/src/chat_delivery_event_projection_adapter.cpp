@@ -2,8 +2,8 @@
 
 #include "chat/delivery/chat_delivery_message_projection.h"
 #include "chat/delivery/chat_delivery_send_result_projection.h"
+#include "chat/delivery/chat_outbox_service.h"
 #include "chat/usecase/chat_service.h"
-#include "sys/event_bus.h"
 
 namespace ui_chat_runtime
 {
@@ -17,15 +17,40 @@ ChatDeliveryEventProjectionAdapter::ChatDeliveryEventProjectionAdapter(
 }
 
 void ChatDeliveryEventProjectionAdapter::onChatSendResult(
-    const ::sys::ChatSendResultEvent& event)
+    ::chat::MessageId msg_id,
+    ::chat::MessageStatus status,
+    uint32_t timestamp_ms,
+    ::chat::delivery::SendFailureKind failure,
+    bool has_protocol,
+    ::chat::MeshProtocol protocol)
 {
-    const auto failure = event.success
-                             ? ::chat::delivery::SendFailureKind::None
-                             : ::chat::delivery::SendFailureKind::Unknown;
-    (void)publishSendResult(event.msg_id,
-                            event.success,
+    if (!::chat::delivery::ChatOutboxService::isOutboundStatusUpdate(status))
+    {
+        return;
+    }
+
+    const ::chat::ChatMessage* message = chat_service_.getMessage(msg_id);
+    if (has_protocol)
+    {
+        message = chat_service_.getMessageForProtocol(msg_id, protocol);
+    }
+    if (!::chat::delivery::ChatOutboxService::shouldApplyStatus(message,
+                                                                status))
+    {
+        return;
+    }
+    const auto state =
+        ::chat::delivery::ChatOutboxService::toDeliveryState(status);
+    if (status != ::chat::MessageStatus::Failed)
+    {
+        failure = ::chat::delivery::SendFailureKind::None;
+    }
+    (void)publishSendResult(msg_id,
+                            has_protocol,
+                            protocol,
+                            state,
                             failure,
-                            event.timestamp);
+                            timestamp_ms);
 }
 
 void ChatDeliveryEventProjectionAdapter::onAckTimeout(
@@ -35,13 +60,17 @@ void ChatDeliveryEventProjectionAdapter::onAckTimeout(
     (void)publishSendResult(
         msg_id,
         false,
+        ::chat::MeshProtocol::Meshtastic,
+        ::chat::delivery::DeliveryState::Failed,
         ::chat::delivery::SendFailureKind::AckTimeout,
         timestamp_ms);
 }
 
 bool ChatDeliveryEventProjectionAdapter::publishSendResult(
     ::chat::MessageId msg_id,
-    bool success,
+    bool has_protocol,
+    ::chat::MeshProtocol protocol,
+    ::chat::delivery::DeliveryState state,
     ::chat::delivery::SendFailureKind failure,
     uint32_t timestamp_ms)
 {
@@ -50,7 +79,9 @@ bool ChatDeliveryEventProjectionAdapter::publishSendResult(
         return false;
     }
 
-    const ::chat::ChatMessage* message = chat_service_.getMessage(msg_id);
+    const ::chat::ChatMessage* message =
+        has_protocol ? chat_service_.getMessageForProtocol(msg_id, protocol)
+                     : chat_service_.getMessage(msg_id);
     if (message == nullptr)
     {
         return false;
@@ -59,7 +90,7 @@ bool ChatDeliveryEventProjectionAdapter::publishSendResult(
     ::chat::delivery::ChatDeliveryEvent event =
         ::chat::delivery::makeChatSendResultDeliveryEvent(
             ::chat::delivery::toDeliveryRef(*message),
-            success,
+            state,
             failure,
             timestamp_ms);
     delivery_events_.publishDeliveryEvent(event);

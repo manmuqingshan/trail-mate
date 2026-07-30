@@ -16,10 +16,15 @@ The audit distinguishes:
 The normalization baseline is:
 
 ```text
-ESP / ESP32-P4 authoritative build entrypoint = builds/esp_idf
+ESP / ESP32-P4 authoritative build entrypoint = root CMakeLists.txt with TRAIL_MATE_IDF_TARGET
 nRF52 authoritative build entrypoint = builds/pio_nrf52
 Linux authoritative build entrypoint = builds/linux_cmake
 ```
+
+Current ESP-IDF correction: `builds/esp_idf` owns IDF component assets and target
+defaults only. It must not be treated as an `idf.py -C builds/esp_idf`
+entrypoint unless a future migration proves that wrapper through the same build
+gates as the root IDF project.
 
 Core rule:
 
@@ -32,7 +37,7 @@ App Shell composes.
 
 | Current path | Current role | Final role | Migration risk | Blocking reason | Next action |
 | --- | --- | --- | --- | --- | --- |
-| `legacy/app_implementations/esp_idf` | ESP-IDF build entrypoint plus transitional ESP app/runtime shell | `builds/esp_idf` thin wrapper invoking a future ESP LVGL app shell | ESP-IDF CMake include paths, target sdkconfig defaults, generated build dirs, component registration | Existing ESP-IDF targets build through this directory | Create wrapper skeleton first; move build-host files only after equivalent invocation is proven |
+| `legacy/app_implementations/esp_idf` | removed historical ESP-IDF build/component root | root `CMakeLists.txt` consumes `builds/esp_idf` component assets and target defaults | ESP-IDF CMake include paths, target sdkconfig defaults, generated build dirs, component registration | Existing ESP-IDF targets build through the root entrypoint | Do not recreate a `builds/esp_idf` project wrapper unless it is proven through the same build gates |
 | `legacy/app_implementations/esp_pio` | PlatformIO/Arduino compatibility entrypoint and legacy ESP app glue | split into `builds/pio_nrf52` for nRF52 authority and possible legacy ESP PIO compatibility wrapper | PlatformIO environments and root `platformio.ini` still reference current layout | nRF and legacy ESP build flows are coupled through PIO conventions | Keep transitional; introduce family-specific wrapper docs before moving files |
 | `legacy/app_implementations/linux_sim` | Linux simulator and developer-tooling shell with CMake project files | Linux app shell invoked by `builds/linux_cmake` | CMake source helper and simulator scripts live in current app directory | Simulator remains a fast validation target and should not be disrupted | Document as transitional CMake app shell; wrapper should invoke existing CMake path first |
 | `legacy/app_implementations/linux_uconsole` | uConsole/AIO2-class Linux handheld shell | Linux app shell invoked by `builds/linux_cmake` | GTK/uConsole app model and platform code are adjacent | Device shell is still evolving and tied to app-local structure | Keep app shell; route future canonical build through Linux CMake wrapper |
@@ -40,7 +45,7 @@ App Shell composes.
 | `legacy/app_implementations/linux_unoq` | Future UNO Q Linux shell placeholder | Linux app shell invoked by `builds/linux_cmake` | Early target, low source volume | Final product identity and build path not fully proven | Keep as app shell candidate; delay migration until target profile exists |
 | `legacy/app_implementations/gat562_mesh_evb_pro` | nRF/mono device app shell with board-specific runtime access | future nRF52 app shell invoked by `builds/pio_nrf52` | Board app shell and board facts are currently close together | PIO/nRF split is not yet represented by final app shell names | Keep stable; later separate app shell from board facts and PIO wrapper |
 | root `platformio.ini` | current PlatformIO build authority for Arduino/PIO targets | invoked or wrapped by `builds/pio_nrf52` and any legacy PIO compatibility entrypoint | Environment names, library paths, and board configs are sensitive | Current PIO build must remain unbroken | Do not edit in Phase 8.2; document as existing authority |
-| root `CMakeLists.txt` | root CMake/ESP-IDF historical entrypoint surface | clarified by `builds/esp_idf` and `builds/linux_cmake` wrappers | Root CMake has ESP-IDF history and Linux CMake must not hijack it | Multiple CMake host meanings coexist | Do not edit in Phase 8.2; document target authority before moving |
+| root `CMakeLists.txt` | authoritative ESP-IDF entrypoint selected by `TRAIL_MATE_IDF_TARGET` | remains the single executable ESP-IDF project until a wrapper migration is proven | ESP-IDF target selection, sdkconfig defaults, component registration | P4/Tab5 builds are invoked from this root entrypoint | Keep as the only `idf.py` entrypoint |
 | `legacy/app_implementations/esp_idf/build.tab5` | generated or local ESP-IDF build output under app tree | build artifact outside final source semantics | Generated files may be large or host-specific | Existing developer workflow produced it there | Do not normalize in Phase 8.2; clean artifact policy separately |
 | root `build/` | generated build output | build artifact | May contain local host output | Unknown local use | Leave untouched |
 | root `build.cardputer` | generated target build output | build artifact | May be referenced by local tooling | Unknown local use | Leave untouched |
@@ -163,9 +168,8 @@ builds/linux_cmake
   -> linux_sim_historical_source_descriptor
   -> product_composition / modules/ui_ascii_runtime
 
-builds/esp_idf
-  -> apps/esp32_lvgl
-  -> trailmate_esp32_lvgl_app_shell
+root CMakeLists.txt
+  -> builds/esp_idf/main
   -> builds/esp_idf/ESP_IDF_COMPONENT_SOURCES.cmake
   -> apps/esp32_lvgl + platform/esp/radio
 
@@ -179,7 +183,8 @@ builds/pio_nrf52
 The wrapper files are intentionally thin:
 
 - `builds/linux_cmake/CMakeLists.txt` invokes Linux app shells.
-- `builds/esp_idf/CMakeLists.txt` invokes the ESP32 LVGL app shell baseline.
+- root `CMakeLists.txt` invokes the ESP-IDF project and consumes
+  `builds/esp_idf/main`.
 - `builds/pio_nrf52/platformio.ini` declares the nRF52 PlatformIO wrapper
   authority and transitional roots.
 

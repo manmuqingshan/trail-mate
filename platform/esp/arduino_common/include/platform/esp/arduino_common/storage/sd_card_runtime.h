@@ -40,6 +40,8 @@ SdCardBackend sd_card_backend();
 SdCardInfo sd_card_info();
 const char* sd_card_backend_name();
 const char* sd_card_filesystem_name();
+bool sd_external_block_owner_active();
+void sd_set_external_block_owner_active(bool active);
 
 bool sd_exists(const char* path);
 bool sd_is_directory(const char* path);
@@ -47,6 +49,30 @@ bool sd_mkdir(const char* path);
 bool sd_rmdir(const char* path);
 bool sd_remove(const char* path);
 bool sd_rename(const char* old_path, const char* new_path);
+
+enum class SdFileReadStatus : uint8_t
+{
+    Ready,
+    Missing,
+    Busy,
+    Unavailable,
+    IoError,
+    Invalid,
+};
+
+struct SdFileReadResult
+{
+    SdFileReadStatus status = SdFileReadStatus::IoError;
+    std::size_t bytes_read = 0;
+    uint64_t file_size = 0;
+    int32_t error = -1;
+};
+
+// Reads a file through bounded device-owned transactions. Callers receive a
+// semantic storage result and do not provide SPI policy or lock metadata.
+SdFileReadResult sd_read_file(const char* path,
+                              uint8_t* buffer,
+                              std::size_t capacity);
 
 class SdRuntimeFile
 {

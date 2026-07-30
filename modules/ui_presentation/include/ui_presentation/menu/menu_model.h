@@ -18,7 +18,6 @@ enum class MenuScreenId : uint8_t
     SkyPlot,
     Team,
     Tracker,
-    PcLink,
     EnergySweep,
     Settings,
     WalkieTalkie,

@@ -32,7 +32,14 @@ namespace platform::ui::sstv
 
 bool is_supported()
 {
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    // The P4 codec path exists as an integration seam, but the receive and
+    // persistence backend has not completed target validation. Keep the page
+    // out of the runnable App Catalog until that contract is actually ready.
+    return false;
+#else
     return board.hasSstvAudioInput();
+#endif
 }
 
 bool start()

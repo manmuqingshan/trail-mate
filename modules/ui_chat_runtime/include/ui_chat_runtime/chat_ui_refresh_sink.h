@@ -12,7 +12,10 @@ class IChatUiRefreshSink
     virtual ~IChatUiRefreshSink() = default;
 
     virtual void onRuntimeMessageArrived(chat::MessageId msg_id) = 0;
-    virtual void onRuntimeSendResult(chat::MessageId msg_id) = 0;
+    virtual void onRuntimeSendResult(
+        chat::MessageId msg_id,
+        bool has_protocol = false,
+        chat::MeshProtocol protocol = chat::MeshProtocol::Meshtastic) = 0;
     virtual void onRuntimeUnreadChanged() = 0;
 
     virtual void showKeyVerification(

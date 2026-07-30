@@ -1,6 +1,6 @@
-﻿/**
+/**
  * @file screen_sleep.cpp
- * @brief ESP-IDF screen sleep runtime backed by shared settings and BSP display controls.
+ * @brief ESP-IDF adapter for the shared screen-power state machine.
  */
 
 #include "screen_sleep.h"
@@ -11,11 +11,13 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
 #include "platform/esp/idf_common/ui_dispatcher.h"
 #include "platform/ui/device_runtime.h"
+#include "platform/ui/screen_power_state_machine.h"
 #include "platform/ui/screen_runtime.h"
 #include "platform/ui/settings_store.h"
 
@@ -31,142 +33,171 @@ extern "C"
 namespace
 {
 
-constexpr const char* kTag = "idf-screen-sleep";
+using platform::ui::screen_power::Effects;
+using platform::ui::screen_power::Event;
+using platform::ui::screen_power::Snapshot;
+using platform::ui::screen_power::State;
+using platform::ui::screen_power::StateMachine;
+
+constexpr const char* kTag = "idf-screen-power";
 constexpr const char* kSettingsNs = "settings";
 constexpr const char* kScreenTimeoutKey = "screen_timeout";
-constexpr uint32_t kScreenTimeoutMinMs = 10000;
-constexpr uint32_t kScreenTimeoutMaxMs = 300000;
-constexpr uint32_t kScreenTimeoutDefaultMs = 60000;
-constexpr uint32_t kScreenTimeoutMaxBleSecs = 900;
-constexpr uint32_t kTaskPeriodMs = 250;
+constexpr std::uint32_t kQueueDepth = 32;
+constexpr std::uint32_t kTaskPeriodMs = 100;
+constexpr std::uint8_t kIdfMaxBrightnessLevel = 16U;
 
 ScreenSleepHooks s_hooks{};
-SemaphoreHandle_t s_mutex = nullptr;
+StateMachine s_machine{};
+SemaphoreHandle_t s_state_mutex = nullptr;
+QueueHandle_t s_event_queue = nullptr;
 TaskHandle_t s_task = nullptr;
-uint32_t s_timeout_ms = kScreenTimeoutDefaultMs;
-bool s_timeout_loaded = false;
-uint32_t s_last_user_activity_ms = 0;
-bool s_screen_sleeping = false;
-bool s_screen_sleep_disabled = false;
-bool s_screen_saver_active = false;
-uint8_t s_saved_screen_brightness = DEVICE_MAX_BRIGHTNESS_LEVEL;
+std::uint8_t s_saved_screen_brightness = kIdfMaxBrightnessLevel;
 
-bool auto_sleep_supported()
+std::uint32_t now_ms()
 {
-#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
-    // P4 touch wake is still a board bring-up contract. Keep the UI awake so
-    // field LoRa/debug sessions do not look frozen after the backlight sleeps.
-    return false;
-#else
-    return true;
-#endif
+    return static_cast<std::uint32_t>(esp_timer_get_time() / 1000ULL);
 }
 
-uint32_t now_ms()
+void ensure_state_mutex()
 {
-    return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
-}
-
-uint32_t clamp_timeout_internal(uint32_t timeout_ms)
-{
-    if (timeout_ms < kScreenTimeoutMinMs || timeout_ms > kScreenTimeoutMaxMs)
+    if (s_state_mutex == nullptr)
     {
-        return kScreenTimeoutDefaultMs;
-    }
-    return timeout_ms;
-}
-
-void ensure_mutex()
-{
-    if (s_mutex == nullptr)
-    {
-        s_mutex = xSemaphoreCreateMutex();
+        s_state_mutex = xSemaphoreCreateMutex();
     }
 }
 
-void load_timeout_if_needed_locked()
+void ensure_event_queue()
 {
-    if (s_timeout_loaded)
+    if (s_event_queue == nullptr)
+    {
+        s_event_queue = xQueueCreate(kQueueDepth, sizeof(Event));
+    }
+}
+
+void post_ui_event(platform::esp::idf_common::ui_dispatcher::Event event)
+{
+    (void)platform::esp::idf_common::ui_dispatcher::post(event);
+}
+
+void apply_effects(const Effects& effects)
+{
+    if (effects.sleep_display)
+    {
+        s_saved_screen_brightness = platform::ui::device::screen_brightness();
+        (void)platform::esp::idf_common::bsp_runtime::sleep_display();
+    }
+
+    if (effects.wake_display)
+    {
+        (void)platform::esp::idf_common::bsp_runtime::wake_display();
+        platform::ui::device::set_screen_brightness(s_saved_screen_brightness);
+    }
+
+    if (effects.hide_saver)
+    {
+        post_ui_event(platform::esp::idf_common::ui_dispatcher::Event::HideScreenSaver);
+    }
+
+    if (effects.show_saver)
+    {
+        post_ui_event(platform::esp::idf_common::ui_dispatcher::Event::ShowScreenSaver);
+    }
+
+    if (effects.show_main_menu)
+    {
+        post_ui_event(platform::esp::idf_common::ui_dispatcher::Event::ShowMainMenu);
+    }
+}
+
+void dispatch_event(Event event)
+{
+    Effects effects{};
+    ensure_state_mutex();
+    if (s_state_mutex == nullptr ||
+        xSemaphoreTake(s_state_mutex, portMAX_DELAY) != pdTRUE)
     {
         return;
     }
-    s_timeout_ms = clamp_timeout_internal(
-        platform::ui::settings_store::get_uint(kSettingsNs, kScreenTimeoutKey, kScreenTimeoutDefaultMs));
-    s_timeout_loaded = true;
+    effects = s_machine.dispatch(event, now_ms());
+    xSemaphoreGive(s_state_mutex);
+    apply_effects(effects);
 }
 
-void wake_display_locked()
-{
-    platform::ui::device::set_screen_brightness(s_saved_screen_brightness);
-    s_last_user_activity_ms = now_ms();
-    s_screen_sleeping = false;
-    s_screen_saver_active = false;
-    ESP_LOGI(kTag, "Display wake");
-}
-
-void sleep_display_locked()
-{
-    s_saved_screen_brightness = platform::ui::device::screen_brightness();
-    platform::esp::idf_common::bsp_runtime::sleep_display();
-    s_screen_sleeping = true;
-    s_screen_saver_active = false;
-    ESP_LOGI(kTag, "Display sleep");
-}
-
-void notify_wake()
-{
-    // Post to UI dispatcher instead of calling LVGL hooks directly.
-    // The drain timer runs in LVGL task context where it is safe.
-    platform::esp::idf_common::ui_dispatcher::post(
-        platform::esp::idf_common::ui_dispatcher::Event::WakeFromSleep);
-}
-
-bool wake_requested_by_touch_irq_locked()
+bool touch_wake_pending()
 {
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-    return s_screen_sleeping && trail_mate_tab5_touch_interrupt_active();
+    return platform::ui::screen::is_sleeping() &&
+           trail_mate_tab5_touch_interrupt_active();
 #elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
-    return s_screen_sleeping && boards::t_display_p4::runtime_support::touch_interrupt_active();
+    return platform::ui::screen::is_sleeping() &&
+           boards::t_display_p4::runtime_support::touch_interrupt_active();
 #else
     return false;
 #endif
 }
 
-void screen_sleep_task(void*)
+void screen_power_task(void*)
 {
     while (true)
     {
-        bool should_notify_wake = false;
-        ensure_mutex();
-        if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+        Event event = Event::Tick;
+        if (s_event_queue != nullptr)
         {
-            load_timeout_if_needed_locked();
-            const uint32_t elapsed = now_ms() - s_last_user_activity_ms;
-            if (s_screen_sleep_disabled)
+            while (xQueueReceive(s_event_queue, &event, 0) == pdTRUE)
             {
-                if (s_screen_sleeping)
-                {
-                    wake_display_locked();
-                    should_notify_wake = true;
-                }
+                dispatch_event(event);
             }
-            else if (wake_requested_by_touch_irq_locked())
-            {
-                ESP_LOGI(kTag, "Display wake requested by board touch interrupt");
-                wake_display_locked();
-                should_notify_wake = true;
-            }
-            else if (auto_sleep_supported() && (s_screen_sleeping == false) && elapsed >= s_timeout_ms)
-            {
-                sleep_display_locked();
-            }
-            xSemaphoreGive(s_mutex);
         }
-        if (should_notify_wake)
+        if (touch_wake_pending())
         {
-            notify_wake();
+            dispatch_event(Event::Input);
         }
+        dispatch_event(Event::Tick);
         vTaskDelay(pdMS_TO_TICKS(kTaskPeriodMs));
+    }
+}
+
+bool post_event(Event event)
+{
+    ensure_event_queue();
+    if (s_event_queue == nullptr)
+    {
+        return false;
+    }
+    return xQueueSend(s_event_queue, &event, 0) == pdTRUE;
+}
+
+Snapshot snapshot()
+{
+    Snapshot value{};
+    ensure_state_mutex();
+    if (s_state_mutex != nullptr &&
+        xSemaphoreTake(s_state_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        value = s_machine.snapshot();
+        xSemaphoreGive(s_state_mutex);
+    }
+    return value;
+}
+
+void initialize_state()
+{
+    ensure_state_mutex();
+    ensure_event_queue();
+    if (s_state_mutex == nullptr)
+    {
+        return;
+    }
+    if (xSemaphoreTake(s_state_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        const std::uint32_t persisted_timeout =
+            platform::ui::settings_store::get_uint(
+                kSettingsNs,
+                kScreenTimeoutKey,
+                StateMachine::kDefaultTimeoutMs);
+        s_machine.set_timeout_ms(persisted_timeout);
+        (void)s_machine.dispatch(Event::Initialize, now_ms());
+        xSemaphoreGive(s_state_mutex);
     }
 }
 
@@ -174,217 +205,171 @@ void screen_sleep_task(void*)
 
 uint32_t clampScreenTimeoutMs(uint32_t timeout_ms)
 {
-    return clamp_timeout_internal(timeout_ms);
+    return StateMachine::clamp_timeout_ms(timeout_ms);
 }
+
 uint32_t getScreenSleepTimeout()
 {
-    ensure_mutex();
-    if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+    ensure_state_mutex();
+    if (s_state_mutex != nullptr &&
+        xSemaphoreTake(s_state_mutex, portMAX_DELAY) == pdTRUE)
     {
-        load_timeout_if_needed_locked();
-        const uint32_t timeout_ms = s_timeout_ms;
-        xSemaphoreGive(s_mutex);
+        const std::uint32_t timeout_ms = s_machine.timeout_ms();
+        xSemaphoreGive(s_state_mutex);
         return timeout_ms;
     }
-    return kScreenTimeoutDefaultMs;
+    return StateMachine::kDefaultTimeoutMs;
 }
 
 uint16_t readScreenTimeoutSecs()
 {
-    const uint32_t timeout_secs = getScreenSleepTimeout() / 1000U;
-    return static_cast<uint16_t>(timeout_secs > kScreenTimeoutMaxBleSecs ? kScreenTimeoutMaxBleSecs : timeout_secs);
+    const std::uint32_t seconds = getScreenSleepTimeout() / 1000U;
+    return static_cast<uint16_t>(seconds > 900U ? 900U : seconds);
 }
 
 void setScreenSleepTimeout(uint32_t timeout_ms)
 {
-    const uint32_t clamped = clamp_timeout_internal(timeout_ms);
-    ensure_mutex();
-    if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
-    {
-        s_timeout_ms = clamped;
-        s_timeout_loaded = true;
-        xSemaphoreGive(s_mutex);
-    }
+    const std::uint32_t clamped = clampScreenTimeoutMs(timeout_ms);
     platform::ui::settings_store::put_uint(kSettingsNs, kScreenTimeoutKey, clamped);
+    ensure_state_mutex();
+    if (s_state_mutex != nullptr &&
+        xSemaphoreTake(s_state_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        s_machine.set_timeout_ms(clamped);
+        xSemaphoreGive(s_state_mutex);
+    }
 }
 
 void initScreenSleepRuntime(const ScreenSleepHooks& hooks)
 {
+    s_hooks = hooks;
     platform::esp::idf_common::bsp_runtime::ensure_nvs_ready();
 
-    // Bridge the legacy hooks into the UI dispatcher so that wake/saver
-    // events are serialised through the LVGL task instead of being called
-    // directly from the screen-sleep FreeRTOS task.
-    {
-        platform::esp::idf_common::ui_dispatcher::Hooks dispatch_hooks{};
-        dispatch_hooks.on_wake_from_sleep = hooks.on_wake_from_sleep;
-        dispatch_hooks.show_main_menu = hooks.show_main_menu;
-        platform::esp::idf_common::ui_dispatcher::init(dispatch_hooks);
-        (void)platform::esp::idf_common::ui_dispatcher::ensure_drain_timer();
-    }
+    platform::esp::idf_common::ui_dispatcher::Hooks dispatcher_hooks{};
+    dispatcher_hooks.on_wake_from_sleep = hooks.on_wake_from_sleep;
+    dispatcher_hooks.show_screen_saver = hooks.show_screen_saver;
+    dispatcher_hooks.hide_screen_saver = hooks.hide_screen_saver;
+    dispatcher_hooks.show_main_menu = hooks.show_main_menu;
+    platform::esp::idf_common::ui_dispatcher::init(dispatcher_hooks);
+    (void)platform::esp::idf_common::ui_dispatcher::ensure_drain_timer();
 
-    s_hooks = hooks;
-    ensure_mutex();
-
-    if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
-    {
-        load_timeout_if_needed_locked();
-        s_last_user_activity_ms = now_ms();
-        xSemaphoreGive(s_mutex);
-    }
-
+    initialize_state();
     if (s_task == nullptr)
     {
-        const BaseType_t rc = xTaskCreate(screen_sleep_task,
-                                          "screen_sleep",
-                                          4096,
-                                          nullptr,
-                                          2,
-                                          &s_task);
-        if (pdPASS == rc)
+        const BaseType_t result = xTaskCreate(
+            screen_power_task,
+            "screen_power",
+            4096,
+            nullptr,
+            2,
+            &s_task);
+        if (result != pdPASS)
         {
-            return;
+            ESP_LOGE(kTag, "Failed to start screen power task rc=%ld",
+                     static_cast<long>(result));
+            s_task = nullptr;
         }
-        ESP_LOGE(kTag, "Failed to start screen sleep task rc=%ld", static_cast<long>(rc));
-        s_task = nullptr;
     }
 }
 
 bool isScreenSleeping()
 {
-    ensure_mutex();
-    if (s_mutex && xSemaphoreTake(s_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
-    {
-        const bool sleeping = s_screen_sleeping;
-        xSemaphoreGive(s_mutex);
-        return sleeping;
-    }
-    return false;
-}
-
-bool isScreenSleepDisabled()
-{
-    ensure_mutex();
-    if (s_mutex && xSemaphoreTake(s_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
-    {
-        const bool disabled = s_screen_sleep_disabled;
-        xSemaphoreGive(s_mutex);
-        return disabled;
-    }
-    return false;
+    return snapshot().state == State::Sleeping;
 }
 
 bool isScreenSaverActive()
 {
-    ensure_mutex();
-    if (s_mutex && xSemaphoreTake(s_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
-    {
-        const bool active = s_screen_saver_active;
-        xSemaphoreGive(s_mutex);
-        return active;
-    }
-    return false;
+    return snapshot().state == State::WakePreview;
 }
-void wakeScreenSaver()
-{
-    updateUserActivity();
-}
-
-void enterFromScreenSaver()
-{
-    updateUserActivity();
-    platform::esp::idf_common::ui_dispatcher::post(
-        platform::esp::idf_common::ui_dispatcher::Event::ShowMainMenu);
-}
-
-void updateUserActivity()
-{
-    bool woke_from_sleep = false;
-    ensure_mutex();
-    if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
-    {
-        s_last_user_activity_ms = now_ms();
-        if (s_screen_sleeping || s_screen_saver_active)
-        {
-            wake_display_locked();
-            woke_from_sleep = true;
-        }
-        xSemaphoreGive(s_mutex);
-    }
-    if (woke_from_sleep)
-    {
-        notify_wake();
-    }
-}
-
-void disableScreenSleep()
-{
-    bool woke = false;
-    ensure_mutex();
-    if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
-    {
-        s_screen_sleep_disabled = true;
-        s_last_user_activity_ms = now_ms();
-        if (s_screen_sleeping)
-        {
-            wake_display_locked();
-            woke = true;
-        }
-        xSemaphoreGive(s_mutex);
-    }
-    if (woke)
-    {
-        notify_wake();
-    }
-}
-
-void enableScreenSleep()
-{
-    ensure_mutex();
-    if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
-    {
-        s_screen_sleep_disabled = false;
-        s_last_user_activity_ms = now_ms();
-        xSemaphoreGive(s_mutex);
-    }
-}
-
-// ===================================================================
-// platform::ui::screen contract — implemented directly here to
-// eliminate the adapt_hooks() pass-through layer that previously
-// lived in platform_ui_screen_runtime.cpp.
-// ===================================================================
 
 namespace platform::ui::screen
 {
-namespace
-{
 
-ScreenSleepHooks adapt_hooks(const Hooks& hooks)
+uint32_t clamp_timeout_ms(uint32_t timeout_ms)
+{
+    return clampScreenTimeoutMs(timeout_ms);
+}
+
+uint32_t timeout_ms()
+{
+    return getScreenSleepTimeout();
+}
+
+uint16_t timeout_secs()
+{
+    return readScreenTimeoutSecs();
+}
+
+bool supports_app_timeout_setting()
+{
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    return false;
+#else
+    return true;
+#endif
+}
+
+void set_timeout_ms(uint32_t timeout_ms)
+{
+    setScreenSleepTimeout(timeout_ms);
+}
+
+void init(const Hooks& hooks)
 {
     ScreenSleepHooks adapted{};
     adapted.format_time = hooks.format_time;
     adapted.read_unread_count = hooks.read_unread_count;
     adapted.show_main_menu = hooks.show_main_menu;
     adapted.on_wake_from_sleep = hooks.on_wake_from_sleep;
-    return adapted;
+    adapted.show_screen_saver = hooks.show_screen_saver;
+    adapted.hide_screen_saver = hooks.hide_screen_saver;
+    adapted.present_screen_saver = hooks.present_screen_saver;
+    initScreenSleepRuntime(adapted);
 }
 
-} // namespace
+bool is_sleeping()
+{
+    return isScreenSleeping();
+}
 
-uint32_t clamp_timeout_ms(uint32_t timeout_ms) { return clampScreenTimeoutMs(timeout_ms); }
-uint32_t timeout_ms() { return getScreenSleepTimeout(); }
-uint16_t timeout_secs() { return readScreenTimeoutSecs(); }
-bool supports_app_timeout_setting() { return auto_sleep_supported(); }
-void set_timeout_ms(uint32_t t) { setScreenSleepTimeout(t); }
-void init(const Hooks& h) { initScreenSleepRuntime(adapt_hooks(h)); }
-bool is_sleeping() { return isScreenSleeping(); }
-bool is_sleep_disabled() { return isScreenSleepDisabled(); }
-bool is_saver_active() { return isScreenSaverActive(); }
-void wake_saver() { wakeScreenSaver(); }
-void enter_from_saver() { enterFromScreenSaver(); }
-void update_user_activity() { updateUserActivity(); }
-void disable_sleep() { disableScreenSleep(); }
-void enable_sleep() { enableScreenSleep(); }
+bool is_sleep_disabled()
+{
+    return snapshot().sleep_disable_depth != 0;
+}
+
+bool is_saver_active()
+{
+    return isScreenSaverActive();
+}
+
+void handle_input()
+{
+    (void)post_event(Event::Input);
+}
+
+void handle_input_release()
+{
+    (void)post_event(Event::InputRelease);
+}
+
+void wake_for_modal()
+{
+    (void)post_event(Event::ModalWake);
+}
+
+void record_activity()
+{
+    (void)post_event(Event::Activity);
+}
+
+void disable_sleep()
+{
+    (void)post_event(Event::DisableSleep);
+}
+
+void enable_sleep()
+{
+    (void)post_event(Event::EnableSleep);
+}
 
 } // namespace platform::ui::screen

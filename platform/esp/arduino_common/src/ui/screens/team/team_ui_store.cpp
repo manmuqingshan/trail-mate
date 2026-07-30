@@ -7,7 +7,6 @@
 #include "ui/team_persistence/team_ui_snapshot_codec.h"
 
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_lock.h"
 #include "sys/clock.h"
 #include <algorithm>
 #include <cctype>
@@ -68,10 +67,6 @@ constexpr uint32_t kPosHeaderSize = 24;
 constexpr uint32_t kPosMinIntervalSec = 15;
 constexpr uint32_t kPosMaxIntervalSec = 30;
 constexpr float kPosMinDistanceM = 20.0f;
-constexpr TickType_t kTeamStoreLoadWait = pdMS_TO_TICKS(60);
-constexpr TickType_t kTeamStoreReadWait = pdMS_TO_TICKS(20);
-constexpr TickType_t kTeamStoreWriteWait = pdMS_TO_TICKS(20);
-
 constexpr size_t kChatlogMaxBytes = 256 * 1024;
 constexpr uint32_t kMinValidEpoch = 1577836800U; // 2020-01-01
 
@@ -914,12 +909,6 @@ class TeamUiSnapshotStorePersisted : public ITeamUiSnapshotStore
             return false;
         }
 
-        ::platform::esp::common::SharedSpiLockGuard spi_guard(kTeamStoreLoadWait);
-        if (!spi_guard.locked())
-        {
-            return false;
-        }
-
         TeamUiSnapshot snap;
         std::string dir;
         bool has_current = read_current_dir(dir);
@@ -973,11 +962,7 @@ class TeamUiSnapshotStorePersisted : public ITeamUiSnapshotStore
         }
         if (!in.has_team_id || !in.in_team)
         {
-            ::platform::esp::common::SharedSpiLockGuard spi_guard(kTeamStoreWriteWait);
-            if (spi_guard.locked())
-            {
-                clear_current_dir();
-            }
+            clear_current_dir();
             return;
         }
 
@@ -992,12 +977,6 @@ class TeamUiSnapshotStorePersisted : public ITeamUiSnapshotStore
         bool time_trigger = (now - last_snapshot_ts_ >= 60);
 
         if (!force_write && !seq_trigger && !time_trigger)
-        {
-            return;
-        }
-
-        ::platform::esp::common::SharedSpiLockGuard spi_guard(kTeamStoreWriteWait);
-        if (!spi_guard.locked())
         {
             return;
         }
@@ -1025,11 +1004,7 @@ class TeamUiSnapshotStorePersisted : public ITeamUiSnapshotStore
     void clear() override
     {
         s_has_cached_snapshot = false;
-        ::platform::esp::common::SharedSpiLockGuard spi_guard(kTeamStoreWriteWait);
-        if (spi_guard.locked())
-        {
-            clear_current_dir();
-        }
+        clear_current_dir();
     }
 
   private:
@@ -1145,11 +1120,6 @@ bool team_ui_append_key_event(const TeamId& team_id,
                               const uint8_t* payload,
                               size_t len)
 {
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kTeamStoreWriteWait);
-    if (!spi_guard.locked())
-    {
-        return false;
-    }
     return append_event(team_id, type, event_seq, ts, payload, len);
 }
 
@@ -1162,12 +1132,6 @@ bool team_ui_posring_append(const TeamId& team_id,
                             uint32_t ts)
 {
     if (!should_write_pos(member_id, lat_e7, lon_e7, ts))
-    {
-        return false;
-    }
-
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kTeamStoreWriteWait);
-    if (!spi_guard.locked())
     {
         return false;
     }
@@ -1229,11 +1193,6 @@ bool team_ui_posring_load_latest(const TeamId& team_id,
 {
     out.clear();
     if (!sd_card_ready())
-    {
-        return false;
-    }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kTeamStoreReadWait);
-    if (!spi_guard.locked())
     {
         return false;
     }
@@ -1346,12 +1305,6 @@ bool TeamUiSdChatLogStore::appendStructured(const TeamId& team_id,
                                             team::proto::TeamChatType type,
                                             const std::vector<uint8_t>& payload)
 {
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kTeamStoreWriteWait);
-    if (!spi_guard.locked())
-    {
-        return false;
-    }
-
     std::string dir_path;
     if (!ensure_team_dir_for_id(team_id, dir_path))
     {
@@ -1426,11 +1379,6 @@ bool TeamUiSdChatLogStore::loadRecent(const TeamId& team_id,
 {
     out.clear();
     if (!sd_card_ready())
-    {
-        return false;
-    }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kTeamStoreReadWait);
-    if (!spi_guard.locked())
     {
         return false;
     }
@@ -1571,11 +1519,6 @@ bool team_ui_save_keys_now(const TeamId& team_id,
     {
         return false;
     }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kTeamStoreWriteWait);
-    if (!spi_guard.locked())
-    {
-        return false;
-    }
     std::string dir_path;
     if (!ensure_team_dir_for_id(team_id, dir_path))
     {
@@ -1595,11 +1538,6 @@ bool team_ui_get_member_track_path(const TeamId& team_id,
                                    std::string& out_path)
 {
     if (!sd_card_ready())
-    {
-        return false;
-    }
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kTeamStoreWriteWait);
-    if (!spi_guard.locked())
     {
         return false;
     }
@@ -1641,12 +1579,6 @@ bool team_ui_append_member_track(const TeamId& team_id,
         }
     }
     if (!has_valid)
-    {
-        return false;
-    }
-
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kTeamStoreWriteWait);
-    if (!spi_guard.locked())
     {
         return false;
     }

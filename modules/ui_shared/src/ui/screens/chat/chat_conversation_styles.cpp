@@ -21,9 +21,9 @@ static lv_style_t s_row;
 static lv_style_t s_bubble_base;
 static lv_style_t s_bubble_self;
 static lv_style_t s_bubble_other;
+static lv_style_t s_bubble_unverified;
 static lv_style_t s_bubble_text;
 static lv_style_t s_bubble_time;
-static lv_style_t s_bubble_status;
 
 static constexpr lv_coord_t kPadX = 8;
 static constexpr lv_coord_t kPadY = 6;
@@ -32,8 +32,8 @@ static constexpr lv_coord_t kBubblePadX = 10;
 static constexpr lv_coord_t kBubblePadY = 6;
 static constexpr lv_coord_t kBubbleRadius = 12;
 
-static const lv_color_t kBubbleOther = lv_color_hex(0xFFF7E9);
-static const lv_color_t kBubbleSelf = lv_color_hex(0xFFF0D3);
+static const lv_color_t kBubbleOther = lv_color_hex(0xFFF8E8);
+static const lv_color_t kBubbleSelf = lv_color_hex(0xDDF3EA);
 static const lv_color_t kTextColor = lv_color_hex(0x3A2A1A);
 
 void init_once()
@@ -105,7 +105,8 @@ void init_once()
 
     lv_style_init(&s_bubble_base);
     lv_style_set_bg_opa(&s_bubble_base, LV_OPA_COVER);
-    lv_style_set_border_width(&s_bubble_base, 0);
+    lv_style_set_border_width(&s_bubble_base, 1);
+    lv_style_set_border_color(&s_bubble_base, lv_color_hex(0xD7B979));
     lv_style_set_radius(&s_bubble_base, bubble_radius);
     lv_style_set_pad_left(&s_bubble_base, bubble_pad_x);
     lv_style_set_pad_right(&s_bubble_base, bubble_pad_x);
@@ -117,9 +118,15 @@ void init_once()
 
     lv_style_init(&s_bubble_self);
     lv_style_set_bg_color(&s_bubble_self, kBubbleSelf);
+    lv_style_set_border_color(&s_bubble_self, lv_color_hex(0x8FCDB9));
 
     lv_style_init(&s_bubble_other);
     lv_style_set_bg_color(&s_bubble_other, kBubbleOther);
+    lv_style_set_border_color(&s_bubble_other, lv_color_hex(0xE2C487));
+
+    lv_style_init(&s_bubble_unverified);
+    lv_style_set_bg_color(&s_bubble_unverified, lv_color_hex(0xF4E1DE));
+    lv_style_set_border_color(&s_bubble_unverified, lv_color_hex(0xC47D70));
 
     lv_style_init(&s_bubble_text);
     lv_style_set_text_color(&s_bubble_text, kTextColor);
@@ -130,11 +137,6 @@ void init_once()
     lv_style_set_text_color(&s_bubble_time, lv_color_hex(0x6A5646));
     lv_style_set_text_align(&s_bubble_time, LV_TEXT_ALIGN_LEFT);
     lv_style_set_text_font(&s_bubble_time, meta_font);
-
-    lv_style_init(&s_bubble_status);
-    lv_style_set_text_color(&s_bubble_status, lv_color_hex(0xCC0000));
-    lv_style_set_text_align(&s_bubble_status, LV_TEXT_ALIGN_LEFT);
-    lv_style_set_text_font(&s_bubble_status, meta_font);
 }
 
 void apply_root(lv_obj_t* root)
@@ -174,11 +176,14 @@ void apply_message_row(lv_obj_t* row)
     lv_obj_add_style(row, &s_row, 0);
 }
 
-void apply_bubble(lv_obj_t* bubble, bool is_self)
+void apply_bubble(lv_obj_t* bubble, bool is_self, bool source_unverified)
 {
     init_once();
     lv_obj_add_style(bubble, &s_bubble_base, LV_PART_MAIN);
-    lv_obj_add_style(bubble, is_self ? &s_bubble_self : &s_bubble_other, LV_PART_MAIN);
+    lv_style_t* message_style =
+        is_self ? &s_bubble_self
+                : (source_unverified ? &s_bubble_unverified : &s_bubble_other);
+    lv_obj_add_style(bubble, message_style, LV_PART_MAIN);
 }
 
 void apply_bubble_text(lv_obj_t* label)
@@ -191,12 +196,6 @@ void apply_bubble_time(lv_obj_t* label)
 {
     init_once();
     lv_obj_add_style(label, &s_bubble_time, 0);
-}
-
-void apply_bubble_status(lv_obj_t* label)
-{
-    init_once();
-    lv_obj_add_style(label, &s_bubble_status, 0);
 }
 
 } // namespace chat::ui::conversation::styles

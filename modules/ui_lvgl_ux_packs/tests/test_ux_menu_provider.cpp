@@ -33,9 +33,18 @@ int main()
     assert(contains(menu, ui::menu::MenuScreenId::Settings));
 
     assert(ui_lvgl_ux::buildMenuForUxPack("uconsole_desktop", menu));
-    assert(menu.size() == 7);
+    assert(menu.size() == 12);
     assert(contains(menu, ui::menu::MenuScreenId::Dashboard));
     assert(contains(menu, ui::menu::MenuScreenId::Chat));
+    assert(contains(menu, ui::menu::MenuScreenId::Contacts));
+    assert(contains(menu, ui::menu::MenuScreenId::Map));
+    assert(contains(menu, ui::menu::MenuScreenId::Gps));
+    assert(contains(menu, ui::menu::MenuScreenId::Team));
+    assert(contains(menu, ui::menu::MenuScreenId::Tracker));
+    assert(contains(menu, ui::menu::MenuScreenId::EnergySweep));
+    assert(contains(menu, ui::menu::MenuScreenId::WalkieTalkie));
+    assert(contains(menu, ui::menu::MenuScreenId::Sstv));
+    assert(contains(menu, ui::menu::MenuScreenId::Extensions));
     assert(contains(menu, ui::menu::MenuScreenId::Settings));
 
     assert(!ui_lvgl_ux::buildMenuForUxPack("missing", menu));

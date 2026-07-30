@@ -1,6 +1,5 @@
 #include "platform/esp/arduino_common/gps/track_recorder.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_lock.h"
 
 #include <cmath>
 #include <esp_heap_caps.h>
@@ -41,7 +40,6 @@ constexpr uint8_t kActiveVersion = 1;
 constexpr uint8_t kActiveFlagManual = 0x01;
 constexpr uint8_t kActiveFlagAuto = 0x02;
 constexpr const char* kActivePath = "/trackers/active.bin";
-constexpr TickType_t kSdTransactionLockWait = pdMS_TO_TICKS(250);
 constexpr uint32_t kPendingFlushIntervalMs = 5000;
 constexpr size_t kPendingFlushThreshold = 6;
 
@@ -250,11 +248,6 @@ bool TrackRecorder::start()
     bool ok = false;
     do
     {
-        ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");
-        if (!spi_guard.locked())
-        {
-            break;
-        }
         if (!ensureDir())
         {
             break;
@@ -283,16 +276,6 @@ void TrackRecorder::stop()
 {
     if (mutex_ && xSemaphoreTake(mutex_, pdMS_TO_TICKS(400)) != pdTRUE)
     {
-        return;
-    }
-
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");
-    if (!spi_guard.locked())
-    {
-        if (mutex_)
-        {
-            xSemaphoreGive(mutex_);
-        }
         return;
     }
 
@@ -340,16 +323,6 @@ void TrackRecorder::setAutoRecording(bool enabled)
 {
     if (mutex_ && xSemaphoreTake(mutex_, pdMS_TO_TICKS(200)) != pdTRUE)
     {
-        return;
-    }
-
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");
-    if (!spi_guard.locked())
-    {
-        if (mutex_)
-        {
-            xSemaphoreGive(mutex_);
-        }
         return;
     }
 
@@ -427,16 +400,6 @@ void TrackRecorder::setFormat(TrackFormat format)
     if (!recording_)
     {
         format_ = format;
-        if (mutex_)
-        {
-            xSemaphoreGive(mutex_);
-        }
-        return;
-    }
-
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");
-    if (!spi_guard.locked())
-    {
         if (mutex_)
         {
             xSemaphoreGive(mutex_);
@@ -573,17 +536,6 @@ void TrackRecorder::flushPending(bool force)
         return;
     }
 
-    const TickType_t spi_wait = force ? kSdTransactionLockWait : 0;
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(spi_wait, "track_sd");
-    if (!spi_guard.locked())
-    {
-        if (mutex_)
-        {
-            xSemaphoreGive(mutex_);
-        }
-        return;
-    }
-
     (void)writePendingPointsLocked(force);
 
     if (mutex_)
@@ -666,11 +618,6 @@ bool TrackRecorder::restoreActiveSession()
     bool ok = false;
     do
     {
-        ::platform::esp::common::SharedSpiLockGuard spi_guard(kSdTransactionLockWait, "track_sd");
-        if (!spi_guard.locked())
-        {
-            break;
-        }
         if (!sd_card_ready())
         {
             break;
@@ -844,13 +791,6 @@ size_t TrackRecorder::listTracks(String* out_names, size_t max_names) const
             xSemaphoreGive(mutex_);
         }
     };
-
-    ::platform::esp::common::SharedSpiLockGuard spi_guard(0, "track_sd");
-    if (!spi_guard.locked())
-    {
-        release_mutex();
-        return 0;
-    }
 
     if (!sd_card_ready())
     {

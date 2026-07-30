@@ -6,12 +6,13 @@
 #pragma once
 
 #include "app/app_config.h"
+#include "app/app_config_changes.h"
 #include "chat/domain/chat_model.h"
 #include "chat/domain/chat_types.h"
 #include "chat/ports/i_chat_store.h"
-#include "chat/ports/i_contact_store.h"
 #include "chat/ports/i_mesh_adapter.h"
-#include "chat/ports/i_node_store.h"
+#include "chat/ports/i_mesh_peer_directory.h"
+#include "chat/ports/i_protocol_peer_repository.h"
 #include "chat/usecase/chat_service.h"
 #include "chat/usecase/contact_service.h"
 #include "team/ports/i_team_crypto.h"
@@ -37,27 +38,36 @@ class IAppFacade;
 
 struct ChatServicesBundle
 {
+    using DeferredStorageStarter =
+        void (*)(void* store_context,
+                 void* peer_directory_context,
+                 chat::MeshProtocol active_protocol);
+
     std::unique_ptr<chat::ChatModel> model;
     std::unique_ptr<chat::IChatStore> store;
+    std::unique_ptr<chat::IProtocolPeerRepository> mesh_peer_directory;
     std::unique_ptr<chat::IMeshAdapter> mesh_runtime;
     std::unique_ptr<chat::ChatService> service;
     std::unique_ptr<chat::ChatService::IncomingMessageObserver> incoming_message_observer;
+    std::unique_ptr<chat::ChatService::IncomingMessageObserver> auto_reply_observer;
+    DeferredStorageStarter start_deferred_storage = nullptr;
+    void* deferred_storage_store_context = nullptr;
+    void* deferred_storage_peer_context = nullptr;
 
     bool isValid() const
     {
-        return model && store && mesh_runtime && service && incoming_message_observer;
+        return model && store && mesh_peer_directory && mesh_runtime && service &&
+               incoming_message_observer && auto_reply_observer;
     }
 };
 
 struct ContactServicesBundle
 {
-    std::unique_ptr<chat::contacts::INodeStore> node_store;
-    std::unique_ptr<chat::contacts::IContactStore> contact_store;
     std::unique_ptr<chat::contacts::ContactService> service;
 
     bool isValid() const
     {
-        return node_store && contact_store && service;
+        return service != nullptr;
     }
 };
 
@@ -86,7 +96,8 @@ struct TeamServicesBundle
 struct AppContextPlatformBindings
 {
     using AppConfigLoader = bool (*)(AppConfig& config);
-    using AppConfigSaver = bool (*)(const AppConfig& config);
+    using AppConfigSaver = bool (*)(const AppConfig& config,
+                                    AppConfigChangeSet changes);
     using MessageToneVolumeLoader = uint8_t (*)();
     using GpsRuntimeInitializer = void (*)(GpsBoard* gps_board,
                                            MotionBoard* motion_board,
@@ -96,12 +107,16 @@ struct AppContextPlatformBindings
     using TrackRecorderInitializer = void (*)(const AppConfig& config);
     using TeamModeApplier = void (*)(bool active);
     using StartupFinalizer = void (*)(IAppFacade& app_facade);
+    using DeferredStorageReadyHandler = void (*)(IAppFacade& app_facade);
     using ChatServicesFactory = ChatServicesBundle (*)(const AppConfig& config,
                                                        LoraBoard* lora_board,
                                                        bool use_mock_adapter);
-    using MeshBackendFactory = std::unique_ptr<chat::IMeshAdapter> (*)(chat::MeshProtocol protocol,
-                                                                       LoraBoard& lora_board);
-    using ContactServicesFactory = ContactServicesBundle (*)();
+    using MeshBackendFactory =
+        std::unique_ptr<chat::IMeshAdapter> (*)(chat::MeshProtocol protocol,
+                                                LoraBoard& lora_board,
+                                                chat::IMeshPeerDirectory* peer_directory);
+    using ContactServicesFactory =
+        ContactServicesBundle (*)(chat::IProtocolPeerRepository& repository);
     using TeamServicesFactory = TeamServicesBundle (*)(chat::IMeshAdapter& mesh_adapter);
     using SelfNodeIdProvider = chat::NodeId (*)();
 
@@ -113,6 +128,7 @@ struct AppContextPlatformBindings
     TrackRecorderInitializer init_track_recorder = nullptr;
     TeamModeApplier set_team_mode_active = nullptr;
     StartupFinalizer finalize_startup = nullptr;
+    DeferredStorageReadyHandler deferred_storage_ready = nullptr;
     ChatServicesFactory create_chat_services = nullptr;
     MeshBackendFactory create_mesh_backend = nullptr;
     ContactServicesFactory create_contact_services = nullptr;
@@ -123,7 +139,8 @@ struct AppContextPlatformBindings
     {
         return load_app_config && save_app_config && load_message_tone_volume &&
                init_gps_runtime && apply_position_config && init_track_recorder &&
-               set_team_mode_active && finalize_startup && create_chat_services &&
+               set_team_mode_active && finalize_startup && deferred_storage_ready &&
+               create_chat_services &&
                create_mesh_backend && create_contact_services && get_self_node_id;
     }
 };

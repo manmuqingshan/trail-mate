@@ -2,27 +2,44 @@
 
 ![trail mate page](docs/images/ChatGPTImage.png)
 
-> 面向户外导航与通信的低功耗、离线优先手持设备
+> 一个由使用者持有身份、数据与连接选择的端侧去中心化通信与态势系统
 
 [English](README.md) | [中文](README_CN.md) | [加入 Discord 社区](https://discord.gg/UpDsAz9H3)
 
 ---
 
-## 📋 项目介绍
+## 📋 Trail Mate 为什么存在
 
 ![logo](docs/images/logo_big.png)
 
-户外活动往往发生在蜂窝网络不稳定甚至完全缺失的环境中。  
-在这样的场景下，人们依然需要 **发送简短的文本信息、了解彼此的位置关系，并保持基本的方向感**，而不应完全依赖智能手机或复杂的基础设施。
+人类的连接能力正变得前所未有地强大，建立连接的资格却越来越集中。账户决定身份能否成立，应用保管人与人的关系，平台选择信息能否抵达。位置、搜索、阅读、谈话和行动轨迹被持续汇集，最终组成一份比本人记忆更完整、比本人解释更有影响力的数字档案。
 
-**Trail-mate** 是一个基于 ESP32 级硬件的低功耗、离线优先手持设备项目，正是为了解决这些问题而设计的。
+当通信入口、身份体系、数据积累与解释权汇聚到少数中心，便利会逐渐转化为支配力。算法开始决定谁被看见、谁被怀疑、谁获得机会、谁被排除；决定过程藏在模型、规则和风险评分之中，责任主体难以辨认，申诉路径也难以抵达。无数个追求效率的局部选择，足以累积成一种沉默而庞大的算法官僚体系。
 
-它聚焦于户外离线场景中的两个核心需求：
+**去中心化意味着把数字生活的成立权交还给人。** 身份可以由本人生成并持有，联系人可以留在自己的存储中，消息可以在设备之间直接流动，位置可以只交给使用者选择的对象。更换平台不会抹去一个人的身份，服务停止不会带走人与人的关系，基础设施失效也不会让通信与协作的权利一同消失。
 
-- **简单且可靠的自身定位**，通过固定北向上的 GPS 地图，避免不必要的视觉复杂性  
-- **基于 LoRa 的直接文本通信**，允许用户 **在不依赖智能手机的情况下** 向 Meshtastic 或 MeshCore Mesh 网络发送自由文本消息  
+**Trail Mate 把这种权利做成可以拿在手里的系统。** 它运行在个人持有的嵌入式设备和 Linux 便携终端上，把身份、联系人、消息、位置、地图和轨迹留在使用者持有的设备中。Meshtastic、MeshCore 和 Reticulum 提供可选择的去中心化网络路径；离线地图与设备端 TAK 能力让导航、态势和团队协作在公网之外继续成立。
 
-Trail-mate 将 **稳定性、效率与互操作性** 置于功能堆叠与视觉效果之上，适合在受限硬件条件下进行长时间的户外使用。
+Trail Mate 接近一部去中心化手机。使用者直接持有数据，自行选择连接路径，并能理解每一种共享关系。链路可能有限，设备能力可能受限，环境也可能完全离网；身份、通信、导航和协作依然掌握在人的手中。
+
+> **连接是一种由人掌握的能力。Trail Mate 让这项能力留在每个人自己的手中。**
+
+## 🧭 产品定位
+
+Trail Mate 的产品能力围绕四项核心组织：
+
+- **匿名运行**：设备身份独立于云账户和手机号；系统减少非必要的公开发现、身份关联和位置暴露。匿名能力有明确的技术边界，使用者仍需结合环境作出安全判断。
+- **去中心化通信**：Meshtastic、MeshCore 与 Reticulum 提供三条可选择的产品网络路径。身份与联系人能够脱离单一平台存在，消息能够经由使用者选择的网络抵达，任何一条路径的消失都无法取得整个系统的所有权。设备每次运行一条明确的协议路径，网络归属和行为保持可解释。
+- **离网可用**：输入、查看、配置、地图、联系人、消息和轨迹都可以在设备端完成；手机与桌面工具提供可选扩展，控制权始终留在设备侧。
+- **TAK 能力**：设备端提供成员、位置、航点、轨迹、状态与团队消息等战术态势能力。Trail Mate 当前声明的 TAK 范围止于自身的设备端团队态势能力；ATAK、WinTAK 与 CoT 互操作位于当前声明范围之外。
+
+系统把公开发现位置、联系人位置、Team 位置和本地轨迹建模为四种不同的数据关系。使用者应当能够确认分享内容、接收对象和所用网络路径。
+
+## 🔒 已定型的嵌入式固件边界
+
+Trail Mate 当前嵌入式固件的大功能已经定型。未来范围由现有功能领域、Meshtastic/MeshCore/Reticulum 三种产品通信协议，以及匿名、去中心化、离网与 TAK 四项核心能力构成。这一边界专门描述嵌入式固件的产品面；整个 Trail Mate 同时覆盖 Linux 版本与其他端侧形态。
+
+后续工作集中在错误修复、可靠性与安全性、协议互操作正确性、资源效率、既有硬件承载、测试工具和文档。新的硬件适配负责让既有产品能力在合适的设备上稳定运行。
 
 ---
 
@@ -54,6 +71,12 @@ Trail-mate 将 **稳定性、效率与互操作性** 置于功能堆叠与视觉
 - 适合嵌入式系统的离散缩放级别
 - 简单的面包屑轨迹记录，用于路径感知
 - 通过地图图层菜单可即时切换，无需离开当前页面
+
+#### 从地图查看节点信息
+
+![地图节点信息](docs/images/nodeinfo-1.png)
+
+可以直接在地图上选中已发现节点，在不离开态势视图的情况下查看节点所属协议、最后出现时间、缩放级别、坐标和周边离线地图环境。
 
 SD 卡瓦片目录结构示例：
 
@@ -90,22 +113,43 @@ Energy Sweep 用于在野外快速观察 Sub-GHz 频段占用，辅助选频与�
 - `AUTO` 一键应用当前最佳频点并把光标定位到推荐频率
 - 扫描范围跟随当前 Region 配置（Meshtastic Region 或 MeshCore Region Preset）
 
-### 📡 LoRa 聊天（兼容 Meshtastic + MeshCore）
+### 📡 去中心化消息（Meshtastic / MeshCore / Reticulum）
 
-![message compose page](docs/images/screenshot_20260118_200651.png)
-
-![messages](docs/images/messages.png)
+| 会话界面 | Reticulum Peer |
+| --- | --- |
+| ![消息会话](docs/images/chat_conversion.png) | ![Reticulum Peer 详情](docs/images/reticulum-1.jpg) |
 
 消息页展示最近会话与历史，方便快速回看。
 
-- 基于 LoRa 的文本消息通信
+- Meshtastic、MeshCore 与 Reticulum 三种可切换的产品协议
+- Reticulum 模式使用设备端 Reticulum/LXMF 运行时，可通过 LoRa、AutoInterface 或 TCP 网关等已配置接口传递消息
+- Reticulum Peer 详情展示 Display Name、LXMF Address 和 Identity Hash，便于核对与管理去中心化身份
 - 支持中文
 - 兼容 **Meshtastic 公共网络**（LongFast/PSK）
 - 兼容 **MeshCore 网络**（原生 MeshCore 报文链路）
 - 支持通过蓝牙连接 Meshtastic / MeshCore App
-- 基于广播的通信方式（无中心基础设施）
 - 面向高延迟、低带宽与丢包环境设计
-- 为 ESP32 设备优化的最小协议实现
+- 联系人、会话与消息在设备端持久化；SD 卡是 Reticulum 网络配置和可编辑联系人目录的配置来源
+
+Reticulum 的 SD 卡配置格式、文件位置、联系人导入方式和设备操作，请参阅 [Reticulum 模式用户指南](https://github.com/vicliu624/trail-mate/wiki/3.5-Configuration-Guide-%28%E4%B8%AD%E6%96%87%29)。
+
+### ☁️ Mesh MQTT（Meshtastic / MeshCore）
+
+![Mesh MQTT 设置](docs/images/mt_mqtt-1.png)
+
+Trail Mate 可以在具备互联网或网关连接时，通过可配置的 MQTT Broker 桥接 Meshtastic 和 MeshCore 流量。两种协议分别拥有独立的启用、上行、下行、Host、Port、Root Topic 和认证设置。Meshtastic 使用其生态默认配置；MeshCore 默认保持关闭，但预置公共测试 Broker `test.mosquitto.org:1883` 和可编辑的 `meshcore` Root。公共 Broker 只适合评估和联调，野外及正式部署应改用私有或自行托管的 Broker。
+
+### 🌐 Nomad Network
+
+| Micron 页面渲染 | 引擎与链接语义 |
+| --- | --- |
+| ![Nomad Network 渲染 Micron 页面](docs/images/nomad-1.png) | ![Nomad Network Micron 链接](docs/images/nomad-2.png) |
+
+| 离线表单状态 | 兼容性诊断 |
+| --- | --- |
+| ![Nomad Network 离线表单](docs/images/nomad-3.png) | ![Nomad Network 兼容性诊断](docs/images/nomad-4.png) |
+
+Nomad Network 可以直接在设备上渲染 Reticulum Micron 页面。嵌入式浏览器支持可导航链接、受约束的布局原语、表单、缓存与离线就绪状态，并会明确展示不支持或未知 Micron 结构的兼容性诊断。它让小型信息服务能够通过 Reticulum 到达设备，而不依赖传统浏览器或公共互联网。
 
 ### 📷 SSTV 图片接收
 
@@ -121,8 +165,9 @@ Energy Sweep 用于在野外快速观察 Sub-GHz 频段占用，辅助选频与�
 
 ![contacts](docs/images/contacts.png)
 
-联系人页展示已发现节点、最近活动和快捷操作，
-可快速进入私聊或团队聊天。
+联系人页是设备端持久化的通信目录。它统一展示已发现和用户维护的联系人、最近活动与协议身份，并可快速进入私聊、呼叫、Ping 或团队操作（具体动作取决于当前协议和硬件能力）。
+
+在带实体键盘的界面中可按 `S` 搜索联系人；联系人也可以从发现结果保存，或通过编辑 SD 卡上的 Reticulum 联系人文件批量加入。完整按键和文件格式见上述 Wiki 用户指南。
 
 ### 💻 上位机数据交换（PC Link）
 
@@ -135,7 +180,13 @@ PC Link 通过 USB CDC-ACM 与上位机连接，提供结构化 HostLink 数据�
 - 面向 APRS 网关/看板的扩展元数据
 - 具备确定性帧格式的传输协议
 
-### 🤝 组队模式（ESP-NOW 建队 + LoRa 运行）
+### 🖥️ Trail Mate Center
+
+[Trail Mate Center](https://github.com/vicliu624/trail-mate-center) 是通过 USB HostLink 连接 Trail Mate 和 Meshtastic 兼容野外设备的桌面控制中心。它基于 Avalonia，把实时地图、节点、团队、事件流、消息、设备配置、会话回放、协议检查和数据导出整合在一个应用中。
+
+它还可以为移动存储介质准备离线 OSM、Terrain、Satellite 和等高线地图，围绕导入的 KML 路线生成缓冲缓存区域，并提供用于覆盖分析、干扰分析、中继选址、校准和结果导出的传播分析工作台。Trail Mate Center 在独立的桌面端仓库中维护，不包含嵌入式固件。
+
+### 🤝 TAK / 组队模式（ESP-NOW 建队 + LoRa 运行）
 
 ![team join](docs/images/team_join.png)
 
@@ -153,13 +204,15 @@ PC Link 通过 USB CDC-ACM 与上位机连接，提供结构化 HostLink 数据�
 
 ### 🧭 轨迹记录与循迹
 
-![tracker](docs/images/tracker.png)
-
-![tracker](docs/images/tracker1.png)
+| 第一步：海拔与路线总览 | 第二步：航点图片预览 |
+| --- | --- |
+| ![路线海拔预览](docs/images/route-1.jpg) | ![路线航点图片预览](docs/images/route-2.jpg) |
 
 - 轨迹记录与保存（支持记录/路线模式）
 - 轨迹列表浏览与轨迹聚焦
 - 支持 KML 路线覆盖
+- 两步式路线预览：先查看完整海拔剖面，再逐页浏览带地理位置的远程图片及其在线路中的位置
+- 嵌入式屏幕会持续显示预览进度、已保存图片数量、距离和加载状态
 - GPX 轨迹可通过 USB 大容量存储导出
 
 ### 🎙️ Walkie Talkie 对讲
@@ -171,23 +224,19 @@ PC Link 通过 USB CDC-ACM 与上位机连接，提供结构化 HostLink 数据�
 - 针对低带宽和丢包场景优化的缓冲与节拍
 
 ---
-## 💡 设计理念
+## 💡 设计原则
 
-Trail-mate **不是** 智能手机的替代品，也不试图掩盖离线通信环境中的现实限制。
-
-相反，它专注于：
-
-- ✅ 对不确定性的诚实呈现
-- ✅ 系统行为的确定性与可预测性
-- ✅ 在受限硬件条件下的长期可靠运行
-
-> 💬 **为那些简洁性与鲁棒性比"精致外观"更重要的环境而设计。**
+- **端侧所有权**：身份、联系人、消息、配置、地图与轨迹首先属于设备使用者。
+- **明确的数据关系**：不同协议、不同联系人关系和不同位置用途不互相冒充，也不在后台悄悄合并。
+- **诚实表达不确定性**：界面直接呈现链路失败、位置过期和状态未知，并只在取得成功证据后显示成功。
+- **可预测地降级**：缺少网络、手机、云服务或某项硬件能力时，系统保留可以独立成立的部分。
+- **受限硬件上的长期可靠性**：资源效率、确定性和可维护性优先于功能堆叠与视觉表演。
 
 ---
 
-## 📱 计划支持的设备
+## 📱 硬件承载策略
 
-Trail Mate 的长期目标不是“尽可能支持更多板子”，而是优先支持真正适合户外离网通信的设备类别。本节描述的是 **硬件方向**，不等同于“本版本已经全部完成适配”。
+Trail Mate 的硬件工作聚焦于适合承载既有产品能力的设备。本节描述 **硬件选择方向**；实际完成度以随后列出的当前构建目标和状态为准。新硬件继续承载已经定型的产品领域。
 
 当前优先考虑的设备方向包括：
 
@@ -198,17 +247,17 @@ Trail Mate 的长期目标不是“尽可能支持更多板子”，而是优先
 选择硬件时，项目目前主要看重以下条件：
 
 - 具备稳定的 LoRa / Sub-GHz 无线能力，或存在清晰可接入的射频硬件路径
-- 设备本身可以独立完成基本输入、查看与配置，而不是强依赖手机
+- 设备本身可以独立完成基本输入、查看与配置，手机仅提供可选扩展
 - 具有可接受的功耗、供电与户外便携性
 - 在社区生态、文档或供应链上相对稳定，便于长期维护
 
-项目会尽量保持 **协议 / 存储 / UI 业务逻辑** 与具体板级实现解耦。这样未来扩展到更多 ESP32 或 nRF52 级硬件时，仍然可以继续复用 Meshtastic / MeshCore 相关能力，而不是为每块板子复制一套应用。
+项目会尽量保持 **协议 / 存储 / UI 业务逻辑** 与具体板级实现解耦。未来的 ESP32、nRF52 与 Linux 目标共同复用 Meshtastic、MeshCore、Reticulum 与 TAK 相关能力，并维持同一个产品模型。
 
 ---
 
 ## 🧩 当前支持的设备与开发进度
 
-下面这张表描述的是 **仓库里今天已经存在的真实构建目标**，而不是长期计划。
+下面这张表只记录 **仓库当前存在的真实构建目标及其成熟度**。
 
 | 设备 / 目标 | 构建目标 | 技术路线 | 当前状态 |
 | --- | --- | --- | --- |
@@ -218,7 +267,7 @@ Trail Mate 的长期目标不是“尽可能支持更多板子”，而是优先
 | **LILYGO T-Echo-Lite-KeyShield** | `t-echo-lite` | PlatformIO / Arduino（nRF52） | nRF52 简易版目标，包含 192x176 墨水屏、4x5 实体键盘输入、Meshtastic / MeshCore LoRa 链路与本机设备设置 |
 | **LILYGO T-LoRa-Pager (LR1121)** | `tlora_pager_lr1121` | PlatformIO / Arduino | 已接入的 Pager 射频变体，包含 LR1121 RF switch 与 TCXO 初始化 |
 | **LILYGO T-Deck Pro** | `tdeck_pro_a7682e` / `tdeck_pro_pcm512a` | PlatformIO / Arduino | 已有独立环境，仍处于 bring-up / 适配推进阶段 |
-| **LILYGO T-Watch S3** | `lilygo_twatch_s3` | PlatformIO / Arduino | 实验性目标，偏系统与 UI 验证，不是当前完整功能验证主路径 |
+| **LILYGO T-Watch S3** | `lilygo_twatch_s3` | PlatformIO / Arduino | 实验性目标，当前用于系统与 UI 验证；完整功能验证使用主力目标 |
 | **M5Stack Tab5** | `TRAIL_MATE_IDF_TARGET=tab5` | ESP-IDF | 当前主要的大屏 IDF bring-up 目标，共享 shell 已跑通，硬件细节仍在补齐 |
 | **LILYGO T-Display P4 TFT** | `TRAIL_MATE_IDF_TARGET=t_display_p4_tft` | ESP-IDF | 明确的 TFT / HI8561 变体接入目标 |
 | **LILYGO T-Display P4 AMOLED** | `TRAIL_MATE_IDF_TARGET=t_display_p4_amoled` | ESP-IDF | 明确的 AMOLED / RM69A10 + GT9895 变体接入目标 |
@@ -228,8 +277,8 @@ Trail Mate 的长期目标不是“尽可能支持更多板子”，而是优先
 - 如果你想走今天最稳的日常开发路径，优先使用 **`tlora_pager_sx1262`** 或 **`tdeck`**。
 - 如果你在做资源受限、单色屏的 nRF52 简易版目标调试，优先使用 **`gat562_mesh_evb_pro`** 或 **`t-echo-lite`**。
 - 如果你在推进新的大屏触控 ESP-IDF 路线，优先使用 **`tab5`**。
-- **`tdeck_pro_*`**、**`lilygo_twatch_s3`**、**`t_display_p4_tft`**、**`t_display_p4_amoled`** 更适合 bring-up、布局和设备适配工作，而不是当前功能完成度最高的验证入口。
-- “仓库里有构建目标” 不等于 “所有页面与能力在该设备上都已达到同等成熟度”；部分功能会根据 capability、RAM 和输入设备条件动态启用或隐藏。
+- **`tdeck_pro_*`**、**`lilygo_twatch_s3`**、**`t_display_p4_tft`**、**`t_display_p4_amoled`** 当前承担 bring-up、布局和设备适配工作；完整功能验证优先使用主力目标。
+- 构建目标只证明该设备已进入仓库；页面与能力成熟度以表格中的状态为准。部分功能会根据 capability、RAM 和输入设备条件动态启用或隐藏。
 - GitHub Actions 当前持续构建的主路径是 **`tlora_pager_sx1262`**、**`tlora_pager_lr1121`**、**`tdeck`**、**`lilygo_twatch_s3`** 和 **`gat562_mesh_evb_pro`**。
 
 ---
@@ -328,7 +377,7 @@ idf.py -B build.t_display_p4_amoled -DTRAIL_MATE_IDF_TARGET=t_display_p4_amoled 
 
 ## 📝 更新日志
 
-请查看 [CHANGELOG.md](CHANGELOG.md) 获取版本记录与计划内容。
+请查看 [CHANGELOG.md](CHANGELOG.md) 获取版本记录。产品定位与维护边界请参阅 [Roadmap](https://github.com/vicliu624/trail-mate/wiki/16.-Roadmap-%28%E4%B8%AD%E6%96%87%29)；其中记录已经确定的方向和维护范围。
 
 ---
 
@@ -355,16 +404,17 @@ idf.py -B build.t_display_p4_amoled -DTRAIL_MATE_IDF_TARGET=t_display_p4_amoled 
 
 ## 🔐 项目范围说明
 
-本仓库包含 Trail Mate 项目的 **核心系统实现**，包括但不限于：
+本仓库包含 Trail Mate 的开源端侧实现，包括：
 
-- 设备端固件  
-- 离线导航与 GPS 处理逻辑  
-- 基于 LoRa 的通信协议与 Mesh 行为  
-- 面向受限硬件的系统交互与状态管理  
+- ESP32 / nRF52 等嵌入式设备固件
+- Linux 便携终端与共享 UI / 业务能力
+- 离线地图、定位、轨迹与设备端 TAK 能力
+- Meshtastic、MeshCore、Reticulum/LXMF 通信路径及其本地存储
+- HostLink、板级适配、测试与开发工具
 
 本项目 **不包含** 以下内容：
 
-- 商业上位机软件  
+- 另行发布的商业桌面软件
 - 移动端应用（iOS / Android）  
 - 商业服务或平台产品  
 
@@ -374,7 +424,7 @@ idf.py -B build.t_display_p4_amoled -DTRAIL_MATE_IDF_TARGET=t_display_p4_amoled 
 
 ## 🤝 贡献方式
 
-在这里，**贡献不等同于写代码**。
+Trail Mate 的嵌入式产品边界已经定型。贡献重点是提升现有能力的可信度、清晰度和真实设备可用性。
 
 ### 关于贡献与版权
 
@@ -384,52 +434,24 @@ idf.py -B build.t_display_p4_amoled -DTRAIL_MATE_IDF_TARGET=t_display_p4_amoled 
 项目当前由作者主导开发，暂不接受涉及核心架构或许可变更的贡献。
 如有商业合作或深度参与意向，欢迎直接联系作者沟通。
 
-### 谁是最重要的贡献者？
+最有价值的贡献包括：
 
-**真正最重要的贡献者，是长期处在户外环境中的使用者。**
+* 可复现的缺陷报告，以及设备、固件、协议、网络条件和操作步骤
+* 离网、弱链路、低电量和恶劣环境中的真实测试结果
+* 与上游 Meshtastic、MeshCore、Reticulum/LXMF 的互操作验证
+* 功耗、内存、存储、并发与长期运行问题的测量结果
+* 不改变产品边界的可靠性、安全性、硬件适配、测试和文档改进
+* 对误导性状态、模糊操作或隐私边界不清的具体反馈
 
-我们尤其欢迎：
+Pull Request 依然欢迎，但涉及核心架构、产品边界或许可策略的变更请先与作者沟通。即使不写代码，一份能够说明“在什么条件下、做了什么、期待什么、实际发生什么”的报告也非常重要。
 
-* 徒步、露营、骑行、越野、钓鱼等户外活动参与者
-* 在 **无网络、低电量、恶劣环境** 中真实使用设备的人
-* 可能 **不会写代码**，但对“什么有用、什么没用”有清晰直觉的人
-
-他们的想法、困扰与判断，将成为这个系统演化的起点。
-
-### 贡献可以是什么？
-
-* 🧭 **真实使用场景与问题描述**
-
-  > 在什么环境下？遇到了什么困难？现有行为哪里不合理？
-* 🧠 **对功能取舍的直觉判断**
-
-  > 哪些信息重要？哪些反而是干扰？
-* 🧪 **失败经验与边界反馈**
-
-  > 什么时候系统“不值得被信任”？
-* 🔑 **用于推动 AI 生成、验证与迭代的 token 资源**
-
-即使你 **从不直接提交代码**，
-你的判断依然可以通过 AI 被转化为 **可运行、可验证的系统行为**。
-
-### 我们如何协作？
-
-* 人类（尤其是户外使用者）负责：
-  **判断什么值得存在**
-* AI 负责：
-  **把这些判断转化为一致、可运行的实现**
-
-Pull Request 依然欢迎，但它并不是唯一、也不是最重要的贡献形式。
-Trail Mate 更看重 **真实环境中的判断与问题质量**，而不是代码行数。
-
-> 注：上述贡献主要指使用反馈、场景判断与设计输入。
-> 除非另有明确约定，贡献行为不构成对项目代码或商业权益的所有权主张。
-
-> **如果一个功能在户外没有价值，它就不应该存在。**
+> **Trail Mate 的每一项现有承诺都应当值得信任。**
 
 ---
 
-## ✅ 已实现功能
+## ✅ 当前能力索引
+
+本节提供便于检索的实现索引。[Trail Mate Wiki](https://github.com/vicliu624/trail-mate/wiki) 是详细配置、快捷键、文件格式和操作流程的用户文档来源。
 
 ### 🧭 GPS地图导航与轨迹
 
@@ -443,17 +465,19 @@ Trail Mate 更看重 **真实环境中的判断与问题质量**，而不是代�
 - KML 路线覆盖与聚焦
 - GPX 轨迹可通过 USB 大容量存储导出
 
-### 📝 LoRa 文本通信（Meshtastic + MeshCore 兼容）
+### 📝 去中心化消息（Meshtastic / MeshCore / Reticulum）
 
 - LoRa 文本消息（支持中文）
 - Meshtastic 公共网络兼容（LongFast/PSK）
 - MeshCore 网络兼容（原生 MeshCore 报文链路）
+- Reticulum/LXMF 设备端运行时，以及 LoRa、AutoInterface、TCP 网关接口
+- Reticulum 配置与联系人目录从 SD 卡读取
 - 支持通过蓝牙连接 Meshtastic / MeshCore App
 - 消息历史与会话列表
 - 路由确认与错误提示（可靠性诊断）
 - Unishox2 解压接收支持
 
-### 🤝 组队模式（ESP-NOW 建队 + LoRa 运行）
+### 🤝 TAK / 组队模式（ESP-NOW 建队 + LoRa 运行）
 
 - 近距离 ESP-NOW 配对、密钥分发与团队 ID 建立
 - 成员列表与角色标识（leader/member）
@@ -546,11 +570,11 @@ https://github.com/dawsonjon/PicoSSTV 。我们的 SSTV 接收功能参考了其
 
 ## 关于本项目
 
-**Trail-mate** 是一个面向离网环境的现场通信与团队态势感知系统，主要围绕低功耗无线电设备（LoRa 及兼容的 Sub-GHz 无线电）构建。
+**Trail Mate** 是一个端侧优先、匿名可用、去中心化且能够离网运行的个人通信与态势系统。它运行在使用者持有的嵌入式设备和 Linux 便携终端上，以 Meshtastic、MeshCore、Reticulum 和设备端 TAK 能力提供通信、位置、导航与协作。
 
-本项目关注的不是互联网消息传递，而是在人类无法依赖蜂窝网络、网络不稳定、或不适合使用公网通信的场景下，实现可靠的人与人之间的协同、位置共享与信息传递。
+Trail Mate 让互联网成为可选择的连接资源，让个人设备直接承担基本通信。身份、联系人、消息、位置、地图和轨迹尽可能由使用者持有，并在每次共享时保留清楚的数据关系与选择权。
 
-本仓库为持续开发中的工程项目，并非代码存档，也不是示例性质的参考实现。
+本仓库是持续开发和维护的工程项目，包含可用于评估、移植、集成与部署的实际实现。
 
 如果你正在对代码进行：
 
@@ -569,7 +593,7 @@ https://github.com/dawsonjon/PicoSSTV 。我们的 SSTV 接收功能参考了其
 
 **Vic Liu**
 
-系统架构、通信协议、固件设计及参考实现均由作者长期维护与持续演进。
+系统架构、通信协议、嵌入式固件、Linux 端侧实现及参考实现均由作者长期维护。
 
 ---
 
@@ -628,14 +652,9 @@ https://github.com/dawsonjon/PicoSSTV 。我们的 SSTV 接收功能参考了其
 
 ## 项目意图
 
-Trail-mate 的目标是提供一种真正可用、以人为中心的离网协同通信系统。
+Trail Mate 希望减少一个人在进行基本通信、导航和协作时必须信任的中心数量。它提供边界清楚、能够验证的自主能力：设备始终属于使用者，并能在云账户、手机应用和稳定公网均缺席的条件下工作。
 
-非常欢迎：
-
-* 实际使用反馈
-* 野外测试报告
-* 部署经验
-* 改进建议
+当前嵌入式功能面已经定型。非常欢迎缺陷报告、互操作测试、野外验证、部署经验，以及围绕可靠性、安全性、资源效率、硬件承载和文档清晰度的改进。
 
 你不必先提交 Issue，也可以直接联系作者。
 

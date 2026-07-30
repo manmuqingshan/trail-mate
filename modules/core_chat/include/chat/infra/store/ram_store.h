@@ -27,15 +27,26 @@ class RamStore : public IChatStore
 
     void append(const ChatMessage& msg) override;
     std::vector<ChatMessage> loadRecent(const ConversationId& conv, size_t n) override;
+    std::vector<ChatMessage> loadPageFromLatest(const ConversationId& conv,
+                                                size_t offset_from_latest,
+                                                size_t limit,
+                                                size_t* total) override;
     std::vector<ConversationMeta> loadConversationPage(size_t offset,
                                                        size_t limit,
                                                        size_t* total) override;
-    void setUnread(const ConversationId& conv, int unread) override;
+    bool setUnread(const ConversationId& conv, int unread) override;
     int getUnread(const ConversationId& conv) const override;
     void clearConversation(const ConversationId& conv) override;
     void clearAll() override;
     bool updateMessageStatus(MessageId msg_id, MessageStatus status) override;
+    bool updateMessageStatusForProtocol(MessageId msg_id,
+                                        MeshProtocol protocol,
+                                        MessageStatus status) override;
     bool getMessage(MessageId msg_id, ChatMessage* out) const override;
+    bool getMessageForProtocol(MessageId msg_id,
+                               MeshProtocol protocol,
+                               ChatMessage* out) const override;
+    bool hasReticulumLxmfMessageHash(const uint8_t* lxmf_hash) const override;
 
   private:
     struct StoredMessageEntry

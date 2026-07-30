@@ -65,7 +65,7 @@ int main()
 
     ui_lvgl_ux::ScreenRegistry screens;
     pack.buildScreens(screens);
-    assert(screens.size() == 14);
+    assert(screens.size() == 13);
     assert(contains(screens, ui_lvgl_ux::ScreenId::Dashboard));
     assert(contains(screens, ui_lvgl_ux::ScreenId::Chat));
     assert(contains(screens, ui_lvgl_ux::ScreenId::Contacts));
@@ -74,7 +74,6 @@ int main()
     assert(contains(screens, ui_lvgl_ux::ScreenId::Gps));
     assert(contains(screens, ui_lvgl_ux::ScreenId::Team));
     assert(contains(screens, ui_lvgl_ux::ScreenId::Tracker));
-    assert(contains(screens, ui_lvgl_ux::ScreenId::PcLink));
     assert(contains(screens, ui_lvgl_ux::ScreenId::EnergySweep));
     assert(contains(screens, ui_lvgl_ux::ScreenId::WalkieTalkie));
     assert(contains(screens, ui_lvgl_ux::ScreenId::Sstv));

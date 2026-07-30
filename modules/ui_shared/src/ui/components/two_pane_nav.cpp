@@ -13,7 +13,15 @@ namespace two_pane_nav
 namespace
 {
 
+#ifndef TWO_PANE_NAV_TRACE
+#define TWO_PANE_NAV_TRACE 0
+#endif
+
+#if TWO_PANE_NAV_TRACE
 #define TWO_PANE_NAV_LOG(...) std::printf(__VA_ARGS__)
+#else
+#define TWO_PANE_NAV_LOG(...) ((void)0)
+#endif
 
 static const char* column_name(FocusColumn column)
 {
@@ -56,12 +64,6 @@ static lv_indev_t* find_encoder_indev()
         }
     }
     return nullptr;
-}
-
-static bool is_encoder_active()
-{
-    lv_indev_t* indev = lv_indev_get_act();
-    return indev && lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER;
 }
 
 static void group_clear_all(lv_group_t* group)
@@ -581,8 +583,6 @@ static void root_key_event_cb(lv_event_t* e)
         }
         return;
     }
-
-    if (!is_encoder_active()) return;
 
     if (key != LV_KEY_ENTER) return;
 

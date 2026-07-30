@@ -20,18 +20,19 @@ MtDedup::~MtDedup()
 {
 }
 
-bool MtDedup::isDuplicate(NodeId from_node, uint32_t packet_id)
+bool MtDedup::isDuplicate(NodeId from_node, uint32_t packet_id, uint8_t channel_hash)
 {
     cleanup();
 
     PacketKey key;
     key.from = from_node;
     key.id = packet_id;
+    key.channel = channel_hash;
 
     return cache_.find(key) != cache_.end();
 }
 
-void MtDedup::markSeen(NodeId from_node, uint32_t packet_id)
+void MtDedup::markSeen(NodeId from_node, uint32_t packet_id, uint8_t channel_hash)
 {
     cleanup();
 
@@ -44,6 +45,7 @@ void MtDedup::markSeen(NodeId from_node, uint32_t packet_id)
     PacketKey key;
     key.from = from_node;
     key.id = packet_id;
+    key.channel = channel_hash;
 
     PacketEntry entry;
     entry.timestamp = sys::millis_now();

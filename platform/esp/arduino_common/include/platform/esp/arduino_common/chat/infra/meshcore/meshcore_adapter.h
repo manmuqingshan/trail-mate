@@ -10,9 +10,13 @@
 #include "chat/infra/meshcore/meshcore_ble_backend.h"
 #include "chat/infra/meshcore/meshcore_protocol_helpers.h"
 #include "chat/ports/i_mesh_adapter.h"
+#include "chat/ports/i_mesh_peer_directory.h"
 #include "chat/runtime/meshcore_runtime.h"
 #include "chat/runtime/protocol_runtime_factory.h"
 #include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_identity.h"
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+#include "platform/esp/radio/idf_lora_radio_pump.h"
+#endif
 #include <array>
 #include <cstddef>
 #include <cstring>
@@ -37,7 +41,8 @@ class MeshCoreAdapter : public IMeshAdapter,
     /**
      * @brief Constructor
      */
-    MeshCoreAdapter(LoraBoard& board);
+    MeshCoreAdapter(LoraBoard& board,
+                    IMeshPeerDirectory* peer_directory = nullptr);
 
     /**
      * @brief Destructor
@@ -97,6 +102,9 @@ class MeshCoreAdapter : public IMeshAdapter,
      * @return true if raw packet data is available
      */
     bool pollIncomingRawPacket(uint8_t* out_data, size_t& out_len, size_t max_len) override;
+    bool pollMqttBridgePacket(uint8_t* out_data, size_t& out_len, size_t max_len);
+    void handleMqttBridgePacket(const uint8_t* data, size_t size);
+    void setMqttBridgeEnabled(bool enabled);
 
     /**
      * @brief Handle raw packet data (from radio task)
@@ -226,31 +234,12 @@ class MeshCoreAdapter : public IMeshAdapter,
     static constexpr size_t kMaxPeerRouteCandidates = 4;
     static constexpr size_t kMaxPeerRoutes = 128;
     static constexpr size_t kMaxVerifiedPeers = 128;
-    static constexpr size_t kMaxPersistedPeerPubKeys = 64;
-    static constexpr const char* kPeerPubKeyPrefsNs = "mc_peers";
-    static constexpr const char* kPeerPubKeyPrefsKey = "peer_keys";
-    static constexpr const char* kPeerPubKeyPrefsKeyVer = "peer_ver";
-    static constexpr uint8_t kPeerPubKeyPrefsVersion = 1;
+    static constexpr size_t kPeerDirectoryHotLoadRecords = kMaxPeerRoutes;
     static constexpr size_t kMaxEventQueue = 32;
     static constexpr size_t kMaxScheduledFrames = 24;
     static constexpr size_t kMaxSeenPackets = 128;
     static constexpr size_t kScheduledFrameMaxLen = 255;
-
-    struct PersistedPeerPubKeyEntryV1
-    {
-        uint8_t peer_hash = 0;
-        uint8_t flags = 0;
-        uint16_t reserved = 0;
-        uint8_t pubkey[MeshCoreIdentity::kPubKeySize] = {};
-    } __attribute__((packed));
-    static_assert(sizeof(PersistedPeerPubKeyEntryV1) == 36,
-                  "Persisted peer pubkey entry must remain stable");
-
-    struct StagedPeerPubKeySaveEntry
-    {
-        uint32_t seen_ms = 0;
-        PersistedPeerPubKeyEntryV1 entry{};
-    };
+    static constexpr size_t kMqttBridgeQueueDepth = 3;
 
     struct ScheduledFrame
     {
@@ -258,6 +247,26 @@ class MeshCoreAdapter : public IMeshAdapter,
         size_t bytes_len = 0;
         uint32_t due_ms = 0;
         bool defer_during_discover = false;
+
+        bool assign(const uint8_t* data, size_t len)
+        {
+            if ((len > 0 && !data) || len > bytes.size())
+            {
+                return false;
+            }
+            if (len > 0)
+            {
+                memcpy(bytes.data(), data, len);
+            }
+            bytes_len = len;
+            return true;
+        }
+    };
+
+    struct MqttBridgeFrame
+    {
+        std::array<uint8_t, kScheduledFrameMaxLen> bytes{};
+        size_t bytes_len = 0;
 
         bool assign(const uint8_t* data, size_t len)
         {
@@ -607,6 +616,10 @@ class MeshCoreAdapter : public IMeshAdapter,
     };
 
     LoraBoard& board_;
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+    ::platform::esp::radio::IdfLoraRadioPump idf_radio_pump_;
+#endif
+    IMeshPeerDirectory* peer_directory_ = nullptr;
 
     // Configuration
     MeshConfig config_;
@@ -639,13 +652,16 @@ class MeshCoreAdapter : public IMeshAdapter,
     uint8_t last_raw_packet_[256];
     size_t last_raw_packet_len_;
     bool has_pending_raw_packet_;
+    std::array<MqttBridgeFrame, kMqttBridgeQueueDepth> mqtt_bridge_queue_{};
+    size_t mqtt_bridge_read_index_ = 0;
+    size_t mqtt_bridge_count_ = 0;
+    bool mqtt_bridge_enabled_ = false;
     ScheduledFrameQueue scheduled_tx_;
     SeenSignatureTable seen_recent_;
     EventQueue events_;
     PeerRouteTable peer_routes_;
     VerifiedPeerTable verified_peers_;
-    std::array<StagedPeerPubKeySaveEntry, kMaxPersistedPeerPubKeys> peer_key_save_scratch_{};
-    std::array<PersistedPeerPubKeyEntryV1, kMaxPersistedPeerPubKeys> peer_key_save_entries_{};
+    std::array<MeshPeerRecord, kPeerDirectoryHotLoadRecords> peer_directory_load_entries_{};
     KeyVerifySession key_verify_session_;
 
     MessageId next_msg_id_;
@@ -661,6 +677,9 @@ class MeshCoreAdapter : public IMeshAdapter,
     bool canTransmitNow(uint32_t now_ms) const;
     MeshActionResult transmitFrameNowDetailed(const uint8_t* data, size_t len, uint32_t now_ms);
     bool transmitFrameNow(const uint8_t* data, size_t len, uint32_t now_ms);
+#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+    void pollIdfRadio();
+#endif
     bool enqueueScheduled(const uint8_t* data, size_t len, uint32_t delay_ms,
                           bool defer_during_discover = false);
     void armDiscoverRxGuard(uint32_t now_ms, uint32_t duration_ms = kDiscoverRxGuardDefaultMs);
@@ -686,8 +705,8 @@ class MeshCoreAdapter : public IMeshAdapter,
                           uint8_t out_pubkey[MeshCoreIdentity::kPubKeySize]) const;
     void rememberPeerPubKey(const uint8_t pubkey[MeshCoreIdentity::kPubKeySize],
                             uint32_t now_ms, bool verified);
-    void loadPeerPubKeysFromPrefs();
-    void savePeerPubKeysToPrefs();
+    void loadPeerPubKeysFromDirectory();
+    void savePeerPubKeyToDirectory(const PeerRouteEntry& route);
     void maybeAutoDiscoverMissingPeer(uint8_t peer_hash, uint32_t now_ms);
     bool tryDecryptPeerPayload(uint8_t src_hash, const uint8_t* cipher, size_t cipher_len,
                                uint8_t* out_plain, size_t* out_plain_len,
@@ -731,6 +750,7 @@ class MeshCoreAdapter : public IMeshAdapter,
     bool selfHash(PayloadProfile profile, uint8_t* out_hash, size_t out_cap) const;
     void pruneSeen(uint32_t now_ms);
     bool hasSeenSignature(uint32_t signature, uint32_t now_ms);
+    void queueMqttBridgePacket(const uint8_t* data, size_t len);
     void handleRawPacketInternal(const uint8_t* data, size_t size, bool allow_duplicate);
     void prunePendingAppAcks(uint32_t now_ms);
     void trackPendingAppAck(uint32_t signature, NodeId dest, uint32_t portnum, uint32_t now_ms);

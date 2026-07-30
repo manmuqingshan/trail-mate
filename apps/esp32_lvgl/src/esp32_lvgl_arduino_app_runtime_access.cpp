@@ -5,7 +5,9 @@
 #include "app/app_context.h"
 #include "platform/esp/arduino_common/app_runtime_bootstrap_support.h"
 #include "platform/esp/arduino_common/app_runtime_support.h"
+#include "platform/esp/arduino_common/storage/storage_runtime.h"
 #include "platform/esp/boards/board_runtime.h"
+#include "platform/ui/screen_runtime.h"
 
 namespace trailmate::apps::esp32_lvgl::arduino_app_runtime_access
 {
@@ -13,6 +15,14 @@ namespace
 {
 
 Status s_status{};
+bool s_was_screen_saver_active = false;
+uint32_t s_wake_gate_until_ms = 0;
+
+bool wake_gate_active(uint32_t now_ms)
+{
+    return s_wake_gate_until_ms != 0 &&
+           static_cast<int32_t>(s_wake_gate_until_ms - now_ms) > 0;
+}
 
 } // namespace
 
@@ -62,8 +72,36 @@ bool initialize(bool use_mock)
     return true;
 }
 
+void startDeferredStorage()
+{
+    if (!s_status.initialized || !s_status.app_context_bound)
+    {
+        return;
+    }
+    app::AppContext::getInstance().startDeferredStorage();
+}
+
 void tick()
 {
+    platform::esp::arduino_common::storage::tick_deferred_storage();
+    const uint32_t now_ms = millis();
+    const bool saver_active = platform::ui::screen::is_saver_active();
+    if (saver_active)
+    {
+        s_was_screen_saver_active = true;
+        return;
+    }
+    if (s_was_screen_saver_active)
+    {
+        s_was_screen_saver_active = false;
+        s_wake_gate_until_ms = now_ms + 750U;
+        return;
+    }
+    if (wake_gate_active(now_ms))
+    {
+        return;
+    }
+
     platform::esp::arduino_common::tickBoundLifecycle();
 }
 

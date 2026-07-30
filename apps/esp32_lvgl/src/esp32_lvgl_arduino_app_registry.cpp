@@ -1,7 +1,9 @@
 #include "ui/app_registry.h"
 
+#include "app/app_config.h"
+#include "app/app_facade_access.h"
+#include "chat/infra/mesh_protocol_utils.h"
 #include "platform/ui/device_runtime.h"
-#include "platform/ui/hostlink_runtime.h"
 #include "platform/ui/lora_runtime.h"
 #include "platform/ui/route_storage.h"
 #include "platform/ui/sstv_runtime.h"
@@ -25,10 +27,12 @@ ui::app_catalog_builder::FeatureFlags buildFeatureFlags()
     flags.include_gnss_skyplot = platform::ui::device::gps_supported();
     flags.include_tracker = platform::ui::route_storage::is_supported() || platform::ui::tracker::is_supported();
     flags.include_energy_sweep = platform::ui::lora::is_supported();
-    flags.include_pc_link = platform::ui::hostlink::is_supported();
     flags.include_sstv = platform::ui::sstv::is_supported();
     flags.include_usb = platform::ui::usb_support::is_supported() && platform::ui::device::sd_ready();
     flags.include_extensions = true;
+    flags.include_network = app::hasAppFacade() &&
+                            chat::infra::isReticulumMeshProtocol(
+                                app::configFacade().readConfig().mesh_protocol);
     flags.include_walkie_talkie = platform::ui::walkie::is_supported();
     flags.include_power_off =
 #if defined(ARDUINO_T_LORA_PAGER)
@@ -37,15 +41,15 @@ ui::app_catalog_builder::FeatureFlags buildFeatureFlags()
         false;
 #endif
     APP_REG_LOG(
-        "flags gps_map=%d skyplot=%d tracker=%d chat=%d sweep=%d pc_link=%d sstv=%d usb=%d walkie=%d power_off=%d gps_supported=%d gps_ready=%d sd_ready=%d\n",
+        "flags gps_map=%d skyplot=%d tracker=%d chat=%d sweep=%d sstv=%d usb=%d network=%d walkie=%d power_off=%d gps_supported=%d gps_ready=%d sd_ready=%d\n",
         flags.include_gps_map ? 1 : 0,
         flags.include_gnss_skyplot ? 1 : 0,
         flags.include_tracker ? 1 : 0,
         flags.include_chat ? 1 : 0,
         flags.include_energy_sweep ? 1 : 0,
-        flags.include_pc_link ? 1 : 0,
         flags.include_sstv ? 1 : 0,
         flags.include_usb ? 1 : 0,
+        flags.include_network ? 1 : 0,
         flags.include_walkie_talkie ? 1 : 0,
         flags.include_power_off ? 1 : 0,
         platform::ui::device::gps_supported() ? 1 : 0,
