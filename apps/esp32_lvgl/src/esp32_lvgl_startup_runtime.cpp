@@ -50,6 +50,14 @@ void applyPlatformRuntimeConfig(const Esp32LvglRuntimeConfig& config)
     }
 
     const app::AppConfig& app_config = app::appFacade().readConfig();
+    platform::ui::gps::GpsReceiverInitConfig receiver_init{};
+    receiver_init.baud = app_config.gps_init_baud;
+    receiver_init.probe_ms = app_config.gps_init_probe_ms;
+    receiver_init.profile = app_config.gps_init_profile;
+    receiver_init.rxm_policy = app_config.gps_init_rxm_policy;
+    receiver_init.gnss_policy = app_config.gps_init_gnss_policy;
+    receiver_init.nmea_policy = app_config.gps_init_nmea_policy;
+    platform::ui::gps::set_receiver_init_config(receiver_init);
     platform::ui::gps::set_enabled(app_config.gps_enabled);
     platform::ui::gps::set_collection_interval(app_config.gps_interval_ms);
     platform::ui::gps::set_power_strategy(app_config.gps_strategy);
@@ -59,8 +67,10 @@ void applyPlatformRuntimeConfig(const Esp32LvglRuntimeConfig& config)
     platform::ui::gps::set_motion_idle_timeout(app_config.motion_config.idle_timeout_ms);
     platform::ui::gps::set_motion_sensor_id(app_config.motion_config.sensor_id);
     ESP_LOGI(config.log_tag,
-             "GNSS runtime config applied: enabled=%d interval_ms=%lu mode=%u sat_mask=0x%02X strategy=%u external_nmea=%u/%u motion_idle_ms=%lu sensor=%u startup_probe=deferred",
+             "GNSS runtime config applied: enabled=%d init_baud=%lu init_profile=%u interval_ms=%lu mode=%u sat_mask=0x%02X strategy=%u external_nmea=%u/%u motion_idle_ms=%lu sensor=%u startup_probe=deferred",
              app_config.gps_enabled ? 1 : 0,
+             static_cast<unsigned long>(receiver_init.baud),
+             receiver_init.profile,
              static_cast<unsigned long>(app_config.gps_interval_ms),
              app_config.gps_mode,
              app_config.gps_sat_mask,

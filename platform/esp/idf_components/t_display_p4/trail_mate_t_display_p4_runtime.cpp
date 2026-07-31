@@ -92,12 +92,6 @@ constexpr uint8_t kTca8418RegCfg = 0x01;
 constexpr uint8_t kTca8418RegIntStat = 0x02;
 constexpr uint8_t kTca8418RegKeyLockEventCount = 0x03;
 constexpr uint8_t kTca8418RegKeyEventA = 0x04;
-constexpr uint8_t kTca8418RegGpiEm1 = 0x20;
-constexpr uint8_t kTca8418RegGpiEm2 = 0x21;
-constexpr uint8_t kTca8418RegGpiEm3 = 0x22;
-constexpr uint8_t kTca8418RegGpioIntEn1 = 0x1A;
-constexpr uint8_t kTca8418RegGpioIntEn2 = 0x1B;
-constexpr uint8_t kTca8418RegGpioIntEn3 = 0x1C;
 constexpr uint8_t kTca8418RegKpGpio1 = 0x1D;
 constexpr uint8_t kTca8418RegKpGpio2 = 0x1E;
 constexpr uint8_t kTca8418RegKpGpio3 = 0x1F;
@@ -567,18 +561,18 @@ struct KeyboardProbeResult
     bool power_ready = false;
     bool gpio_ready = false;
     bool xl9555_ack = false;
+    bool tca8418_reset_ok = false;
     bool tca8418_ack = false;
     bool tca8418_cfg_readable = false;
-    bool bq25896_ack = false;
 
     bool module_present() const
     {
-        return xl9555_ack || tca8418_ack || bq25896_ack;
+        return xl9555_ack;
     }
 
     bool keyboard_controller_ready() const
     {
-        return tca8418_ack && tca8418_cfg_readable;
+        return xl9555_ack && tca8418_ack && tca8418_cfg_readable;
     }
 };
 
@@ -900,7 +894,9 @@ bool ensure_keyboard_module_power()
     return true;
 }
 
-KeyboardProbeResult probe_keyboard_module_bus()
+bool reset_tca8418_via_keyboard_expander();
+
+KeyboardProbeResult probe_keyboard_module_bus(bool reset_tca_after_xl = true)
 {
     KeyboardProbeResult result{};
     result.supported = keyboard_module_supported();
@@ -931,8 +927,21 @@ KeyboardProbeResult probe_keyboard_module_bus()
 
     const auto& kb = keyboard_module();
     result.xl9555_ack = kb.xl9555 != 0 && keyboard_probe_device_address(kb.xl9555);
+    if (!result.xl9555_ack)
+    {
+        return result;
+    }
+
+    if (reset_tca_after_xl)
+    {
+        result.tca8418_reset_ok = reset_tca8418_via_keyboard_expander();
+        if (!result.tca8418_reset_ok)
+        {
+            ESP_LOGW(kTag, "T-Display-P4 keyboard XL9555 reset sequence failed");
+        }
+    }
+
     result.tca8418_ack = kb.tca8418 != 0 && keyboard_probe_device_address(kb.tca8418);
-    result.bq25896_ack = kb.bq25896 != 0 && keyboard_probe_device_address(kb.bq25896);
 
     if (result.tca8418_ack)
     {
@@ -951,43 +960,41 @@ void log_keyboard_probe_result(const char* reason,
     if (warning)
     {
         ESP_LOGW(kTag,
-                 "T-Display-P4 keyboard probe reason=%s supported=%d power=%d gpio=%d xl9555=0x%02X:%d tca8418=0x%02X:%d cfg=%d bq25896=0x%02X:%d module_present=%d controller_ready=%d",
+                 "T-Display-P4 keyboard probe reason=%s supported=%d power=%d gpio=%d xl9555=0x%02X:%d reset=%d tca8418=0x%02X:%d cfg=%d module_present=%d controller_ready=%d",
                  tag_reason,
                  probe.supported,
                  probe.power_ready,
                  probe.gpio_ready,
                  static_cast<unsigned>(kb.xl9555),
                  probe.xl9555_ack,
+                 probe.tca8418_reset_ok,
                  static_cast<unsigned>(kb.tca8418),
                  probe.tca8418_ack,
                  probe.tca8418_cfg_readable,
-                 static_cast<unsigned>(kb.bq25896),
-                 probe.bq25896_ack,
                  probe.module_present(),
                  probe.keyboard_controller_ready());
         return;
     }
 
     ESP_LOGI(kTag,
-             "T-Display-P4 keyboard probe reason=%s supported=%d power=%d gpio=%d xl9555=0x%02X:%d tca8418=0x%02X:%d cfg=%d bq25896=0x%02X:%d module_present=%d controller_ready=%d",
+             "T-Display-P4 keyboard probe reason=%s supported=%d power=%d gpio=%d xl9555=0x%02X:%d reset=%d tca8418=0x%02X:%d cfg=%d module_present=%d controller_ready=%d",
              tag_reason,
              probe.supported,
              probe.power_ready,
              probe.gpio_ready,
              static_cast<unsigned>(kb.xl9555),
              probe.xl9555_ack,
+             probe.tca8418_reset_ok,
              static_cast<unsigned>(kb.tca8418),
              probe.tca8418_ack,
              probe.tca8418_cfg_readable,
-             static_cast<unsigned>(kb.bq25896),
-             probe.bq25896_ack,
              probe.module_present(),
              probe.keyboard_controller_ready());
 }
 
 bool probe_tca8418_presence()
 {
-    return probe_keyboard_module_bus().keyboard_controller_ready();
+    return probe_keyboard_module_bus(false).keyboard_controller_ready();
 }
 
 bool probe_keyboard_module_bus_presence()
@@ -1028,7 +1035,6 @@ void log_keyboard_i2c_scan(const char* reason)
     int count = 0;
     bool found_xl9555 = false;
     bool found_tca8418 = false;
-    bool found_bq25896 = false;
     const auto& kb = keyboard_module();
     for (uint8_t address = kKeyboardI2cScanFirstAddress;
          address <= kKeyboardI2cScanLastAddress;
@@ -1052,24 +1058,22 @@ void log_keyboard_i2c_scan(const char* reason)
         ++count;
         found_xl9555 = found_xl9555 || address == kb.xl9555;
         found_tca8418 = found_tca8418 || address == kb.tca8418;
-        found_bq25896 = found_bq25896 || address == kb.bq25896;
     }
 
     if (count == 0)
     {
         ESP_LOGW(kTag,
-                 "T-Display-P4 keyboard I2C scan reason=%s sda=%d scl=%d found=none expected_xl9555=0x%02X expected_tca8418=0x%02X expected_bq25896=0x%02X",
+                 "T-Display-P4 keyboard I2C scan reason=%s sda=%d scl=%d found=none expected_xl9555=0x%02X expected_tca8418=0x%02X",
                  reason ? reason : "unknown",
                  kb.sda,
                  kb.scl,
                  static_cast<unsigned>(kb.xl9555),
-                 static_cast<unsigned>(kb.tca8418),
-                 static_cast<unsigned>(kb.bq25896));
+                 static_cast<unsigned>(kb.tca8418));
         return;
     }
 
     ESP_LOGI(kTag,
-             "T-Display-P4 keyboard I2C scan reason=%s sda=%d scl=%d found_count=%d found=%s expected_xl9555=0x%02X:%d expected_tca8418=0x%02X:%d expected_bq25896=0x%02X:%d",
+             "T-Display-P4 keyboard I2C scan reason=%s sda=%d scl=%d found_count=%d found=%s expected_xl9555=0x%02X:%d expected_tca8418=0x%02X:%d",
              reason ? reason : "unknown",
              kb.sda,
              kb.scl,
@@ -1078,9 +1082,7 @@ void log_keyboard_i2c_scan(const char* reason)
              static_cast<unsigned>(kb.xl9555),
              found_xl9555,
              static_cast<unsigned>(kb.tca8418),
-             found_tca8418,
-             static_cast<unsigned>(kb.bq25896),
-             found_bq25896);
+             found_tca8418);
 }
 
 void log_keyboard_hardware_i2c_scan(const char* reason)
@@ -1145,7 +1147,6 @@ void log_keyboard_hardware_i2c_scan(const char* reason)
     int count = 0;
     bool found_xl9555 = false;
     bool found_tca8418 = false;
-    bool found_bq25896 = false;
     for (uint8_t address = kKeyboardI2cScanFirstAddress;
          address <= kKeyboardI2cScanLastAddress;
          ++address)
@@ -1168,25 +1169,23 @@ void log_keyboard_hardware_i2c_scan(const char* reason)
         ++count;
         found_xl9555 = found_xl9555 || address == kb.xl9555;
         found_tca8418 = found_tca8418 || address == kb.tca8418;
-        found_bq25896 = found_bq25896 || address == kb.bq25896;
     }
 
     (void)i2c_del_master_bus(bus);
     if (count == 0)
     {
         ESP_LOGW(kTag,
-                 "T-Display-P4 keyboard HW I2C scan reason=%s sda=%d scl=%d found=none expected_xl9555=0x%02X expected_tca8418=0x%02X expected_bq25896=0x%02X",
+                 "T-Display-P4 keyboard HW I2C scan reason=%s sda=%d scl=%d found=none expected_xl9555=0x%02X expected_tca8418=0x%02X",
                  reason ? reason : "unknown",
                  kb.sda,
                  kb.scl,
                  static_cast<unsigned>(kb.xl9555),
-                 static_cast<unsigned>(kb.tca8418),
-                 static_cast<unsigned>(kb.bq25896));
+                 static_cast<unsigned>(kb.tca8418));
         return;
     }
 
     ESP_LOGI(kTag,
-             "T-Display-P4 keyboard HW I2C scan reason=%s sda=%d scl=%d found_count=%d found=%s expected_xl9555=0x%02X:%d expected_tca8418=0x%02X:%d expected_bq25896=0x%02X:%d",
+             "T-Display-P4 keyboard HW I2C scan reason=%s sda=%d scl=%d found_count=%d found=%s expected_xl9555=0x%02X:%d expected_tca8418=0x%02X:%d",
              reason ? reason : "unknown",
              kb.sda,
              kb.scl,
@@ -1195,9 +1194,7 @@ void log_keyboard_hardware_i2c_scan(const char* reason)
              static_cast<unsigned>(kb.xl9555),
              found_xl9555,
              static_cast<unsigned>(kb.tca8418),
-             found_tca8418,
-             static_cast<unsigned>(kb.bq25896),
-             found_bq25896);
+             found_tca8418);
 }
 
 void IRAM_ATTR keyboard_irq_isr(void* arg)
@@ -1399,18 +1396,12 @@ bool configure_tca8418_keypad()
     const uint8_t col_high_mask = kb.columns > 8 ? mask_for_count(kb.columns - 8) : 0;
 
     if (!keyboard_write_register(kTca8418RegCfg, kTca8418CfgAutoIncrementAndOverflowQueue) ||
-        !keyboard_write_register(kTca8418RegGpiEm1, 0xFF) ||
-        !keyboard_write_register(kTca8418RegGpiEm2, 0xFF) ||
-        !keyboard_write_register(kTca8418RegGpiEm3, 0xFF) ||
-        !keyboard_write_register(kTca8418RegGpioIntEn1, 0xFF) ||
-        !keyboard_write_register(kTca8418RegGpioIntEn2, 0xFF) ||
-        !keyboard_write_register(kTca8418RegGpioIntEn3, 0xFF) ||
         !keyboard_write_register(kTca8418RegKpGpio1, row_mask) ||
         !keyboard_write_register(kTca8418RegKpGpio2, col_low_mask) ||
         !keyboard_write_register(kTca8418RegKpGpio3, col_high_mask) ||
-        !keyboard_read_register(kTca8418RegCfg, &cfg) ||
         !keyboard_write_register(kTca8418RegCfg,
-                                 static_cast<uint8_t>((cfg & 0xF0U) | kTca8418IntKeyEvents)) ||
+                                 static_cast<uint8_t>(kTca8418CfgAutoIncrementAndOverflowQueue |
+                                                      kTca8418IntKeyEvents)) ||
         !keyboard_write_register(kTca8418RegIntStat, kTca8418IntAll))
     {
         ESP_LOGW(kTag, "T-Display-P4 keyboard TCA8418 keypad init sequence failed");

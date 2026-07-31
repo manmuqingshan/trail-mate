@@ -177,7 +177,7 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
                               uint32_t post_delay_ms = 10);
     bool isTouchInterruptActive() const;
 
-    bool prepareGpsRuntime();
+    bool prepareGpsRuntime(uint32_t baud_rate = 0);
     void teardownGpsRuntime();
 
     bool mountSdCard(const char* mount_point, size_t max_files);
@@ -254,6 +254,7 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
     bool battery_gauge_ready_ = false;
     bool gps_uart_configured_ = false;
     bool gps_runtime_prepared_ = false;
+    uint32_t gps_uart_baud_rate_ = 0;
     bool sd_ready_ = false;
     bool sd_enabled_ = false;
     bool battery_charging_ = false;

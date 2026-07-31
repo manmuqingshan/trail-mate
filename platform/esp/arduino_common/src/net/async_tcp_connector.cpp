@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cerrno>
+#include <cstdio>
 #include <cstring>
 
 #include <fcntl.h>
@@ -31,6 +32,24 @@ struct DnsSlot
 std::array<DnsSlot, kDnsSlotCount> s_dns_slots{};
 portMUX_TYPE s_dns_lock = portMUX_INITIALIZER_UNLOCKED;
 std::uint32_t s_dns_generation = 1;
+
+void log_resolved_ipv4(const char* host, const ip_addr_t* address, const char* source)
+{
+    char ipv4_text[16] = {};
+    if (!address || !IP_IS_V4(address) ||
+        !ip4addr_ntoa_r(ip_2_ip4(address), ipv4_text, sizeof(ipv4_text)))
+    {
+        std::printf("[DNS] result host=%s source=%s has_no_ipv4\n",
+                    host ? host : "<unknown>",
+                    source ? source : "unknown");
+        return;
+    }
+
+    std::printf("[DNS] resolved host=%s ip=%s source=%s\n",
+                host ? host : "<unknown>",
+                ipv4_text,
+                source ? source : "unknown");
+}
 
 void release_slot_locked(DnsSlot& slot)
 {
@@ -64,7 +83,7 @@ void complete_dns_slot(DnsSlot& slot, const ip_addr_t* address, int error)
     portEXIT_CRITICAL(&s_dns_lock);
 }
 
-void dns_found(const char*, const ip_addr_t* address, void* arg)
+void dns_found(const char* host, const ip_addr_t* address, void* arg)
 {
     auto* slot = static_cast<DnsSlot*>(arg);
     if (!slot)
@@ -74,6 +93,7 @@ void dns_found(const char*, const ip_addr_t* address, void* arg)
     // lwIP reports NXDOMAIN and malformed/empty replies through a null
     // address in the completion callback.  Preserve that distinction so a
     // caller can diagnose resolver failure without treating it as TCP I/O.
+    log_resolved_ipv4(host, address, "network");
     complete_dns_slot(*slot, address, address ? 0 : EHOSTUNREACH);
 }
 
@@ -233,6 +253,7 @@ bool AsyncTcpConnector::start(const char* host,
             fail(TcpConnectFailure::ResolveFailed, ERR_VAL);
             return false;
         }
+        log_resolved_ipv4(host, &resolved, "cache");
         return beginSocket(ip4_addr_get_u32(ip_2_ip4(&resolved)), now_ms);
     }
     if (err != ERR_INPROGRESS)

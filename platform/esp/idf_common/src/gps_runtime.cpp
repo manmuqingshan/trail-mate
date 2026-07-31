@@ -64,6 +64,7 @@ struct RuntimeState
     uint8_t gnss_sat_mask = 0;
     uint8_t external_nmea_output_hz = 0;
     uint8_t external_nmea_sentence_mask = 0;
+    gps::GpsReceiverInitConfig receiver_init_config{};
     uint32_t motion_idle_timeout_ms = 0;
     uint8_t motion_sensor_id = 0;
     TaskHandle_t worker_handle = nullptr;
@@ -583,6 +584,11 @@ void append_bytes_and_process(const uint8_t* buffer, int length, char* line_buff
 
 bool configure_uart_hardware()
 {
+    gps::GpsReceiverInitConfig receiver_config{};
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        receiver_config = s_runtime.receiver_init_config;
+    }
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
     if (!::boards::tab5::Tab5Board::instance().configureGpsUart())
     {
@@ -591,7 +597,7 @@ bool configure_uart_hardware()
     }
     return true;
 #elif defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
-    if (!::boards::t_display_p4::TDisplayP4Board::instance().prepareGpsRuntime())
+    if (!::boards::t_display_p4::TDisplayP4Board::instance().prepareGpsRuntime(receiver_config.baud))
     {
         ESP_LOGE(kTag, "T-Display-P4 GNSS runtime setup failed");
         return false;
@@ -600,7 +606,7 @@ bool configure_uart_hardware()
 #else
     const auto gps_uart = gps_uart_pins();
     uart_config_t config{};
-    config.baud_rate = 38400;
+    config.baud_rate = receiver_config.baud != 0 ? static_cast<int>(receiver_config.baud) : 38400;
     config.data_bits = UART_DATA_8_BITS;
     config.parity = UART_PARITY_DISABLE;
     config.stop_bits = UART_STOP_BITS_1;
@@ -894,7 +900,20 @@ void set_external_nmea_config(uint8_t output_hz, uint8_t sentence_mask)
 
 void set_receiver_init_config(const gps::GpsReceiverInitConfig& config)
 {
-    (void)config;
+    std::lock_guard<std::mutex> lock(s_mutex);
+    const bool baud_changed = s_runtime.receiver_init_config.baud != config.baud;
+    s_runtime.receiver_init_config = config;
+    ESP_LOGI(kTag,
+             "GNSS receiver init config applied: baud=%lu probe_ms=%lu profile=%u policies=%u/%u/%u%s",
+             static_cast<unsigned long>(config.baud),
+             static_cast<unsigned long>(config.probe_ms),
+             config.profile,
+             config.rxm_policy,
+             config.gnss_policy,
+             config.nmea_policy,
+             baud_changed && s_runtime.worker_handle != nullptr
+                 ? " (new baud takes effect on next GNSS lifecycle)"
+                 : "");
 }
 
 void set_motion_idle_timeout(uint32_t timeout_ms)

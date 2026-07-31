@@ -141,6 +141,40 @@ bool ensure_external_3v3_power_control()
     return true;
 }
 
+bool configure_l76k_update_rate(uart_port_t port)
+{
+    // T-Display-P4 uses L76K.  Keep the vendor driver's 5 Hz baseline
+    // (PCAS02,200) without relying on an Arduino-only GNSS implementation.
+    constexpr char kBody[] = "PCAS02,200";
+    uint8_t checksum = 0;
+    for (const char value : kBody)
+    {
+        if (value == '\0')
+        {
+            break;
+        }
+        checksum ^= static_cast<uint8_t>(value);
+    }
+
+    char command[24] = {};
+    const int length = std::snprintf(command, sizeof(command), "$%s*%02X\r\n", kBody, checksum);
+    if (length <= 0 || static_cast<size_t>(length) >= sizeof(command))
+    {
+        return false;
+    }
+    if (uart_write_bytes(port, command, length) != length)
+    {
+        ESP_LOGW(kTag, "L76K PCAS02 write failed");
+        return false;
+    }
+    if (uart_wait_tx_done(port, pdMS_TO_TICKS(100)) != ESP_OK)
+    {
+        ESP_LOGW(kTag, "L76K PCAS02 transmit did not complete");
+        return false;
+    }
+    return uart_flush_input(port) == ESP_OK;
+}
+
 } // namespace
 
 namespace boards::t_display_p4
@@ -453,7 +487,28 @@ uint8_t TDisplayP4Board::keyboardGetBrightness()
 
 bool TDisplayP4Board::ensureExternal3v3Power()
 {
-    return ensure_external_3v3_power_control();
+    if (!ensure_external_3v3_power_control())
+    {
+        return false;
+    }
+
+    if (!expander_ready_)
+    {
+        if ((!started_ && begin() != 0) || (!expander_ready_ && !initializeExpander()))
+        {
+            ESP_LOGE(kTag, "Failed to prepare XL9535 for external 3.3V power");
+            return false;
+        }
+    }
+
+    const auto& io = ioExpanderPins();
+    if (!expanderPinMode(io.power_3v3, true) ||
+        !expanderWriteActive(io.power_3v3, true, profile().power_3v3_active_high))
+    {
+        ESP_LOGE(kTag, "Failed to assert external 3.3V rail through XL9535");
+        return false;
+    }
+    return true;
 }
 
 bool TDisplayP4Board::configureBatteryGaugeCapacity(uint16_t design_capacity_mah,
@@ -1135,14 +1190,22 @@ bool TDisplayP4Board::isTouchInterruptActive() const
     return active;
 }
 
-bool TDisplayP4Board::prepareGpsRuntime()
+bool TDisplayP4Board::prepareGpsRuntime(uint32_t baud_rate)
 {
-    if (gps_runtime_prepared_)
+    const uint32_t effective_baud_rate = baud_rate != 0 ? baud_rate : gpsUart().baud_rate;
+    if (effective_baud_rate == 0)
+    {
+        ESP_LOGE(kTag, "GNSS runtime requested without a valid UART baud rate");
+        return false;
+    }
+
+    if (gps_runtime_prepared_ && gps_uart_configured_ &&
+        gps_uart_baud_rate_ == effective_baud_rate)
     {
         return true;
     }
 
-    if (!expander_ready_ && !initializeExpander())
+    if (!ensureExternal3v3Power())
     {
         return false;
     }
@@ -1156,13 +1219,21 @@ bool TDisplayP4Board::prepareGpsRuntime()
     {
         return false;
     }
-    if (!configureGpsUart(gpsUart().baud_rate))
+    if (!configureGpsUart(effective_baud_rate))
     {
         return false;
     }
+    if (!configure_l76k_update_rate(static_cast<uart_port_t>(gpsUart().port)))
+    {
+        ESP_LOGW(kTag, "L76K update-rate initialization failed; continuing with receiver defaults");
+    }
 
     gps_runtime_prepared_ = true;
-    ESP_LOGI(kTag, "GNSS runtime prepared");
+    ESP_LOGI(kTag,
+             "GNSS runtime prepared baud=%lu tx=%d rx=%d",
+             static_cast<unsigned long>(effective_baud_rate),
+             gpsUart().tx,
+             gpsUart().rx);
     return true;
 }
 
@@ -1302,8 +1373,9 @@ bool TDisplayP4Board::ensureRtcAccessible()
 
 bool TDisplayP4Board::prepareLoraRuntime()
 {
-    if (!expander_ready_ && !initializeExpander())
+    if (!ensureExternal3v3Power())
     {
+        ESP_LOGE(kTag, "LoRa runtime could not assert external 3.3V power");
         return false;
     }
 
@@ -1656,9 +1728,14 @@ bool TDisplayP4Board::initializeBatteryGauge()
 
 bool TDisplayP4Board::configureGpsUart(uint32_t baud_rate)
 {
-    if (gps_uart_configured_)
+    if (gps_uart_configured_ && gps_uart_baud_rate_ == baud_rate)
     {
         return true;
+    }
+
+    if (gps_uart_configured_)
+    {
+        teardownGpsUart();
     }
 
     const auto& uart = gpsUart();
@@ -1686,6 +1763,7 @@ bool TDisplayP4Board::configureGpsUart(uint32_t baud_rate)
     }
 
     gps_uart_configured_ = true;
+    gps_uart_baud_rate_ = baud_rate;
     ESP_LOGI(kTag,
              "GNSS UART configured port=%d tx=%d rx=%d baud=%lu",
              uart.port,
@@ -1707,6 +1785,7 @@ void TDisplayP4Board::teardownGpsUart()
         (void)uart_driver_delete(static_cast<uart_port_t>(gpsUart().port));
     }
     gps_uart_configured_ = false;
+    gps_uart_baud_rate_ = 0;
 }
 
 bool TDisplayP4Board::readBatteryGaugeWord(uint8_t reg, uint16_t* out_word) const

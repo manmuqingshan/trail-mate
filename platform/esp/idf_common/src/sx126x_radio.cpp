@@ -413,6 +413,19 @@ bool Sx126xRadio::init_locked()
         return online_;
     }
 
+    const auto fail_initialization = [this](const char* error)
+    {
+        initialized_ = false;
+        online_ = false;
+        packet_type_ = 0xFF;
+        ESP_LOGE(kTag,
+                 "SX126x init failed stage=0x%02lX reason=%s",
+                 static_cast<unsigned long>(s_init_stage),
+                 error);
+        set_error_locked(error);
+        return false;
+    };
+
     const uint32_t previous_stage =
         s_init_stage_magic == kInitStageMagic ? s_init_stage : 0U;
     ESP_LOGI(kTag,
@@ -438,8 +451,7 @@ bool Sx126xRadio::init_locked()
                  spi_host_name(lora_pins().spi.host),
                  static_cast<int>(SPI2_HOST),
                  static_cast<int>(SPI3_HOST));
-        set_error_locked("invalid spi host");
-        return false;
+        return fail_initialization("invalid spi host");
     }
 
     const auto host = static_cast<spi_host_device_t>(lora_pins().spi.host);
@@ -460,15 +472,14 @@ bool Sx126xRadio::init_locked()
     s_init_stage = 0x11U;
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
     {
-        set_error_locked("spi_bus_initialize failed");
-        return false;
+        return fail_initialization("spi_bus_initialize failed");
     }
 
     if (!device_)
     {
         spi_device_interface_config_t dev_cfg{};
         dev_cfg.mode = 0;
-        dev_cfg.clock_speed_hz = 4000000;
+        dev_cfg.clock_speed_hz = 10000000;
         dev_cfg.spics_io_num = lora_pins().nss;
         dev_cfg.queue_size = 1;
         dev_cfg.flags = 0;
@@ -483,16 +494,14 @@ bool Sx126xRadio::init_locked()
         }
         if (err != ESP_OK)
         {
-            set_error_locked("spi_bus_add_device failed");
-            return false;
+            return fail_initialization("spi_bus_add_device failed");
         }
     }
 
     s_init_stage = 0x30U;
     if (!prepare_board_lora_runtime())
     {
-        set_error_locked("board LoRa runtime setup failed");
-        return false;
+        return fail_initialization("board LoRa runtime setup failed");
     }
     ESP_LOGI(kTag, "SX126x board LoRa runtime ready");
     s_init_stage = 0x31U;
@@ -529,34 +538,28 @@ bool Sx126xRadio::init_locked()
     s_init_stage = 0x40U;
     if (!set_board_lora_reset_asserted(true))
     {
-        set_error_locked("radio reset assert failed");
-        return false;
+        return fail_initialization("radio reset assert failed");
     }
     s_init_stage = 0x41U;
     vTaskDelay(pdMS_TO_TICKS(2));
     if (!set_board_lora_reset_asserted(false))
     {
-        set_error_locked("radio reset release failed");
-        return false;
+        return fail_initialization("radio reset release failed");
     }
     s_init_stage = 0x42U;
     vTaskDelay(pdMS_TO_TICKS(10));
 
-    initialized_ = true;
     s_init_stage = 0x50U;
-    online_ = probe_locked();
-    s_init_stage = 0x51U;
-    if (!online_)
+    if (!probe_locked())
     {
-        set_error_locked("SX126x probe failed");
-        return false;
+        return fail_initialization("SX126x probe failed");
     }
+    s_init_stage = 0x51U;
 
     const uint8_t standby = kStandbyRc;
     if (!write_command_locked(kCmdSetStandby, &standby, 1, true))
     {
-        set_error_locked("SX1262 standby configuration failed");
-        return false;
+        return fail_initialization("SX1262 standby configuration failed");
     }
 
 #if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
@@ -569,8 +572,7 @@ bool Sx126xRadio::init_locked()
     };
     if (!write_command_locked(kCmdSetDio3AsTcxoCtrl, tcxo, sizeof(tcxo), true))
     {
-        set_error_locked("SX1262 TCXO configuration failed");
-        return false;
+        return fail_initialization("SX1262 TCXO configuration failed");
     }
     ESP_LOGI(kTag,
              "SX1262 TCXO configured voltage_mv=1600 startup_us=%lu",
@@ -580,16 +582,14 @@ bool Sx126xRadio::init_locked()
     const uint8_t regulator = kRegulatorDcDc;
     if (!write_command_locked(kCmdSetRegulatorMode, &regulator, 1, true))
     {
-        set_error_locked("SX1262 regulator configuration failed");
-        return false;
+        return fail_initialization("SX1262 regulator configuration failed");
     }
     if (board_uses_internal_dio2_rf_switch())
     {
         const uint8_t dio2_rf_switch = 0x01;
         if (!write_command_locked(kCmdSetDio2AsRfSwitchCtrl, &dio2_rf_switch, 1, true))
         {
-            set_error_locked("SX1262 DIO2 RF switch configuration failed");
-            return false;
+            return fail_initialization("SX1262 DIO2 RF switch configuration failed");
         }
     }
 
@@ -598,25 +598,24 @@ bool Sx126xRadio::init_locked()
         !set_packet_type_locked(kPacketTypeLoRa) ||
         !set_buffer_base_locked(0x00, 0x00))
     {
-        set_error_locked("SX1262 base configuration failed");
-        return false;
+        return fail_initialization("SX1262 base configuration failed");
     }
 
     const uint8_t fallback = kFallbackStandbyRc;
     if (!write_command_locked(kCmdSetRxTxFallbackMode, &fallback, 1, true) ||
         !clear_irq_locked(kIrqAll))
     {
-        set_error_locked("SX1262 fallback configuration failed");
-        return false;
+        return fail_initialization("SX1262 fallback configuration failed");
     }
 
     const uint8_t ocp = sx1262_ocp_limit_raw();
     if (!write_register_locked(kRegOcpConfiguration, &ocp, 1))
     {
-        set_error_locked("SX1262 OCP configuration failed");
-        return false;
+        return fail_initialization("SX1262 OCP configuration failed");
     }
     ESP_LOGI(kTag, "SX1262 OCP current limit configured ma=140 raw=0x%02X", ocp);
+    online_ = true;
+    initialized_ = true;
     s_init_stage = 0xFFU;
     return true;
 #endif
