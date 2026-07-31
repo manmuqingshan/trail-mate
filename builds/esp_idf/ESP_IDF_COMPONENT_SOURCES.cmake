@@ -82,6 +82,7 @@ set(TRAILMATE_ESP_IDF_CORE_CHAT_SOURCES
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshtastic/mt_codec_pb.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshtastic/mt_dedup.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshtastic/mt_node_payload.cpp"
+    "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshtastic/mt_aes_ctr.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshtastic/mt_packet_wire.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshtastic/mt_pki_crypto.cpp"
     "${TRAILMATE_ROOT}/modules/core_chat/src/infra/meshtastic/mt_protocol_helpers.cpp"

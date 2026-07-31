@@ -1,3 +1,4 @@
+#include "chat/infra/meshtastic/mt_packet_wire.h"
 #include "chat/infra/meshtastic/mt_protocol_helpers.h"
 #include "chat/runtime/meshtastic_runtime.h"
 
@@ -5,6 +6,7 @@
 #include "pb_encode.h"
 
 #include <cassert>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -121,6 +123,193 @@ int main()
     context.protocol = MeshProtocol::Meshtastic;
     context.self_node = 0x11111111UL;
     context.now_ms = 0x20240614UL;
+
+    {
+        constexpr uint8_t psk[] = {
+            0x00,
+            0x01,
+            0x02,
+            0x03,
+            0x04,
+            0x05,
+            0x06,
+            0x07,
+            0x08,
+            0x09,
+            0x0A,
+            0x0B,
+            0x0C,
+            0x0D,
+            0x0E,
+            0x0F,
+        };
+        constexpr uint8_t payload[] = {
+            0x00,
+            0x11,
+            0x22,
+            0x33,
+            0x44,
+            0x55,
+            0x66,
+            0x77,
+            0x88,
+            0x99,
+            0xAA,
+            0xBB,
+            0xCC,
+            0xDD,
+            0xEE,
+            0xFF,
+            0x00,
+            0x11,
+            0x22,
+            0x33,
+            0x44,
+            0x55,
+            0x66,
+            0x77,
+            0x88,
+            0x99,
+            0xAA,
+            0xBB,
+            0xCC,
+            0xDD,
+            0xEE,
+            0xFF,
+        };
+        constexpr uint8_t expected_cipher[] = {
+            0x88,
+            0x64,
+            0x4D,
+            0x6D,
+            0x53,
+            0x54,
+            0xE1,
+            0x34,
+            0x01,
+            0x4D,
+            0x91,
+            0x1E,
+            0x6F,
+            0x6F,
+            0xF7,
+            0x03,
+            0x6C,
+            0xE7,
+            0xFE,
+            0x34,
+            0xA7,
+            0xF9,
+            0x0F,
+            0xA2,
+            0xF0,
+            0x55,
+            0x1A,
+            0xA0,
+            0xAA,
+            0xBF,
+            0x04,
+            0x8B,
+        };
+
+        uint8_t wire[sizeof(chat::meshtastic::PacketHeaderWire) + sizeof(payload)] = {};
+        size_t wire_size = sizeof(wire);
+        assert(chat::meshtastic::buildWirePacket(payload, sizeof(payload),
+                                                 0x07060504UL, 0x03020100UL,
+                                                 0xFFFFFFFFUL, 0x08, 3, false,
+                                                 psk, sizeof(psk), wire, &wire_size));
+        assert(wire_size == sizeof(wire));
+        assert(memcmp(wire + sizeof(chat::meshtastic::PacketHeaderWire),
+                      expected_cipher, sizeof(expected_cipher)) == 0);
+
+        chat::meshtastic::PacketHeaderWire header{};
+        memcpy(&header, wire, sizeof(header));
+        uint8_t plaintext[sizeof(payload)] = {};
+        size_t plaintext_size = sizeof(plaintext);
+        assert(chat::meshtastic::decryptPayload(header,
+                                                wire + sizeof(header), sizeof(payload),
+                                                psk, sizeof(psk), plaintext, &plaintext_size));
+        assert(plaintext_size == sizeof(plaintext));
+        assert(memcmp(plaintext, payload, sizeof(payload)) == 0);
+
+        constexpr uint8_t psk256[] = {
+            0x00,
+            0x01,
+            0x02,
+            0x03,
+            0x04,
+            0x05,
+            0x06,
+            0x07,
+            0x08,
+            0x09,
+            0x0A,
+            0x0B,
+            0x0C,
+            0x0D,
+            0x0E,
+            0x0F,
+            0x10,
+            0x11,
+            0x12,
+            0x13,
+            0x14,
+            0x15,
+            0x16,
+            0x17,
+            0x18,
+            0x19,
+            0x1A,
+            0x1B,
+            0x1C,
+            0x1D,
+            0x1E,
+            0x1F,
+        };
+        constexpr uint8_t expected_cipher256[] = {
+            0xBD,
+            0x10,
+            0x19,
+            0x41,
+            0x7D,
+            0x2E,
+            0x6F,
+            0x27,
+            0x81,
+            0x57,
+            0x63,
+            0xFC,
+            0x3E,
+            0x90,
+            0x03,
+            0xC7,
+            0x80,
+            0x6F,
+            0x2B,
+            0x61,
+            0x37,
+            0xF5,
+            0x44,
+            0x38,
+            0x8B,
+            0x22,
+            0xAC,
+            0x2A,
+            0xB9,
+            0xB6,
+            0xCF,
+            0x8C,
+        };
+
+        wire_size = sizeof(wire);
+        assert(chat::meshtastic::buildWirePacket(payload, sizeof(payload),
+                                                 0x07060504UL, 0x03020100UL,
+                                                 0xFFFFFFFFUL, 0x08, 3, false,
+                                                 psk256, sizeof(psk256), wire, &wire_size));
+        assert(wire_size == sizeof(wire));
+        assert(memcmp(wire + sizeof(chat::meshtastic::PacketHeaderWire),
+                      expected_cipher256, sizeof(expected_cipher256)) == 0);
+    }
 
     {
         SendTextIntent intent{};
