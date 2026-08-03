@@ -60,8 +60,6 @@ constexpr const char* kLocalePackRoot = "/trailmate/packs/locales";
 constexpr const char* kImePackRoot = "/trailmate/packs/ime";
 constexpr const char* kDisabledImeSentinel = "__none__";
 constexpr std::size_t kFontLoadOverlayThresholdBytes = 64U * 1024U;
-constexpr uint8_t kFontLoadOverlayPresentFrameCount = 3;
-constexpr uint32_t kFontLoadOverlayPresentFrameDelayMs = 16;
 constexpr unsigned kMaxMissingFontDiagnostics = 20;
 constexpr uint32_t kFontLoadFailureBackoffMs = 5U * 60U * 1000U;
 constexpr uint32_t kFontLoadTransientBackoffMs = 5U * 1000U;
@@ -196,13 +194,45 @@ unsigned s_ui_helper_route_diagnostics = 0;
 unsigned s_direct_route_diagnostics = 0;
 bool s_allow_sync_external_font_activation = false;
 bool s_force_font_load_overlay = false;
-bool s_defer_font_load_overlay_present = false;
 std::uint32_t s_font_load_overlay_generation = 0;
+std::uint32_t s_completed_lvgl_frame_count = 0;
+std::uint32_t s_content_supplement_load_not_before_frame = 0;
+
+struct PendingLocaleChange
+{
+    LocalePackRecord* locale = nullptr;
+    bool persist = true;
+    LocaleChangeCompletion completion = nullptr;
+    void* user_data = nullptr;
+    std::uint32_t overlay_generation = 0;
+    std::uint32_t not_before_frame = 0;
+};
+
+PendingLocaleChange s_pending_locale_change{};
+
+void cancel_pending_locale_change()
+{
+    if (s_pending_locale_change.locale == nullptr)
+    {
+        return;
+    }
+
+    const PendingLocaleChange request = s_pending_locale_change;
+    s_pending_locale_change = PendingLocaleChange{};
+    ::ui::widgets::foreground_operation::clear(
+        ::ui::widgets::foreground_operation::Slot::I18nFontLoad,
+        request.overlay_generation);
+    if (request.completion)
+    {
+        request.completion(false, request.user_data);
+    }
+}
 
 void reset_deferred_content_supplement_load()
 {
     s_pending_content_supplement_load = nullptr;
     s_content_supplement_load_async_pending = false;
+    s_content_supplement_load_not_before_frame = 0;
     if (s_content_supplement_retry_timer)
     {
         lv_timer_del(s_content_supplement_retry_timer);
@@ -222,9 +252,7 @@ std::uint32_t next_font_load_overlay_generation()
 
 ::ui::widgets::foreground_operation::Policy font_load_overlay_policy()
 {
-    return s_defer_font_load_overlay_present
-               ? ::ui::widgets::foreground_operation::Policy::Overlay
-               : ::ui::widgets::foreground_operation::Policy::OverlayImmediate;
+    return ::ui::widgets::foreground_operation::Policy::Overlay;
 }
 
 class ScopedFontLoadOverlay
@@ -250,9 +278,7 @@ class ScopedFontLoadOverlay
                                           : pack.display_name.c_str(),
                                       -1,
                                       nullptr,
-                                      generation_,
-                                      kFontLoadOverlayPresentFrameCount,
-                                      kFontLoadOverlayPresentFrameDelayMs));
+                                      generation_));
         std::printf("%s font load overlay show id=%s source=%s forced=%d bytes=%lu\n",
                     kLogTag,
                     pack.id.c_str(),
@@ -354,17 +380,14 @@ class ScopedForcedFontLoadOverlay
 {
   public:
     ScopedForcedFontLoadOverlay()
-        : previous_force_overlay_(s_force_font_load_overlay),
-          previous_defer_present_(s_defer_font_load_overlay_present)
+        : previous_force_overlay_(s_force_font_load_overlay)
     {
         s_force_font_load_overlay = true;
-        s_defer_font_load_overlay_present = true;
     }
 
     ~ScopedForcedFontLoadOverlay()
     {
         s_force_font_load_overlay = previous_force_overlay_;
-        s_defer_font_load_overlay_present = previous_defer_present_;
     }
 
     ScopedForcedFontLoadOverlay(const ScopedForcedFontLoadOverlay&) = delete;
@@ -372,28 +395,6 @@ class ScopedForcedFontLoadOverlay
 
   private:
     bool previous_force_overlay_ = false;
-    bool previous_defer_present_ = false;
-};
-
-class ScopedDeferredFontLoadOverlayPresent
-{
-  public:
-    ScopedDeferredFontLoadOverlayPresent()
-        : previous_defer_present_(s_defer_font_load_overlay_present)
-    {
-        s_defer_font_load_overlay_present = true;
-    }
-
-    ~ScopedDeferredFontLoadOverlayPresent()
-    {
-        s_defer_font_load_overlay_present = previous_defer_present_;
-    }
-
-    ScopedDeferredFontLoadOverlayPresent(const ScopedDeferredFontLoadOverlayPresent&) = delete;
-    ScopedDeferredFontLoadOverlayPresent& operator=(const ScopedDeferredFontLoadOverlayPresent&) = delete;
-
-  private:
-    bool previous_defer_present_ = false;
 };
 
 const char* safe_text(const char* value)
@@ -3112,6 +3113,9 @@ void rebuild_registry()
 {
     std::printf("%s registry rebuild begin ready=%d\n", kLogTag, s_registry_ready ? 1 : 0);
     s_missing_content_font_diagnostics = 0;
+    // LocalePackRecord pointers are rebuilt below. A queued request must not
+    // survive that ownership boundary.
+    cancel_pending_locale_change();
     clear_registry();
     add_builtin_font_packs();
     add_builtin_ime_packs();
@@ -3363,9 +3367,14 @@ void log_font_load_deferred(FontPackRecord& pack, const char* role, const char* 
                 static_cast<unsigned long>(retry_ms));
 }
 
-void deferred_content_supplement_load_cb(void* user_data);
+void deferred_content_supplement_load_cb();
 void deferred_content_supplement_retry_timer_cb(lv_timer_t* timer);
 void queue_deferred_content_supplement_load(FontPackRecord& pack, const char* reason);
+
+bool frame_reached(std::uint32_t current, std::uint32_t target)
+{
+    return static_cast<std::int32_t>(current - target) >= 0;
+}
 
 uint32_t remaining_font_load_retry_ms(const FontPackRecord& pack, uint32_t now_ms)
 {
@@ -3388,19 +3397,11 @@ bool schedule_deferred_content_supplement_async(FontPackRecord& pack, const char
     }
 
     s_pending_content_supplement_load = &pack;
-    if (lv_async_call(deferred_content_supplement_load_cb, nullptr) != LV_RESULT_OK)
-    {
-        s_pending_content_supplement_load = nullptr;
-        std::printf("%s font load deferred id=%s role=content_supplement reason=async_queue_failed active_locale=%s source=%s\n",
-                    kLogTag,
-                    pack.id.c_str(),
-                    s_active_locale ? s_active_locale->id.c_str() : "<none>",
-                    pack.source_path.empty() ? "<none>" : pack.source_path.c_str());
-        return false;
-    }
-
     s_content_supplement_load_async_pending = true;
-    std::printf("%s font load queued id=%s role=content_supplement reason=%s active_locale=%s source=%s\n",
+    // A request can originate while LVGL is traversing a render callback.
+    // Wait through one complete subsequent frame before external storage I/O.
+    s_content_supplement_load_not_before_frame = s_completed_lvgl_frame_count + 2U;
+    std::printf("%s font load queued id=%s role=content_supplement reason=%s schedule=post_frame active_locale=%s source=%s\n",
                 kLogTag,
                 pack.id.c_str(),
                 safe_text(reason),
@@ -3503,11 +3504,10 @@ void deferred_content_supplement_retry_timer_cb(lv_timer_t* timer)
     queue_deferred_content_supplement_load(*pack, "retry_backoff");
 }
 
-void deferred_content_supplement_load_cb(void* user_data)
+void deferred_content_supplement_load_cb()
 {
-    (void)user_data;
-
     s_content_supplement_load_async_pending = false;
+    s_content_supplement_load_not_before_frame = 0;
     FontPackRecord* pack = s_pending_content_supplement_load;
     s_pending_content_supplement_load = nullptr;
     if (pack == nullptr || is_font_runtime_loaded(*pack) || content_supplement_contains(pack))
@@ -3535,23 +3535,20 @@ void deferred_content_supplement_load_cb(void* user_data)
         return;
     }
 
+    if (!ensure_font_pack_loaded(pack))
     {
-        ScopedDeferredFontLoadOverlayPresent deferred_overlay_present;
-        if (!ensure_font_pack_loaded(pack))
-        {
-            const uint32_t failed_ms = sys::millis_now();
-            schedule_deferred_content_supplement_retry(*pack,
-                                                       remaining_font_load_retry_ms(*pack, failed_ms));
-            std::printf("%s font load incomplete id=%s role=content_supplement retry_kind=%s retry_ms=%lu active_locale=%s source=%s\n",
-                        kLogTag,
-                        pack->id.c_str(),
-                        font_load_retry_kind_name(*pack),
-                        static_cast<unsigned long>(
-                            remaining_font_load_retry_ms(*pack, failed_ms)),
-                        s_active_locale ? s_active_locale->id.c_str() : "<none>",
-                        pack->source_path.empty() ? "<none>" : pack->source_path.c_str());
-            return;
-        }
+        const uint32_t failed_ms = sys::millis_now();
+        schedule_deferred_content_supplement_retry(*pack,
+                                                   remaining_font_load_retry_ms(*pack, failed_ms));
+        std::printf("%s font load incomplete id=%s role=content_supplement retry_kind=%s retry_ms=%lu active_locale=%s source=%s\n",
+                    kLogTag,
+                    pack->id.c_str(),
+                    font_load_retry_kind_name(*pack),
+                    static_cast<unsigned long>(
+                        remaining_font_load_retry_ms(*pack, failed_ms)),
+                    s_active_locale ? s_active_locale->id.c_str() : "<none>",
+                    pack->source_path.empty() ? "<none>" : pack->source_path.c_str());
+        return;
     }
 
     append_unique_pack(s_content_supplement_packs, pack);
@@ -3563,6 +3560,80 @@ void deferred_content_supplement_load_cb(void* user_data)
                 s_active_locale ? s_active_locale->id.c_str() : "<none>",
                 s_content_font_chain.desc.empty() ? "<none>" : s_content_font_chain.desc.c_str(),
                 pack->source_path.empty() ? "<none>" : pack->source_path.c_str());
+}
+
+bool request_locale_by_index(std::size_t index,
+                             bool persist,
+                             LocaleChangeCompletion completion,
+                             void* user_data)
+{
+    ensure_registry();
+    const LocaleInfo* locale = locale_at(index);
+    LocalePackRecord* next_locale =
+        locale ? find_pack_by_id(s_locale_packs, locale->id) : nullptr;
+    if (next_locale == nullptr || next_locale == s_active_locale ||
+        s_pending_locale_change.locale != nullptr)
+    {
+        return false;
+    }
+
+    namespace foreground = ::ui::widgets::foreground_operation;
+    const std::uint32_t generation = next_font_load_overlay_generation();
+    foreground::publish(
+        foreground::make_snapshot(foreground::Slot::I18nFontLoad,
+                                  foreground::Policy::Overlay,
+                                  foreground::Priority::Blocking,
+                                  "Loading language pack...",
+                                  next_locale->display_name.empty()
+                                      ? next_locale->id.c_str()
+                                      : next_locale->display_name.c_str(),
+                                  -1,
+                                  nullptr,
+                                  generation));
+
+    s_pending_locale_change.locale = next_locale;
+    s_pending_locale_change.persist = persist;
+    s_pending_locale_change.completion = completion;
+    s_pending_locale_change.user_data = user_data;
+    s_pending_locale_change.overlay_generation = generation;
+    // The request is raised from an input callback in the current pass. One
+    // complete later pass must present the overlay before external font I/O.
+    s_pending_locale_change.not_before_frame = s_completed_lvgl_frame_count + 2U;
+    return true;
+}
+
+void on_lvgl_frame_completed()
+{
+    ++s_completed_lvgl_frame_count;
+    if (s_completed_lvgl_frame_count == 0)
+    {
+        ++s_completed_lvgl_frame_count;
+    }
+
+    if (s_pending_locale_change.locale != nullptr &&
+        frame_reached(s_completed_lvgl_frame_count,
+                      s_pending_locale_change.not_before_frame))
+    {
+        const PendingLocaleChange request = s_pending_locale_change;
+        s_pending_locale_change = PendingLocaleChange{};
+
+        const bool changed = set_locale(request.locale->id.c_str(), request.persist);
+        ::ui::widgets::foreground_operation::clear(
+            ::ui::widgets::foreground_operation::Slot::I18nFontLoad,
+            request.overlay_generation);
+        if (request.completion)
+        {
+            request.completion(changed, request.user_data);
+        }
+        return;
+    }
+
+    if (s_content_supplement_load_async_pending &&
+        frame_reached(s_completed_lvgl_frame_count,
+                      s_content_supplement_load_not_before_frame))
+    {
+        deferred_content_supplement_load_cb();
+    }
 }
 
 bool ensure_content_font_for_text(const char* text)
@@ -3675,7 +3746,10 @@ bool ensure_content_font_for_text(const char* text)
 
 bool prepare_content_font_for_text(const char* text, bool force_overlay)
 {
-    ScopedExternalFontActivation activation(force_overlay);
+    // This function is reached from label/render hot paths. External packs
+    // are queued for on_lvgl_frame_completed(); only built-in or small flash
+    // packs may be activated synchronously by ensure_content_font_for_text().
+    (void)force_overlay;
     return ensure_content_font_for_text(text);
 }
 

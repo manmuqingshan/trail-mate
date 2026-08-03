@@ -1,18 +1,10 @@
 #include "ui/widgets/progress_overlay_presenter.h"
 
 #include "lvgl.h"
-#include "sys/clock.h"
 #include "ui/widgets/busy_overlay.h"
 
 namespace ui::widgets
 {
-namespace
-{
-
-bool s_presenting = false;
-
-} // namespace
-
 ProgressOverlayPresenter::ProgressOverlayPresenter(bool present_on_change,
                                                    uint8_t present_frame_count,
                                                    uint32_t present_frame_delay_ms)
@@ -43,7 +35,7 @@ void ProgressOverlayPresenter::show_or_update(const char* title,
     ::ui::widgets::busy_overlay::set_progress(progress_percent);
     if (present_on_change_)
     {
-        present_now(present_frame_count_, present_frame_delay_ms_);
+        request_present();
     }
 }
 
@@ -57,7 +49,7 @@ void ProgressOverlayPresenter::hide()
     active_ = false;
     if (present_on_change_)
     {
-        present_now(present_frame_count_, present_frame_delay_ms_);
+        request_present();
     }
 }
 
@@ -66,28 +58,12 @@ bool ProgressOverlayPresenter::active() const
     return active_;
 }
 
-void ProgressOverlayPresenter::present_now(uint8_t frame_count, uint32_t frame_delay_ms)
+void ProgressOverlayPresenter::request_present()
 {
-    if (s_presenting)
+    if (lv_obj_t* top = lv_layer_top())
     {
-        return;
+        lv_obj_invalidate(top);
     }
-    s_presenting = true;
-    const uint8_t frames = frame_count == 0 ? 1 : frame_count;
-    for (uint8_t frame = 0; frame < frames; ++frame)
-    {
-        if (lv_obj_t* top = lv_layer_top())
-        {
-            lv_obj_invalidate(top);
-        }
-        lv_timer_handler();
-        lv_refr_now(nullptr);
-        if (frame + 1U < frames && frame_delay_ms > 0)
-        {
-            sys::sleep_ms(frame_delay_ms);
-        }
-    }
-    s_presenting = false;
 }
 
 } // namespace ui::widgets

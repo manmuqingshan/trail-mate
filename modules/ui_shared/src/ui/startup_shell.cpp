@@ -98,7 +98,7 @@ void present_boot_overlay_now()
 
 void present_screen_saver_now()
 {
-    ui::components::screen_saver_overlay::present_now();
+    ui::components::screen_saver_overlay::request_present();
 }
 
 void initScreenSaverOverlay()

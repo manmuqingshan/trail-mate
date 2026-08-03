@@ -33,7 +33,7 @@ std::size_t slot_index(Slot slot)
 
 bool overlay_policy(Policy policy)
 {
-    return policy == Policy::Overlay || policy == Policy::OverlayImmediate;
+    return policy == Policy::Overlay;
 }
 
 int priority_rank(Priority priority)
@@ -90,16 +90,6 @@ bool same_overlay_selection(const Snapshot& snapshot)
            s_overlay_policy == snapshot.policy;
 }
 
-void present_if_immediate(Policy policy,
-                          std::uint8_t frame_count,
-                          std::uint16_t frame_delay_ms)
-{
-    if (policy == Policy::OverlayImmediate)
-    {
-        ::ui::widgets::ProgressOverlayPresenter::present_now(frame_count, frame_delay_ms);
-    }
-}
-
 } // namespace
 
 Snapshot make_snapshot(Slot slot,
@@ -109,9 +99,7 @@ Snapshot make_snapshot(Slot slot,
                        const char* detail,
                        int progress_percent,
                        const char* result,
-                       std::uint32_t generation,
-                       std::uint8_t present_frame_count,
-                       std::uint16_t present_frame_delay_ms)
+                       std::uint32_t generation)
 {
     Snapshot snapshot{};
     snapshot.active = true;
@@ -119,8 +107,6 @@ Snapshot make_snapshot(Slot slot,
     snapshot.policy = policy;
     snapshot.priority = priority;
     snapshot.progress_percent = progress_percent;
-    snapshot.present_frame_count = present_frame_count == 0 ? 1 : present_frame_count;
-    snapshot.present_frame_delay_ms = present_frame_delay_ms;
     snapshot.generation = generation;
     snapshot.updated_ms = sys::millis_now();
     copy_text(snapshot.title, sizeof(snapshot.title), title);
@@ -174,13 +160,12 @@ void sync_overlay()
         {
             return;
         }
-        const Policy previous_policy = s_overlay_policy;
         s_presenter.hide();
         s_overlay_active = false;
         s_overlay_policy = Policy::Hidden;
         s_overlay_slot = Slot::Count;
         s_overlay_generation = 0;
-        present_if_immediate(previous_policy, 1, 0);
+        ::ui::widgets::ProgressOverlayPresenter::request_present();
         return;
     }
 
@@ -193,11 +178,9 @@ void sync_overlay()
     s_overlay_slot = selected->slot;
     s_overlay_generation = selected->generation;
 
-    if (!same_selection || selected->policy == Policy::OverlayImmediate)
+    if (!same_selection)
     {
-        present_if_immediate(selected->policy,
-                             selected->present_frame_count,
-                             selected->present_frame_delay_ms);
+        ::ui::widgets::ProgressOverlayPresenter::request_present();
     }
 }
 

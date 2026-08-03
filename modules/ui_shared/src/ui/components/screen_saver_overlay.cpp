@@ -145,27 +145,15 @@ bool is_visible()
     return s_root != nullptr && !lv_obj_has_flag(s_root, LV_OBJ_FLAG_HIDDEN);
 }
 
-void present_now(std::uint8_t frame_count, std::uint32_t frame_delay_ms)
+void request_present()
 {
-    if (frame_count == 0)
+    if (s_root != nullptr)
     {
-        frame_count = 1;
+        lv_obj_invalidate(s_root);
     }
-    for (std::uint8_t frame = 0; frame < frame_count; ++frame)
+    if (lv_obj_t* top = lv_layer_top())
     {
-        if (s_root != nullptr)
-        {
-            lv_obj_invalidate(s_root);
-        }
-        if (lv_obj_t* top = lv_layer_top())
-        {
-            lv_obj_invalidate(top);
-        }
-        lv_refr_now(nullptr);
-        if (frame + 1U < frame_count && frame_delay_ms != 0)
-        {
-            sys::sleep_ms(frame_delay_ms);
-        }
+        lv_obj_invalidate(top);
     }
 }
 

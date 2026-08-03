@@ -31,6 +31,8 @@ struct ImeInfo
     bool builtin = true;
 };
 
+using LocaleChangeCompletion = void (*)(bool changed, void* user_data);
+
 void reload_language();
 std::size_t locale_count();
 const LocaleInfo* locale_at(std::size_t index);
@@ -40,6 +42,16 @@ const char* current_locale_display_name();
 const char* current_locale_direction();
 bool set_locale(const char* locale_id, bool persist = true);
 bool set_locale_by_index(std::size_t index, bool persist = true);
+// Queues an external-font locale activation until a normal LVGL frame has
+// completed. The completion runs on the LVGL owner context after the handler
+// returns, never from the input callback that requested the change.
+bool request_locale_by_index(std::size_t index,
+                             bool persist = true,
+                             LocaleChangeCompletion completion = nullptr,
+                             void* user_data = nullptr);
+// Called by the platform's sole LVGL handler owner immediately after one
+// handler pass returns. It runs at most one deferred font operation.
+void on_lvgl_frame_completed();
 const lv_font_t* active_ui_font_fallback();
 const lv_font_t* active_content_font_fallback();
 const lv_font_t* locale_preview_font(const char* locale_id, const lv_font_t* ascii_font = nullptr);

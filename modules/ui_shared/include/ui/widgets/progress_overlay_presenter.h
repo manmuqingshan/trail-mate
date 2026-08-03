@@ -20,7 +20,9 @@ class ProgressOverlayPresenter
     void hide();
     bool active() const;
 
-    static void present_now(uint8_t frame_count = 1, uint32_t frame_delay_ms = 0);
+    // Requests a regular LVGL frame. It deliberately never drives LVGL from
+    // the caller: the platform display runtime is the sole handler owner.
+    static void request_present();
 
   private:
     bool present_on_change_ = false;

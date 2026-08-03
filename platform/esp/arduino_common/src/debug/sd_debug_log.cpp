@@ -36,16 +36,6 @@ SdDebugLogStatus s_status{};
 SdRuntimeFile s_log_file{};
 bool s_log_started = false;
 
-struct CoredumpSummarySnapshot
-{
-    bool available = false;
-    char exception_task[17] = {};
-    std::uint32_t exception_pc = 0;
-    std::uint32_t exception_tcb = 0;
-    std::uint32_t core_dump_version = 0;
-    char app_elf_sha256[65] = {};
-};
-
 void copy_path(char* out, std::size_t out_size, const char* value)
 {
     if (out == nullptr || out_size == 0)
@@ -197,37 +187,10 @@ void format_coredump_path(char* out, std::size_t out_size)
                   static_cast<unsigned long>(esp_random()));
 }
 
-void capture_coredump_summary(CoredumpSummarySnapshot& out)
-{
-    out = CoredumpSummarySnapshot{};
-#if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH && CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF
-    esp_core_dump_summary_t summary{};
-    if (esp_core_dump_get_summary(&summary) != ESP_OK)
-    {
-        return;
-    }
-
-    out.available = true;
-    std::snprintf(out.exception_task,
-                  sizeof(out.exception_task),
-                  "%s",
-                  summary.exc_task);
-    out.exception_pc = summary.exc_pc;
-    out.exception_tcb = summary.exc_tcb;
-    out.core_dump_version = summary.core_dump_version;
-    std::snprintf(out.app_elf_sha256,
-                  sizeof(out.app_elf_sha256),
-                  "%s",
-                  reinterpret_cast<const char*>(summary.app_elf_sha256));
-#endif
-}
-
 bool write_coredump_metadata(const char* coredump_path,
                              std::size_t coredump_size,
                              std::size_t flash_addr,
-                             esp_err_t check_result,
-                             esp_err_t erase_result,
-                             const CoredumpSummarySnapshot& summary)
+                             esp_err_t check_result)
 {
     char metadata_path[144] = {};
     std::snprintf(metadata_path, sizeof(metadata_path), "%s.txt", coredump_path);
@@ -242,21 +205,28 @@ bool write_coredump_metadata(const char* coredump_path,
     metadata.printf("size=%lu\n", static_cast<unsigned long>(coredump_size));
     metadata.printf("flash_addr=0x%08lX\n", static_cast<unsigned long>(flash_addr));
     metadata.printf("check_result=0x%08lX\n", static_cast<unsigned long>(check_result));
-    metadata.printf("erase_result=0x%08lX\n", static_cast<unsigned long>(erase_result));
     metadata.printf("reset_reason=%s\n", reset_reason_name(esp_reset_reason()));
+    metadata.printf("summary=deferred_to_offline_decoder\n");
+    metadata.printf("erase_state=pending\n");
 
-    if (summary.available)
+    const bool ok = metadata.flush();
+    metadata.close();
+    return ok;
+}
+
+bool append_coredump_erase_result(const char* coredump_path, esp_err_t erase_result)
+{
+    char metadata_path[144] = {};
+    std::snprintf(metadata_path, sizeof(metadata_path), "%s.txt", coredump_path);
+
+    SdRuntimeFile metadata;
+    if (!metadata.open(metadata_path, "a"))
     {
-        metadata.printf("exception_task=%s\n", summary.exception_task);
-        metadata.printf("exception_pc=0x%08lX\n",
-                        static_cast<unsigned long>(summary.exception_pc));
-        metadata.printf("exception_tcb=0x%08lX\n",
-                        static_cast<unsigned long>(summary.exception_tcb));
-        metadata.printf("core_dump_version=0x%08lX\n",
-                        static_cast<unsigned long>(summary.core_dump_version));
-        metadata.printf("app_elf_sha256=%s\n", summary.app_elf_sha256);
+        return false;
     }
 
+    metadata.printf("erase_result=0x%08lX\n", static_cast<unsigned long>(erase_result));
+    metadata.printf("erase_state=%s\n", erase_result == ESP_OK ? "complete" : "failed");
     const bool ok = metadata.flush();
     metadata.close();
     return ok;
@@ -490,13 +460,23 @@ bool export_previous_coredump_to_sd()
         return false;
     }
 
-    CoredumpSummarySnapshot summary{};
-    capture_coredump_summary(summary);
+    // The raw payload is now durable. Do not ask ESP-IDF to parse it here:
+    // a malformed task record made the ESP-IDF summary parser panic during
+    // the next boot in the v0.1.39 Pager dumps. Preserve the raw ELF and use
+    // the release ELF in an offline decoder instead.
+    if (!write_coredump_metadata(path, size, flash_addr, check_result))
+    {
+        note("[TrailMate][Coredump] metadata failed path=%s; keeping flash copy", path);
+        return false;
+    }
 
     const esp_err_t erase_result = esp_core_dump_image_erase();
     s_status.coredump_erased = erase_result == ESP_OK;
     s_status.coredump_exported = true;
-    write_coredump_metadata(path, size, flash_addr, check_result, erase_result, summary);
+    if (!append_coredump_erase_result(path, erase_result))
+    {
+        note("[TrailMate][Coredump] erase result sidecar update failed path=%s", path);
+    }
 
     note("[TrailMate][Coredump] exported path=%s size=%lu erased=%d",
          path,

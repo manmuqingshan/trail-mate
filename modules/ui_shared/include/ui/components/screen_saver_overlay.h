@@ -17,6 +17,8 @@ void refresh();
 void show();
 void hide();
 bool is_visible();
-void present_now(std::uint8_t frame_count = 2, std::uint32_t frame_delay_ms = 16);
+// Invalidates the saver for the normal display owner to present on its next
+// frame. It does not force a refresh from a screen-sleep timer callback.
+void request_present();
 
 } // namespace ui::components::screen_saver_overlay

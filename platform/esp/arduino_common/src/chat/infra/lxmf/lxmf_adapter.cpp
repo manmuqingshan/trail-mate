@@ -2883,30 +2883,10 @@ MeshActionResult LxmfAdapter::pingReticulumDestination(
         return MeshActionResult::fail(MeshOperationFailure::Unsupported);
     }
 
-    PeerInfo* peer = findOrLoadPeerByDestinationHash(destination.destination_hash);
-    if (!peer && !isZeroBytes(destination.identity_hash, sizeof(destination.identity_hash)))
-    {
-        if (const PeerInfo* by_identity =
-                destination_registry_.findByIdentityHash(destination.identity_hash))
-        {
-            peer = findOrLoadPeerByDestinationHash(by_identity->destination_hash);
-        }
-    }
-    if (!peer)
-    {
-        return queuePendingReticulumPing(destination.destination_hash);
-    }
-    if (isZeroBytes(peer->identity_hash, sizeof(peer->identity_hash)) ||
-        isZeroBytes(peer->sig_pub, sizeof(peer->sig_pub)) ||
-        (!peerHasUsableRatchet(*peer) && isZeroBytes(peer->enc_pub, sizeof(peer->enc_pub))))
-    {
-        Serial.printf("[LXMF][PingTX] wait reason=peer_key_missing dest=%s peer=%08lX\n",
-                      dest_hash,
-                      static_cast<unsigned long>(peer->node_id));
-        return queuePendingReticulumPing(destination.destination_hash);
-    }
-
-    return sendReticulumPingToPeer(*peer, millis());
+    // This method is reached from LVGL input callbacks. It validates and
+    // records intent only; path lookup, crypto, and radio TX are owned by
+    // pumpPendingPingRequests() in the post-frame application runtime.
+    return queuePendingReticulumPing(destination.destination_hash);
 }
 
 MeshActionResult LxmfAdapter::sendReticulumPingToPeer(
@@ -2991,10 +2971,8 @@ MeshActionResult LxmfAdapter::queuePendingReticulumPing(
         return MeshActionResult::fail(MeshOperationFailure::InvalidInput);
     }
 
-    const bool path_requested = sendPathRequestForDestination(destination_hash);
-    Serial.printf("[LXMF][PingTX] path_pending dest=%s queued=1 requested=%u depth=%u\n",
+    Serial.printf("[LXMF][PingTX] path_pending dest=%s queued=1 dispatch=post_frame depth=%u\n",
                   dest_hash,
-                  path_requested ? 1U : 0U,
                   static_cast<unsigned>(ping_service_.size()));
     MeshActionResult result = MeshActionResult::success();
     result.detail = 1;

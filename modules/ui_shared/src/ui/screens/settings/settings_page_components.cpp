@@ -218,7 +218,7 @@ class ScopedSettingsBusyOverlay
         namespace foreground = ::ui::widgets::foreground_operation;
         foreground::publish(
             foreground::make_snapshot(foreground::Slot::SettingsAction,
-                                      foreground::Policy::OverlayImmediate,
+                                      foreground::Policy::Overlay,
                                       foreground::Priority::Blocking,
                                       title,
                                       detail,
@@ -250,7 +250,7 @@ class ScopedSettingsBusyOverlay
         namespace foreground = ::ui::widgets::foreground_operation;
         foreground::publish(
             foreground::make_snapshot(foreground::Slot::SettingsAction,
-                                      foreground::Policy::OverlayImmediate,
+                                      foreground::Policy::Overlay,
                                       foreground::Priority::Blocking,
                                       title,
                                       detail,
@@ -835,7 +835,7 @@ static void sync_firmware_update_ui(bool notify_completion)
         const char* detail = status.detail[0] != '\0' ? status.detail : nullptr;
         foreground::publish(
             foreground::make_snapshot(foreground::Slot::FirmwareUpdate,
-                                      foreground::Policy::OverlayImmediate,
+                                      foreground::Policy::Overlay,
                                       foreground::Priority::Critical,
                                       firmware_overlay_title(status),
                                       detail,
@@ -3378,6 +3378,20 @@ static void open_manual_datetime_modal(settings::ui::ItemWidget& widget)
     }
 }
 
+void on_locale_change_completed(bool changed, void* /*user_data*/)
+{
+    g_settings.display_locale_index = ::ui::i18n::current_locale_index();
+    if (changed)
+    {
+        ::ui::menu_layout::refresh_localized_text();
+    }
+
+    // The locale change may replace every settings label. Rebuild after the
+    // post-frame font transaction completes rather than from the input event
+    // that requested it; this also restores the prior option on failure.
+    ui_request_rebuild_active_app();
+}
+
 static void on_option_clicked(lv_event_t* e)
 {
     OptionClick* payload = static_cast<OptionClick*>(lv_event_get_user_data(e));
@@ -3399,17 +3413,16 @@ static void on_option_clicked(lv_event_t* e)
     update_item_value(*payload->widget);
     if (id == settings::ui::SettingId::DisplayLocale)
     {
-        if (::ui::i18n::set_locale_by_index(static_cast<size_t>(payload->value), true))
-        {
-            refresh_menu_labels = true;
-            rebuild_active_app = true;
-        }
-        else
+        if (!::ui::i18n::request_locale_by_index(
+                static_cast<size_t>(payload->value),
+                true,
+                on_locale_change_completed,
+                nullptr))
         {
             *payload->item->enum_value = previous_value;
+            update_item_value(*payload->widget);
         }
-        g_settings.display_locale_index = ::ui::i18n::current_locale_index();
-        update_item_value(*payload->widget);
+        return;
     }
     if (id == settings::ui::SettingId::WifiNetwork)
     {

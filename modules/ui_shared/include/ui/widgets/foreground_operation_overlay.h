@@ -21,7 +21,6 @@ enum class Policy : std::uint8_t
     Hidden = 0,
     PageOnly,
     Overlay,
-    OverlayImmediate,
 };
 
 enum class Priority : std::uint8_t
@@ -39,8 +38,6 @@ struct Snapshot
     Policy policy = Policy::Hidden;
     Priority priority = Priority::Background;
     int progress_percent = -1;
-    std::uint8_t present_frame_count = 1;
-    std::uint16_t present_frame_delay_ms = 0;
     std::uint32_t generation = 0;
     std::uint32_t updated_ms = 0;
     char title[48] = {};
@@ -55,9 +52,7 @@ Snapshot make_snapshot(Slot slot,
                        const char* detail = nullptr,
                        int progress_percent = -1,
                        const char* result = nullptr,
-                       std::uint32_t generation = 0,
-                       std::uint8_t present_frame_count = 1,
-                       std::uint16_t present_frame_delay_ms = 0);
+                       std::uint32_t generation = 0);
 
 void publish(const Snapshot& snapshot);
 void clear(Slot slot, std::uint32_t generation = 0);

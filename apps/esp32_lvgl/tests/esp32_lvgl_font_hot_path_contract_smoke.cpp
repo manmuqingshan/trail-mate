@@ -52,21 +52,24 @@ int main(int argc, char** argv)
     const std::string registry = read_file(
         repo_root / "modules/ui_shared/src/ui/i18n/resource_pack_registry.cpp");
 
-    assert(contains(registry, "bool s_defer_font_load_overlay_present = false;"));
     assert(contains(registry, "constexpr bool kAllowSynchronousContentSupplementFontLoad = false;"));
     assert(contains(registry, "constexpr bool kAllowDeferredContentSupplementFontLoad = true;"));
     assert(contains(registry, "font_load_overlay_policy()"));
     assert(contains(registry, "Policy::Overlay"));
-    assert(contains(registry, "Policy::OverlayImmediate"));
+    assert(not_contains(registry, "Policy::OverlayImmediate"));
     assert(contains(registry, "font_load_overlay_policy(),"));
     assert(contains(registry, "FontPackRecord* s_pending_content_supplement_load = nullptr;"));
     assert(contains(registry, "lv_timer_t* s_content_supplement_retry_timer = nullptr;"));
-
-    const std::size_t forced_overlay = position_of(registry, "class ScopedForcedFontLoadOverlay");
-    const std::size_t defer_restore = position_of(registry, "previous_defer_present_");
-    const std::size_t defer_enable = position_of(registry, "s_defer_font_load_overlay_present = true;");
-    assert(forced_overlay < defer_restore);
-    assert(defer_restore < defer_enable);
+    assert(contains(registry, "s_content_supplement_load_not_before_frame"));
+    assert(contains(registry, "void on_lvgl_frame_completed()"));
+    assert(contains(registry, "bool request_locale_by_index"));
+    const std::size_t cancel_locale =
+        position_of(registry, "void cancel_pending_locale_change()");
+    const std::size_t rebuild_registry = position_of(registry, "void rebuild_registry()");
+    const std::size_t cancel_before_clear = position_of_after(
+        registry, "cancel_pending_locale_change();", rebuild_registry);
+    assert(cancel_locale < rebuild_registry);
+    assert(rebuild_registry < cancel_before_clear);
 
     const std::size_t hot_path_guard = position_of(registry, "bool can_activate_content_supplement_for_text");
     const std::size_t hot_path_check = position_of(registry, "can_load_font_from_content_hot_path(pack)");
@@ -78,7 +81,11 @@ int main(int argc, char** argv)
     assert(hot_path_guard < deferred_guard);
     assert(contains(registry, "can_load_font_from_activation_path(pack)"));
     assert(contains(registry, "bool prepare_content_font_for_text"));
-    assert(contains(registry, "ScopedExternalFontActivation activation(force_overlay);"));
+    const std::size_t prepare_content =
+        position_of(registry, "bool prepare_content_font_for_text");
+    const std::string prepare_content_body = registry.substr(prepare_content);
+    assert(not_contains(prepare_content_body,
+                        "ScopedExternalFontActivation activation(force_overlay);"));
 
     const std::size_t content_ensure = position_of(registry, "bool ensure_content_font_for_text");
     const std::size_t supplement_check = position_of(
@@ -105,17 +112,17 @@ int main(int argc, char** argv)
     assert(deferred_candidate_guard < deferred_queue);
     assert(deferred_candidate_guard < deferred_skip);
 
-    const std::size_t async_schedule =
+    const std::size_t post_frame_schedule =
         position_of(registry, "bool schedule_deferred_content_supplement_async");
-    const std::size_t async_call = position_of_after(
+    const std::size_t post_frame_target = position_of_after(
         registry,
-        "lv_async_call(deferred_content_supplement_load_cb, nullptr)",
-        async_schedule);
+        "s_content_supplement_load_not_before_frame = s_completed_lvgl_frame_count + 2U;",
+        post_frame_schedule);
     const std::size_t retry_timer = position_of(
         registry,
         "lv_timer_create(deferred_content_supplement_retry_timer_cb");
-    assert(async_schedule < async_call);
-    assert(async_schedule < retry_timer);
+    assert(post_frame_schedule < post_frame_target);
+    assert(post_frame_schedule < retry_timer);
 
     const std::size_t async_callback =
         position_of(registry, "void deferred_content_supplement_load_cb");
@@ -136,16 +143,51 @@ int main(int argc, char** argv)
     assert(append_call < rebuild_call);
     assert(rebuild_call < invalidate_call);
 
-    assert(not_contains(
-        registry,
-        "foreground::make_snapshot(foreground::Slot::I18nFontLoad,\n"
-        "                                      foreground::Policy::OverlayImmediate"));
-
     const std::string network_page = read_file(
         repo_root / "modules/ui_shared/src/ui/screens/network/network_page_shell.cpp");
     assert(contains(network_page, "prepare_content_font_for_text(g_state.page_body.data(), true)"));
     assert(contains(network_page, "::ui::fonts::apply_content_font(label,"));
     assert(contains(network_page, "::ui::fonts::apply_content_font(text,"));
+
+    const std::string display_runtime = read_file(
+        repo_root / "platform/esp/arduino_common/src/display_runtime.cpp");
+    const std::size_t root_handler = position_of(display_runtime, "lv_timer_handler();");
+    const std::size_t post_frame = position_of_after(
+        display_runtime,
+        "::ui::i18n::on_lvgl_frame_completed();",
+        root_handler);
+    assert(root_handler < post_frame);
+
+    const std::string presenter = read_file(
+        repo_root / "modules/ui_shared/src/ui/widgets/progress_overlay_presenter.cpp");
+    assert(contains(presenter, "ProgressOverlayPresenter::request_present"));
+    assert(not_contains(presenter, "lv_timer_handler("));
+    assert(not_contains(presenter, "lv_refr_now("));
+
+    const std::string foreground_header = read_file(
+        repo_root / "modules/ui_shared/include/ui/widgets/foreground_operation_overlay.h");
+    assert(not_contains(foreground_header, "OverlayImmediate"));
+
+    const std::string screen_saver = read_file(
+        repo_root / "modules/ui_shared/src/ui/components/screen_saver_overlay.cpp");
+    assert(contains(screen_saver, "void request_present()"));
+    assert(not_contains(screen_saver, "lv_refr_now("));
+
+    const std::string settings = read_file(
+        repo_root / "modules/ui_shared/src/ui/screens/settings/settings_page_components.cpp");
+    assert(contains(settings, "request_locale_by_index("));
+    assert(contains(settings, "on_locale_change_completed"));
+
+    const std::string lxmf = read_file(
+        repo_root / "platform/esp/arduino_common/src/chat/infra/lxmf/lxmf_adapter.cpp");
+    const std::size_t ping_entry = position_of(
+        lxmf, "MeshActionResult LxmfAdapter::pingReticulumDestination(");
+    const std::size_t ping_dispatch = position_of_after(
+        lxmf, "return queuePendingReticulumPing(destination.destination_hash);", ping_entry);
+    const std::size_t ping_sender = position_of_after(
+        lxmf, "MeshActionResult LxmfAdapter::sendReticulumPingToPeer(", ping_entry);
+    assert(ping_entry < ping_dispatch);
+    assert(ping_dispatch < ping_sender);
 
     return 0;
 }

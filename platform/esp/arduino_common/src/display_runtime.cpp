@@ -4,6 +4,7 @@
 
 #include "lvgl.h"
 #include "platform/esp/boards/board_runtime.h"
+#include "ui/localization.h"
 
 #ifndef MAIN_TIMING_DEBUG
 #define MAIN_TIMING_DEBUG 0
@@ -43,6 +44,10 @@ void tickIfDue(uint32_t now_ms)
         t_before = millis();
 #endif
         lv_timer_handler();
+        // The handler owns all LVGL timers and object callbacks. External
+        // font work is deliberately run only after it returns, after the
+        // overlay that requested the work had a normal chance to present.
+        ::ui::i18n::on_lvgl_frame_completed();
     }
 
 #if MAIN_TIMING_DEBUG

@@ -53,7 +53,7 @@ void publish_result(const char* title, const char* detail, int progress_percent)
 {
     foreground::publish(
         foreground::make_snapshot(foreground::Slot::ReticulumPing,
-                                  foreground::Policy::OverlayImmediate,
+                                  foreground::Policy::Overlay,
                                   foreground::Priority::Blocking,
                                   title,
                                   detail,
@@ -194,7 +194,7 @@ void show_loading(
     std::snprintf(s_loading_detail.data(), s_loading_detail.size(), "%s", detail);
     s_wait_started_ms = sys::millis_now();
     s_wait_progress = kInitialProgress;
-    publish_loading(s_wait_progress, foreground::Policy::OverlayImmediate);
+    publish_loading(s_wait_progress, foreground::Policy::Overlay);
     schedule_wait_progress();
 }
 

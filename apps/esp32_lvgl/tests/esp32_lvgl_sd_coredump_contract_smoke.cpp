@@ -87,6 +87,9 @@ int main(int argc, char** argv)
     assert(contains(implementation, "esp_partition_read"));
     assert(contains(implementation, "esp_core_dump_image_erase"));
     assert(contains(implementation, "keeping flash copy"));
+    assert(!contains(implementation, "esp_core_dump_get_summary"));
+    assert(contains(implementation, "summary=deferred_to_offline_decoder"));
+    assert(contains(implementation, "append_coredump_erase_result"));
 
     const std::string platformio = read_file(repo_root / "platformio.ini");
     assert(contains(platformio, "board_build.partitions = partitions.csv"));
@@ -102,7 +105,11 @@ int main(int argc, char** argv)
     const std::size_t erase = position_of(
         implementation,
         "esp_core_dump_image_erase()");
-    assert(write_payload < erase);
+    const std::size_t write_metadata = position_of(
+        implementation,
+        "write_coredump_metadata(path, size, flash_addr, check_result)");
+    assert(write_payload < write_metadata);
+    assert(write_metadata < erase);
 
     const std::string idf_startup = read_file(
         repo_root / "apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp");
