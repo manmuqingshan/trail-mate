@@ -68,8 +68,6 @@ bool resolve_display_time(struct tm* out_tm)
     return true;
 }
 
-bool s_boot_presentation_completed = false;
-
 void present_boot_overlay_now()
 {
 #if TRAIL_MATE_BOOT_UI_SYNC_PRESENT
@@ -86,13 +84,11 @@ void present_boot_overlay_now()
             sys::sleep_ms(kBootPresentFrameDelayMs);
         }
     }
-    s_boot_presentation_completed = true;
 #else
     if (lv_obj_t* top = lv_layer_top())
     {
         lv_obj_invalidate(top);
     }
-    s_boot_presentation_completed = false;
 #endif
 }
 
@@ -246,16 +242,9 @@ void initializeShell(const Hooks& hooks)
 
 void finalizeStartup(bool waking_from_sleep)
 {
-    if (!waking_from_sleep && !s_boot_presentation_completed)
-    {
-        std::printf("[BOOT][UI] first_frame_retry reason=no_display_transaction\n");
-        std::fflush(stdout);
-        present_boot_overlay_now();
-    }
     std::printf("[BOOT][UI] ready waking=%d\n", waking_from_sleep ? 1 : 0);
     std::fflush(stdout);
-    std::printf("[BOOT][UI] presentation_completed=%d\n",
-                s_boot_presentation_completed ? 1 : 0);
+    std::printf("[BOOT][UI] presentation_sync_attempted=1 storage_gate=transaction_completion\n");
     std::fflush(stdout);
     if (waking_from_sleep)
     {

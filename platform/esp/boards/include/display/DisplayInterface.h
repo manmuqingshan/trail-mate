@@ -64,6 +64,17 @@ typedef struct RotaryMsg
     bool centerBtnPressed;
 } RotaryMsg_t;
 
+// A display flush must distinguish a transaction that did not start from a
+// transaction that actually completed. LVGL owns the pixel buffer until the
+// integration observes Completed for that exact buffer.
+enum class DisplayTransferResult : uint8_t
+{
+    Completed,
+    Busy,
+    Unavailable,
+    Failed,
+};
+
 class LilyGo_Display
 {
   public:
@@ -75,14 +86,18 @@ class LilyGo_Display
     virtual void setRotation(uint8_t rotation) = 0;
     virtual uint8_t getRotation() = 0;
     virtual void pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color) = 0;
+    virtual DisplayTransferResult transferPixels(uint16_t x1,
+                                                 uint16_t y1,
+                                                 uint16_t x2,
+                                                 uint16_t y2,
+                                                 uint16_t* color) = 0;
     virtual bool pushColorsResult(uint16_t x1,
                                   uint16_t y1,
                                   uint16_t x2,
                                   uint16_t y2,
                                   uint16_t* color)
     {
-        pushColors(x1, y1, x2, y2, color);
-        return true;
+        return transferPixels(x1, y1, x2, y2, color) == DisplayTransferResult::Completed;
     }
     virtual uint16_t width() = 0;
     virtual uint16_t height() = 0;
@@ -163,6 +178,12 @@ class LilyGoDispArduinoSPI
     uint8_t getRotation();
     void pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color);
     void pushColors(uint16_t* data, uint32_t len);
+    DisplayTransferResult transferPixels(uint16_t x1,
+                                         uint16_t y1,
+                                         uint16_t x2,
+                                         uint16_t y2,
+                                         uint16_t* color);
+    DisplayTransferResult transferPixels(uint16_t* data, uint32_t len);
     bool pushColorsResult(uint16_t x1,
                           uint16_t y1,
                           uint16_t x2,

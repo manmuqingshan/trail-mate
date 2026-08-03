@@ -408,6 +408,27 @@ sys::runtime::StorageHealthState SharedSpiCoordinator::health() const
     return result;
 }
 
+void SharedSpiCoordinator::runtimeSnapshot(RuntimeSnapshot& out, uint32_t now_ms) const
+{
+    portENTER_CRITICAL(&mux_);
+    out.owner_active = owner_task_ != nullptr;
+    out.owner_policy = owner_policy_;
+    out.health_status = health_.status;
+    out.health_last_error = health_.last_error;
+    out.owner_held_ms = owner_acquired_ms_ == 0U
+                            ? 0U
+                            : static_cast<uint32_t>(now_ms - owner_acquired_ms_);
+    out.display_frame_requests = display_frame_requests_;
+    out.display_frame_completions = display_frame_completions_;
+    out.display_frame_busy_retries = display_frame_busy_retries_;
+    out.display_frame_failures = display_frame_failures_;
+    out.display_frame_deferrals = display_frame_deferrals_;
+    out.maximum_display_frame_wait_ms = maximum_display_frame_wait_ms_;
+    out.release_mismatches = release_mismatches_;
+    out.maximum_hold_ms = maximum_hold_ms_;
+    portEXIT_CRITICAL(&mux_);
+}
+
 uint32_t SharedSpiCoordinator::displayFrameRequests() const
 {
     portENTER_CRITICAL(&mux_);
@@ -440,6 +461,22 @@ uint32_t SharedSpiCoordinator::displayFrameFailures() const
     return value;
 }
 
+uint32_t SharedSpiCoordinator::displayFrameDeferrals() const
+{
+    portENTER_CRITICAL(&mux_);
+    const uint32_t value = display_frame_deferrals_;
+    portEXIT_CRITICAL(&mux_);
+    return value;
+}
+
+uint32_t SharedSpiCoordinator::maximumDisplayFrameWaitMs() const
+{
+    portENTER_CRITICAL(&mux_);
+    const uint32_t value = maximum_display_frame_wait_ms_;
+    portEXIT_CRITICAL(&mux_);
+    return value;
+}
+
 uint32_t SharedSpiCoordinator::releaseMismatches() const
 {
     portENTER_CRITICAL(&mux_);
@@ -456,30 +493,12 @@ uint32_t SharedSpiCoordinator::maximumHoldMs() const
     return value;
 }
 
-const char* SharedSpiCoordinator::ownerLabel() const
-{
-    return owner_label_;
-}
-
-const char* SharedSpiCoordinator::ownerTaskName() const
-{
-    return owner_task_name_;
-}
-
-uint32_t SharedSpiCoordinator::ownerHeldMs(uint32_t now_ms) const
-{
-    portENTER_CRITICAL(&mux_);
-    const uint32_t value = owner_acquired_ms_ == 0U
-                               ? 0U
-                               : static_cast<uint32_t>(now_ms - owner_acquired_ms_);
-    portEXIT_CRITICAL(&mux_);
-    return value;
-}
-
-void SharedSpiCoordinator::noteDisplayFrameCompleted()
+void SharedSpiCoordinator::noteDisplayFrameCompleted(uint32_t frame_wait_ms)
 {
     portENTER_CRITICAL(&mux_);
     ++display_frame_completions_;
+    maximum_display_frame_wait_ms_ =
+        std::max(maximum_display_frame_wait_ms_, frame_wait_ms);
     portEXIT_CRITICAL(&mux_);
 }
 
@@ -494,6 +513,13 @@ void SharedSpiCoordinator::noteDisplayFrameFailed()
 {
     portENTER_CRITICAL(&mux_);
     ++display_frame_failures_;
+    portEXIT_CRITICAL(&mux_);
+}
+
+void SharedSpiCoordinator::noteDisplayFrameDeferred()
+{
+    portENTER_CRITICAL(&mux_);
+    ++display_frame_deferrals_;
     portEXIT_CRITICAL(&mux_);
 }
 

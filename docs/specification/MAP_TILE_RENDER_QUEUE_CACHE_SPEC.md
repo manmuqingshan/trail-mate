@@ -16,7 +16,7 @@ must run through the command/worker/event design described in
 `UI_STORAGE_EVENT_RUNTIME_DESIGN_SPEC.md`.
 
 The shared-SPI arbitration itself is specified only in
-`docs/spi_bus_architecture.md`; this render specification does not expose or
+`docs/specs/SPI_BUS_ARCHITECTURE_SPEC.md`; this render specification does not expose or
 restate its lock details.
 
 ## Objects

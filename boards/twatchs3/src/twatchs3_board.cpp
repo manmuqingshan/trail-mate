@@ -97,12 +97,21 @@ uint32_t TWatchS3Board::begin(uint32_t disable_hw_init)
     rtc_ready_ = (time(nullptr) > 0);
 
 #if defined(DISP_SCK) && defined(DISP_MISO) && defined(DISP_MOSI) && defined(DISP_CS) && defined(DISP_DC)
-    LilyGoDispArduinoSPI::init(DISP_SCK, DISP_MISO, DISP_MOSI, DISP_CS, DISP_RST, DISP_DC, DISP_BL, 40, SPI);
-    LilyGoDispArduinoSPI::setRotation(2);
-    rotation_ = LilyGoDispArduinoSPI::getRotation();
-    display_ready_ = true;
-    setBrightness(brightness_);
-    Serial.printf("[TWatchS3Board] display init OK: %ux%u\n", LilyGoDispArduinoSPI::_width, LilyGoDispArduinoSPI::_height);
+    display_ready_ = LilyGoDispArduinoSPI::init(
+        DISP_SCK, DISP_MISO, DISP_MOSI, DISP_CS, DISP_RST, DISP_DC, DISP_BL, 40, SPI);
+    if (display_ready_)
+    {
+        LilyGoDispArduinoSPI::setRotation(2);
+        rotation_ = LilyGoDispArduinoSPI::getRotation();
+        setBrightness(brightness_);
+        Serial.printf("[TWatchS3Board] display init OK: %ux%u\n",
+                      LilyGoDispArduinoSPI::_width,
+                      LilyGoDispArduinoSPI::_height);
+    }
+    else
+    {
+        Serial.println("[TWatchS3Board] display init failed");
+    }
 #else
     Serial.println("[TWatchS3Board] display init skipped: missing DISP_* pins");
 #endif
@@ -274,6 +283,15 @@ uint8_t TWatchS3Board::getRotation()
 void TWatchS3Board::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color)
 {
     LilyGoDispArduinoSPI::pushColors(x1, y1, x2, y2, color);
+}
+
+DisplayTransferResult TWatchS3Board::transferPixels(uint16_t x1,
+                                                    uint16_t y1,
+                                                    uint16_t x2,
+                                                    uint16_t y2,
+                                                    uint16_t* color)
+{
+    return LilyGoDispArduinoSPI::transferPixels(x1, y1, x2, y2, color);
 }
 
 bool TWatchS3Board::pushColorsResult(uint16_t x1,

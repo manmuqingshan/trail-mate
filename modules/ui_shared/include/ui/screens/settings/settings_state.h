@@ -144,6 +144,7 @@ enum class SettingId : std::uint16_t
     ManualTimeSet,
     GaugeDesignMah,
     GaugeFullMah,
+    SpiDiagnostics,
     WifiEnabled,
     WifiStatus,
     WifiScan,

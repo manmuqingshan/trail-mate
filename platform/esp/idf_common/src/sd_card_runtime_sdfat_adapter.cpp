@@ -524,6 +524,12 @@ bool mount_sd_card(int, SPIClass&, uint32_t, const char*, uint8_t)
     return false;
 }
 
+bool mount_sd_card(int, const SdSpiBusConfig&, uint32_t, const char*, uint8_t)
+{
+    ESP_LOGW(kTag, "SPI SdFat mount is unavailable in ESP-IDF build; use native SDMMC mount");
+    return false;
+}
+
 void unmount_sd_card()
 {
     SdRuntimeBusGuard guard("sd_unmount");

@@ -1,6 +1,7 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 
 #include "platform/esp/arduino_common/storage/sd_spi_bus_hooks.h"
+#include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/common/shared_spi_coordinator.h"
 #include "sys/bus_access_scope.h"
 #include "sys/clock.h"
@@ -68,6 +69,19 @@ uint32_t s_suppressed_sd_io_logs = 0;
 StaticSemaphore_t s_filesystem_mutex_storage{};
 SemaphoreHandle_t s_filesystem_mutex = nullptr;
 FsFile* s_transient_file = nullptr;
+
+// Persistent scalar description of the last mounted shared SPI wiring. SdFat
+// may call SPIClass::end() internally, so cleanup must restore the same board
+// mapping that was used for the mount rather than assuming Arduino defaults.
+struct ActiveSdSpiBus
+{
+    SPIClass* spi = nullptr;
+    int sck = -1;
+    int miso = -1;
+    int mosi = -1;
+};
+
+ActiveSdSpiBus s_active_spi_bus{};
 
 struct SdSpiOperationProfile
 {
@@ -399,20 +413,44 @@ oflag_t sdfat_open_flags(const char* mode)
     return O_RDONLY;
 }
 
-void clear_sdfat()
+// SdFat::end() ultimately calls SPIClass::end(). Unlike regular filesystem
+// operations, that cleanup does not pass through SdFat's activate/deactivate
+// hook, so the adapter must explicitly fence this physical bus transition.
+// Returning false preserves the mounted state when the recovery fence cannot
+// be acquired; clearing bookkeeping after an unfenced SPIClass::end() would
+// turn a recoverable Busy condition into a silent bus-ownership violation.
+bool clear_sdfat()
 {
-    if (s_sdfat_mounted)
+    if (!s_sdfat_mounted)
     {
-        if (s_transient_file != nullptr && *s_transient_file)
-        {
-            (void)s_transient_file->close();
-        }
-        s_sdfat.end();
-        // SdFat's Arduino driver ends the shared SPIClass. Restore the board
-        // pin mapping immediately so display/radio users keep a valid bus.
-        SPI.begin(SCK, MISO, MOSI);
-        s_sdfat_mounted = false;
+        return true;
     }
+
+    sys::runtime::BusAccessToken bus_token{};
+    if (!sd_spi_bus_acquire(bus_token))
+    {
+        Serial.println("[SD] SdFat cleanup deferred: shared SPI unavailable");
+        return false;
+    }
+
+    if (s_transient_file != nullptr && *s_transient_file)
+    {
+        (void)s_transient_file->close();
+    }
+    s_sdfat.end();
+    // SdFat's Arduino driver ends the shared SPIClass. Restore the exact
+    // board mapping recorded for this mount so display/radio users keep a
+    // valid bus even when it differs from Arduino's global defaults.
+    if (s_active_spi_bus.spi != nullptr && s_active_spi_bus.sck >= 0 &&
+        s_active_spi_bus.miso >= 0 && s_active_spi_bus.mosi >= 0)
+    {
+        s_active_spi_bus.spi->begin(s_active_spi_bus.sck,
+                                    s_active_spi_bus.miso,
+                                    s_active_spi_bus.mosi);
+    }
+    s_sdfat_mounted = false;
+    sd_spi_bus_release(bus_token);
+    return true;
 }
 
 void reset_info()
@@ -511,7 +549,7 @@ bool sd_preflight_go_idle(int sd_cs, SPIClass& spi)
     return ok;
 }
 
-void record_sdfat_info()
+void record_sdfat_info(uint32_t initialized_spi_hz)
 {
     const uint32_t info_start_ms = millis();
     Serial.println("[SD][mount] info begin");
@@ -519,6 +557,7 @@ void record_sdfat_info()
     s_info.backend = SdCardBackend::SdFat;
     s_info.card_type = card_type_from_sdfat(s_sdfat);
     s_info.fat_type = s_sdfat.fatType();
+    s_info.initialized_spi_hz = initialized_spi_hz;
     s_info.sector_size = kSdSectorSize;
     SdCard* card = s_sdfat.card();
     if (card != nullptr)
@@ -601,8 +640,23 @@ bool mount_sd_card(int sd_cs,
                    const char* mount_point,
                    uint8_t max_files)
 {
+    return mount_sd_card(
+        sd_cs, SdSpiBusConfig{spi, SCK, MISO, MOSI}, spi_hz, mount_point, max_files);
+}
+
+bool mount_sd_card(int sd_cs,
+                   const SdSpiBusConfig& spi_bus,
+                   uint32_t spi_hz,
+                   const char* mount_point,
+                   uint8_t max_files)
+{
     (void)mount_point;
     (void)max_files;
+    if (!::platform::esp::boards::storageStartupGateSatisfied())
+    {
+        Serial.println("[SD] mount deferred: first shared-SPI display transaction incomplete");
+        return false;
+    }
     SdRuntimeOperationGuard operation(
         "sd_mount",
         sys::runtime::BusAccessPolicy::RecoveryExclusive,
@@ -614,8 +668,22 @@ bool mount_sd_card(int sd_cs,
     }
 
     s_external_block_owner_active = false;
-    clear_sdfat();
+    if (!clear_sdfat())
+    {
+        Serial.println("[SD] mount deferred: previous shared SPI session still owns cleanup");
+        return false;
+    }
     reset_info();
+
+    if (spi_bus.sck < 0 || spi_bus.miso < 0 || spi_bus.mosi < 0)
+    {
+        Serial.println("[SD] mount skipped: incomplete shared SPI pin mapping");
+        return false;
+    }
+    s_active_spi_bus.spi = &spi_bus.spi;
+    s_active_spi_bus.sck = spi_bus.sck;
+    s_active_spi_bus.miso = spi_bus.miso;
+    s_active_spi_bus.mosi = spi_bus.mosi;
 
     const uint32_t effective_hz = sanitize_sd_spi_hz(spi_hz);
     if (effective_hz != spi_hz)
@@ -625,7 +693,7 @@ bool mount_sd_card(int sd_cs,
                       static_cast<unsigned long>(effective_hz));
     }
 
-    const bool preflight_ok = sd_preflight_go_idle(sd_cs, spi);
+    const bool preflight_ok = sd_preflight_go_idle(sd_cs, spi_bus.spi);
     if (!preflight_ok)
     {
         Serial.println("[SD] SdFat preflight failed; continuing to SdFat.begin for detailed error");
@@ -640,7 +708,7 @@ bool mount_sd_card(int sd_cs,
                   static_cast<unsigned long>(effective_hz));
 
     const bool sdfat_ok = s_sdfat.begin(
-        SdSpiConfig(sd_cs, kSdFatSpiOptions, effective_hz, &spi));
+        SdSpiConfig(sd_cs, kSdFatSpiOptions, effective_hz, &spi_bus.spi));
     Serial.printf("[SD] SdFat.begin hz=%lu -> %d fat=%u elapsed_ms=%lu err=0x%02X data=0x%02X\n",
                   static_cast<unsigned long>(effective_hz),
                   sdfat_ok ? 1 : 0,
@@ -648,18 +716,26 @@ bool mount_sd_card(int sd_cs,
                   static_cast<unsigned long>(millis() - begin_start),
                   static_cast<unsigned>(s_sdfat.sdErrorCode()),
                   static_cast<unsigned>(s_sdfat.sdErrorData()));
+    // A successful begin can still yield an unusable filesystem type. Mark it
+    // before the validation branch so clear_sdfat() restores the configured
+    // SPI mapping on every partially initialized exit.
+    s_sdfat_mounted = sdfat_ok;
     if (!sdfat_ok || s_sdfat.fatType() == 0)
     {
         s_sdfat.printSdError(&Serial);
-        clear_sdfat();
+        if (!clear_sdfat())
+        {
+            Serial.println("[SD] failed mount cleanup deferred: shared SPI unavailable");
+            return false;
+        }
         reset_info();
         return false;
     }
 
-    s_sdfat_mounted = true;
-    record_sdfat_info();
-    Serial.printf("[SD] backend=sdfat fs=%s card=%llu MB total=%llu MB sectors=%lu sector_size=%lu\n",
+    record_sdfat_info(effective_hz);
+    Serial.printf("[SD] backend=sdfat fs=%s init_hz=%lu card=%llu MB total=%llu MB sectors=%lu sector_size=%lu\n",
                   sd_card_filesystem_name(),
+                  static_cast<unsigned long>(s_info.initialized_spi_hz),
                   static_cast<unsigned long long>(s_info.card_size_bytes / (1024ULL * 1024ULL)),
                   static_cast<unsigned long long>(s_info.total_bytes / (1024ULL * 1024ULL)),
                   static_cast<unsigned long>(s_info.sector_count),
@@ -679,7 +755,11 @@ void unmount_sd_card()
         Serial.println("[SD] unmount skipped: filesystem session unavailable");
         return;
     }
-    clear_sdfat();
+    if (!clear_sdfat())
+    {
+        Serial.println("[SD] unmount deferred: shared SPI cleanup unavailable");
+        return;
+    }
     reset_info();
 }
 
@@ -707,6 +787,18 @@ SdCardBackend sd_card_backend()
 SdCardInfo sd_card_info()
 {
     return s_info;
+}
+
+void record_sd_card_mount_success(uint32_t configured_spi_hz,
+                                  uint8_t initialization_attempts)
+{
+    if (!sd_card_ready())
+    {
+        return;
+    }
+    s_info.configured_spi_hz = configured_spi_hz;
+    s_info.initialization_attempts =
+        initialization_attempts == 0U ? 1U : initialization_attempts;
 }
 
 const char* sd_card_backend_name()

@@ -3,7 +3,6 @@
 #include "sys/bus_access_scope.h"
 #include "sys/clock.h"
 #include <Arduino.h>
-#include <vector>
 
 #define DISP_CMD_MADCTL (0x36)
 #define DISP_CMD_CASET (0x2A)
@@ -21,6 +20,7 @@ constexpr uint32_t kDisplayLockTimeoutLogIntervalMs = 1000;
 constexpr uint32_t kDisplayBusResource = platform::esp::common::SharedSpiCoordinator::kSharedBusResource;
 constexpr uint32_t kDisplayCommandId = 0x44495350U; // "DISP"
 constexpr const char* kDisplayOwner = "display";
+constexpr uint8_t kBlackRgb565Pattern[] = {0x00U, 0x00U};
 
 uint32_t s_last_display_lock_timeout_log_ms = 0;
 uint32_t s_suppressed_display_lock_timeout_logs = 0;
@@ -45,6 +45,8 @@ void log_display_lock_timeout(const char* op,
 {
     auto& coordinator = platform::esp::common::shared_spi_coordinator();
     const uint32_t now_ms = millis();
+    platform::esp::common::SharedSpiCoordinator::RuntimeSnapshot snapshot{};
+    coordinator.runtimeSnapshot(snapshot, now_ms);
     ++s_suppressed_display_lock_timeout_logs;
     if (s_last_display_lock_timeout_log_ms != 0 &&
         now_ms - s_last_display_lock_timeout_log_ms < kDisplayLockTimeoutLogIntervalMs)
@@ -53,16 +55,16 @@ void log_display_lock_timeout(const char* op,
     }
 
     Serial.printf("[SPI][DISPLAY] acquire_timeout op=%s status=%u wait_ms=%lu "
-                  "owner=%s task=%s held_ms=%lu max_hold_ms=%lu "
+                  "owner_active=%d owner_policy=%u held_ms=%lu max_hold_ms=%lu "
                   "release_mismatches=%lu suppressed=%lu\n",
                   op ? op : "",
                   static_cast<unsigned>(result.status),
                   static_cast<unsigned long>(result.diagnostics.wait_ms),
-                  coordinator.ownerLabel(),
-                  coordinator.ownerTaskName(),
-                  static_cast<unsigned long>(coordinator.ownerHeldMs(now_ms)),
-                  static_cast<unsigned long>(coordinator.maximumHoldMs()),
-                  static_cast<unsigned long>(coordinator.releaseMismatches()),
+                  snapshot.owner_active ? 1 : 0,
+                  static_cast<unsigned>(snapshot.owner_policy),
+                  static_cast<unsigned long>(snapshot.owner_held_ms),
+                  static_cast<unsigned long>(snapshot.maximum_hold_ms),
+                  static_cast<unsigned long>(snapshot.release_mismatches),
                   static_cast<unsigned long>(s_suppressed_display_lock_timeout_logs - 1));
     s_suppressed_display_lock_timeout_logs = 0;
     s_last_display_lock_timeout_log_ms = now_ms;
@@ -126,7 +128,20 @@ bool LilyGoDispArduinoSPI::init(int sck,
         digitalWrite(_backlight, LOW);
     }
 
+    // Pin remapping is a physical shared-controller transition just like a
+    // transfer. It must not race a board service that retained the bus while
+    // display hardware is being reinitialized.
+    sys::runtime::ScopedBusAccessToken begin_bus(
+        platform::esp::common::shared_spi_coordinator(),
+        make_display_request(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+                             kDisplayControlWaitMs));
+    if (!begin_bus.acquired())
+    {
+        log_display_lock_timeout("spi_begin", begin_bus.result());
+        return false;
+    }
     _spi->begin(sck, miso, mosi);
+    begin_bus.release();
     Serial.printf("[DISPLAY][INIT] pins_ready cs=%d level=%d dc=%d level=%d spi_started=1\n",
                   _cs,
                   digitalRead(_cs),
@@ -169,8 +184,31 @@ bool LilyGoDispArduinoSPI::init(int sck,
                   static_cast<unsigned long>(
                       platform::esp::common::shared_spi_coordinator().displayFrameFailures()));
 
-    std::vector<uint16_t> draw_buf(_width * _height, 0x0000);
-    const bool clear_sent = pushColorsResult(0, 0, _width, _height, draw_buf.data());
+    // Do not allocate a full-frame temporary buffer merely to clear the panel.
+    // The ESP32 SPI driver repeats this two-byte RGB565-black pattern directly
+    // on the wire while the same coordinator transaction protects the bus.
+    sys::runtime::ScopedBusAccessToken clear_bus(
+        platform::esp::common::shared_spi_coordinator(),
+        make_display_request(sys::runtime::BusAccessPolicy::DisplayFrameCritical,
+                             kDisplayFrameWaitMs));
+    const bool clear_sent = clear_bus.acquired();
+    if (clear_sent)
+    {
+        setAddrWindowLocked(0, 0, _width - 1U, _height - 1U);
+        digitalWrite(_cs, LOW);
+        _spi->beginTransaction(SPISettings(_spi_freq, MSBFIRST, SPI_MODE0));
+        digitalWrite(_dc, HIGH);
+        _spi->writePattern(kBlackRgb565Pattern,
+                           sizeof(kBlackRgb565Pattern),
+                           static_cast<uint32_t>(_width) * static_cast<uint32_t>(_height));
+        _spi->endTransaction();
+        digitalWrite(_cs, HIGH);
+        clear_bus.release();
+    }
+    else
+    {
+        log_display_lock_timeout("initial_clear", clear_bus.result());
+    }
     Serial.printf("[DISPLAY][INIT] clear_frame sent=%d pixels=%lu completions=%lu\n",
                   clear_sent ? 1 : 0,
                   static_cast<unsigned long>(_width * _height),
@@ -228,6 +266,20 @@ void LilyGoDispArduinoSPI::pushColors(uint16_t* data, uint32_t len)
 
 bool LilyGoDispArduinoSPI::pushColorsResult(uint16_t* data, uint32_t len)
 {
+    return transferPixels(data, len) == DisplayTransferResult::Completed;
+}
+
+DisplayTransferResult LilyGoDispArduinoSPI::transferPixels(uint16_t* data, uint32_t len)
+{
+    if (_spi == nullptr)
+    {
+        return DisplayTransferResult::Unavailable;
+    }
+    if (data == nullptr && len != 0U)
+    {
+        return DisplayTransferResult::Failed;
+    }
+
     const uint32_t sequence = ++s_display_frame_log_count;
     sys::runtime::ScopedBusAccessToken bus(
         platform::esp::common::shared_spi_coordinator(),
@@ -240,7 +292,9 @@ bool LilyGoDispArduinoSPI::pushColorsResult(uint16_t* data, uint32_t len)
                       static_cast<unsigned long>(sequence),
                       static_cast<unsigned>(bus.status()),
                       static_cast<unsigned long>(len));
-        return false;
+        return bus.status() == sys::runtime::BusAcquireStatus::Unavailable
+                   ? DisplayTransferResult::Unavailable
+                   : DisplayTransferResult::Busy;
     }
     if (sequence <= 8U)
     {
@@ -259,7 +313,7 @@ bool LilyGoDispArduinoSPI::pushColorsResult(uint16_t* data, uint32_t len)
                       digitalRead(_cs),
                       digitalRead(_dc));
     }
-    return true;
+    return DisplayTransferResult::Completed;
 }
 
 void LilyGoDispArduinoSPI::pushColorsLocked(uint16_t* data, uint32_t len)
@@ -293,6 +347,24 @@ bool LilyGoDispArduinoSPI::pushColorsResult(uint16_t x1,
                                             uint16_t y2,
                                             uint16_t* color)
 {
+    return transferPixels(x1, y1, x2, y2, color) == DisplayTransferResult::Completed;
+}
+
+DisplayTransferResult LilyGoDispArduinoSPI::transferPixels(uint16_t x1,
+                                                           uint16_t y1,
+                                                           uint16_t x2,
+                                                           uint16_t y2,
+                                                           uint16_t* color)
+{
+    if (_spi == nullptr)
+    {
+        return DisplayTransferResult::Unavailable;
+    }
+    if (color == nullptr || x2 == 0U || y2 == 0U)
+    {
+        return DisplayTransferResult::Failed;
+    }
+
     const uint32_t sequence = ++s_display_frame_log_count;
     const uint32_t pixels = static_cast<uint32_t>(x2) * static_cast<uint32_t>(y2);
     sys::runtime::ScopedBusAccessToken bus(
@@ -309,7 +381,9 @@ bool LilyGoDispArduinoSPI::pushColorsResult(uint16_t x1,
                       static_cast<unsigned>(y1),
                       static_cast<unsigned>(x2),
                       static_cast<unsigned>(y2));
-        return false;
+        return bus.status() == sys::runtime::BusAcquireStatus::Unavailable
+                   ? DisplayTransferResult::Unavailable
+                   : DisplayTransferResult::Busy;
     }
     if (sequence <= 8U)
     {
@@ -333,7 +407,7 @@ bool LilyGoDispArduinoSPI::pushColorsResult(uint16_t x1,
                       digitalRead(_cs),
                       digitalRead(_dc));
     }
-    return true;
+    return DisplayTransferResult::Completed;
 }
 
 void LilyGoDispArduinoSPI::sleep()

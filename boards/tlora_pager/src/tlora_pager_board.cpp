@@ -20,6 +20,7 @@
 #include "pins_arduino.h"
 #include "platform/esp/arduino_common/power/battery_adc.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/common/shared_spi_coordinator.h"
 #include "platform/ui/audio/call_notification_tone.h"
 #include "platform/ui/audio/pager_notification_tone.h"
@@ -363,12 +364,23 @@ TLoRaPagerBoard* TLoRaPagerBoard::getInstance()
 
 void TLoRaPagerBoard::initShareSPIPins()
 {
-    const uint8_t share_spi_bus_devices_cs_pins[] = {
+    const uint8_t shared_spi_chip_select_pins[] = {
         LORA_CS,
         SD_CS,
+        DISP_CS,
+    };
+    for (auto pin : shared_spi_chip_select_pins)
+    {
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, HIGH);
+    }
+
+    // Reset is a control line, not a shared-SPI chip-select. Keep this list
+    // separate so SD recovery can reason about actual bus participants.
+    const uint8_t shared_spi_reset_pins[] = {
         LORA_RST,
     };
-    for (auto pin : share_spi_bus_devices_cs_pins)
+    for (auto pin : shared_spi_reset_pins)
     {
         pinMode(pin, OUTPUT);
         digitalWrite(pin, HIGH);
@@ -1015,8 +1027,21 @@ bool TLoRaPagerBoard::initLoRa()
 
 bool TLoRaPagerBoard::installSD()
 {
-    static const int extra_cs_pins[] = {
+    if (!::platform::esp::boards::storageStartupGateSatisfied())
+    {
+        log_d("SD mount deferred: first shared-SPI display transaction incomplete");
+        return false;
+    }
+
+    // The power-cycle runs before installSpiSd() acquires RecoveryExclusive.
+    // It must not drive a live display CS. The recovery peer set below is used
+    // only by installSpiSd(), after that coordinator token has been acquired.
+    static const int power_cycle_peer_cs_pins[] = {
         LORA_CS,
+    };
+    static const int recovery_peer_cs_pins[] = {
+        LORA_CS,
+        DISP_CS,
     };
 
     // Check SD card detection pin (if available)
@@ -1038,24 +1063,28 @@ bool TLoRaPagerBoard::installSD()
 #ifdef EXPANDS_SD_EN
     if (devices_probe & HW_EXPAND_ONLINE)
     {
-        sdutil::releaseSdBusDevices(SD_CS, extra_cs_pins,
-                                    sizeof(extra_cs_pins) / sizeof(extra_cs_pins[0]));
+        sdutil::releaseSdBusDevices(
+            SD_CS,
+            power_cycle_peer_cs_pins,
+            sizeof(power_cycle_peer_cs_pins) / sizeof(power_cycle_peer_cs_pins[0]));
         Serial.println("[SD] power cycle begin");
         powerControl(POWER_SD_CARD, false);
         delay(120);
         powerControl(POWER_SD_CARD, true);
         delay(250);
-        sdutil::releaseSdBusDevices(SD_CS, extra_cs_pins,
-                                    sizeof(extra_cs_pins) / sizeof(extra_cs_pins[0]));
+        sdutil::releaseSdBusDevices(
+            SD_CS,
+            power_cycle_peer_cs_pins,
+            sizeof(power_cycle_peer_cs_pins) / sizeof(power_cycle_peer_cs_pins[0]));
         Serial.println("[SD] power cycle end");
     }
 #endif
 
     uint8_t card_type = sdutil::kCardNone;
     uint32_t card_size_mb = 0;
-    bool ok = sdutil::installSpiSd(*this, SD_CS, SD_SPI_FREQUENCY, "/sd",
-                                   extra_cs_pins,
-                                   sizeof(extra_cs_pins) / sizeof(extra_cs_pins[0]),
+    bool ok = sdutil::installSpiSd(SD_CS, SD_SPI_FREQUENCY, "/sd",
+                                   recovery_peer_cs_pins,
+                                   sizeof(recovery_peer_cs_pins) / sizeof(recovery_peer_cs_pins[0]),
                                    &card_type, &card_size_mb);
     if (!ok)
     {
@@ -1743,6 +1772,15 @@ uint16_t TLoRaPagerBoard::height()
 void TLoRaPagerBoard::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color)
 {
     LilyGoDispArduinoSPI::pushColors(x1, y1, x2, y2, color);
+}
+
+DisplayTransferResult TLoRaPagerBoard::transferPixels(uint16_t x1,
+                                                      uint16_t y1,
+                                                      uint16_t x2,
+                                                      uint16_t y2,
+                                                      uint16_t* color)
+{
+    return LilyGoDispArduinoSPI::transferPixels(x1, y1, x2, y2, color);
 }
 
 bool TLoRaPagerBoard::pushColorsResult(uint16_t x1,
@@ -3018,7 +3056,27 @@ void TLoRaPagerBoard::shutdownImpl(bool save_data, ShutdownMode mode)
 
     // 11) End communication buses before ESP deep sleep
     Serial1.end();
-    SPI.end();
+    sys::runtime::BusAcquireRequest spi_end_request{};
+    spi_end_request.resource = kSharedSpiBusResource;
+    spi_end_request.policy = sys::runtime::BusAccessPolicy::RecoveryExclusive;
+    spi_end_request.command_id = kSharedSpiBusOwnerId + 2U;
+    spi_end_request.origin = kSharedSpiBusOwnerId;
+    spi_end_request.deadline_ms = sys::millis_now() + 500U;
+    spi_end_request.owner_label = "pager_shutdown_spi_end";
+    sys::runtime::ScopedBusAccessToken spi_end_token(
+        ::platform::esp::common::shared_spi_coordinator(),
+        spi_end_request);
+    if (spi_end_token.acquired())
+    {
+        SPI.end();
+    }
+    else
+    {
+        // Deep sleep resets the controller anyway. Never force teardown over
+        // another valid owner merely to satisfy an optional shutdown cleanup.
+        log_w("Skipping shared SPI end before deep sleep: coordinator unavailable");
+    }
+    spi_end_token.release();
     Wire.end();
 
     // 12) Set key GPIOs to OPEN_DRAIN (exact LilyGo pin list)

@@ -79,6 +79,11 @@ class TDeckProBoard : public BoardBase,
     void setRotation(uint8_t rotation) override;
     uint8_t getRotation() override { return rotation_; }
     void pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color) override;
+    DisplayTransferResult transferPixels(uint16_t x1,
+                                         uint16_t y1,
+                                         uint16_t x2,
+                                         uint16_t y2,
+                                         uint16_t* color) override;
     uint16_t width() override;
     uint16_t height() override;
     bool hasTouch() override { return touch_ready_; }
@@ -125,7 +130,7 @@ class TDeckProBoard : public BoardBase,
     bool initStorage();
     bool installSD() override;
     void uninstallSD() override;
-    void renderEpd();
+    DisplayTransferResult renderEpd();
     void setBit(int16_t x, int16_t y, bool black);
     bool keyEventToChar(uint8_t event, char* c, bool* pressed);
 

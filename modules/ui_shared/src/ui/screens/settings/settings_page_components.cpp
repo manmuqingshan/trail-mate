@@ -29,6 +29,7 @@
 #include "platform/ui/screen_runtime.h"
 #include "platform/ui/settings_backup_runtime.h"
 #include "platform/ui/settings_store.h"
+#include "platform/ui/spi_diagnostics_runtime.h"
 #include "platform/ui/team_ui_store_runtime.h"
 #include "platform/ui/time_runtime.h"
 #include "platform/ui/timezone_profile.h"
@@ -82,6 +83,9 @@ namespace gps_runtime = ::platform::ui::gps;
 namespace screen_runtime = ::platform::ui::screen;
 namespace settings_backup_runtime = ::platform::ui::settings_backup;
 namespace settings_store = ::platform::ui::settings_store;
+#if defined(ARDUINO_ARCH_ESP32)
+namespace spi_diagnostics_runtime = ::platform::ui::spi_diagnostics;
+#endif
 namespace tracker_runtime = ::platform::ui::tracker;
 namespace wireless_companion_runtime = ::platform::ui::wireless_companion;
 namespace wifi_runtime = ::platform::ui::wifi;
@@ -196,6 +200,9 @@ static firmware_update_runtime::Phase s_last_firmware_phase = firmware_update_ru
 static bool s_last_firmware_busy = false;
 static std::uint32_t s_settings_busy_generation = 0;
 static lv_obj_t* s_gps_diagnostics_label = nullptr;
+static lv_obj_t* s_spi_diagnostics_label = nullptr;
+static char s_spi_diagnostics_text[384]{};
+static char s_spi_diagnostics_init_rate[24]{};
 
 static std::uint32_t next_settings_busy_generation()
 {
@@ -345,6 +352,7 @@ static settings::ui::SettingId item_id(const settings::ui::SettingItem& item);
 static void open_factory_reset_modal();
 static void open_settings_restore_modal();
 static void open_gps_diagnostics_modal();
+static void open_spi_diagnostics_modal();
 static void open_enabled_imes_modal(settings::ui::ItemWidget& widget);
 static void open_manual_datetime_modal(settings::ui::ItemWidget& widget);
 static bool option_labels_are_translated(const settings::ui::SettingItem& item);
@@ -2011,6 +2019,7 @@ static void modal_close()
     g_state.editing_item = nullptr;
     g_state.editing_widget = nullptr;
     s_gps_diagnostics_label = nullptr;
+    s_spi_diagnostics_label = nullptr;
     for (auto& roller : s_manual_time_rollers)
     {
         roller = nullptr;
@@ -4445,6 +4454,233 @@ static void open_gps_diagnostics_modal()
     lv_group_focus_obj(refresh_btn);
 }
 
+static const char* spi_diagnostics_card_type_label(uint8_t card_type)
+{
+    switch (card_type)
+    {
+    case 2:
+        return "SD";
+    case 3:
+        return "SDHC";
+    case 4:
+        return "Unknown";
+    default:
+        return "None";
+    }
+}
+
+static const char* spi_diagnostics_filesystem_label(uint8_t filesystem_type)
+{
+    switch (filesystem_type)
+    {
+    case 1:
+        return "FAT12";
+    case 2:
+        return "FAT16";
+    case 3:
+        return "FAT32";
+    case 4:
+        return "exFAT";
+    default:
+        return "None";
+    }
+}
+
+static const char* spi_diagnostics_health_label(uint8_t health_status)
+{
+    switch (health_status)
+    {
+    case 0:
+        return "Healthy";
+    case 1:
+        return "Slow";
+    case 2:
+        return "Degraded";
+    case 3:
+        return "Unavailable";
+    case 4:
+        return "Recovering";
+    default:
+        return "Unknown";
+    }
+}
+
+static const char* spi_diagnostics_policy_label(uint8_t policy)
+{
+    switch (policy)
+    {
+    case 0:
+        return "UI";
+    case 1:
+        return "Display";
+    case 2:
+        return "Interactive";
+    case 3:
+        return "Background";
+    case 4:
+        return "Durable";
+    case 5:
+        return "Recovery";
+    default:
+        return "None";
+    }
+}
+
+static void format_spi_diagnostics_init_rate(char* out, size_t out_len, uint32_t rate_hz)
+{
+    if (!out || out_len == 0U)
+    {
+        return;
+    }
+
+    if (rate_hz == 0U)
+    {
+        std::snprintf(out, out_len, "none");
+        return;
+    }
+
+    std::snprintf(out,
+                  out_len,
+                  "%lu.%02lu MHz",
+                  static_cast<unsigned long>(rate_hz / 1000000U),
+                  static_cast<unsigned long>((rate_hz % 1000000U) / 10000U));
+}
+
+static void format_spi_diagnostics_text(char* out, size_t out_len)
+{
+    if (!out || out_len == 0U)
+    {
+        return;
+    }
+
+#if defined(ARDUINO_ARCH_ESP32)
+    // Static storage holds this compact scalar snapshot. No LVGL pixel buffer,
+    // SD sector buffer, heap allocation, or large task-stack object is needed.
+    static spi_diagnostics_runtime::Snapshot snapshot{};
+    spi_diagnostics_runtime::read(snapshot);
+    const uint32_t configured_mhz = snapshot.sd_configured_hz / 1000000U;
+    const uint32_t configured_mhz_fraction =
+        (snapshot.sd_configured_hz % 1000000U) / 10000U;
+    format_spi_diagnostics_init_rate(s_spi_diagnostics_init_rate,
+                                     sizeof(s_spi_diagnostics_init_rate),
+                                     snapshot.sd_initialized_hz);
+    std::snprintf(out,
+                  out_len,
+                  "SD: %s  Successful init: %s\n"
+                  "Configured: %lu.%02lu MHz  Attempt: %u\n"
+                  "Card: %s  FS: %s  Size: %lu MiB\n"
+                  "SPI: %s (%s)  Health: %s (%ld)\n"
+                  "Display: %lu req / %lu complete\n"
+                  "Deferred: %lu  Busy: %lu  Fail: %lu\n"
+                  "Wait max: %lu ms  Hold: %lu/%lu ms\n"
+                  "Release mismatches: %lu",
+                  snapshot.sd_ready ? "ready" : "not mounted",
+                  s_spi_diagnostics_init_rate,
+                  static_cast<unsigned long>(configured_mhz),
+                  static_cast<unsigned long>(configured_mhz_fraction),
+                  static_cast<unsigned>(snapshot.sd_initialization_attempts),
+                  spi_diagnostics_card_type_label(snapshot.sd_card_type),
+                  spi_diagnostics_filesystem_label(snapshot.sd_filesystem_type),
+                  static_cast<unsigned long>(snapshot.sd_capacity_mib),
+                  snapshot.bus_active ? "active" : "idle",
+                  spi_diagnostics_policy_label(snapshot.bus_policy),
+                  spi_diagnostics_health_label(snapshot.health_status),
+                  static_cast<long>(snapshot.health_last_error),
+                  static_cast<unsigned long>(snapshot.display_requests),
+                  static_cast<unsigned long>(snapshot.display_completions),
+                  static_cast<unsigned long>(snapshot.display_deferrals),
+                  static_cast<unsigned long>(snapshot.display_busy_retries),
+                  static_cast<unsigned long>(snapshot.display_failures),
+                  static_cast<unsigned long>(snapshot.maximum_display_wait_ms),
+                  static_cast<unsigned long>(snapshot.bus_held_ms),
+                  static_cast<unsigned long>(snapshot.maximum_hold_ms),
+                  static_cast<unsigned long>(snapshot.release_mismatches));
+#else
+    std::snprintf(out, out_len, "SPI diagnostics are unavailable on this target.");
+#endif
+}
+
+static void refresh_spi_diagnostics_label()
+{
+    if (!s_spi_diagnostics_label || !lv_obj_is_valid(s_spi_diagnostics_label))
+    {
+        return;
+    }
+    format_spi_diagnostics_text(s_spi_diagnostics_text, sizeof(s_spi_diagnostics_text));
+    ::ui::i18n::set_label_text_raw(s_spi_diagnostics_label, s_spi_diagnostics_text);
+}
+
+static void on_spi_diagnostics_refresh_clicked(lv_event_t* e)
+{
+    (void)e;
+    refresh_spi_diagnostics_label();
+}
+
+static void on_spi_diagnostics_close_clicked(lv_event_t* e)
+{
+    (void)e;
+    modal_close();
+}
+
+static void open_spi_diagnostics_modal()
+{
+    if (g_state.modal_root)
+    {
+        return;
+    }
+
+    modal_prepare_group();
+    g_state.modal_root = create_modal_root(300, 240);
+    lv_obj_t* win = lv_obj_get_child(g_state.modal_root, 0);
+
+    lv_obj_t* title = lv_label_create(win);
+    ::ui::i18n::set_label_text(title, "SPI & SD Diagnostics");
+    style::apply_label_primary(title);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
+
+    s_spi_diagnostics_label = lv_label_create(win);
+    lv_obj_set_width(s_spi_diagnostics_label, LV_PCT(100));
+    lv_label_set_long_mode(s_spi_diagnostics_label, LV_LABEL_LONG_WRAP);
+    style::apply_label_muted(s_spi_diagnostics_label);
+    lv_obj_align(s_spi_diagnostics_label, LV_ALIGN_TOP_LEFT, 0, 28);
+    refresh_spi_diagnostics_label();
+
+    lv_obj_t* btn_row = lv_obj_create(win);
+    lv_obj_set_size(btn_row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_align(btn_row, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_flex_flow(btn_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(btn_row,
+                          LV_FLEX_ALIGN_SPACE_EVENLY,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(btn_row, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(btn_row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(btn_row, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* refresh_btn = lv_btn_create(btn_row);
+    lv_obj_set_size(refresh_btn,
+                    ::ui::page_profile::resolve_control_button_min_width(),
+                    ::ui::page_profile::resolve_control_button_height());
+    lv_obj_t* refresh_label = lv_label_create(refresh_btn);
+    ::ui::i18n::set_label_text(refresh_label, "Refresh");
+    lv_obj_center(refresh_label);
+    lv_obj_add_event_cb(refresh_btn, on_spi_diagnostics_refresh_clicked, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t* close_btn = lv_btn_create(btn_row);
+    lv_obj_set_size(close_btn,
+                    ::ui::page_profile::resolve_control_button_min_width(),
+                    ::ui::page_profile::resolve_control_button_height());
+    lv_obj_t* close_label = lv_label_create(close_btn);
+    ::ui::i18n::set_label_text(close_label, "Close");
+    lv_obj_center(close_label);
+    lv_obj_add_event_cb(close_btn, on_spi_diagnostics_close_clicked, LV_EVENT_CLICKED, nullptr);
+
+    modal_add_focus_obj(refresh_btn);
+    modal_add_focus_obj(close_btn);
+    lv_group_focus_obj(refresh_btn);
+}
+
 static void on_enabled_imes_back_clicked(lv_event_t* e)
 {
     (void)e;
@@ -5108,6 +5344,8 @@ static settings::ui::SettingItem kDeviceItems[] = {
      g_settings.gauge_design_mah, sizeof(g_settings.gauge_design_mah), false, "gauge_design_mah"},
     {"Gauge Full (mAh)", settings::ui::SettingType::Text, nullptr, 0, nullptr, nullptr,
      g_settings.gauge_full_mah, sizeof(g_settings.gauge_full_mah), false, "gauge_full_mah"},
+    {"SPI & SD Diagnostics", settings::ui::SettingType::Action, nullptr, 0, nullptr, nullptr,
+     nullptr, 0, false, "spi_diagnostics"},
 };
 
 static settings::ui::SettingItem kWifiItems[] = {
@@ -5930,6 +6168,9 @@ static bool activate_item_widget(settings::ui::ItemWidget& widget)
             break;
         case settings::ui::SettingId::GpsDiagnostics:
             open_gps_diagnostics_modal();
+            break;
+        case settings::ui::SettingId::SpiDiagnostics:
+            open_spi_diagnostics_modal();
             break;
         case settings::ui::SettingId::ChatResetMesh:
         {

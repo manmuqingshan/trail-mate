@@ -14,11 +14,32 @@ enum class SdCardBackend : uint8_t
     SdFat,
 };
 
+// Describes the exact physical SPI wiring used by one shared-SPI SD mount.
+// This is intentionally only a reference plus pin numbers: it owns no driver,
+// sector buffer, or transfer payload. Keeping it explicit lets SdFat restore
+// the same controller mapping after begin()/end(), including boards whose
+// pins are not the Arduino global SCK/MISO/MOSI defaults.
+struct SdSpiBusConfig
+{
+    SPIClass& spi;
+    int sck = -1;
+    int miso = -1;
+    int mosi = -1;
+};
+
 struct SdCardInfo
 {
     SdCardBackend backend = SdCardBackend::None;
     uint8_t card_type = 0;
     uint8_t fat_type = 0;
+    // Zero until SdFat has completed a successful initialization. This is the
+    // negotiated mount clock, not a card speed-class or throughput estimate.
+    uint32_t initialized_spi_hz = 0;
+    // Board-requested initial candidate and the number of distinct candidates
+    // attempted before this successful mount. They make fallback observable
+    // without retaining a dynamically allocated attempt log.
+    uint32_t configured_spi_hz = 0;
+    uint8_t initialization_attempts = 0;
     uint32_t sector_size = 0;
     uint32_t sector_count = 0;
     uint64_t card_size_bytes = 0;
@@ -26,8 +47,16 @@ struct SdCardInfo
     uint64_t used_bytes = 0;
 };
 
+static_assert(sizeof(SdCardInfo) <= 64U,
+              "SD runtime metadata must remain a bounded scalar snapshot");
+
 bool mount_sd_card(int sd_cs,
                    SPIClass& spi,
+                   uint32_t spi_hz,
+                   const char* mount_point,
+                   uint8_t max_files);
+bool mount_sd_card(int sd_cs,
+                   const SdSpiBusConfig& spi_bus,
                    uint32_t spi_hz,
                    const char* mount_point,
                    uint8_t max_files);
@@ -38,6 +67,8 @@ bool sd_card_uses_sdfat();
 bool sd_card_is_exfat();
 SdCardBackend sd_card_backend();
 SdCardInfo sd_card_info();
+void record_sd_card_mount_success(uint32_t configured_spi_hz,
+                                  uint8_t initialization_attempts);
 const char* sd_card_backend_name();
 const char* sd_card_filesystem_name();
 bool sd_external_block_owner_active();

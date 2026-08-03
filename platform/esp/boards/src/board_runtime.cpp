@@ -1,5 +1,6 @@
 #include "platform/esp/boards/board_runtime.h"
 
+#include <cstdio>
 #include <sys/time.h>
 
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
@@ -46,6 +47,11 @@ void initializeDisplay()
 
 bool initializeStorage()
 {
+    if (!storageStartupGateSatisfied())
+    {
+        std::printf("[SPI][STARTUP] storage mount deferred: first display transaction incomplete\n");
+        return false;
+    }
     return detail::initializeStorage();
 }
 

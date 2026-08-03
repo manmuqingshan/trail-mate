@@ -61,6 +61,11 @@ class TWatchS3Board : public BoardBase,
     void setRotation(uint8_t rotation) override;
     uint8_t getRotation() override;
     void pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color) override;
+    DisplayTransferResult transferPixels(uint16_t x1,
+                                         uint16_t y1,
+                                         uint16_t x2,
+                                         uint16_t y2,
+                                         uint16_t* color) override;
     bool pushColorsResult(uint16_t x1,
                           uint16_t y1,
                           uint16_t x2,

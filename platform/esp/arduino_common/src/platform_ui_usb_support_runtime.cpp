@@ -7,12 +7,9 @@
 #include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/gps/gps_service_api.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/esp/common/shared_spi_coordinator.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/screen_runtime.h"
 #include "screen_sleep.h"
-#include "sys/bus_access_scope.h"
-#include "sys/clock.h"
 #include "team/usecase/team_pairing_service.h"
 
 #include <cstdio>
@@ -56,54 +53,6 @@ void stop_pairing()
 USBMSC s_msc;
 bool s_backend_started = false;
 
-constexpr uint32_t kUsbMscSectorWaitMs = 50;
-constexpr uint32_t kUsbMscSessionWaitMs = 250;
-constexpr uint32_t kUsbMscBusResource = 7;
-constexpr uint32_t kUsbMscBusOwnerId = 0x555342u; // 'USB'
-constexpr const char* kUsbMscBusOwner = "usb_msc_sd";
-
-enum class UsbMscBusCommand : uint8_t
-{
-    SectorRead = 1,
-    SectorWrite,
-    SessionStart,
-};
-
-class UsbMscBusGate final
-{
-  public:
-    UsbMscBusGate(UsbMscBusCommand command,
-                  sys::runtime::BusAccessPolicy policy,
-                  uint32_t wait_ms)
-        : scope_(::platform::esp::common::shared_spi_coordinator(),
-                 makeRequest(command, policy, wait_ms))
-    {
-    }
-
-    bool locked() const
-    {
-        return scope_.acquired();
-    }
-
-  private:
-    static sys::runtime::BusAcquireRequest makeRequest(
-        UsbMscBusCommand command,
-        sys::runtime::BusAccessPolicy policy,
-        uint32_t wait_ms)
-    {
-        sys::runtime::BusAcquireRequest request{};
-        request.resource = kUsbMscBusResource;
-        request.policy = policy;
-        request.command_id = kUsbMscBusOwnerId + static_cast<uint32_t>(command);
-        request.origin = kUsbMscBusOwnerId;
-        request.deadline_ms = sys::millis_now() + wait_ms;
-        request.owner_label = kUsbMscBusOwner;
-        return request;
-    }
-
-    sys::runtime::ScopedBusAccessToken scope_;
-};
-
 class UsbMscStorageSession final
 {
   public:
@@ -114,14 +63,10 @@ class UsbMscStorageSession final
             return true;
         }
 
-        UsbMscBusGate gate(UsbMscBusCommand::SessionStart,
-                           sys::runtime::BusAccessPolicy::RecoveryExclusive,
-                           kUsbMscSessionWaitMs);
-        if (!gate.locked())
-        {
-            return false;
-        }
-
+        // This is semantic ownership only: it blocks application filesystem
+        // mutations while the host owns the card. Each raw sector operation
+        // below obtains its own physical shared-SPI transaction through the
+        // SdFat driver hook.
         ::platform::esp::arduino_common::storage::sd_set_external_block_owner_active(
             true);
         active_ = true;
@@ -153,17 +98,6 @@ uint8_t s_usb_msc_sector_scratch[512];
 
 int32_t usbReadCallback(uint32_t lba, uint32_t offset, void* buffer, uint32_t bufsize)
 {
-    UsbMscBusGate bus_gate(UsbMscBusCommand::SectorRead,
-                           sys::runtime::BusAccessPolicy::RecoveryExclusive,
-                           kUsbMscSectorWaitMs);
-    if (!bus_gate.locked())
-    {
-        USB_MSC_LOG("read lock failed lba=%lu size=%lu\n",
-                    static_cast<unsigned long>(lba),
-                    static_cast<unsigned long>(bufsize));
-        return -1;
-    }
-
     const uint32_t sec_size =
         ::platform::esp::arduino_common::storage::sd_card_info().sector_size;
     if (sec_size == 0)
@@ -218,17 +152,6 @@ int32_t usbReadCallback(uint32_t lba, uint32_t offset, void* buffer, uint32_t bu
 
 int32_t usbWriteCallback(uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize)
 {
-    UsbMscBusGate bus_gate(UsbMscBusCommand::SectorWrite,
-                           sys::runtime::BusAccessPolicy::RecoveryExclusive,
-                           kUsbMscSectorWaitMs);
-    if (!bus_gate.locked())
-    {
-        USB_MSC_LOG("write lock failed lba=%lu size=%lu\n",
-                    static_cast<unsigned long>(lba),
-                    static_cast<unsigned long>(bufsize));
-        return -1;
-    }
-
     // USB MSC writes raw sectors, including filesystem metadata and already
     // allocated blocks. SdFat free-space accounting is not valid at this layer.
     const uint32_t sec_size =

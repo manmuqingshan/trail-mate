@@ -21,6 +21,18 @@ jobs:
       - name: Verify shared SPI direct-call boundaries
         run: python3 scripts/check_shared_spi_direct_calls.py
 
+      - name: Verify shared SPI display transaction contract
+        run: python3 scripts/check_shared_spi_display_contract.py
+
+      - name: Verify LVGL SD filesystem transaction boundary
+        run: python3 scripts/check_shared_spi_lvgl_fs_boundary.py
+
+      - name: Verify T-Deck Pro EPD transaction boundary
+        run: python3 scripts/check_shared_spi_tdeck_pro_epd_boundary.py
+
+      - name: Verify USB MSC SD transaction boundary
+        run: python3 scripts/check_shared_spi_usb_msc_boundary.py
+
       - name: Verify ESP stack hygiene
         run: python3 scripts/check_esp_stack_hygiene.py
 

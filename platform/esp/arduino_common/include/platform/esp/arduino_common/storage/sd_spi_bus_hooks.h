@@ -5,8 +5,9 @@
 namespace platform::esp::arduino_common::storage
 {
 
-// Used only by the board-enabled SdFat SPI driver. Business and filesystem
-// callers must not acquire the physical bus through this interface.
+// Used only at the board-enabled SdFat physical SPI boundary, including the
+// runtime adapter's SdFat::end() cleanup path. Business and filesystem callers
+// must not acquire the physical bus through this interface.
 bool sd_spi_bus_acquire(sys::runtime::BusAccessToken& token);
 void sd_spi_bus_release(const sys::runtime::BusAccessToken& token);
 

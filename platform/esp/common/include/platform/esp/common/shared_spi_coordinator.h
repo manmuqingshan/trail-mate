@@ -18,6 +18,31 @@ class SharedSpiCoordinator final : public sys::runtime::IBusArbiter
   public:
     static constexpr uint32_t kSharedBusResource = 1U;
 
+    // Scalar-only, caller-owned diagnostic state. This deliberately excludes
+    // pixel or filesystem buffers so observing the bus never consumes a task
+    // stack proportional to display or storage payload size.
+    struct RuntimeSnapshot
+    {
+        bool owner_active = false;
+        sys::runtime::BusAccessPolicy owner_policy =
+            sys::runtime::BusAccessPolicy::BackgroundWorkerBounded;
+        sys::runtime::StorageHealthStatus health_status =
+            sys::runtime::StorageHealthStatus::Healthy;
+        int32_t health_last_error = 0;
+        uint32_t owner_held_ms = 0;
+        uint32_t display_frame_requests = 0;
+        uint32_t display_frame_completions = 0;
+        uint32_t display_frame_busy_retries = 0;
+        uint32_t display_frame_failures = 0;
+        uint32_t display_frame_deferrals = 0;
+        uint32_t maximum_display_frame_wait_ms = 0;
+        uint32_t release_mismatches = 0;
+        uint32_t maximum_hold_ms = 0;
+    };
+
+    static_assert(sizeof(RuntimeSnapshot) <= 64U,
+                  "SPI diagnostics must remain a small scalar-only snapshot.");
+
     SharedSpiCoordinator();
 
     SharedSpiCoordinator(const SharedSpiCoordinator&) = delete;
@@ -27,20 +52,21 @@ class SharedSpiCoordinator final : public sys::runtime::IBusArbiter
         const sys::runtime::BusAcquireRequest& request) override;
     void release(const sys::runtime::BusAccessToken& token) override;
     sys::runtime::StorageHealthState health() const override;
+    void runtimeSnapshot(RuntimeSnapshot& out, uint32_t now_ms) const;
 
     uint32_t displayFrameRequests() const;
     uint32_t displayFrameCompletions() const;
     uint32_t displayFrameBusyRetries() const;
     uint32_t displayFrameFailures() const;
+    uint32_t displayFrameDeferrals() const;
+    uint32_t maximumDisplayFrameWaitMs() const;
     uint32_t releaseMismatches() const;
     uint32_t maximumHoldMs() const;
-    const char* ownerLabel() const;
-    const char* ownerTaskName() const;
-    uint32_t ownerHeldMs(uint32_t now_ms) const;
 
-    void noteDisplayFrameCompleted();
+    void noteDisplayFrameCompleted(uint32_t frame_wait_ms = 0U);
     void noteDisplayFrameBusy();
     void noteDisplayFrameFailed();
+    void noteDisplayFrameDeferred();
 
   private:
     static constexpr uint8_t kMaxWaiters = 8U;
@@ -101,6 +127,8 @@ class SharedSpiCoordinator final : public sys::runtime::IBusArbiter
     uint32_t display_frame_completions_ = 0;
     uint32_t display_frame_busy_retries_ = 0;
     uint32_t display_frame_failures_ = 0;
+    uint32_t display_frame_deferrals_ = 0;
+    uint32_t maximum_display_frame_wait_ms_ = 0;
     uint32_t release_mismatches_ = 0;
     uint32_t maximum_hold_ms_ = 0;
 };

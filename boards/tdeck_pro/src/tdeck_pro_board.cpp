@@ -1,6 +1,7 @@
 #if defined(ARDUINO_T_DECK_PRO)
 
 #include "boards/tdeck_pro/tdeck_pro_board.h"
+#include "board/sd_utils.h"
 
 #include <Arduino.h>
 #include <AudioOutputI2S.h>
@@ -14,6 +15,7 @@
 #include <sys/time.h>
 
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/common/shared_spi_coordinator.h"
 #include "platform/ui/audio/pager_notification_tone.h"
 #include "sys/bus_access_scope.h"
@@ -95,6 +97,11 @@ void sharedSpiUnlock()
     const TaskHandle_t current = xTaskGetCurrentTaskHandle();
     if (!g_shared_spi_token.valid || g_shared_spi_task != current)
     {
+        // This board wrapper keeps legacy paired lock/unlock call sites, but
+        // the global coordinator remains the authority for ownership errors.
+        // Forward an invalid or cross-task release so it is counted and logged
+        // instead of being silently hidden by the compatibility bridge.
+        ::platform::esp::common::shared_spi_coordinator().release(g_shared_spi_token);
         return;
     }
     sys::runtime::BusAccessToken token = g_shared_spi_token;
@@ -298,7 +305,6 @@ bool TDeckProBoard::initPower()
 
 bool TDeckProBoard::initDisplay()
 {
-    SPI.begin(profile().spi.sck, profile().spi.miso, profile().spi.mosi, profile().epd.cs);
     if (!sharedSpiLock(sys::runtime::BusAccessPolicy::DisplayFrameCritical,
                        "tdeck_pro_epd_init",
                        45U))
@@ -306,17 +312,29 @@ bool TDeckProBoard::initDisplay()
         return false;
     }
     sharedSpiPrepareDevice(profile().epd.cs);
+    SPI.begin(profile().spi.sck, profile().spi.miso, profile().spi.mosi, profile().epd.cs);
     epd_.epd2.selectSPI(SPI, SPISettings(kEpdSpiHz, MSBFIRST, SPI_MODE0));
     epd_.init(0, true, 2, false);
+    sharedSpiUnlock();
+
     epd_.setRotation(rotation_);
     epd_.setFullWindow();
     epd_.firstPage();
+    bool next_page = true;
     do
     {
         epd_.fillScreen(GxEPD_WHITE);
-    } while (epd_.nextPage());
-    epd_.powerOff();
-    sharedSpiUnlock();
+        if (!sharedSpiLock(sys::runtime::BusAccessPolicy::DisplayFrameCritical,
+                           "tdeck_pro_epd_init_page",
+                           45U))
+        {
+            return false;
+        }
+        sharedSpiPrepareDevice(profile().epd.cs);
+        next_page = epd_.nextPage();
+        sharedSpiUnlock();
+    } while (next_page);
+
     display_ready_ = true;
     Serial.printf("[%s] epd init ok %ux%u spi=%luHz\n", kTag, width(), height(), (unsigned long)kEpdSpiHz);
     return true;
@@ -358,7 +376,6 @@ bool TDeckProBoard::initMotion()
 
 bool TDeckProBoard::initRadio()
 {
-    SPI.begin(profile().spi.sck, profile().spi.miso, profile().spi.mosi, profile().lora.cs);
     if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
                        "tdeck_pro_radio_init",
                        200U))
@@ -366,6 +383,7 @@ bool TDeckProBoard::initRadio()
         return false;
     }
     sharedSpiPrepareDevice(profile().lora.cs);
+    SPI.begin(profile().spi.sck, profile().spi.miso, profile().spi.mosi, profile().lora.cs);
     radio_.reset();
     radio_ready_ = (radio_.begin() == RADIOLIB_ERR_NONE);
     sharedSpiUnlock();
@@ -382,23 +400,40 @@ bool TDeckProBoard::initStorage()
 
 bool TDeckProBoard::installSD()
 {
-    pinMode(profile().sd.cs, OUTPUT);
-    digitalWrite(profile().sd.cs, HIGH);
+    if (!::platform::esp::boards::storageStartupGateSatisfied())
+    {
+        Serial.printf("[%s] SD mount deferred: first shared-SPI display transaction incomplete\n", kTag);
+        return false;
+    }
+
     static const int extra_cs_pins[] = {
         profile().lora.cs,
         profile().epd.cs,
     };
-    for (int pin : extra_cs_pins)
-    {
-        pinMode(pin, OUTPUT);
-        digitalWrite(pin, HIGH);
-    }
-    const bool ok = ::platform::esp::arduino_common::storage::mount_sd_card(
+    static const ::platform::esp::arduino_common::storage::SdSpiBusConfig
+        kSharedSpiBus{SPI,
+                      profile().spi.sck,
+                      profile().spi.miso,
+                      profile().spi.mosi};
+    uint8_t card_type = sdutil::kCardNone;
+    uint32_t card_size_mb = 0;
+    const bool ok = sdutil::installSpiSd(
         profile().sd.cs,
-        SPI,
         kSdSpiHz,
         "/sd",
-        8);
+        extra_cs_pins,
+        sizeof(extra_cs_pins) / sizeof(extra_cs_pins[0]),
+        &card_type,
+        &card_size_mb,
+        8,
+        kSharedSpiBus);
+    if (ok)
+    {
+        Serial.printf("[%s] SD card type=%u size=%luMB\n",
+                      kTag,
+                      static_cast<unsigned>(card_type),
+                      static_cast<unsigned long>(card_size_mb));
+    }
     return ok;
 }
 
@@ -639,36 +674,51 @@ void TDeckProBoard::setBit(int16_t x, int16_t y, bool black)
     }
 }
 
-void TDeckProBoard::renderEpd()
+DisplayTransferResult TDeckProBoard::renderEpd()
 {
     if (!display_ready_)
     {
-        return;
+        return DisplayTransferResult::Unavailable;
     }
 
-    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::DisplayFrameCritical,
-                       "tdeck_pro_epd_frame",
-                       45U))
-    {
-        return;
-    }
-    sharedSpiPrepareDevice(profile().epd.cs);
     epd_.setRotation(rotation_);
     epd_.setFullWindow();
     epd_.firstPage();
+    bool next_page = true;
     do
     {
+        // This only rasterizes into GxEPD2's persistent page surface. Keep the
+        // shared controller available until the following nextPage() commits
+        // that page to the physical EPD.
         epd_.drawInvertedBitmap(0, 0, mono_buffer_.data(), profile().screen_width, profile().screen_height, GxEPD_BLACK);
-    } while (epd_.nextPage());
-    epd_.powerOff();
-    sharedSpiUnlock();
+        if (!sharedSpiLock(sys::runtime::BusAccessPolicy::DisplayFrameCritical,
+                           "tdeck_pro_epd_page",
+                           45U))
+        {
+            return DisplayTransferResult::Busy;
+        }
+        sharedSpiPrepareDevice(profile().epd.cs);
+        next_page = epd_.nextPage();
+        sharedSpiUnlock();
+    } while (next_page);
+
+    return DisplayTransferResult::Completed;
 }
 
 void TDeckProBoard::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color)
 {
+    (void)transferPixels(x1, y1, x2, y2, color);
+}
+
+DisplayTransferResult TDeckProBoard::transferPixels(uint16_t x1,
+                                                    uint16_t y1,
+                                                    uint16_t x2,
+                                                    uint16_t y2,
+                                                    uint16_t* color)
+{
     if (!color)
     {
-        return;
+        return DisplayTransferResult::Failed;
     }
 
     static uint8_t s_flush_log_count = 0;
@@ -704,7 +754,7 @@ void TDeckProBoard::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y
                       static_cast<unsigned long>(static_cast<uint32_t>(x2) * static_cast<uint32_t>(y2)));
         s_flush_log_count++;
     }
-    renderEpd();
+    return renderEpd();
 }
 
 uint8_t TDeckProBoard::getPoint(int16_t* x, int16_t* y, uint8_t get_point)
