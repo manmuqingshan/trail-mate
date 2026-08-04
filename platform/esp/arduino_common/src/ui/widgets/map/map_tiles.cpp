@@ -1867,6 +1867,18 @@ bool gps_screen_pos(const TileContext& ctx, double lat, double lng, int& sx, int
     int32_t dx = gps_global_pixel_x - ctx.anchor->gps_global_pixel_x;
     int32_t dy = gps_global_pixel_y - ctx.anchor->gps_global_pixel_y;
 
+    // The map is horizontally periodic. Match tile_screen_pos_xyz() and use
+    // the shortest route across the date line rather than spanning the world.
+    const int32_t world_px = static_cast<int32_t>(n * TILE_SIZE);
+    if (dx > world_px / 2)
+    {
+        dx -= world_px;
+    }
+    else if (dx < -world_px / 2)
+    {
+        dx += world_px;
+    }
+
     sx = ctx.anchor->gps_tile_screen_x + ctx.anchor->gps_offset_x + dx;
     sy = ctx.anchor->gps_tile_screen_y + ctx.anchor->gps_offset_y + dy;
 

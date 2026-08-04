@@ -177,17 +177,28 @@ bool overlay_item_has_valid_point(const ::ui::map::MapOverlayItem& item)
            item.point.lon >= -180.0 && item.point.lon <= 180.0;
 }
 
+double normalize_longitude(double longitude)
+{
+    while (longitude < -180.0)
+    {
+        longitude += 360.0;
+    }
+    while (longitude >= 180.0)
+    {
+        longitude -= 360.0;
+    }
+    return longitude;
+}
+
 bool location_overlay_bounds(const ::ui::map::MapOverlaySnapshot& overlay,
                              double& out_min_lat,
                              double& out_max_lat,
-                             double& out_min_lon,
-                             double& out_max_lon,
+                             double& out_center_lon,
                              std::size_t& out_count)
 {
     out_min_lat = 90.0;
     out_max_lat = -90.0;
-    out_min_lon = 180.0;
-    out_max_lon = -180.0;
+    out_center_lon = 0.0;
     out_count = 0;
 
     if (!overlay.header.valid)
@@ -204,12 +215,55 @@ bool location_overlay_bounds(const ::ui::map::MapOverlaySnapshot& overlay,
         }
         out_min_lat = std::min(out_min_lat, item.point.lat);
         out_max_lat = std::max(out_max_lat, item.point.lat);
-        out_min_lon = std::min(out_min_lon, item.point.lon);
-        out_max_lon = std::max(out_max_lon, item.point.lon);
         ++out_count;
     }
 
-    return out_count > 0;
+    if (out_count == 0)
+    {
+        return false;
+    }
+
+    // Longitudes wrap at +/-180 degrees. Use the complement of the widest
+    // gap so nearby points on opposite sides of the date line stay nearby.
+    double widest_gap_deg = -1.0;
+    double gap_start_lon = 0.0;
+    for (std::size_t i = 0; i < overlay.item_count; ++i)
+    {
+        const auto& item = overlay.items[i];
+        if (!overlay_item_has_valid_point(item))
+        {
+            continue;
+        }
+
+        const double start_lon = normalize_longitude(item.point.lon);
+        double next_gap_deg = 360.0;
+        for (std::size_t j = 0; j < overlay.item_count; ++j)
+        {
+            const auto& candidate = overlay.items[j];
+            if (i == j || !overlay_item_has_valid_point(candidate))
+            {
+                continue;
+            }
+
+            double gap_deg = normalize_longitude(candidate.point.lon) - start_lon;
+            if (gap_deg <= 0.0)
+            {
+                gap_deg += 360.0;
+            }
+            next_gap_deg = std::min(next_gap_deg, gap_deg);
+        }
+
+        if (next_gap_deg > widest_gap_deg)
+        {
+            widest_gap_deg = next_gap_deg;
+            gap_start_lon = start_lon;
+        }
+    }
+
+    const double covered_span_deg = 360.0 - widest_gap_deg;
+    out_center_lon = normalize_longitude(
+        gap_start_lon + widest_gap_deg + covered_span_deg / 2.0);
+    return true;
 }
 
 bool model_fits_location_overlay(lv_obj_t* viewport_root,
@@ -1196,14 +1250,12 @@ void ChatConversationScreen::refreshLocationMap()
 
     double min_lat = 0.0;
     double max_lat = 0.0;
-    double min_lon = 0.0;
-    double max_lon = 0.0;
+    double center_lon = 0.0;
     std::size_t point_count = 0;
     if (!location_overlay_bounds(location_overlay_,
                                  min_lat,
                                  max_lat,
-                                 min_lon,
-                                 max_lon,
+                                 center_lon,
                                  point_count))
     {
         ::ui::widgets::map::clear(location_map_runtime_);
@@ -1214,7 +1266,7 @@ void ChatConversationScreen::refreshLocationMap()
     const auto layers = ::ui::widgets::map::current_layer_state();
     model.focus_point.valid = true;
     model.focus_point.lat = (min_lat + max_lat) / 2.0;
-    model.focus_point.lon = (min_lon + max_lon) / 2.0;
+    model.focus_point.lon = center_lon;
     model.map_source = layers.map_source;
     model.contour_enabled = layers.contour_enabled;
     model.coord_system = app::configFacade().readConfig().map_coord_system;
