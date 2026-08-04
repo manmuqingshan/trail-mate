@@ -114,6 +114,39 @@ Adding a field to `AppConfig` does not make it persistent automatically. The
 field must be assigned to a domain, included in change detection, and handled
 by the owning adapter, or explicitly documented as runtime-only.
 
+## Portable Settings Backup (ESP)
+
+Normal operation and portable backup deliberately have different roles:
+
+| Concern | Active owner | Backup behavior |
+| --- | --- | --- |
+| `AppConfig` domains | Preferences/NVS | The complete persisted `AppConfig` projection is exported to the SD backup document. |
+| Device and presentation preferences outside `AppConfig` | Preferences/NVS through `settings_store` | Every supported key is exported with its logical name and an explicit presence state, then restored through `settings_store`, so NVS key aliases remain an implementation detail. |
+| Reticulum groups | `platform::ui::reticulum_groups` SD owner | The group list is embedded in the backup and restored through the group owner; restore does not report success until that owner has completed its physical SD write. |
+
+This separation is intentional: an absent, replaced, or failed SD card must
+not prevent the device from loading its active settings at boot. It does **not**
+permit a partial portable backup. The settings backup is the aggregate boundary
+for all user-configurable persistence owners listed above; messages, node
+databases, map tiles, and diagnostic logs remain data stores rather than
+settings and are outside this backup.
+
+The current JSON schema is version 2. Version 1 documents remain importable:
+fields added in version 2 are optional during restore and retain their current
+value when absent, avoiding destructive resets from an older backup. Version 2
+adds the Meshtastic channel presentation settings, Reticulum location-request
+policy, Reticulum group owner, and presence markers for `settings_store`
+preferences to the portable snapshot. A v2 `present: false` marker clears the
+target-side logical key, returning it to the same code-defined default used by
+the source device. An omitted key in a v1 document remains non-destructive for
+backward compatibility.
+
+During restore, the Reticulum group owner completes its physical SD write
+before NVS preferences and `AppConfig` are committed. Therefore an SD group
+write failure leaves those NVS owners untouched. This is deliberate failure
+ordering, not a cross-owner transaction: a later NVS failure still cannot be
+rolled back across independent owners.
+
 ## Edit Boundary And Platform Semantics
 
 `beginConfigEdit()` is the ownership seam between business code and the

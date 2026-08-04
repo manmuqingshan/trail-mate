@@ -476,6 +476,14 @@ if(BUILD_TESTING)
              COMMAND trailmate_auto_reply_settings_persistence_contract_smoke
                      "${TRAIL_MATE_REPO_ROOT}")
 
+    add_executable(trailmate_settings_backup_coverage_contract_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_settings_backup_coverage_contract.cpp")
+    target_compile_features(trailmate_settings_backup_coverage_contract_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_settings_backup_coverage_contract_smoke
+             COMMAND trailmate_settings_backup_coverage_contract_smoke
+                     "${TRAIL_MATE_REPO_ROOT}")
+
     add_executable(trailmate_reticulum_network_defaults_refresh_contract_smoke
         "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_reticulum_network_defaults_refresh_contract.cpp")
     target_compile_features(trailmate_reticulum_network_defaults_refresh_contract_smoke

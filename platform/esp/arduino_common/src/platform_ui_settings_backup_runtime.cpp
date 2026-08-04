@@ -25,6 +25,7 @@
 #include "chat/domain/chat_types.h"
 #include "chat/infra/mesh_protocol_utils.h"
 #include "platform/ui/device_runtime.h"
+#include "platform/ui/reticulum_group_config_runtime.h"
 #include "platform/ui/settings_store.h"
 
 namespace platform::ui::settings_backup
@@ -36,7 +37,12 @@ constexpr const char* kBackupDir = "/trailmate";
 constexpr const char* kBackupPath = "/trailmate/settings-backup.json";
 constexpr const char* kBackupTempPath = "/trailmate/settings-backup.tmp";
 constexpr const char* kBackupMagic = "trail-mate-settings-backup";
-constexpr int kBackupVersion = 1;
+// Version 2 adds the complete Meshtastic channel presentation settings,
+// Reticulum location-request policy, Reticulum group-storage owner, and
+// explicit presence markers for settings_store preferences.
+// Version 1 remains restore-compatible: fields absent from an older backup
+// retain the current value instead of being reset.
+constexpr int kBackupVersion = 2;
 constexpr std::size_t kMaxBackupBytes = 24 * 1024;
 constexpr std::size_t kMaxExtraBlobBytes = 128;
 
@@ -128,7 +134,7 @@ constexpr ExtraKey kExtraKeys[] = {
     {"settings", "chat_message_alerts", "chat_msg_alert", ValueType::Int},
     {"settings", "chat_contact_alerts", "chat_ct_alert", ValueType::Int},
     {"settings", "chat_auto_reply_enabled", "chat_auto_reply", ValueType::Bool},
-    {"settings", "chat_auto_reply_text", "chat_auto_reply_text", ValueType::String},
+    {"settings", "chat_auto_reply_text", "chat_auto_txt", ValueType::String},
     {"settings", "adv_debug", "adv_debug", ValueType::Bool},
     {"power", "gauge_design_mah", "gauge_dsgn", ValueType::UInt},
     {"power", "gauge_full_mah", "gauge_full_mah", ValueType::UInt},
@@ -545,6 +551,93 @@ void restore_meshcore_channel_config(cJSON* parent, chat::MeshConfig& config)
     config.syncMeshCoreLegacyChannelMirror();
 }
 
+void add_reticulum_group_config(cJSON* parent, const chat::MeshConfig& config)
+{
+    cJSON* groups = cJSON_AddArrayToObject(parent, "reticulum_groups");
+    if (!groups)
+    {
+        return;
+    }
+
+    for (std::size_t index = 0; index < chat::kReticulumGroupDestinationMaxCount; ++index)
+    {
+        const chat::ReticulumGroupDestinationConfig& group = config.reticulum_groups[index];
+        if (!chat::hasReticulumDestinationIdentity(group.identity))
+        {
+            continue;
+        }
+
+        char destination[chat::kReticulumPeerHashSize * 2 + 1] = {};
+        chat::formatReticulumDestinationHashText(group.identity,
+                                                 destination,
+                                                 sizeof(destination));
+        if (destination[0] == '\0')
+        {
+            continue;
+        }
+
+        cJSON* item = cJSON_CreateObject();
+        if (!item)
+        {
+            continue;
+        }
+        add_int(item, "slot", static_cast<int>(index));
+        add_bool(item, "enabled", group.enabled);
+        add_string(item, "name", group.name);
+        add_string(item, "destination", destination);
+        cJSON_AddItemToArray(groups, item);
+    }
+}
+
+bool restore_reticulum_group_config(cJSON* parent, chat::MeshConfig& config)
+{
+    cJSON* groups = cJSON_GetObjectItemCaseSensitive(parent, "reticulum_groups");
+    if (!cJSON_IsArray(groups))
+    {
+        return false;
+    }
+
+    for (std::size_t index = 0; index < chat::kReticulumGroupDestinationMaxCount; ++index)
+    {
+        config.reticulum_groups[index] = chat::ReticulumGroupDestinationConfig{};
+    }
+
+    cJSON* item = nullptr;
+    cJSON_ArrayForEach(item, groups)
+    {
+        if (!cJSON_IsObject(item))
+        {
+            continue;
+        }
+        const int slot = json_int(item, "slot", -1);
+        if (slot < 0 || slot >= static_cast<int>(chat::kReticulumGroupDestinationMaxCount))
+        {
+            continue;
+        }
+
+        const char* destination = json_string(item, "destination");
+        if (!destination)
+        {
+            continue;
+        }
+
+        chat::ReticulumGroupDestinationConfig restored{};
+        char error[96] = {};
+        if (!chat::parseReticulumDestinationHashText(destination,
+                                                     &restored.identity,
+                                                     error,
+                                                     sizeof(error)))
+        {
+            std::printf("[SettingsBackup] skip invalid Reticulum group: %s\n", error);
+            continue;
+        }
+        restored.enabled = json_bool(item, "enabled", restored.enabled);
+        copy_json_string(item, "name", restored.name, sizeof(restored.name));
+        config.reticulum_groups[static_cast<std::size_t>(slot)] = restored;
+    }
+    return true;
+}
+
 void add_mesh_config(cJSON* parent,
                      const char* key,
                      const chat::MeshConfig& config,
@@ -625,17 +718,21 @@ void add_mesh_config(cJSON* parent,
         add_int(object,
                 "reticulum_interface_policy",
                 static_cast<int>(static_cast<uint8_t>(config.reticulum_interface_policy)));
+        add_bool(object,
+                 "reticulum_allow_location_requests",
+                 config.reticulum_allow_location_requests);
+        add_reticulum_group_config(object, config);
     }
 }
 
-void restore_mesh_config(cJSON* object,
+bool restore_mesh_config(cJSON* object,
                          chat::MeshConfig& config,
                          bool include_meshcore_fields,
                          bool include_reticulum_fields)
 {
     if (!cJSON_IsObject(object))
     {
-        return;
+        return false;
     }
     config.region = static_cast<uint8_t>(json_int(object, "region", config.region));
     config.use_preset = json_bool(object, "use_preset", config.use_preset);
@@ -736,7 +833,13 @@ void restore_mesh_config(cJSON* object,
             config.reticulum_interface_policy =
                 static_cast<chat::ReticulumInterfacePolicy>(policy);
         }
+        config.reticulum_allow_location_requests =
+            json_bool(object,
+                      "reticulum_allow_location_requests",
+                      config.reticulum_allow_location_requests);
+        return restore_reticulum_group_config(object, config);
     }
+    return false;
 }
 
 void add_aprs_config(cJSON* parent, const app::AprsConfig& config)
@@ -823,6 +926,20 @@ cJSON* create_app_config_json(const app::AppConfig& config)
     add_bool(object, "primary_downlink_enabled", config.primary_downlink_enabled);
     add_bool(object, "secondary_uplink_enabled", config.secondary_uplink_enabled);
     add_bool(object, "secondary_downlink_enabled", config.secondary_downlink_enabled);
+    add_bool(object,
+             "primary_channel_has_module_settings",
+             config.primary_channel_has_module_settings);
+    add_uint(object,
+             "primary_channel_position_precision",
+             config.primary_channel_position_precision);
+    add_bool(object, "primary_channel_is_muted", config.primary_channel_is_muted);
+    add_bool(object,
+             "secondary_channel_has_module_settings",
+             config.secondary_channel_has_module_settings);
+    add_uint(object,
+             "secondary_channel_position_precision",
+             config.secondary_channel_position_precision);
+    add_bool(object, "secondary_channel_is_muted", config.secondary_channel_is_muted);
     add_bool(object, "gps_enabled", config.gps_enabled);
     add_uint(object, "gps_init_baud", config.gps_init_baud);
     add_uint(object, "gps_init_probe_ms", config.gps_init_probe_ms);
@@ -856,26 +973,29 @@ cJSON* create_app_config_json(const app::AppConfig& config)
     return object;
 }
 
-void restore_app_config_json(cJSON* object, app::AppConfig& config)
+bool restore_app_config_json(cJSON* object, app::AppConfig& config)
 {
     if (!cJSON_IsObject(object))
     {
-        return;
+        return false;
     }
     restore_chat_policy(cJSON_GetObjectItemCaseSensitive(object, "chat_policy"), config.chat_policy);
     restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "meshtastic"), config.meshtastic_config, false, false);
     restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "meshcore"), config.meshcore_config, true, false);
+    bool restore_reticulum_groups = false;
     cJSON* reticulum_object = cJSON_GetObjectItemCaseSensitive(object, "reticulum");
     if (cJSON_IsObject(reticulum_object))
     {
-        restore_mesh_config(reticulum_object, config.reticulumConfig(), false, true);
+        restore_reticulum_groups =
+            restore_mesh_config(reticulum_object, config.reticulumConfig(), false, true);
     }
     else
     {
-        restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "rnode"),
-                            config.reticulumConfig(),
-                            false,
-                            true);
+        restore_reticulum_groups =
+            restore_mesh_config(cJSON_GetObjectItemCaseSensitive(object, "rnode"),
+                                config.reticulumConfig(),
+                                false,
+                                true);
     }
     const int protocol = json_int(object, "mesh_protocol", static_cast<int>(config.mesh_protocol));
     if (protocol >= 0 && protocol <= 0xFF &&
@@ -905,6 +1025,26 @@ void restore_app_config_json(cJSON* object, app::AppConfig& config)
     config.primary_downlink_enabled = json_bool(object, "primary_downlink_enabled", config.primary_downlink_enabled);
     config.secondary_uplink_enabled = json_bool(object, "secondary_uplink_enabled", config.secondary_uplink_enabled);
     config.secondary_downlink_enabled = json_bool(object, "secondary_downlink_enabled", config.secondary_downlink_enabled);
+    config.primary_channel_has_module_settings = json_bool(
+        object,
+        "primary_channel_has_module_settings",
+        config.primary_channel_has_module_settings);
+    config.primary_channel_position_precision = json_uint(
+        object,
+        "primary_channel_position_precision",
+        config.primary_channel_position_precision);
+    config.primary_channel_is_muted =
+        json_bool(object, "primary_channel_is_muted", config.primary_channel_is_muted);
+    config.secondary_channel_has_module_settings = json_bool(
+        object,
+        "secondary_channel_has_module_settings",
+        config.secondary_channel_has_module_settings);
+    config.secondary_channel_position_precision = json_uint(
+        object,
+        "secondary_channel_position_precision",
+        config.secondary_channel_position_precision);
+    config.secondary_channel_is_muted =
+        json_bool(object, "secondary_channel_is_muted", config.secondary_channel_is_muted);
     config.gps_enabled = json_bool(object, "gps_enabled", config.gps_enabled);
     config.gps_init_baud = json_uint(object, "gps_init_baud", config.gps_init_baud);
     config.gps_init_probe_ms = json_uint(object, "gps_init_probe_ms", config.gps_init_probe_ms);
@@ -939,6 +1079,7 @@ void restore_app_config_json(cJSON* object, app::AppConfig& config)
     config.route_enabled = json_bool(object, "route_enabled", config.route_enabled);
     copy_json_string(object, "route_path", config.route_path, sizeof(config.route_path));
     restore_aprs_config(cJSON_GetObjectItemCaseSensitive(object, "aprs"), config.aprs);
+    return restore_reticulum_groups;
 }
 
 bool extra_preference_exists(const ExtraKey& key)
@@ -1001,11 +1142,6 @@ bool extra_preference_exists(const ExtraKey& key)
 
 void add_extra_value(cJSON* parent, const ExtraKey& key)
 {
-    if (!extra_preference_exists(key))
-    {
-        return;
-    }
-
     cJSON* ns_object = cJSON_GetObjectItemCaseSensitive(parent, key.ns);
     if (!cJSON_IsObject(ns_object))
     {
@@ -1022,6 +1158,17 @@ void add_extra_value(cJSON* parent, const ExtraKey& key)
         return;
     }
     add_string(value_object, "type", value_type_name(key.type));
+
+    // A portable snapshot must preserve both an explicit value and the
+    // absence of a value. The latter means that this device is using the
+    // setting's code-defined default; restore must clear a stale target-side
+    // override instead of silently retaining it.
+    const bool present = extra_preference_exists(key);
+    add_bool(value_object, "present", present);
+    if (!present)
+    {
+        return;
+    }
 
     switch (key.type)
     {
@@ -1077,6 +1224,18 @@ void restore_extra_value(const ExtraKey& key, cJSON* value_object)
         return;
     }
 
+    cJSON* present = cJSON_GetObjectItemCaseSensitive(value_object, "present");
+    if (cJSON_IsFalse(present))
+    {
+        // `remove_keys` accepts logical names and applies the physical NVS
+        // alias internally. Do not erase `storage_key` directly here.
+        const char* keys[] = {key.key};
+        ::platform::ui::settings_store::remove_keys(key.ns, keys, 1);
+        return;
+    }
+
+    // Version 1 documents do not contain `present`; their existing values
+    // must still import and omitted entries must leave the target unchanged.
     cJSON* value = cJSON_GetObjectItemCaseSensitive(value_object, "value");
     switch (key.type)
     {
@@ -1341,7 +1500,6 @@ bool restore()
         return false;
     }
 
-    restore_extra_settings(root);
     app::IAppFacade& facade = app::appFacade();
     auto edit = facade.beginConfigEdit();
     if (!edit)
@@ -1349,10 +1507,43 @@ bool restore()
         cJSON_Delete(root);
         return false;
     }
-    restore_app_config_json(cJSON_GetObjectItemCaseSensitive(root, "app_config"),
-                            edit.config());
-    cJSON_Delete(root);
+    const bool restore_reticulum_groups =
+        restore_app_config_json(cJSON_GetObjectItemCaseSensitive(root, "app_config"),
+                                edit.config());
 
+    if (restore_reticulum_groups)
+    {
+        const ::platform::ui::reticulum_groups::Status group_submit =
+            ::platform::ui::reticulum_groups::submit(
+                edit.config().reticulumConfig().reticulum_groups,
+                chat::kReticulumGroupDestinationMaxCount);
+        if (!group_submit.queued)
+        {
+            std::printf("[SettingsBackup] Reticulum group restore was not queued: %s\n",
+                        group_submit.message);
+            cJSON_Delete(root);
+            return false;
+        }
+    }
+
+    if (restore_reticulum_groups)
+    {
+        const ::platform::ui::reticulum_groups::Status group_save =
+            ::platform::ui::reticulum_groups::flushPending();
+        if (!group_save.saved)
+        {
+            std::printf("[SettingsBackup] Reticulum group restore failed: %s\n",
+                        group_save.message);
+            cJSON_Delete(root);
+            return false;
+        }
+    }
+
+    // The SD-backed owner has succeeded, so no NVS state has been changed on
+    // an SD write failure. NVS still does not provide a transaction spanning
+    // its independent AppConfig and settings_store owners.
+    restore_extra_settings(root);
+    cJSON_Delete(root);
     edit.commit(app::AppConfigChangeSet::allPersisted());
     return true;
 }
