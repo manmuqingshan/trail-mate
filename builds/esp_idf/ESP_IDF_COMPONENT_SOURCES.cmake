@@ -170,7 +170,7 @@ set(TRAILMATE_ESP_IDF_UI_SHARED_SOURCES
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/assets/route_topbar.c"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/assets/Satellite.c"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/assets/Setting.c"
-    "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/assets/Spectrum.c"
+    "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/assets/radar.c"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/assets/sstv.c"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/assets/sos.c"
     "${TRAILMATE_ROOT}/modules/ui_shared/src/ui/assets/team.c"

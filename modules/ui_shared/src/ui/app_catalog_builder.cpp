@@ -65,7 +65,7 @@ extern "C"
     extern const lv_image_dsc_t gps_icon;
     extern const lv_image_dsc_t Satellite;
     extern const lv_image_dsc_t contact;
-    extern const lv_image_dsc_t Spectrum;
+    extern const lv_image_dsc_t radar;
 #if !defined(GAT562_NO_TEAM) || !GAT562_NO_TEAM
     extern const lv_image_dsc_t team_icon;
 #endif
@@ -113,7 +113,7 @@ ui::CallbackAppScreen s_contacts_app("contacts", "Contacts", &contact,
                                      contacts::ui::shell::enter,
                                      contacts::ui::shell::exit,
                                      &s_menu_host);
-ui::CallbackAppScreen s_energy_sweep_app("energy_sweep", "Energy Sweep", &Spectrum,
+ui::CallbackAppScreen s_energy_sweep_app("energy_sweep", "Packet Probe", &radar,
                                          energy_sweep::ui::shell::enter,
                                          energy_sweep::ui::shell::exit,
                                          &s_menu_host);

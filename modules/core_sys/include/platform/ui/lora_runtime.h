@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "platform/ui/capability_status.h"
@@ -18,10 +19,20 @@ struct ReceiveConfig
     uint8_t crc_len = 2;
 };
 
+/// Metadata for one CRC-accepted LoRa packet copied into caller-owned storage.
+/// `poll_received_packet()` never fabricates packets on simulator targets.
+struct ReceivedPacket
+{
+    std::size_t size = 0;
+    float rssi_dbm = 0.0f;
+    float snr_db = 0.0f;
+};
+
 bool is_supported();
 bool acquire();
 bool is_online();
 bool configure_receive(float freq_mhz, const ReceiveConfig& config);
+bool poll_received_packet(uint8_t* buffer, std::size_t capacity, ReceivedPacket* out_packet);
 float read_instant_rssi();
 void release();
 

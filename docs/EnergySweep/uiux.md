@@ -1,156 +1,95 @@
-## 1) 关键可读性规则（针对 ~227PPI）
+# Packet Probe Pager UI
 
-### 字号策略
+## Visual Language
 
-* **标题/关键频点**：18–20 px（不要再小）
-* **常规信息**：14–16 px
-* **弱信息/单位/标签**：12–13 px（底线，不再小）
-* 数字（频率/RSSI）尽量用 **等宽字体** 或数字等宽特性（否则跳动）
+Packet Probe follows the current Map page language rather than the former
+Energy Sweep dashboard language.
 
-### 线宽与柱宽（高 PPI 必须加粗）
+| Token | Value | Use |
+| --- | --- | --- |
+| Work surface | `#FFF3DF` | Full screen beneath the top bar |
+| Keycap surface | `#F8E6C3` | Bottom-bar controls and result rows |
+| Divider | `#B3915D` | Result-row and keycap borders |
+| Primary text | `#593D1C` | Labels and frequency values |
+| Secondary text | `#846A42` | Parameter details and progress |
+| Amber | `#EBA341` | Selected result and Apply action |
+| Blue | `#315F91` | Listening state and selected frequency |
+| Green | `#397046` | Evidence count and applied confirmation |
 
-* 面板边框：**2 px**（不要 1px）
-* 网格线：1 px（但降低不透明度）
-* 光标竖线：**2 px**
-* 柱状条：**4 px 宽**（间隔 2 px），否则会变成“毛刺”
+No page-level floating cards are used. Result rows are interactive repeated
+items; the rest of the screen remains a continuous work surface.
 
-### 点击/触控命中（如果是触控）
+## 480x222 Layout
 
-* 最小按钮高度：**28 px**
-* 按钮内边距：左右 10 px
-* 两个按钮并排比两行更合适（不挤信息）
+```
+0,0     +------------------------------------------------+
+        | <  PACKET PROBE                           battery |
+30      +------------------------------------------------+
+        | OBSERVED PARAMETERS                                 |
+        | LISTENING  12/70 PASS 1                             |
+        | [433.550 MHz      BW250 SF11 CR4/5            x12] |
+        | [433.775 MHz      BW250 SF11 CR4/5            x03] |
+        | 12/70 PROFILES  2 OBSERVED                         |
+198     +------------------------------------------------+
+        | UP/DN SELECT | ENTER SET | S STOP | ESC BACK   |
+222     +------------------------------------------------+
+```
 
----
+- Top bar: 30 px, supplied by the shared top-bar component.
+- Work area: `y=30..198`, 10 px outer margin, one full-width list surface.
+  There is no selected-profile detail column, so the same layout remains
+  readable on T-Deck-class narrow displays.
+- Bottom bar: 24 px, using the Map control-bar keycap treatment.
+- Pager result rows: 24 px high, 3 px gap, up to four visible rows. `UP/DN`
+  automatically moves the four-row window when the selection crosses a page
+  boundary, so every observed profile remains visible and selectable.
 
-## 2) 画布与全局 Token（不变）
+## Content Rules
 
-* Screen：**480(w) × 222(h)**
-* BG：`WarmBG #F6E6C6`
-* Panel：`PanelBG #FAF0D8`
-* Line：`#E7C98F`（边框/分隔线）
-* Text：`#6B4A1E`
-* TextDim：`#8A6A3A`
-* Amber：`#EBA341`
-* AmberDark：`#C98118`
-* Warn/Ok/Info：`#B94A2C / #3E7D3E / #2D6FB6`
+The full-width result list shows only real observations:
 
----
+- The main line is the center frequency.
+- The secondary line is bandwidth, SF, and CR.
+- The right-aligned `xN` value is the number of evidence packets.
 
-## 3) 新的布局（更适合 2.33"：信息更少、更大、更“扫一眼就懂”）
+The selected row is the only selection-state presentation. It is amber and
+keeps the same frequency, air parameters, and right-aligned evidence count as
+every other row. The page does not repeat selected details, RSSI metadata, or
+business-packet labels elsewhere. After an apply, the status line changes to
+`APPLIED TO MESH`.
 
-### A) Topbar（更薄，但字更大）
+Empty state text is factual: `NO OBSERVED PROFILES` before scanning and `NO
+VALIDATED PACKETS` while a pass is in progress. It does not claim the candidate
+space is empty.
 
-* **Topbar 高度：28 px**（比 30 稍省空间）
-* 区域：x=0,y=0,w=480,h=28
-* 背景：PanelBG
-* 底分隔线：2px，Line
+## Keyboard And Touch Interaction
 
-**Topbar 内容**
+| Input | Action |
+| --- | --- |
+| `UP` / `DOWN` | Select an observed profile |
+| `ENTER` | Open the apply confirmation for the selected profile |
+| `S` | Start or stop the probe |
+| `ESC` / Back | Close the dialog or leave the page |
+| Tap/click a result row | Select that profile |
+| Tap/click bottom `SET` or `START/STOP` | Same action as the matching key |
 
-* 左：`SUB-GHz SCAN`，字号 **18**，Text
-* 右：两个状态标签（文字 13，TextDim / Info）
+The bottom bar reflects the active state by displaying `S START` before a
+probe starts and `S STOP` while it owns the radio.
 
-  * `RSSI`（默认 TextDim；工作中用 AmberDark）
-  * `CAD`（开启时 Info）
+## Confirmation Overlay
 
-> 高 PPI 下，Topbar 文字 18 才“像标题”。
+Applying a result is intentionally not a one-key operation.
 
----
+```
+                  +----------------------------+
+                  | APPLY OBSERVED PROFILE?    |
+                  | 433.550 MHz                |
+                  | BW 250k  SF11  CR4/5       |
+                  | [ESC CANCEL] [ENTER APPLY] |
+                  +----------------------------+
+```
 
-### B) 主区（28 以下的 194 px 高度）
-
-主区 y=28，h=194，左右分栏：
-
-* **左侧频谱面板：w=332**
-* **右侧信息面板：w=480-12-10-12-332 = 114**（更窄，但我们减少字段 + 放大关键数）
-
-外边距：12，栏间距：10。
-
----
-
-## 4) 左侧：频谱面板（重点：图更清晰）
-
-* Panel：x=12,y=40,w=332,h=170
-* 边框：2px Line
-* 内边距：10
-
-### 左面板内部
-
-#### 1) Plot 区
-
-* x=22,y=50,w=312,h=118
-* 网格线：每 26px 一条横线（1px，Line，OPA 50）
-* 柱：4px 宽，2px 间距
-
-  * 正常柱：Amber
-  * 超阈值柱：Warn
-* 光标竖线：2px，Info
-* 光标底部小三角：Info（更容易定位）
-
-#### 2) 底部频率刻度条（更“可读”）
-
-* x=22,y=172,w=312,h=28
-* 左：起始频率（14px，Text）
-* 中：`STEP 25k`（12px，TextDim）
-* 右：终止频率（14px，Text）
-
-> 刻度条高度提升到 28，是为了让 12–14px 字在 2.33" 上不拥挤。
-
----
-
-## 5) 右侧：信息面板（只保留“对操作有用”的字段）
-
-* Panel：x=354,y=40,w=114,h=170
-* 边框：2px Line
-* 内边距：8
-
-### 右面板内容（从上到下，强层级）
-
-1. **CURSOR 频点（最大）**
-
-* `433.550`：字号 **20**，Text
-* `MHz`：字号 12，TextDim（贴右上或紧跟）
-
-2. **RSSI（第二层级）**
-
-* `-92 dBm`：字号 **18**，Text（超阈值改 Warn）
-
-3. **BEST（建议频点）**
-
-* `434.125`：字号 **16**，Ok
-* 下方小字：`SNR +12`（12，TextDim）
-
-4. **进度条 + 百分比（底部）**
-
-* 进度条：h=12，边框 2px Line
-* 填充：AmberDark
-* 右侧 `72%`：12，TextDim
-
-5. **按钮（并排，单行）**
-
-* y = 面板底部 - 28 - 8
-* 两个按钮各 w= (114-8-6)/2 ≈ 50
-* h=28（触控/可读都够）
-* `STOP/SCAN`：底 Amber（扫描中 STOP 用 Warn）
-* `AUTO`：边框 Info（开启时），默认 Line
-
-> 右侧很窄，所以**把单位、标签都做小字**，把数字做大字，扫一眼就懂。
-
----
-
-## 6) 你上一张效果图里“不符合高 PPI 的点”我已经修了
-
-* 1px 边框会显“发虚” → 全部改 2px
-* 柱太细会像噪点 → 柱宽 4px + 间距 2px
-* 信息太多会挤小字 → 右侧只保留 Cursor/RSSI/Best/Progress
-* 按钮做大但不占两行 → 并排一行
-
----
-
-## 7) LVGL 实现提示（不写代码，只说关键参数）
-
-* Panel border width：2
-* 字体：Title 18 / Big number 20 / Mid 16–18 / Small 12–13
-* 网格线：Line + opa 50
-* 柱：用 canvas 或 chart，自绘柱子更可控（4px 宽）
-
+The full-screen scrim is warm dark brown at 50 percent opacity. The modal is
+warm white with a 2 px amber border and 8 px radius, matching the existing
+tracker confirmation treatment. `Cancel` owns initial focus. Arrow left/right
+moves between the two actions; Enter applies only after Apply is focused.

@@ -322,7 +322,7 @@ set(TRAIL_MATE_LINUX_UI_SHELL_SOURCES
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/route_topbar.c"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/Satellite.c"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/Setting.c"
-    "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/Spectrum.c"
+    "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/radar.c"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/sstv.c"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/sos.c"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/assets/shutdown.c"

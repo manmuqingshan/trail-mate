@@ -1,375 +1,92 @@
-它实现了什么功能？
+# Packet Probe
 
-## 1️⃣ 实时频段能量扫描（Energy Sweep）
+## Purpose
 
-左侧柱状图表示：
+Packet Probe replaces the former RSSI-oriented Energy Sweep page. Its question is
+not whether a frequency range contains energy. It asks whether an active Trail
+Mate air protocol can be observed on a concrete set of LoRa air parameters.
 
-* X 轴：频率区间（例如 433.050 → 434.790 MHz）
-* Y 轴：RSSI 强度
-* 每根柱：一个步进频点的瞬时/平均功率
+The internal application id and source directory stay `energy_sweep` for
+navigation and migration compatibility. The user-facing name is `Packet Probe`.
 
-它的意义是：
+## Evidence Contract
 
-* 快速查看该频段是否拥挤
-* 判断是否存在强干扰
-* 观察噪声底（Noise Floor）
-* 找出峰值位置
+An observed profile is created only when all of the following are true:
 
-这不是 SDR 级 FFT，而是 **工程级信道占用判断工具**。
+1. The radio reports RX_DONE and provides a packet that has passed the radio
+   CRC path.
+2. The receiver was configured with the candidate frequency, bandwidth,
+   spreading factor, coding rate, preamble, sync word, and CRC length.
+3. The packet has passed a structural parser for the active protocol:
+   Meshtastic wire framing or MeshCore packet framing.
 
----
+The page displays the profile and its evidence-packet count. It deliberately
+does not expose business-packet labels such as position, node info, or telemetry.
+No simulator path may produce evidence packets. A candidate with no evidence is
+not a negative finding; it means only that the current dwell did not observe one.
 
-## 2️⃣ 精确频点分析（Cursor 模式）
+The first version's evidence level is radio CRC plus structural protocol
+validation. It is a strong discovery signal but is not authenticated proof of a
+channel key. A future evidence-level upgrade can use the active adapter's full
+decrypt/MAC validation while preserving the same UI result model.
 
-右侧 CURSOR 区域实现：
+## Candidate Plan And Timing
 
-* 当前指向频点（433.550 MHz）
-* 该频点 RSSI
-* 当前噪声水平
+Candidates are generated from the active protocol's regional frequency span and
+currently active LoRa parameters. The center frequencies are quantized to 25
+kHz, limited to 96 candidates, and adjusted to keep the configured bandwidth in
+the regional range.
 
-这让它从“观察”变成“测量”。
+Each candidate receives a 700 ms dwell. A typical 70-candidate pass is about 49
+seconds before radio retuning overhead. One valid packet is an immediate positive
+result. Multiple passes increase coverage for intermittent traffic, but the UI
+must never label a silent candidate as absent or unused.
 
-你不只是看到一堆柱子，而是可以：
+## Radio Ownership And Apply Flow
 
-* 精确读取某个频点的功率
-* 判断是否可用
-* 判断是否存在连续干扰
+The probe obtains the exclusive LoRa runtime only while scanning. On each
+RX_DONE it copies the packet into caller-owned scratch storage, clears IRQ flags,
+and restarts reception. Leaving, stopping, or applying releases the runtime and
+returns the radio to mesh ownership.
 
----
+Applying a selected result is an explicit two-step action:
 
-## 3️⃣ 自动最优信道选择（Best Channel Detection）
+1. The user selects an observed profile and opens the confirmation dialog.
+2. On confirmation, the page stops probing, releases the temporary radio
+   session, updates configuration in a `beginConfigEdit()` transaction, commits
+   `AppConfigChangeSet::mesh()`, then calls `applyMeshConfig()`.
 
-BEST 区域实现：
+Meshtastic is switched to manual modem parameters with the observed center
+frequency as its override and zero frequency offset. MeshCore switches to its
+custom region values with the observed frequency, bandwidth, SF, and CR.
 
-* 计算“最干净”的频点
-* 显示推荐频率
-* 显示 SNR
+## Hardware Capability Model
 
-这一步非常关键，它实现了：
+| Radio | Current implementation | Result |
+| --- | --- | --- |
+| SX1262 | One frequency/BW/SF/CR receive configuration at a time | One single-SF lane scans candidates serially. |
+| LR1121 | The IC supports Multi-SF in its datasheet, but local RadioLib 7.4 integration exposes only normal single-profile receive and no packet-to-SF attribution API | The first release intentionally uses the same one-lane model. |
 
-> 从频谱数据 → 可行动建议
+The probe scheduler is profile-based so a future LR1121 POC can add a second
+same-frequency/BW SF lane. Enabling that needs all of the following real-device
+proof: RadioLib configuration support, RX_DONE packet retrieval for both SFs,
+and reliable attribution of each received packet to its SF. Until then the UI
+and evidence count make no multi-SF claim.
 
-它不只是显示世界，而是**给出决策结果**。
+## Pager UI Specification
 
----
+The 480x222 Pager page follows the Map page language:
 
-## 4️⃣ 扫描进度管理
+- A 30 px amber top bar titled `PACKET PROBE`.
+- An unframed, full-width work area containing the observed-profile list only.
+  The selected row is highlighted in place; there is no repeated detail panel,
+  which keeps the page viable on T-Deck-class narrow displays.
+- Observed rows show `frequency`, `BW/SF/CR`, and `x evidence-count` only.
+- A 24 px Map-style bottom bar: `UP/DN Select`, `ENTER Set`, `S Start/Stop`,
+  and `ESC Back`.
+- Selecting `Set` opens a dimmed warm-white modal. `Cancel` is the default
+  focus; `ESC` cancels and `ENTER` applies after the user has moved focus to
+  Apply.
 
-72% 进度条说明：
-
-* 扫描是区间遍历
-* 用户知道系统状态
-* 避免“卡住”误解
-
-这提升了工程可用性。
-
----
-
-## 5️⃣ 扫描控制（STOP / AUTO）
-
-* STOP：终止扫描
-* AUTO：自动选择最佳信道
-
-这意味着：
-
-这个页面已经从“只读显示器”
-变成了
-“频段管理工具”。
-
----
-
-# 二、这个界面在系统层面的意义
-
-在 Trail-Mate 架构里，这个页面完成的是：
-
-### 🛰 频谱态势感知（RF Situational Awareness）
-
-它回答：
-
-* 现在这个频段干净吗？
-* 是否有强占用？
-* 我的 LoRa 该选哪个频点？
-* 是否存在持续干扰源？
-
-它是一个“战术前侦查页面”。
-
----
-
-# 三、它属于什么级别的功能？
-
-不是：
-
-* ❌ 频谱仪
-* ❌ SDR 分析工具
-
-而是：
-
-* ✅ 信道规划工具
-* ✅ 干扰检测工具
-* ✅ 频段健康监测器
-* ✅ 自动选频前置模块
-
----
-
-# 四、从用户视角来看
-
-这个界面完成的是：
-
-> “在野外部署前，快速检查当前 Sub-GHz 频段是否适合通信。”
-
-这对于：
-
-* LoRa mesh
-* FSK 语音
-* APRS
-* 临时战术部署
-
-都非常实用。
-
----
-
-# 五、它的核心能力总结
-
-这个 UI 实现了：
-
-| 能力            | 是否实现 |
-| ------------- | ---- |
-| 频段扫描          | ✅    |
-| 功率可视化         | ✅    |
-| 精确频点读取        | ✅    |
-| 最佳信道推荐        | ✅    |
-| 扫描控制          | ✅    |
-| LoRa CAD 状态展示 | ✅    |
-
-下面按“你这个界面对应的能力”把**算法 + 功能实现方案**讲清楚，目标是：用 SX1262 在 MCU 上做一个**可用的能量扫描/信道选择器**（不是 FFT 频谱仪）。
-
----
-
-## 1) 总体架构
-
-**输入**：频段范围（f_start, f_end）、步进（step）、每点采样时长（dwell）、采样次数（N）
-**输出**：每个频点的能量值（RSSI/ED）、噪声底（noise floor）、最佳频点（best channel）、峰值/干扰标记、扫描进度
-
-数据流：
-
-1. 扫频采样 → 得到 `rssi[f_i]`
-2. 估计噪声底 → 得到 `noise_floor`
-3. 计算评分/选优 → 得到 `best_freq`
-4. UI 渲染：柱状图、cursor、RSSI/NOISE/BEST、进度
-
----
-
-## 2) 扫频采样算法（核心）
-
-### 2.1 频点序列
-
-把频率离散化：
-
-* `bins = floor((f_end - f_start)/step) + 1`
-* `f_i = f_start + i * step`
-
-**步进怎么选（工程上）**
-
-* 想“看干扰哪里高”：`step = 25 kHz` 或 `50 kHz` 足够
-* 想“粗扫很快”：`step = 100 kHz`
-* 如果你 LoRa 频道带宽是 125 kHz，你用 25 kHz 扫描能更精细地看占用“峰”的位置（但更慢）
-
-### 2.2 每个频点怎么测“能量”
-
-SX1262 拿不到 IQ，所以只能用“能量指标”。最常见是 **Instant RSSI** 或类似 ED 指标（取决于你用的库/驱动暴露的命令）。
-
-每个频点做：
-
-1. `SetRfFrequency(f_i)`
-2. 进入 RX（可以是 LoRa RX 或 FSK RX，关键是能读到 RSSI）
-3. 等待 **settle**（本振/AGC 稳定）：`t_settle ≈ 1~3 ms`
-4. 采样 N 次瞬时 RSSI：每次间隔 `t_gap ≈ 1~2 ms`
-5. 得到该频点值 `P_i`
-
-**P_i 不要直接用平均值（会被突发信号骗）**
-推荐三种稳健聚合方式：
-
-* **median（中位数）**：抗突发、抗偶发尖峰（推荐默认）
-* **trimmed mean（去头去尾均值）**：丢掉最高/最低各 10~20%
-* **EMA（指数滑动均值）**：适合连续扫描实时更新
-
-> 我建议默认：`P_i = median(rssi_samples)`
-
-### 2.3 扫描速度估算（让 UI 不卡）
-
-总时间大约：
-
-`T ≈ bins * (t_settle + N*(t_gap + t_read))`
-
-例如：
-
-* 频段宽 1.74 MHz（433.050–434.790）
-* step=25 kHz → bins≈70
-* t_settle=2ms, N=6, t_gap=1ms
-  → 单 bin ~ 2 + 6*(1+读寄存器开销) ≈ 10ms
-  → 总计 ~ 700ms（很好用）
-
----
-
-## 3) 噪声底（NOISE）如何估计
-
-你界面右侧有 `NOISE -104 dBm`，这不是芯片“真噪声”，而是你对扫描数据的统计估计。
-
-### 3.1 推荐方法：分位数/中位数 + 偏置
-
-因为频段里可能有很多峰，直接平均会被抬高。
-
-* `noise_floor = percentile(P, 20%)` 或 `median(P)`
-* 然后再做一个轻微平滑：`noise = 0.7*noise + 0.3*noise_floor`（跨帧稳定）
-
-### 3.2 为什么用 20% 分位数
-
-* 频段里如果有少数强信号，它们只占少量 bins
-* 20% 分位数更接近“底噪水平”
-* 你要的是“哪里比底噪高”，不是绝对精密测量
-
----
-
-## 4) 峰值/干扰标记（柱子变红）
-
-UI 中红柱代表“干扰/占用较强”。规则建议：
-
-* `threshold = noise + margin`
-* margin 典型：`6 dB ~ 12 dB`（看你希望多敏感）
-* 若 `P_i > threshold` → 标红（Warn）
-* 若 `P_i > threshold + 10 dB` → 可以加一个“尖峰标记”（小三角）
-
-为了避免抖动，给红柱加**滞回**：
-
-* 进入红色：`P_i > noise + 10 dB`
-* 退出红色：`P_i < noise + 7 dB`
-
----
-
-## 5) CURSOR（指针）怎么实现
-
-Cursor 有两种交互模式：
-
-### 5.1 自动跟随（扫描中）
-
-* cursor_index = 当前正在采样的 bin
-* UI 每采完一个 bin，就移动光标竖线
-
-### 5.2 手动浏览（扫描结束/暂停）
-
-* 按键左右移动 cursor_index
-* 右侧显示 `freq[cursor]`、`P_cursor`、`noise`
-
-光标竖线 + 底部小三角只是渲染层，数据来自数组即可。
-
----
-
-## 6) BEST（最佳信道）如何选
-
-你要的是“最干净、最适合通信”的频点。简单选最小 RSSI 不够，因为：
-
-* 单点最低可能是偶然低谷
-* LoRa/FSK 发射占带宽，不是一个点
-
-### 6.1 “带宽窗口”评分（推荐）
-
-设通信带宽 `BW`（例如 125k），换算成需要覆盖的 bin 数：
-
-* `k = ceil(BW / step)`
-* 对每个中心 bin i，计算窗口内的“最坏情况”：
-
-  * `score_i = max(P[i - k/2 ... i + k/2])`
-* 选择 score 最小的 i 作为 best
-
-这会避免选到“旁边有大峰”的位置。
-
-### 6.2 加上保护间隔（guard）
-
-LoRa 频偏/温漂/邻道干扰都存在，可以再加 guard，例如 ±1~2 个 bin 也纳入窗口。
-
----
-
-## 7) SNR +12 怎么来？
-
-在你这个“能量扫描”场景里，SNR 是**估算值**：
-
-* `snr_est = noise - P_best`  （注意 dBm 越小越弱，所以符号要小心）
-  更直观写法：
-* `snr_est = (P_best - noise)`，如果 P_best 比 noise 高就是负数；但你 UI 里显示 +12，代表你希望“越干净越大”。
-
-所以建议定义为：
-
-* `cleanliness = noise - P_best`（越大越干净）
-* 显示：`SNR +cleanliness`
-
-例如：noise=-104, best=-116 → cleanliness=12 → `SNR +12`（符合 UI）
-
----
-
-## 8) CAD（LoRa preamble 检测）怎么融合
-
-CAD 不是全频谱扫描，它是“在某个频点上检测是否存在 LoRa 前导码”。
-
-你 UI 顶部的 `CAD` 可以这样实现：
-
-* 当用户开启 CAD：
-
-  * 每次扫描到某个 bin，如果你关心该点是否有 LoRa，执行一次 CAD
-  * 得到 `cad_detected`（布尔）
-  * 如果 detected：给该 bin 做一个“蓝色小点/标记”，或者让状态灯闪一下
-
-但要注意：**CAD 会增加耗时**，所以策略上可以：
-
-* 只对“疑似忙碌”的 bins（P_i > noise+X）做 CAD
-* 或者扫描完成后，对 best 候选点做 CAD 复核
-
----
-
-## 9) 进度条与 STOP/AUTO 行为
-
-### 9.1 进度条
-
-* `progress = scanned_bins / bins`
-* UI 每完成一个 bin 更新一次（不要每次采样更新，UI 会抖）
-
-### 9.2 STOP
-
-* 设置一个 `scan_abort` 标志
-* 每个 bin 结束检查一次，立即退出
-* UI 状态切换到“冻结显示 + 可移动 cursor”
-
-### 9.3 AUTO
-
-* 触发 best 计算
-* 并把无线模块的工作频点切换到 best
-* （可选）保存到配置：让下一次上电沿用
-
----
-
-## 10) 如果你要更“专业”的两点增强
-
-### A) 动态中心频率校准（你之前提过）
-
-如果你担心频偏/温漂导致“峰”位置漂：
-
-* 在每个 bin 的 dwell 中，取前 2ms 的样本作为快速估计
-* 用它对后续样本做轻微校正（本质是稳定统计，不是真频偏补偿）
-  更实际的做法：**只做 UI 平滑**，别做“频率校准”的强承诺。
-
-### B) 多帧叠加（历史底噪）
-
-维护 `P_i_hist` 的 EMA：
-
-* `P_i = 0.6*P_i + 0.4*P_i_prev`
-  这样界面更稳，像“仪表”而不是“闪动的噪声”。
-
----
-
-## 11) 你最终会得到什么？
-
-* 一个频段扫描器（几十~几百 ms 出结果）
-* 可视化占用峰（红柱）
-* 可读的底噪估计（NOISE）
-* 可行动的推荐频点（BEST + 清洁度）
-* 可选的 LoRa CAD 复核
-* 并能一键 AUTO 切换工作信道
+The page has no RSSI graph, CAD badge, noise estimate, quietest-channel score,
+or AUTO action. Those measurements cannot establish protocol-channel presence.

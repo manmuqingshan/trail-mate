@@ -49,6 +49,7 @@ bool s_real_driver = false;
 bool s_restore_config_valid = false;
 ::platform::linux_runtime::Sx126xLoRaConfig s_restore_config{};
 std::string s_capability_message{};
+::platform::linux_runtime::Sx126xPacket s_packet_scratch{};
 
 bool env_flag_or_default(const char* name, bool fallback)
 {
@@ -232,6 +233,28 @@ float read_instant_rssi()
         return ::platform::linux_runtime::Sx126xRadio::instance().readRssi();
     }
     return current_rssi_locked();
+}
+
+bool poll_received_packet(uint8_t* buffer, std::size_t capacity, ReceivedPacket* out_packet)
+{
+    std::lock_guard<std::mutex> lock(s_mutex);
+    if (!s_acquired || !s_configured || !s_real_driver || !buffer || capacity == 0 ||
+        !out_packet)
+    {
+        return false;
+    }
+
+    if (!::platform::linux_runtime::Sx126xRadio::instance().pollReceive(&s_packet_scratch) ||
+        s_packet_scratch.size == 0 || s_packet_scratch.size > capacity)
+    {
+        return false;
+    }
+
+    std::memcpy(buffer, s_packet_scratch.data.data(), s_packet_scratch.size);
+    out_packet->size = s_packet_scratch.size;
+    out_packet->rssi_dbm = s_packet_scratch.rssi_dbm;
+    out_packet->snr_db = s_packet_scratch.snr_db;
+    return true;
 }
 
 void release()

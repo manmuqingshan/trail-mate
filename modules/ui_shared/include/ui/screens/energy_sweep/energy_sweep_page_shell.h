@@ -1,6 +1,6 @@
 /**
  * @file energy_sweep_page_shell.h
- * @brief Shared Energy Sweep page shell entrypoints
+ * @brief Shared Packet Probe page shell entrypoints
  */
 
 #pragma once

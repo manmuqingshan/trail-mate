@@ -65,6 +65,47 @@ float read_instant_rssi()
     return std::isfinite(rssi) ? rssi : std::numeric_limits<float>::quiet_NaN();
 }
 
+bool poll_received_packet(uint8_t* buffer, std::size_t capacity, ReceivedPacket* out_packet)
+{
+    constexpr uint32_t kIrqRxDone = 0x0002u;
+    if (!buffer || capacity == 0 || !out_packet || !radio().isOnline())
+    {
+        return false;
+    }
+
+    const uint32_t irq = radio().getIrqFlags();
+    if ((irq & kIrqRxDone) == 0u)
+    {
+        if (irq != 0u)
+        {
+            radio().clearIrqFlags(irq);
+            (void)radio().startReceive();
+        }
+        return false;
+    }
+
+    const int packet_size = radio().getPacketLength(true);
+    const bool packet_fits = packet_size > 0 &&
+                             static_cast<std::size_t>(packet_size) <= capacity;
+    const int read_state = packet_fits
+                               ? radio().readPacket(buffer, static_cast<std::size_t>(packet_size))
+                               : -1;
+    const float rssi_dbm = packet_fits ? radio().readRssi() : 0.0f;
+
+    radio().clearIrqFlags(irq);
+    (void)radio().startReceive();
+
+    if (!packet_fits || read_state != 0)
+    {
+        return false;
+    }
+
+    out_packet->size = static_cast<std::size_t>(packet_size);
+    out_packet->rssi_dbm = rssi_dbm;
+    out_packet->snr_db = std::numeric_limits<float>::quiet_NaN();
+    return true;
+}
+
 void release()
 {
     radio().release();
