@@ -107,6 +107,7 @@ class FakeVoiceRuntime final : public ui::chat_voice::IVoiceMessageRuntime
 void test_unbound_runtime_is_safe()
 {
     ui::chat_voice::setRuntime(nullptr);
+    assert(!ui::chat_voice::isRuntimeBound());
     assert(!ui::chat_voice::isAvailable());
     assert(!ui::chat_voice::canRecordAndSend());
     assert(ui::chat_voice::requestRecordAndSend({1U, 1U, 0U}) ==
@@ -118,6 +119,7 @@ void test_runtime_forwards_without_transport_coupling()
     FakeVoiceRuntime runtime{};
     ui::chat_voice::setRuntime(&runtime);
 
+    assert(ui::chat_voice::isRuntimeBound());
     assert(ui::chat_voice::isAvailable());
     assert(ui::chat_voice::canRecordAndSend());
     assert(ui::chat_voice::requestRecordAndSend({0x11223344U, 1U, 1U}) ==
@@ -134,6 +136,9 @@ void test_runtime_forwards_without_transport_coupling()
     runtime.available = false;
     runtime.send_available = false;
     runtime.result = ui::chat_voice::StartResult::PrivateContactUnverified;
+    // Runtime binding is stable across transient storage/carrier readiness.
+    // Compose uses this state to keep the compact Voice control visible.
+    assert(ui::chat_voice::isRuntimeBound());
     assert(!ui::chat_voice::isAvailable());
     assert(!ui::chat_voice::canRecordAndSend());
     assert(ui::chat_voice::requestRecordAndSend({0x55667788U, 4U, 0U}) ==
@@ -164,6 +169,7 @@ void test_runtime_forwards_without_transport_coupling()
     assert(runtime.played_id == summaries[0].local_id);
 
     ui::chat_voice::setRuntime(nullptr);
+    assert(!ui::chat_voice::isRuntimeBound());
 }
 
 } // namespace

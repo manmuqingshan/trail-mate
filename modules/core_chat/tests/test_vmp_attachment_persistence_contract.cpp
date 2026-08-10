@@ -63,6 +63,8 @@ int main(int argc, char** argv)
         root / "modules/ui_shared/src/ui/screens/chat/chat_ui_controller.cpp");
     const std::string chat_compose = readFile(
         root / "modules/ui_shared/src/ui/screens/chat/chat_compose_components.cpp");
+    const std::string chat_voice_runtime = readFile(
+        root / "modules/ui_shared/src/ui/chat_voice_runtime.cpp");
 
     const std::size_t store_completed = positionOf(session, "bool storeCompletedVoice(");
     const std::size_t outbound_store = positionOf(session, "bool storeOutboundVoice()");
@@ -109,6 +111,12 @@ int main(int argc, char** argv)
            std::string::npos);
     assert(chat_controller.find("::ui::chat_voice::listReceivedMessages(") ==
            std::string::npos);
+    // Durable attachment recovery is intentionally a send gate, never a
+    // reason to hide the supported Pager's only voice affordance.
+    assert(chat_voice_runtime.find("bool isRuntimeBound()") != std::string::npos);
+    assert(chat_controller.find("setVoiceButton(\"Voice\", voice_runtime_bound)") !=
+           std::string::npos);
+    assert(chat_controller.find("Hold to talk") == std::string::npos);
     // Typed attachments have the same conversation boundary as text: a peer
     // number alone is insufficient because channels and mesh backends can
     // legitimately reuse it. The logical chat channel is part of VMP control

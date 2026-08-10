@@ -5,6 +5,12 @@
  * The shared chat UI depends on this port instead of a radio, MQTT, or chat
  * transport implementation. Registering an implementation is optional; on
  * devices without VMP support the compose screen simply has no voice action.
+ *
+ * A registered runtime and a runtime that is immediately ready to send are
+ * intentionally different states.  The latter can be delayed while the
+ * durable attachment inbox is restored after boot.  Compose uses the bound
+ * state to keep its Voice control discoverable, and uses send readiness only
+ * to report why a press cannot yet begin recording.
  */
 
 #pragma once
@@ -91,6 +97,14 @@ class IVoiceMessageRuntime
 
 /** @brief Binds the device-specific VMP service during platform startup. */
 void setRuntime(IVoiceMessageRuntime* runtime);
+
+/**
+ * @brief True when this device has registered its isolated VMP integration.
+ *
+ * This is a UI affordance capability, not a readiness check: a bound Pager
+ * keeps the compact Voice control visible while durable storage is restoring.
+ */
+bool isRuntimeBound();
 
 /** @brief True only when this device has initialized an isolated VMP service. */
 bool isAvailable();

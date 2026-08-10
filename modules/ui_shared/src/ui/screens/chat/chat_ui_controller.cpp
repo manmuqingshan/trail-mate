@@ -1585,7 +1585,20 @@ void UiController::switchToCompose(chat::ConversationId conv)
     std::string header = "[" + std::string(protocol_short_label(conv.protocol)) + "] " + title;
     compose_->setHeaderText(header.c_str(), nullptr);
 #if !defined(ARDUINO_T_WATCH_S3)
-    compose_->setVoiceButton("Hold to talk", ::ui::chat_voice::canRecordAndSend());
+    // Durable VMP attachment recovery happens after the main UI is usable.
+    // That transient readiness state must never remove the only recording
+    // affordance from a supported Pager.  A press reports the exact current
+    // state instead; unsupported boards have no bound VMP runtime and still
+    // do not show this control.
+    const bool voice_runtime_bound = ::ui::chat_voice::isRuntimeBound();
+    const bool voice_send_ready = ::ui::chat_voice::canRecordAndSend();
+    compose_->setVoiceButton("Voice", voice_runtime_bound);
+    CHAT_UI_LOG("[ChatUiTrace][VMP] compose voice bound=%u send_ready=%u protocol=%u channel=%u peer=%08lX\n",
+                voice_runtime_bound ? 1U : 0U,
+                voice_send_ready ? 1U : 0U,
+                static_cast<unsigned>(conv.protocol),
+                static_cast<unsigned>(conv.channel),
+                static_cast<unsigned long>(conv.peer));
 #else
     compose_->setPositionButton(nullptr, false);
 #endif
@@ -2788,7 +2801,7 @@ void UiController::handleComposeAction(ChatComposeScreen::ActionIntent intent)
             voice_hold_active_ = true;
             voice_hold_started_ms_ = lv_tick_get();
             voice_hold_last_render_ms_ = voice_hold_started_ms_;
-            compose_->setVoiceButton("Release 0.0s", true);
+            compose_->setVoiceButton("Release", true);
             compose_->setHeaderText(nullptr, "REC 0.0s/5");
             CHAT_UI_LOG("[ChatUiTrace][VMP] voice press queued target=%08lX\n",
                         static_cast<unsigned long>(current_conv_.peer));
@@ -2801,7 +2814,10 @@ void UiController::handleComposeAction(ChatComposeScreen::ActionIntent intent)
             return;
         case ::ui::chat_voice::StartResult::Unsupported:
         default:
-            ::ui::feedback::show_notice("Voice unavailable on this device", 2000);
+            CHAT_UI_LOG("[ChatUiTrace][VMP] voice press rejected result=unsupported bound=%u send_ready=%u\n",
+                        ::ui::chat_voice::isRuntimeBound() ? 1U : 0U,
+                        ::ui::chat_voice::canRecordAndSend() ? 1U : 0U);
+            ::ui::feedback::show_notice("Voice storage loading; try again", 2000);
             return;
         }
     }

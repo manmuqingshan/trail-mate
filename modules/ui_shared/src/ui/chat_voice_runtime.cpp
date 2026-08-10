@@ -19,6 +19,11 @@ void setRuntime(IVoiceMessageRuntime* runtime)
     s_runtime = runtime;
 }
 
+bool isRuntimeBound()
+{
+    return s_runtime != nullptr;
+}
+
 bool isAvailable()
 {
     return s_runtime && s_runtime->isAvailable();
