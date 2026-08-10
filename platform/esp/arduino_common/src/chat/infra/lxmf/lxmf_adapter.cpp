@@ -5,11 +5,14 @@
 
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_adapter.h"
 
+#include "platform/esp/arduino_common/voice/vmp_pager_session.h"
+
 #include "chat/domain/contact_types.h"
 #include "chat/domain/reticulum_identity.h"
 #include "chat/infra/meshcore/crypto/ed25519/ed_25519.h"
 #include "chat/infra/reticulum/audio_call_wire.h"
 #include "chat/infra/reticulum/lxst_telephony_wire.h"
+#include "chat/infra/voice/vmp_private_crypto.h"
 #include "chat/time_utils.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_call_profile.h"
 #include "platform/esp/arduino_common/chat/infra/lxmf/lxmf_delivery_runtime.h"
@@ -2639,6 +2642,36 @@ bool LxmfAdapter::broadcastSelfIdentity()
 NodeId LxmfAdapter::getNodeId() const
 {
     return identity_.nodeId();
+}
+
+bool LxmfAdapter::deriveVmpContactSecret(NodeId peer_id, uint8_t out_secret[32])
+{
+    if (!out_secret || peer_id == 0U ||
+        peer_id == ::chat::voice::vmp::kBroadcastTargetId ||
+        !identity_.isReady())
+    {
+        return false;
+    }
+    const PeerInfo* const peer = findOrLoadPeerByNodeId(peer_id);
+    if (!peer || isZeroBytes(peer->enc_pub, sizeof(peer->enc_pub)))
+    {
+        return false;
+    }
+
+    uint8_t identity_shared_secret[LxmfIdentity::kEncPubKeySize] = {};
+    const bool derived = identity_.deriveSharedSecret(peer->enc_pub, identity_shared_secret) &&
+                         ::chat::voice::vmp::deriveVmpContactSecret(
+                             identity_shared_secret,
+                             ::chat::voice::vmp::ContactSecretIdentityFamily::Reticulum,
+                             identity_.nodeId(),
+                             peer_id,
+                             out_secret);
+    volatile uint8_t* const cursor = identity_shared_secret;
+    for (std::size_t index = 0U; index < sizeof(identity_shared_secret); ++index)
+    {
+        cursor[index] = 0U;
+    }
+    return derived;
 }
 
 bool LxmfAdapter::getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const
@@ -9571,6 +9604,24 @@ bool LxmfAdapter::acceptVerifiedEnvelopeForDestination(
 
     if (delivery.kind == runtime::LxmfDeliveryKind::AppData)
     {
+        if (delivery.app_data.incoming.portnum ==
+            ::platform::esp::arduino_common::voice::vmp_session::kLxmfAppDataPort)
+        {
+            const bool accepted =
+                ::platform::esp::arduino_common::voice::vmp_session::acceptLxmfEnvelope(
+                    delivery.app_data.incoming.from,
+                    delivery.app_data.payload.empty() ? nullptr
+                                                      : delivery.app_data.payload.data(),
+                    delivery.app_data.payload.size());
+            // VMP is terminal at the local voice inbox.  Even malformed VMP
+            // traffic is consumed here so it can never become generic app data
+            // that a later service might resend or bridge to another bearer.
+            Serial.printf("[VMP][LXMF] inbound from=%08lX bytes=%u local_only=%u\n",
+                          static_cast<unsigned long>(delivery.app_data.incoming.from),
+                          static_cast<unsigned>(delivery.app_data.payload.size()),
+                          accepted ? 1U : 0U);
+            return true;
+        }
         ::chat::infra::IncomingQueuePushReport report{};
         if (data_receive_queue_.push(delivery.app_data.incoming,
                                      delivery.app_data.payload.empty() ? nullptr

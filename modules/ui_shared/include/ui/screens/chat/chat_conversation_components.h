@@ -11,6 +11,7 @@
 #include "chat/domain/chat_types.h"
 #include "chat_conversation_input.h"
 #include "lvgl.h"
+#include "ui/chat_voice_runtime.h"
 #include "ui/components/shortcut_help_modal.h"
 #include "ui/widgets/map/map_viewport.h"
 #include "ui/widgets/top_bar.h"
@@ -51,6 +52,8 @@ class ChatConversationScreen
     ~ChatConversationScreen();
 
     void addMessage(const ::ui::chat::MessageRow& row);
+    /** @brief Adds one local-only, click-to-play VMP voice bubble. */
+    void addVoiceMessage(const ::ui::chat_voice::MessageSummary& summary);
     void clearMessages();
     void scrollToTop();
     void scrollToBottom();
@@ -149,6 +152,11 @@ class ChatConversationScreen
         ::ui::chat::MessageRef ref;
     };
 
+    struct VoicePlaybackContext
+    {
+        uint64_t local_id = 0U;
+    };
+
     lv_obj_t* container_ = nullptr;
     ::ui::widgets::TopBar top_bar_{};
     lv_obj_t* body_row_ = nullptr;
@@ -188,6 +196,7 @@ class ChatConversationScreen
         lv_obj_t* time_label = nullptr;   // inside meta row
         lv_obj_t* status_label = nullptr; // inside meta row
         std::unique_ptr<MessageActionContext> retry_ctx;
+        std::unique_ptr<VoicePlaybackContext> voice_playback_ctx;
         bool retry_enabled = false;
     };
 
@@ -224,6 +233,7 @@ class ChatConversationScreen
 
     static void action_event_cb(lv_event_t* e);
     static void message_action_event_cb(lv_event_t* e);
+    static void voice_message_event_cb(lv_event_t* e);
     static void scroll_event_cb(lv_event_t* e);
     static void async_action_cb(void* user_data);
     static void async_message_action_cb(void* user_data);

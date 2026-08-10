@@ -74,6 +74,8 @@ class LxmfAdapter : public IMeshAdapter, private runtime::IPeerProjectionSink
     bool requestNodeInfo(NodeId dest, bool want_response) override;
     bool broadcastSelfIdentity() override;
     NodeId getNodeId() const override;
+    /** Derives a domain-separated VMP contact secret from the peer LXMF identity. */
+    bool deriveVmpContactSecret(NodeId peer_id, uint8_t out_secret[32]);
     bool getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const override;
     MeshActionResult startReticulumAudioCall(
         const ReticulumPeerIdentity& destination) override;

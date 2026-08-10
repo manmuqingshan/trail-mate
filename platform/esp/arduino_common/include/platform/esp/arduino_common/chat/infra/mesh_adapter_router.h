@@ -28,6 +28,12 @@ class MeshAdapterRouter : public IMeshAdapter,
     IMeshAdapter* backendForProtocol(MeshProtocol protocol) override;
     const IMeshAdapter* backendForProtocol(MeshProtocol protocol) const override;
 
+    /**
+     * Pager-only bridge to a VMP-domain-separated secret of the active,
+     * verified contact identity. This deliberately is not part of IMeshAdapter.
+     */
+    bool deriveVmpContactSecret(NodeId peer_id, uint8_t out_secret[32]);
+
     MeshCapabilities getCapabilities() const override;
     bool sendText(ChannelId channel, const std::string& text,
                   MessageId* out_msg_id, NodeId peer = 0) override;

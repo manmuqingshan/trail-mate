@@ -48,7 +48,7 @@ struct ChatComposeScreen::Impl
         ActionIntent intent = ActionIntent::Send;
     };
     ActionContext send_ctx;
-    ActionContext position_ctx;
+    ActionContext auxiliary_ctx;
     ActionContext cancel_ctx;
     lv_obj_t* sym_btn = nullptr;
     lv_obj_t* emoji_btn = nullptr;
@@ -161,12 +161,12 @@ ChatComposeScreen::ChatComposeScreen(lv_obj_t* parent, chat::ConversationId conv
 
     impl_->send_ctx.screen = this;
     impl_->send_ctx.intent = ActionIntent::Send;
-    impl_->position_ctx.screen = this;
-    impl_->position_ctx.intent = ActionIntent::Position;
+    impl_->auxiliary_ctx.screen = this;
+    impl_->auxiliary_ctx.intent = ActionIntent::Position;
     impl_->cancel_ctx.screen = this;
     impl_->cancel_ctx.intent = ActionIntent::Cancel;
     lv_obj_add_event_cb(impl_->w.send_btn, on_action_click, LV_EVENT_CLICKED, &impl_->send_ctx);
-    lv_obj_add_event_cb(impl_->w.position_btn, on_action_click, LV_EVENT_CLICKED, &impl_->position_ctx);
+    lv_obj_add_event_cb(impl_->w.position_btn, on_action_click, LV_EVENT_CLICKED, &impl_->auxiliary_ctx);
     lv_obj_add_event_cb(impl_->w.cancel_btn, on_action_click, LV_EVENT_CLICKED, &impl_->cancel_ctx);
     lv_obj_add_event_cb(impl_->w.send_btn, on_key, LV_EVENT_KEY, this);
     lv_obj_add_event_cb(impl_->w.position_btn, on_key, LV_EVENT_KEY, this);
@@ -266,6 +266,38 @@ void ChatComposeScreen::setActionLabels(const char* send_label, const char* canc
 void ChatComposeScreen::setPositionButton(const char* label, bool visible)
 {
     if (!impl_ || !impl_->w.position_btn) return;
+    impl_->auxiliary_ctx.intent = ActionIntent::Position;
+    if (label)
+    {
+        set_btn_label_text(impl_->w.position_btn, label);
+        fit_btn_to_label(impl_->w.position_btn, 8);
+    }
+    if (visible)
+    {
+        lv_obj_clear_flag(impl_->w.position_btn, LV_OBJ_FLAG_HIDDEN);
+    }
+    else
+    {
+        lv_obj_add_flag(impl_->w.position_btn, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (lv_group_t* g = lv_group_get_default())
+    {
+        if (visible)
+        {
+            lv_group_add_obj(g, impl_->w.position_btn);
+        }
+        else
+        {
+            lv_group_remove_obj(impl_->w.position_btn);
+        }
+    }
+}
+
+void ChatComposeScreen::setVoiceButton(const char* label, bool visible)
+{
+    if (!impl_ || !impl_->w.position_btn) return;
+    impl_->auxiliary_ctx.intent = ActionIntent::Voice;
     if (label)
     {
         set_btn_label_text(impl_->w.position_btn, label);

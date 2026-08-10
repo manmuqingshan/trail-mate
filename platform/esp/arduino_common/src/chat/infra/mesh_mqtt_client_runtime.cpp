@@ -3,10 +3,12 @@
 #include "app/app_config.h"
 #include "app/app_facades.h"
 #include "chat/infra/meshtastic/mt_radio_config.h"
+#include "chat/infra/voice/vmp_mqtt_transport.h"
 #include "meshtastic/mesh.pb.h"
 #include "meshtastic/mqtt.pb.h"
 #include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_adapter.h"
 #include "platform/esp/arduino_common/chat/infra/meshtastic/mt_adapter.h"
+#include "platform/esp/arduino_common/voice/vmp_pager_session.h"
 #include "platform/ui/wifi_access_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 #include "sys/event_bus.h"
@@ -231,6 +233,7 @@ class PlainMqttRuntime
         if (protocol != chat::MeshProtocol::Meshtastic &&
             protocol != chat::MeshProtocol::MeshCore)
         {
+            ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkEnabled(false);
             stop("protocol");
             have_config_ = false;
             return;
@@ -240,6 +243,10 @@ class PlainMqttRuntime
         {
             refreshConfig(app_context, now_ms);
         }
+
+        ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkEnabled(
+            config_.configured && config_.protocol == RuntimeProtocol::Meshtastic &&
+            config_.uplink_enabled);
 
         if (!config_.configured)
         {
@@ -368,6 +375,8 @@ class PlainMqttRuntime
     std::array<char, 16> dns_secondary_scratch_{};
     std::array<uint8_t, kTxBufferSize> tx_{};
     std::array<uint8_t, kRxBufferSize> rx_{};
+    std::array<uint8_t, ::chat::voice::vmp::kMaxMqttEnvelopeSize>
+        vmp_publish_envelope_{};
     std::array<uint8_t, 32> discard_{};
     meshtastic_MqttClientProxyMessage mt_proxy_ = meshtastic_MqttClientProxyMessage_init_zero;
     meshtastic_MqttClientProxyMessage mt_publish_proxy_ =
@@ -1320,6 +1329,66 @@ class PlainMqttRuntime
                writePacket(pos, "puback");
     }
 
+    bool buildVmpTopic(char* out, std::size_t out_len) const
+    {
+        if (!out || out_len == 0U || config_.protocol != RuntimeProtocol::Meshtastic)
+        {
+            return false;
+        }
+        const int written = std::snprintf(
+            out,
+            out_len,
+            "%s/2/e/vmp",
+            config_.root[0] ? config_.root : kDefaultMeshtasticMqttRoot);
+        return written > 0 && static_cast<std::size_t>(written) < out_len;
+    }
+
+    bool isVmpTopic(const uint8_t* topic, std::size_t topic_len)
+    {
+        if (!topic || topic_len == 0U ||
+            !buildVmpTopic(publish_topic_, sizeof(publish_topic_)))
+        {
+            return false;
+        }
+        const std::size_t expected_len = std::strlen(publish_topic_);
+        return topic_len == expected_len &&
+               std::memcmp(topic, publish_topic_, expected_len) == 0;
+    }
+
+    bool flushVmpPublish()
+    {
+        if (config_.protocol != RuntimeProtocol::Meshtastic ||
+            !config_.uplink_enabled ||
+            !buildVmpTopic(publish_topic_, sizeof(publish_topic_)))
+        {
+            return false;
+        }
+        std::size_t envelope_len = vmp_publish_envelope_.size();
+        if (!::platform::esp::arduino_common::voice::vmp_session::peekMqttEnvelope(
+                vmp_publish_envelope_.data(), &envelope_len))
+        {
+            return false;
+        }
+        if (!sendPublishRaw(publish_topic_,
+                            vmp_publish_envelope_.data(),
+                            envelope_len))
+        {
+            std::printf("[VMP][MQTT] publish failed retained_for_retry=1\n");
+            stop("vmp_publish");
+            return false;
+        }
+        if (!::platform::esp::arduino_common::voice::vmp_session::acknowledgeMqttEnvelope())
+        {
+            std::printf("[VMP][MQTT] publish acknowledgement lost\n");
+            stop("vmp_publish_ack");
+            return false;
+        }
+        std::printf("[VMP][MQTT] publish topic=%s bytes=%u\n",
+                    publish_topic_,
+                    static_cast<unsigned>(envelope_len));
+        return true;
+    }
+
     void flushPublishQueue(chat::meshtastic::MtAdapter* mt,
                            chat::meshcore::MeshCoreAdapter* mc)
     {
@@ -1347,6 +1416,15 @@ class PlainMqttRuntime
         const std::size_t tx_packet_budget =
             control_plane_uplink ? std::max<std::size_t>(budget.tx_packet_budget, 1U)
                                  : budget.tx_packet_budget;
+
+        if (flushVmpPublish())
+        {
+            if (control_plane_uplink)
+            {
+                control_plane_uplink_sent_ = true;
+            }
+            return;
+        }
 
         if (config_.protocol == RuntimeProtocol::MeshCore)
         {
@@ -1855,6 +1933,27 @@ class PlainMqttRuntime
             }
         }
         const std::size_t payload_len = rx_remaining_len_ - payload_offset;
+        const uint8_t* const topic = rx_.data() + 2U;
+        if (config_.protocol == RuntimeProtocol::Meshtastic &&
+            isVmpTopic(topic, topic_len))
+        {
+            if (!config_.downlink_enabled || (rx_header_ & 0x01U) != 0U ||
+                payload_len == 0U ||
+                payload_len > ::chat::voice::vmp::kMaxMqttEnvelopeSize)
+            {
+                std::printf("[VMP][MQTT] inbound drop retained=%u bytes=%u\n",
+                            (rx_header_ & 0x01U) != 0U ? 1U : 0U,
+                            static_cast<unsigned>(payload_len));
+                return;
+            }
+            const bool accepted =
+                ::platform::esp::arduino_common::voice::vmp_session::acceptMqttEnvelope(
+                    rx_.data() + payload_offset, payload_len);
+            std::printf("[VMP][MQTT] inbound bytes=%u local_only=%u\n",
+                        static_cast<unsigned>(payload_len),
+                        accepted ? 1U : 0U);
+            return;
+        }
         if (config_.protocol == RuntimeProtocol::MeshCore)
         {
             handleMeshCorePublish(mc, payload_offset, payload_len, topic_len);

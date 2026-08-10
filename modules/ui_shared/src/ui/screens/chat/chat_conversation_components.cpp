@@ -9,6 +9,7 @@
 #include "app/app_facade_access.h"
 #include "chat/usecase/contact_service.h"
 #include "ui/assets/fonts/font_utils.h"
+#include "ui/chat_voice_runtime.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
 #include "ui/runtime/ui_feedback.h"
@@ -782,6 +783,79 @@ void ChatConversationScreen::addMessage(const ::ui::chat::MessageRow& row)
                           static_cast<unsigned long>(lv_tick_elaps(started_ms)));
 }
 
+void ChatConversationScreen::addVoiceMessage(
+    const ::ui::chat_voice::MessageSummary& summary)
+{
+    if (!guard_ || !guard_->alive || !msg_list_ || !lv_obj_is_valid(msg_list_) ||
+        summary.local_id == 0U)
+    {
+        return;
+    }
+    if (messages_.size() >= MAX_DISPLAY_MESSAGES)
+    {
+        MessageItem& oldest = messages_[0];
+        if (oldest.container)
+        {
+            lv_obj_del(oldest.container);
+        }
+        messages_.erase(messages_.begin());
+    }
+
+    MessageItem item{};
+    item.container = chat::ui::layout::create_message_row(msg_list_);
+    chat::ui::conversation::styles::apply_message_row(item.container);
+
+    lv_obj_t* const bubble = chat::ui::layout::create_bubble(item.container);
+    item.bubble = bubble;
+    chat::ui::conversation::styles::apply_bubble(
+        bubble, false, summary.source_unverified);
+    chat::ui::layout::set_bubble_max_width(bubble, kBubbleMaxWidth);
+    lv_obj_add_flag(bubble, LV_OBJ_FLAG_CLICKABLE);
+
+    char sender[16] = {};
+    std::string sender_name =
+        app::messagingFacade().getContactService().getContactName(summary.sender_id);
+    if (sender_name.empty())
+    {
+        std::snprintf(sender,
+                      sizeof(sender),
+                      "%04lX",
+                      static_cast<unsigned long>(summary.sender_id & 0xFFFFU));
+        sender_name = sender;
+    }
+    const lv_coord_t max_meta_w =
+        std::max<lv_coord_t>(kBubbleMaxWidth - 2 * bubble_pad_x(), 24);
+    item.meta_row = create_meta_row(bubble, max_meta_w, false);
+    item.sender_label = create_meta_chip(
+        item.meta_row, sender_name.c_str(), lv_color_hex(0xF1B75A), max_meta_w);
+    item.source_label = create_meta_chip(
+        item.meta_row,
+        summary.source_unverified ? "VMP broadcast (unverified)" : "VMP private",
+        summary.source_unverified ? lv_color_hex(0xFFB4A2) : lv_color_hex(0xCFE4FF),
+        max_meta_w);
+    char time_buf[24] = {};
+    format_message_time(time_buf,
+                        sizeof(time_buf),
+                        summary.received_at_seconds);
+    item.time_label = create_meta_chip(
+        item.meta_row, time_buf, lv_color_hex(0xD4F0D2), max_meta_w);
+
+    item.text_label = chat::ui::layout::create_bubble_text(bubble);
+    chat::ui::conversation::styles::apply_bubble_text(item.text_label);
+    lv_label_set_text(item.text_label, "Voice message - tap to play");
+    ::ui::fonts::apply_chat_content_font(
+        item.text_label, lv_label_get_text(item.text_label));
+    lv_obj_set_width(item.text_label,
+                     std::max<lv_coord_t>(kBubbleMaxWidth - 2 * bubble_pad_x(), 24));
+    item.voice_playback_ctx.reset(new VoicePlaybackContext{summary.local_id});
+    lv_obj_add_event_cb(bubble,
+                        voice_message_event_cb,
+                        LV_EVENT_CLICKED,
+                        item.voice_playback_ctx.get());
+    chat::ui::layout::align_message_row(item.container, false);
+    messages_.push_back(std::move(item));
+}
+
 void ChatConversationScreen::clearMessages()
 {
     const uint32_t started_ms = lv_tick_get();
@@ -809,6 +883,23 @@ void ChatConversationScreen::clearMessages()
     messages_.clear();
     CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=conversation_clear end elapsed_ms=%lu\n",
                           static_cast<unsigned long>(lv_tick_elaps(started_ms)));
+}
+
+void ChatConversationScreen::voice_message_event_cb(lv_event_t* e)
+{
+    if (!e || lv_event_get_code(e) != LV_EVENT_CLICKED)
+    {
+        return;
+    }
+    const auto* context =
+        static_cast<const VoicePlaybackContext*>(lv_event_get_user_data(e));
+    if (!context || context->local_id == 0U)
+    {
+        return;
+    }
+    const bool started = ::ui::chat_voice::requestPlayback(context->local_id);
+    ::ui::feedback::show_notice(started ? "Playing voice" : "Voice playback unavailable",
+                                started ? 1400 : 1800);
 }
 
 void ChatConversationScreen::scrollToTop()

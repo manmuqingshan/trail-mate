@@ -76,6 +76,7 @@ enum class PagerAudioOwner : uint8_t
     MessageTone,
     IncomingCallTone,
     ReticulumCall,
+    VoiceMessage,
     Walkie,
     Sstv,
 };

@@ -7,6 +7,7 @@
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
 #include "chat/domain/contact_types.h"
+#include "chat/infra/voice/vmp_private_crypto.h"
 #include "chat/time_utils.h"
 #include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/arduino_common/gps/gps_service_api.h"
@@ -965,6 +966,46 @@ bool MtAdapter::getOwnPublicKey(uint8_t out_key[32]) const
     }
     memcpy(out_key, pki_public_key_.data(), 32);
     return true;
+}
+
+bool MtAdapter::deriveVmpContactSecret(NodeId peer_id, uint8_t out_secret[32])
+{
+    if (!out_secret || peer_id == 0U || peer_id == kBroadcastNodeId || !pki_ready_)
+    {
+        return false;
+    }
+    const PkiNodeKeyEntry* const peer_key = findPkiNodeKey(peer_id);
+    if (!peer_key)
+    {
+        return false;
+    }
+
+    uint8_t identity_shared_secret[32] = {};
+    uint8_t local_private_key[32] = {};
+    std::memcpy(identity_shared_secret,
+                peer_key->key.data(),
+                sizeof(identity_shared_secret));
+    std::memcpy(local_private_key,
+                pki_private_key_.data(),
+                sizeof(local_private_key));
+    const bool derived = Curve25519::dh2(identity_shared_secret, local_private_key) &&
+                         ::chat::voice::vmp::deriveVmpContactSecret(
+                             identity_shared_secret,
+                             ::chat::voice::vmp::ContactSecretIdentityFamily::Meshtastic,
+                             node_id_,
+                             peer_id,
+                             out_secret);
+    volatile uint8_t* cursor = identity_shared_secret;
+    for (std::size_t index = 0U; index < sizeof(identity_shared_secret); ++index)
+    {
+        cursor[index] = 0U;
+    }
+    cursor = local_private_key;
+    for (std::size_t index = 0U; index < sizeof(local_private_key); ++index)
+    {
+        cursor[index] = 0U;
+    }
+    return derived;
 }
 
 void MtAdapter::rememberNodePublicKey(NodeId node_id, const uint8_t* key, size_t key_len)

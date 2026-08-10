@@ -63,6 +63,8 @@ class ReticulumAdapter final : public IMeshAdapter,
     bool requestNodeInfo(NodeId dest, bool want_response) override;
     bool broadcastSelfIdentity() override;
     NodeId getNodeId() const override;
+    /** Delegates VMP secret derivation to the active LXMF identity service. */
+    bool deriveVmpContactSecret(NodeId peer_id, uint8_t out_secret[32]);
     bool getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const override;
     MeshActionResult startReticulumAudioCall(
         const ReticulumPeerIdentity& destination) override;

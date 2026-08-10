@@ -401,7 +401,9 @@ def configure_crypto_for_sx1262_esp32():
     crypto_dir = os.path.join(project_dir, ".pio", "libdeps", pio_env, "Crypto")
     library_json_path = os.path.join(crypto_dir, "library.json")
     # This is the linked object closure for AES-CTR, ChaCha-Poly1305,
-    # Curve25519, RNG, and SHA-256 used by the four supported protocols.
+    # Curve25519, HKDF, RNG, and SHA-256 used by the supported protocols.
+    # VMP private MQTT uses HKDF even on the SX1262 Pager, whose VMP carrier
+    # is MQTT-only and therefore never takes the LR1121 RF handshake path.
     desired_src_filter = [
         "-<*>",
         "+<AESEsp32.cpp>",
@@ -414,6 +416,7 @@ def configure_crypto_for_sx1262_esp32():
         "+<Crypto.cpp>",
         "+<Curve25519.cpp>",
         "+<Hash.cpp>",
+        "+<HKDF.cpp>",
         "+<Poly1305.cpp>",
         "+<RNG.cpp>",
         "+<SHA256.cpp>",

@@ -16,6 +16,7 @@
 #include "sys/event_bus.h"
 #include "ui/app_runtime.h"
 #include "ui/assets/fonts/font_utils.h"
+#include "ui/chat_voice_runtime.h"
 #include "ui/components/two_pane_styles.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
@@ -800,6 +801,16 @@ void UiController::update()
         // empty message list just because the conversation list has loaded.
         reloadConversationView();
     }
+    if (state_ == State::Conversation && conversation_ && !team_conv_active_ &&
+        ::ui::chat_voice::isAvailable() &&
+        lv_tick_elaps(voice_projection_last_poll_ms_) >= 1000U)
+    {
+        voice_projection_last_poll_ms_ = lv_tick_get();
+        if (currentVoiceProjectionSignature() != rendered_voice_projection_signature_)
+        {
+            reloadConversationView();
+        }
+    }
     const auto receive = ::platform::ui::reticulum_receive::snapshot();
     if (state_ == State::Conversation && conversation_ &&
         (receive.active || receive_status_visible_))
@@ -1179,6 +1190,7 @@ void UiController::switchToConversation(chat::ConversationId conv)
     if (snapshot_loaded)
     {
         applySnapshotMessagesToConversation(chat_snapshot_buffer_, *conversation_);
+        appendVoiceMessagesToConversation();
     }
     conversation_view_loaded_ = snapshot_loaded;
     CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation mark_read begin elapsed_ms=%lu\n",
@@ -1320,7 +1332,11 @@ void UiController::switchToCompose(chat::ConversationId conv)
     }
     std::string header = "[" + std::string(protocol_short_label(conv.protocol)) + "] " + title;
     compose_->setHeaderText(header.c_str(), nullptr);
+#if !defined(ARDUINO_T_WATCH_S3)
+    compose_->setVoiceButton("Voice", ::ui::chat_voice::canRecordAndSend());
+#else
     compose_->setPositionButton(nullptr, false);
+#endif
 }
 
 void UiController::handleChannelSelected(const chat::ConversationId& conv)
@@ -1818,6 +1834,56 @@ void UiController::reloadConversationView()
         return;
     }
     applySnapshotMessagesToConversation(chat_snapshot_buffer_, *conversation_);
+    appendVoiceMessagesToConversation();
+}
+
+void UiController::appendVoiceMessagesToConversation()
+{
+    if (!conversation_ || team_conv_active_ || !::ui::chat_voice::isAvailable())
+    {
+        return;
+    }
+    const std::size_t count = ::ui::chat_voice::listReceivedMessages(
+        voice_projection_buffer_, kVoiceProjectionCapacity);
+    for (std::size_t index = count; index > 0U; --index)
+    {
+        const auto& summary = voice_projection_buffer_[index - 1U];
+        const bool matches_current = summary.private_message
+                                         ? current_conv_.peer != 0U &&
+                                               summary.sender_id == current_conv_.peer
+                                         : current_conv_.peer == 0U;
+        if (matches_current)
+        {
+            conversation_->addVoiceMessage(summary);
+        }
+    }
+    rendered_voice_projection_signature_ = currentVoiceProjectionSignature();
+    conversation_->scrollToBottom();
+}
+
+uint64_t UiController::currentVoiceProjectionSignature()
+{
+    if (!::ui::chat_voice::isAvailable())
+    {
+        return 0U;
+    }
+    const std::size_t count = ::ui::chat_voice::listReceivedMessages(
+        voice_projection_buffer_, kVoiceProjectionCapacity);
+    uint64_t signature = static_cast<uint64_t>(count);
+    for (std::size_t index = 0U; index < count; ++index)
+    {
+        const auto& summary = voice_projection_buffer_[index];
+        const bool matches_current = summary.private_message
+                                         ? current_conv_.peer != 0U &&
+                                               summary.sender_id == current_conv_.peer
+                                         : current_conv_.peer == 0U;
+        if (matches_current)
+        {
+            signature ^= summary.local_id + 0x9E3779B97F4A7C15ULL +
+                         (signature << 6U) + (signature >> 2U);
+        }
+    }
+    return signature;
 }
 
 bool UiController::isTeamConversation(const chat::ConversationId& conv) const
@@ -2173,6 +2239,7 @@ void UiController::handleConversationAction(ChatConversationScreen::ActionIntent
             return;
         }
         applySnapshotMessagesToConversation(chat_snapshot_buffer_, *conversation_);
+        appendVoiceMessagesToConversation();
         return;
     }
 
@@ -2240,6 +2307,7 @@ void UiController::handleConversationAction(ChatConversationScreen::ActionIntent
         applySnapshotMessagesToConversation(chat_snapshot_buffer_,
                                             *conversation_,
                                             ConversationScrollAnchor::Top);
+        appendVoiceMessagesToConversation();
         return;
     }
 #endif
@@ -2347,6 +2415,28 @@ void UiController::handleComposeAction(ChatComposeScreen::ActionIntent intent)
         handleComposeSendDone(result.ok, false);
         return;
     }
+
+#if !defined(ARDUINO_T_WATCH_S3)
+    if (intent == ChatComposeScreen::ActionIntent::Voice)
+    {
+        switch (::ui::chat_voice::requestRecordAndSend(current_conv_.peer))
+        {
+        case ::ui::chat_voice::StartResult::Queued:
+            ::ui::feedback::show_notice("Recording voice (max 5s)", 2200);
+            return;
+        case ::ui::chat_voice::StartResult::PrivateContactUnverified:
+            ::ui::feedback::show_notice("Verify contact before private voice", 2400);
+            return;
+        case ::ui::chat_voice::StartResult::Busy:
+            ::ui::feedback::show_notice("Voice session already active", 1800);
+            return;
+        case ::ui::chat_voice::StartResult::Unsupported:
+        default:
+            ::ui::feedback::show_notice("Voice unavailable on this device", 2000);
+            return;
+        }
+    }
+#endif
 
     if (intent == ChatComposeScreen::ActionIntent::Send)
     {

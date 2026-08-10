@@ -13,15 +13,20 @@
 #include "board/LoraBoard.h"
 #include "board/MotionBoard.h"
 #include "chat/infra/mesh_protocol_utils.h"
+#include "chat/ports/i_mesh_adapter.h"
 #include "chat/runtime/self_identity_policy.h"
+#include "chat/usecase/contact_service.h"
 #include "platform/esp/arduino_common/app_tasks.h"
+#include "platform/esp/arduino_common/chat/infra/mesh_adapter_router.h"
 #include "platform/esp/arduino_common/memory_diag.h"
 #include "platform/esp/arduino_common/storage/storage_runtime.h"
+#include "platform/esp/arduino_common/voice/vmp_pager_session.h"
 #include "platform/ui/reticulum_call_runtime.h"
 #include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/reticulum_group_config_runtime.h"
 #include "sys/event_bus.h"
 #include "ui/chat_ui_runtime_proxy.h"
+#include "ui/chat_voice_runtime.h"
 #include "ui/ui_boot.h"
 
 #include <cstdio>
@@ -34,6 +39,154 @@ namespace app
 namespace
 {
 constexpr TickType_t kConfigSaveMutexWait = pdMS_TO_TICKS(20);
+
+class PagerVoiceMessageRuntime final : public ::ui::chat_voice::IVoiceMessageRuntime
+{
+  public:
+    bool initialize()
+    {
+        if (metadata_scratch_)
+        {
+            return true;
+        }
+        metadata_scratch_ = static_cast<chat::voice::vmp::VoiceMessageMetadata*>(
+            heap_caps_malloc(sizeof(chat::voice::vmp::VoiceMessageMetadata) *
+                                 chat::voice::vmp::kVoiceInboxCapacity,
+                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        return metadata_scratch_ != nullptr;
+    }
+
+    bool isAvailable() const override
+    {
+        return metadata_scratch_ != nullptr &&
+               ::platform::esp::arduino_common::voice::vmp_session::inbox() != nullptr;
+    }
+
+    bool canRecordAndSend() const override
+    {
+        return ::platform::esp::arduino_common::voice::vmp_session::canRecordAndSend();
+    }
+
+    ::ui::chat_voice::StartResult requestRecordAndSend(uint32_t target_id) override
+    {
+        switch (::platform::esp::arduino_common::voice::vmp_session::requestRecordAndSend(
+            target_id))
+        {
+        case ::platform::esp::arduino_common::voice::vmp_session::StartSendResult::Queued:
+            return ::ui::chat_voice::StartResult::Queued;
+        case ::platform::esp::arduino_common::voice::vmp_session::StartSendResult::Busy:
+            return ::ui::chat_voice::StartResult::Busy;
+        case ::platform::esp::arduino_common::voice::vmp_session::StartSendResult::PrivateContactUnverified:
+            return ::ui::chat_voice::StartResult::PrivateContactUnverified;
+        case ::platform::esp::arduino_common::voice::vmp_session::StartSendResult::Unsupported:
+        default:
+            return ::ui::chat_voice::StartResult::Unsupported;
+        }
+    }
+
+    std::size_t listReceivedMessages(
+        ::ui::chat_voice::MessageSummary* out_messages,
+        std::size_t capacity) const override
+    {
+        if (!out_messages || capacity == 0U || !metadata_scratch_)
+        {
+            return 0U;
+        }
+        const std::size_t limit =
+            capacity < chat::voice::vmp::kVoiceInboxCapacity
+                ? capacity
+                : chat::voice::vmp::kVoiceInboxCapacity;
+        const std::size_t count =
+            ::platform::esp::arduino_common::voice::vmp_session::listInboxMetadata(
+                metadata_scratch_, limit);
+        for (std::size_t index = 0U; index < count; ++index)
+        {
+            const auto& metadata = metadata_scratch_[index];
+            out_messages[index].local_id = metadata.local_id;
+            out_messages[index].sender_id = metadata.sender_id;
+            out_messages[index].target_id = metadata.target_id;
+            out_messages[index].received_at_seconds = metadata.received_at_seconds;
+            out_messages[index].private_message =
+                metadata.mode == chat::voice::vmp::DeliveryMode::Private;
+            out_messages[index].source_unverified = metadata.source_unverified;
+        }
+        return count;
+    }
+
+    bool requestPlayback(uint64_t local_id) override
+    {
+        return ::platform::esp::arduino_common::voice::vmp_session::requestPlayback(
+            local_id);
+    }
+
+  private:
+    mutable chat::voice::vmp::VoiceMessageMetadata* metadata_scratch_ = nullptr;
+};
+
+PagerVoiceMessageRuntime s_pager_voice_message_runtime{};
+
+bool deriveVmpVerifiedContactSecret(void* context,
+                                    uint32_t peer_id,
+                                    uint8_t out_secret[chat::voice::vmp::kPrivateKeySize])
+{
+    auto* const app_context = static_cast<AppContext*>(context);
+    if (!app_context || !out_secret || peer_id == 0U ||
+        peer_id == chat::voice::vmp::kBroadcastTargetId)
+    {
+        return false;
+    }
+
+    const chat::MeshProtocol protocol = chat::infra::normalizeMeshProtocol(
+        app_context->getMeshProtocol());
+    if (protocol != chat::MeshProtocol::Meshtastic &&
+        protocol != chat::MeshProtocol::MeshCore &&
+        protocol != chat::MeshProtocol::Reticulum)
+    {
+        return false;
+    }
+
+    const chat::contacts::PeerDirectoryItem* const peer =
+        app_context->getContactService().getPeerByNodeId(peer_id);
+    if (!peer || peer->is_ignored || !peer->has_public_key ||
+        ((protocol == chat::MeshProtocol::Meshtastic ||
+          protocol == chat::MeshProtocol::MeshCore) &&
+         !peer->key_manually_verified) ||
+        (protocol == chat::MeshProtocol::Reticulum && !peer->is_contact))
+    {
+        return false;
+    }
+
+    // AppContext owns MeshAdapterRouter for the ESP production runtime. Its
+    // VMP-only method intentionally does not widen the IMeshAdapter contract.
+    auto* const router = static_cast<chat::MeshAdapterRouter*>(
+        app_context->getMeshAdapter());
+    return router && router->deriveVmpContactSecret(peer_id, out_secret);
+}
+
+bool sendVmpLxmfEnvelope(void* context,
+                         uint32_t target_id,
+                         const uint8_t* envelope,
+                         std::size_t envelope_len)
+{
+    auto* const app_context = static_cast<AppContext*>(context);
+    if (!app_context || !envelope || envelope_len == 0U ||
+        target_id == chat::voice::vmp::kBroadcastTargetId ||
+        !chat::infra::isReticulumMeshProtocol(
+            chat::infra::normalizeMeshProtocol(app_context->getMeshProtocol())))
+    {
+        return false;
+    }
+    chat::IMeshAdapter* const adapter = app_context->getMeshAdapter();
+    return adapter && adapter->sendAppData(
+                          chat::ChannelId::PRIMARY,
+                          ::platform::esp::arduino_common::voice::vmp_session::kLxmfAppDataPort,
+                          envelope,
+                          envelope_len,
+                          target_id,
+                          false,
+                          0U,
+                          false);
+}
 
 void normalize_reticulum_interface_strategy(AppConfig& config)
 {
@@ -179,6 +332,40 @@ void AppContext::initChatRuntime(bool use_mock_adapter)
     applyNetworkLimits();
     applyPrivacyConfig();
     applyChatDefaults();
+#if defined(ARDUINO_T_LORA_PAGER)
+    if (!::platform::esp::arduino_common::voice::vmp_session::initialize(
+            getSelfNodeId(), deferred_storage_store_context_ != nullptr))
+    {
+        Serial.printf("[VMP] Pager voice service unavailable\n");
+        ::ui::chat_voice::setRuntime(nullptr);
+    }
+    else
+    {
+        ::platform::esp::arduino_common::voice::vmp_session::setVerifiedContactSecretDeriver(
+            &deriveVmpVerifiedContactSecret, this);
+#if defined(ARDUINO_LILYGO_LORA_LR1121)
+        ::platform::esp::arduino_common::voice::vmp_session::setLxmfEnvelopeSender(
+            &sendVmpLxmfEnvelope, this);
+        ::platform::esp::arduino_common::voice::vmp_session::setLxmfCarrierEnabled(
+            chat::infra::isReticulumMeshProtocol(
+                chat::infra::normalizeMeshProtocol(config_.mesh_protocol)));
+#endif
+        if (!s_pager_voice_message_runtime.initialize())
+        {
+            // This metadata projection is deliberately PSRAM-only. A Pager
+            // without its bounded external-media pool must not silently add
+            // another permanent internal-RAM VMP buffer.
+            Serial.printf("[VMP] UI metadata scratch unavailable in PSRAM\n");
+            ::ui::chat_voice::setRuntime(nullptr);
+        }
+        else
+        {
+            ::ui::chat_voice::setRuntime(&s_pager_voice_message_runtime);
+        }
+    }
+#else
+    ::ui::chat_voice::setRuntime(nullptr);
+#endif
 }
 
 void AppContext::initTeamServices()
@@ -477,6 +664,11 @@ void AppContext::applyMeshConfig()
     {
         chat_service_->setActiveProtocol(config_.mesh_protocol);
     }
+#if defined(ARDUINO_T_LORA_PAGER) && defined(ARDUINO_LILYGO_LORA_LR1121)
+    ::platform::esp::arduino_common::voice::vmp_session::setLxmfCarrierEnabled(
+        chat::infra::isReticulumMeshProtocol(
+            chat::infra::normalizeMeshProtocol(config_.mesh_protocol)));
+#endif
 }
 
 void AppContext::applyUserInfo()
@@ -677,6 +869,13 @@ bool AppContext::switchMeshProtocol(chat::MeshProtocol protocol, bool persist)
     {
         contact_service_->setActiveProtocol(normalized);
     }
+#if defined(ARDUINO_T_LORA_PAGER)
+    ::platform::esp::arduino_common::voice::vmp_session::invalidateContactSecretCache();
+#if defined(ARDUINO_LILYGO_LORA_LR1121)
+    ::platform::esp::arduino_common::voice::vmp_session::setLxmfCarrierEnabled(
+        chat::infra::isReticulumMeshProtocol(normalized));
+#endif
+#endif
 
     if (persist)
     {
@@ -722,6 +921,12 @@ void AppContext::getEffectiveUserInfo(char* out_long, size_t long_len,
 void AppContext::updateCoreServices()
 {
     flushConfigPersistence(millis());
+#if defined(ARDUINO_T_LORA_PAGER)
+    // Text and VMP attachments share the deferred-storage readiness boundary.
+    // After that boundary, this is a rate-limited retry only when an SD I/O
+    // failure prevented the local VMP attachment snapshot from restoring.
+    ::platform::esp::arduino_common::voice::vmp_session::servicePersistentInbox();
+#endif
     if (::platform::ui::reticulum_groups::hasPending())
     {
         (void)::platform::ui::reticulum_groups::flushPending();

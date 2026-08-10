@@ -82,6 +82,8 @@ class MeshCoreAdapter : public IMeshAdapter,
     bool submitKeyVerificationNumber(NodeId dest, uint64_t nonce, uint32_t number) override;
     bool isPkiReady() const override;
     bool hasPkiKey(NodeId dest) const override;
+    /** Derives a domain-separated VMP contact secret from a verified MC peer. */
+    bool deriveVmpContactSecret(NodeId peer_id, uint8_t out_secret[32]);
 
     void applyConfig(const MeshConfig& config) override;
     void setUserInfo(const char* long_name, const char* short_name) override;

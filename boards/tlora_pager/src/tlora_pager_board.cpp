@@ -96,6 +96,8 @@ const char* audioOwnerLabel(PagerAudioOwner owner)
         return "incoming_call_tone";
     case PagerAudioOwner::ReticulumCall:
         return "reticulum_call";
+    case PagerAudioOwner::VoiceMessage:
+        return "voice_message";
     case PagerAudioOwner::Walkie:
         return "walkie";
     case PagerAudioOwner::Sstv:
