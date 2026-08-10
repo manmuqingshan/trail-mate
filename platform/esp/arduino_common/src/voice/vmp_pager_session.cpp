@@ -46,15 +46,29 @@ constexpr std::size_t kMaxRadioFrameSize = 255U;
 constexpr uint32_t kPrivateAcceptWindowMs = 1500U;
 constexpr uint32_t kReadyProbeSpacingMs = 40U;
 constexpr uint8_t kReadyProbeCount = 3U;
-constexpr uint32_t kOutboundTaskStackWords = 4096U;
+// ESP-IDF's xTaskCreatePinnedToCore stack-depth argument is expressed in
+// bytes. Codec2 plus the Pager I2S/codec/I2C driver call chain overflows the
+// former 4 KiB VMP task before its first capture frame. These stacks exist
+// only for an active record/play operation and are released by vTaskDelete.
+constexpr uint32_t kOutboundTaskStackBytes = 16U * 1024U;
 constexpr UBaseType_t kOutboundTaskPriority = 4U;
-constexpr uint32_t kPlaybackTaskStackWords = 3072U;
+constexpr uint32_t kPlaybackTaskStackBytes = 16U * 1024U;
 constexpr UBaseType_t kPlaybackTaskPriority = 3U;
 constexpr uint32_t kPersistentInboxRetryMs = 5000U;
 
 bool deadlineExpired(uint32_t deadline)
 {
     return static_cast<int32_t>(millis() - deadline) >= 0;
+}
+
+void logCurrentTaskStack(const char* task, const char* phase)
+{
+    const UBaseType_t free_words = uxTaskGetStackHighWaterMark(nullptr);
+    Serial.printf("[VMP][Mem] task=%s phase=%s stack_free_words=%u stack_free_bytes=%u\n",
+                  task ? task : "-",
+                  phase ? phase : "-",
+                  static_cast<unsigned>(free_words),
+                  static_cast<unsigned>(free_words * sizeof(StackType_t)));
 }
 
 uint32_t voiceTimestampSeconds()
@@ -354,7 +368,7 @@ class PagerReceiveSession final
         playback_local_id_ = local_id;
         if (xTaskCreatePinnedToCore(&PagerReceiveSession::playbackTaskEntry,
                                     "vmp_play",
-                                    kPlaybackTaskStackWords,
+                                    kPlaybackTaskStackBytes,
                                     this,
                                     kPlaybackTaskPriority,
                                     &playback_task_,
@@ -611,7 +625,7 @@ class PagerReceiveSession final
                       direct_rf_voice_supported_ ? "lr1121_rf" : "sx1262_mqtt_only");
         if (xTaskCreatePinnedToCore(&PagerReceiveSession::outboundTaskEntry,
                                     "vmp_tx",
-                                    kOutboundTaskStackWords,
+                                    kOutboundTaskStackBytes,
                                     this,
                                     kOutboundTaskPriority,
                                     nullptr,
@@ -767,7 +781,8 @@ class PagerReceiveSession final
         if (self)
         {
             self->setOutboundTask(xTaskGetCurrentTaskHandle());
-            Serial.printf("[VMP][TX] capture worker start\n");
+            Serial.printf("[VMP][TX] capture worker start stack_budget_bytes=%u\n",
+                          static_cast<unsigned>(kOutboundTaskStackBytes));
             self->runOutbound();
         }
         vTaskDelete(nullptr);
@@ -778,6 +793,8 @@ class PagerReceiveSession final
         auto* const self = static_cast<PagerReceiveSession*>(context);
         if (self)
         {
+            Serial.printf("[VMP][PLAY] worker start stack_budget_bytes=%u\n",
+                          static_cast<unsigned>(kPlaybackTaskStackBytes));
             self->runPlayback();
         }
         vTaskDelete(nullptr);
@@ -791,6 +808,7 @@ class PagerReceiveSession final
         const uint32_t started_ms = millis();
         const audio::CaptureResult capture_result =
             media_->audio.capture(&record_stop_requested_);
+        logCurrentTaskStack("vmp_tx", "after_capture");
         if (capture_result != audio::CaptureResult::Complete ||
             !media_->audio.hasEncodedMedia())
         {
@@ -856,6 +874,7 @@ class PagerReceiveSession final
         releaseRadio();
         resetEphemeralState();
         finishOutbound();
+        logCurrentTaskStack("vmp_tx", "complete");
     }
 
     void runPlayback()
@@ -871,10 +890,12 @@ class PagerReceiveSession final
                                         playback_codec_,
                                         70U);
         }
+        logCurrentTaskStack("vmp_play", "after_playback");
         Serial.printf("[VMP][PLAY] end local_id=%llu result=%u\n",
                       static_cast<unsigned long long>(playback_local_id_),
                       static_cast<unsigned>(result));
         clearPlaybackTask();
+        logCurrentTaskStack("vmp_play", "complete");
     }
 
     bool queueMqttPublication()

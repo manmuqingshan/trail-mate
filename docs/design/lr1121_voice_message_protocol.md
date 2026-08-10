@@ -99,6 +99,7 @@ The Pager implementation deliberately separates RF control state from bulk media
 * The static VMP session keeps only radio/control state, short wire buffers, cryptographic transient state, and FreeRTOS synchronization in internal RAM.
 * The inbox, encoded Codec2 media, RS/FEC receive and transmit blocks, MQTT carrier plans, playback copy, and persistence metadata scratch live in one PSRAM-only `PagerMediaStorage` allocation. If that allocation fails, VMP is disabled; it never silently falls back to consuming tens of kilobytes of internal heap.
 * PCM stereo/mono frame storage is the one deliberate internal-RAM exception because I2S needs DMA-capable memory. It is a 1,920-byte scratch allocation made only while recording or playing and is securely released immediately afterwards. It is not a permanent VMP allocation.
+* The `vmp_tx` and `vmp_play` FreeRTOS stacks are a separate, deliberate internal-SRAM exception: each is **16 KiB** and exists only while recording/sending or playing. ESP-IDF's task-depth argument is bytes. Codec2 plus the Pager I2S/codec/I2C call chain cannot safely run in the former 4 KiB/3 KiB tasks. These stacks MUST NOT be moved to PSRAM; they are released by `vTaskDelete`, and `[VMP][Mem]` records their high-water mark after capture/playback and at task completion.
 * The chat UI's eight-entry metadata projection is also PSRAM-only. Its runtime adapter keeps one internal-RAM pointer rather than a 328-byte permanent metadata array; if that small PSRAM allocation fails, the VMP UI is not registered and does not fall back to internal RAM.
 
 VMP is persistent whenever the active text chat uses the existing `SdStore`; it follows the **same deferred-storage hydration boundary**. Until that shared hydration completes, VMP cannot record, receive, display, or play an object, so a restore cannot overwrite a newly received voice. If text falls back to `RamStore` because SD persistence is unavailable, VMP explicitly follows the same volatile policy rather than pretending that received media is durable.
@@ -528,6 +529,7 @@ The following bounded log prefixes make an end-to-end capture searchable:
 [VMP][RF]                  Sub-GHz negotiation, 2.4 GHz readiness, shard train
 [VMP][RX]                  receive validation and durable inbox commit
 [VMP][PLAY]                on-demand decode/playback lifecycle
+[VMP][Mem]                 active-only VMP task stack budget/high-water telemetry
 [VMP][MQTT]                isolated SX1262/LR1121 MQTT carrier plan only
 ```
 

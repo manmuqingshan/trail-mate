@@ -215,5 +215,21 @@ int main(int argc, char** argv)
     assert(session.find("[VMP][RX] shard quorum reached unique_shards=") !=
            std::string::npos);
     assert(session.find("[VMP][RX] inbox durable_commit") != std::string::npos);
+
+    // Codec2 and the Pager I2S/codec/I2C call chain execute on the short-lived
+    // VMP worker, not the UI task. ESP-IDF interprets xTaskCreatePinnedToCore
+    // stack depth as bytes: do not regress the overflow fix to the old 4 KiB
+    // TX or 3 KiB playback task, and keep runtime proof of the high-water mark.
+    assert(session.find("kOutboundTaskStackBytes = 16U * 1024U") !=
+           std::string::npos);
+    assert(session.find("kPlaybackTaskStackBytes = 16U * 1024U") !=
+           std::string::npos);
+    assert(session.find("kOutboundTaskStackWords") == std::string::npos);
+    assert(session.find("kPlaybackTaskStackWords") == std::string::npos);
+    assert(session.find("logCurrentTaskStack(\"vmp_tx\", \"after_capture\")") !=
+           std::string::npos);
+    assert(session.find("logCurrentTaskStack(\"vmp_play\", \"after_playback\")") !=
+           std::string::npos);
+    assert(session.find("stack_budget_bytes=%u") != std::string::npos);
     return 0;
 }
