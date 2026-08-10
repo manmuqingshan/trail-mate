@@ -478,7 +478,60 @@ No delivery receipt is added to V1 because receiving one would require another r
 
 Completed automated gates in this workspace are the Pager release build, clang-format 14, ESP stack-hygiene validation, and the MT MQTT/LXMF local-only ingress contract tests. RF and audio behavior still require the two-device hardware gates above before a production-default rollout.
 
-## 14. Open engineering decisions retained for field validation
+## 14. Two-Pager hardware acceptance and log capture
+
+This gate is deliberately a **two-device** procedure. A successful build, a UI
+render, or a single Pager's local `Sent` state is not evidence that the
+LR1121/Sub-GHz/2.4 GHz handoff works. Use two LR1121 Pagers with compatible
+region settings, distinct node IDs, the same selected logical chat channel,
+and a verified private-contact secret for the private cases. Capture both
+115200-baud serial logs from boot to the end of every case. Do not put voice
+content, contact secrets, or full ciphertext into a bug report; the VMP
+session and local IDs are enough to correlate the two logs.
+
+| Case | Operator steps | Sender evidence | Receiver evidence | Pass condition |
+| --- | --- | --- | --- | --- |
+| Short push-to-talk | In one private conversation, press microphone for 0.5--2 s, then release. | UI immediately shows `REC`, then returns to the timeline. Logs include `hold begin accepted`, `capture begin`, `hold release`, `local message committed ... delivery=sending`; the exact row changes to `Sent` or `Failed`. | None is required until the RF portion begins. | No `Voice session ...` toast is used as the primary flow; exactly one outgoing durable row is created. |
+| Five-second cap | Keep microphone pressed past 5.0 s. | UI reaches `REC 5.0/5`, exits capture without another press, and logs `capture end ... elapsed_ms=5000` followed by one local-message commit. | Same as the applicable delivery case. | Capture ends once, never creates a second send on release, and never exceeds the media limit. |
+| Private direct RF | Speak 1--3 s in a verified private conversation. | Ordered log spine: `private offer tx`, `private accept authenticated`, `private ready_probe attempt`, `private ready authenticated`, `shard_train complete`, `outbound end sent=1`, and `local delivery committed ... state=Sent`. | Ordered log spine: `private offer accepted`, `private accept sent`, `private 2g rx ready`, `private ready sent`, authenticated/accepted shards, `shard quorum reached`, then `inbox durable_commit`. The private voice appears only in this exact protocol/channel/peer conversation. | Receiver can tap and hear the clip; no payload is forwarded, retransmitted, or injected into MT/MC/RT traffic. |
+| Private unavailable / timeout | Turn the receiving Pager off, or make its verified contact unavailable, then send. | The outgoing row remains the same object and ends `Failed`; log contains `private accept failed_or_timed_out` and `outbound end sent=0` followed by a durable delivery-state update. | No receiver row exists. | No duplicate outgoing row, no infinite retry, and normal Sub-GHz RX resumes. |
+| Broadcast direct RF | Send from the channel/group conversation while one or more compatible Pagers listen. | Log includes `broadcast announce sent`, zero or more `broadcast ready_probe sent`, `shard_train complete`, and local row `Sent`. | Receiver sends no VMP response. It logs `broadcast announce accepted`, `broadcast 2g rx ready`, accepted shards, `shard quorum reached`, and `inbox durable_commit`; the row is public/source-unverified in the originating broadcast conversation. | Sender does not wait for a receipt and no receiver emits ACK/NACK/READY/rebroadcast traffic. |
+| No first media | Cause a private or broadcast announcement/readiness exchange but prevent the ten data frames. | Sender may show `Failed` only for its local send failure; it must restore Sub-GHz RX. | After five seconds receiver logs `private media timeout ready=... unique_shards=0` or `broadcast media timeout unique_shards=0`, and creates no playable row. | A `READY_PROBE` alone is never rendered as a voice message. |
+| Playback ownership | Tap a received row, then tap another row while the first is playing. | UI logs `playback queued`; Pager logs `[VMP][PLAY] begin` then `[VMP][PLAY] end`. | Same if tested on the receiver. | The first row changes to `Playing voice...` then resets; a concurrent request is rejected only with `Voice audio is busy`, without RF or storage changes. |
+| Closed-thread unread and restart | Receive a clip while its bound conversation is closed; inspect list, reboot, then reopen that conversation. | N/A. | List displays `Voice message` preview and unread count. After reboot, log shows `attachment inbox restore=...`; opening the exact conversation logs `conversation_read` and clears only its incoming unread state. | The clip remains ordered correctly, playable, and absent from all other protocol/channel/peer threads. |
+
+For the log reviewer, these correlation points are normative:
+
+1. An outgoing `local message committed ... delivery=sending` MUST precede a
+   carrier attempt, so the sender has an IM row even if no receiver is present.
+2. An incoming `inbox durable_commit` MUST precede the chat projection log
+   `stage=apply_voice`; a failed durable commit must roll back instead of
+   displaying a non-persistent received message.
+3. A private test must show both `private accept authenticated` and `private
+   ready authenticated` before `shard_train complete`. The `ACCEPT` proves the
+   target reserved 2.4 GHz; `READY` proves it is actually listening before
+   the first voice frame.
+4. A broadcast test MUST NOT contain a receiver-side VMP transmit log. The
+   expected receiver operation is validate, store, display, and optionally
+   play only.
+5. After every terminal result, send and receive logs must show the normal
+   Sub-GHz receive path restored. A failed VMP test must never strand the
+   device in a 2.4 GHz or radio-busy state.
+
+The following bounded log prefixes make an end-to-end capture searchable:
+
+```text
+[ChatCompose][VMP]         UI press/release dispatch
+[ChatUiTrace][VMP]         message projection, list refresh, read state, playback request
+[VMP][AUDIO]               capture timing and bounded Codec2 result
+[VMP][TX]                  durable local row, carrier choice, terminal send state
+[VMP][RF]                  Sub-GHz negotiation, 2.4 GHz readiness, shard train
+[VMP][RX]                  receive validation and durable inbox commit
+[VMP][PLAY]                on-demand decode/playback lifecycle
+[VMP][MQTT]                isolated SX1262/LR1121 MQTT carrier plan only
+```
+
+## 15. Open engineering decisions retained for field validation
 
 * The exact region-specific 2.4 GHz channel whitelist and maximum EIRP must come from board RF compliance validation, not a universal firmware constant.
 * Profile `0x01` bitrate/deviation/bandwidth must be confirmed against the exact RadioLib LR1121 driver version and the Pager's matching network. A lower-rate fallback may be added behind the same profile registry.

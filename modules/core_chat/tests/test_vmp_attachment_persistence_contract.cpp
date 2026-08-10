@@ -192,5 +192,28 @@ int main(int argc, char** argv)
     assert(pager_header.find("SX1262 never has a") != std::string::npos);
     assert(pager_audio.find("#if defined(ARDUINO_T_LORA_PAGER)") !=
            std::string::npos);
+
+    // An RF capture must be diagnosable from *both* Pagers. Keep the ingress,
+    // readiness, shard/FEC, and timeout spine explicit so an on-device report
+    // can distinguish a missing offer, 2.4 GHz setup failure, ready-probe
+    // failure, no-first-media condition, or durable-store failure.
+    assert(session.find("[VMP][RX] private offer accepted") != std::string::npos);
+    assert(session.find("[VMP][RX] private accept sent; switch_2g_rx") !=
+           std::string::npos);
+    assert(session.find("[VMP][RX] private 2g rx ready window_ms=") !=
+           std::string::npos);
+    assert(session.find("[VMP][RX] private ready sent; wait_first_voice") !=
+           std::string::npos);
+    assert(session.find("[VMP][RX] private media timeout ready=") !=
+           std::string::npos);
+    assert(session.find("[VMP][RX] broadcast announce accepted") !=
+           std::string::npos);
+    assert(session.find("[VMP][RX] broadcast 2g rx ready window_ms=") !=
+           std::string::npos);
+    assert(session.find("[VMP][RX] broadcast media timeout unique_shards=") !=
+           std::string::npos);
+    assert(session.find("[VMP][RX] shard quorum reached unique_shards=") !=
+           std::string::npos);
+    assert(session.find("[VMP][RX] inbox durable_commit") != std::string::npos);
     return 0;
 }

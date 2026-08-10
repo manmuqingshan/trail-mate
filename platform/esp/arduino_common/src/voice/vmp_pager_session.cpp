@@ -739,6 +739,10 @@ class PagerReceiveSession final
             {
                 return;
             }
+            Serial.printf("[VMP][RX] private offer accepted source=%08lX channel=%u media_bytes=%u\n",
+                          static_cast<unsigned long>(candidate_control_.sender_id),
+                          static_cast<unsigned>(candidate_control_.conversation_channel),
+                          static_cast<unsigned>(candidate_control_.encoded_media_len));
             handlePrivateOffer(envelope.bytes);
             return;
         }
@@ -749,6 +753,10 @@ class PagerReceiveSession final
                 envelope.bytes, sizeof(envelope.bytes), &incoming_control_) &&
             tryBeginInbound())
         {
+            Serial.printf("[VMP][RX] broadcast announce accepted source=%08lX channel=%u media_bytes=%u\n",
+                          static_cast<unsigned long>(incoming_control_.sender_id),
+                          static_cast<unsigned>(incoming_control_.conversation_channel),
+                          static_cast<unsigned>(incoming_control_.encoded_media_len));
             receiveBroadcast();
         }
     }
@@ -1335,6 +1343,7 @@ class PagerReceiveSession final
                                            &session_keys_) ||
             !prepareReceiveBlock())
         {
+            Serial.printf("[VMP][RX] private offer rejected reason=auth_key_or_fec_prepare\n");
             resetEphemeralState();
             setActive(false);
             return;
@@ -1358,22 +1367,27 @@ class PagerReceiveSession final
             !radio::tryAcquire(&radio_lease_) ||
             !radio::transmit(&radio_lease_, control_wire_, control_len))
         {
+            Serial.printf("[VMP][RX] private accept tx failed\n");
             releaseRadio();
             resetEphemeralState();
             setActive(false);
             return;
         }
+        Serial.printf("[VMP][RX] private accept sent; switch_2g_rx\n");
 
         radio::PhyProfile profile{};
         if (!profileFor(incoming_control_, &profile) ||
             !radio::switchTo2Ghz(&radio_lease_, profile) ||
             !radio::startReceive(&radio_lease_))
         {
+            Serial.printf("[VMP][RX] private 2g rx setup failed\n");
             releaseRadio();
             resetEphemeralState();
             setActive(false);
             return;
         }
+        Serial.printf("[VMP][RX] private 2g rx ready window_ms=%lu\n",
+                      static_cast<unsigned long>(kReceiveWindowMs));
         receivePrivateMedia();
         setActive(false);
         releaseRadio();
@@ -1384,6 +1398,7 @@ class PagerReceiveSession final
     {
         if (!prepareReceiveBlock())
         {
+            Serial.printf("[VMP][RX] broadcast announce rejected reason=fec_prepare\n");
             setActive(false);
             return;
         }
@@ -1393,10 +1408,13 @@ class PagerReceiveSession final
             !radio::switchTo2Ghz(&radio_lease_, profile) ||
             !radio::startReceive(&radio_lease_))
         {
+            Serial.printf("[VMP][RX] broadcast 2g rx setup failed\n");
             releaseRadio();
             setActive(false);
             return;
         }
+        Serial.printf("[VMP][RX] broadcast 2g rx ready window_ms=%lu\n",
+                      static_cast<unsigned long>(kReceiveWindowMs));
         receivePublicMedia();
         setActive(false);
         releaseRadio();
@@ -1433,10 +1451,15 @@ class PagerReceiveSession final
             else if (ready_sent && static_cast<std::size_t>(packet_len) == vmp::kPrivateShardFrameSize &&
                      handlePrivateShard())
             {
+                Serial.printf("[VMP][RX] private media complete unique_shards=%u\n",
+                              static_cast<unsigned>(media_->receive_block.receivedShardCount()));
                 return;
             }
             (void)radio::startReceive(&radio_lease_);
         }
+        Serial.printf("[VMP][RX] private media timeout ready=%u unique_shards=%u\n",
+                      ready_sent ? 1U : 0U,
+                      static_cast<unsigned>(media_->receive_block.receivedShardCount()));
     }
 
     void receivePublicMedia()
@@ -1457,10 +1480,14 @@ class PagerReceiveSession final
             if (static_cast<std::size_t>(packet_len) == vmp::kPublicShardFrameSize &&
                 handlePublicShard())
             {
+                Serial.printf("[VMP][RX] broadcast media complete unique_shards=%u\n",
+                              static_cast<unsigned>(media_->receive_block.receivedShardCount()));
                 return;
             }
             (void)radio::startReceive(&radio_lease_);
         }
+        Serial.printf("[VMP][RX] broadcast media timeout unique_shards=%u\n",
+                      static_cast<unsigned>(media_->receive_block.receivedShardCount()));
     }
 
     void handlePrivateReadyProbe(bool* ready_sent)
@@ -1491,9 +1518,11 @@ class PagerReceiveSession final
                              data_wire_,
                              ready_len + vmp::kPrivateDataAuthTagSize))
         {
+            Serial.printf("[VMP][RX] private ready tx failed\n");
             return;
         }
         *ready_sent = true;
+        Serial.printf("[VMP][RX] private ready sent; wait_first_voice\n");
     }
 
     bool handlePrivateShard()
@@ -1512,6 +1541,8 @@ class PagerReceiveSession final
         {
             return false;
         }
+        Serial.printf("[VMP][RX] private shard authenticated index=%u\n",
+                      static_cast<unsigned>(data_header_.shard_index));
         return acceptShardAndStore(data_header_, shard_plaintext_);
     }
 
@@ -1526,6 +1557,8 @@ class PagerReceiveSession final
         {
             return false;
         }
+        Serial.printf("[VMP][RX] broadcast shard valid index=%u\n",
+                      static_cast<unsigned>(data_header_.shard_index));
         return acceptShardAndStore(data_header_, shard);
     }
 
@@ -1535,13 +1568,22 @@ class PagerReceiveSession final
             header, shard, vmp::kMaxShardPayloadSize);
         if (result != vmp::ReceiveBlockResult::Complete)
         {
+            if (result == vmp::ReceiveBlockResult::Accepted)
+            {
+                Serial.printf("[VMP][RX] shard accepted index=%u unique_shards=%u\n",
+                              static_cast<unsigned>(header.shard_index),
+                              static_cast<unsigned>(media_->receive_block.receivedShardCount()));
+            }
             return false;
         }
+        Serial.printf("[VMP][RX] shard quorum reached unique_shards=%u; recover\n",
+                      static_cast<unsigned>(media_->receive_block.receivedShardCount()));
         std::size_t media_len = 0U;
         if (!media_->receive_block.recover(media_->received_media,
                                            sizeof(media_->received_media),
                                            &media_len))
         {
+            Serial.printf("[VMP][RX] shard recovery failed\n");
             return false;
         }
         if (!lockState())
