@@ -77,7 +77,12 @@ struct ControlFrame
 {
     ControlType type = ControlType::Offer;
     uint8_t flags = 0;
-    uint8_t key_or_profile_id = 0;
+    /**
+     * Logical local chat channel, independent of the 2.4 GHz RF channel.
+     * It is authenticated for private control and CRC-covered for public
+     * broadcast so a clip cannot be projected into a different chat thread.
+     */
+    uint8_t conversation_channel = 0;
     uint32_t sender_id = 0;
     uint32_t target_id = 0;
     uint64_t session_id = 0;

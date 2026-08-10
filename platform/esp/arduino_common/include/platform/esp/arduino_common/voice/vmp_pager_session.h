@@ -144,6 +144,12 @@ void setLxmfEnvelopeSender(LxmfEnvelopeSender sender, void* context);
 void setLxmfCarrierEnabled(bool enabled);
 
 /**
+ * Binds direct-RF ingress and legacy attachment hydration to the active local
+ * chat presentation protocol. This never changes VMP's wire/bearer rules.
+ */
+void setPresentationProtocol(uint8_t protocol);
+
+/**
  * @brief Accepts one subscribed VMP MQTT envelope into local VMP storage.
  *
  * This function never invokes radio TX, MT/MC receive adapters, or a publish
@@ -171,6 +177,25 @@ void discardMqttPublication();
  * verified-contact secret. Recording itself is performed by a VMP worker, so
  * this call never blocks a UI task for five seconds.
  */
-StartSendResult requestRecordAndSend(uint32_t target_id);
+StartSendResult requestRecordAndSend(uint32_t target_id,
+                                     uint8_t presentation_protocol,
+                                     uint8_t presentation_channel);
+
+/** Marks incoming local VMP attachments in one displayed thread as read. */
+bool markConversationRead(uint8_t presentation_protocol,
+                          uint8_t presentation_channel,
+                          uint32_t peer_id,
+                          bool broadcast);
+
+/**
+ * @brief Stops an in-progress press-to-talk capture after its current frame.
+ *
+ * This is deliberately capture-only: once a valid clip has been encoded, a
+ * later key release must not cancel the selected RF, MQTT, or LXMF delivery.
+ */
+bool requestStopRecording();
+
+/** @brief True from press-to-talk acceptance until its carrier attempt ends. */
+bool isOutboundActive();
 
 } // namespace platform::esp::arduino_common::voice::vmp_session

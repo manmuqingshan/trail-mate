@@ -98,7 +98,8 @@ class ChatConversationScreen
     enum class TimerDomain
     {
         ScreenGeneral,
-        Input
+        Input,
+        VoicePlayback
     };
 
     struct TimerEntry
@@ -155,6 +156,9 @@ class ChatConversationScreen
     struct VoicePlaybackContext
     {
         uint64_t local_id = 0U;
+        uint16_t duration_ms = 0U;
+        lv_obj_t* text_label = nullptr;
+        lv_timer_t* reset_timer = nullptr;
     };
 
     lv_obj_t* container_ = nullptr;
@@ -234,6 +238,7 @@ class ChatConversationScreen
     static void action_event_cb(lv_event_t* e);
     static void message_action_event_cb(lv_event_t* e);
     static void voice_message_event_cb(lv_event_t* e);
+    static void voice_playback_reset_cb(lv_timer_t* timer);
     static void scroll_event_cb(lv_event_t* e);
     static void async_action_cb(void* user_data);
     static void async_message_action_cb(void* user_data);

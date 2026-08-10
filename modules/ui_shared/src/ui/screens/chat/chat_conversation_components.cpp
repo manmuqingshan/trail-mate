@@ -495,6 +495,58 @@ const char* message_ingress_label(::ui::chat::MessageIngressTransport transport)
     }
     return nullptr;
 }
+
+::ui::chat::MessageDeliveryState voice_delivery_state(
+    ::ui::chat_voice::DeliveryState delivery)
+{
+    switch (delivery)
+    {
+    case ::ui::chat_voice::DeliveryState::Sending:
+        return ::ui::chat::MessageDeliveryState::Sending;
+    case ::ui::chat_voice::DeliveryState::Sent:
+        return ::ui::chat::MessageDeliveryState::Sent;
+    case ::ui::chat_voice::DeliveryState::Failed:
+        return ::ui::chat::MessageDeliveryState::Failed;
+    case ::ui::chat_voice::DeliveryState::Received:
+        break;
+    }
+    return ::ui::chat::MessageDeliveryState::Received;
+}
+
+const char* voice_source_label(const ::ui::chat_voice::MessageSummary& summary)
+{
+    if (summary.outgoing)
+    {
+        return summary.private_message ? "VMP private" : "VMP broadcast";
+    }
+    return summary.source_unverified ? "VMP broadcast (unverified)" : "VMP private";
+}
+
+void format_voice_text(char* out,
+                       std::size_t out_size,
+                       uint16_t duration_ms,
+                       bool playing)
+{
+    if (!out || out_size == 0U)
+    {
+        return;
+    }
+    const uint32_t tenths = (static_cast<uint32_t>(duration_ms) + 50U) / 100U;
+    if (tenths == 0U)
+    {
+        std::snprintf(out,
+                      out_size,
+                      "%s",
+                      playing ? "Playing voice..." : "Voice message - tap to play");
+        return;
+    }
+    std::snprintf(out,
+                  out_size,
+                  "Voice %lu.%lus%s",
+                  static_cast<unsigned long>(tenths / 10U),
+                  static_cast<unsigned long>(tenths % 10U),
+                  playing ? " - playing" : " - tap to play");
+}
 } // namespace
 
 static bool is_valid_epoch_ts(uint32_t ts)
@@ -808,29 +860,37 @@ void ChatConversationScreen::addVoiceMessage(
     lv_obj_t* const bubble = chat::ui::layout::create_bubble(item.container);
     item.bubble = bubble;
     chat::ui::conversation::styles::apply_bubble(
-        bubble, false, summary.source_unverified);
+        bubble, summary.outgoing, summary.source_unverified);
     chat::ui::layout::set_bubble_max_width(bubble, kBubbleMaxWidth);
     lv_obj_add_flag(bubble, LV_OBJ_FLAG_CLICKABLE);
 
     char sender[16] = {};
-    std::string sender_name =
-        app::messagingFacade().getContactService().getContactName(summary.sender_id);
-    if (sender_name.empty())
+    std::string sender_name;
+    if (summary.outgoing)
     {
-        std::snprintf(sender,
-                      sizeof(sender),
-                      "%04lX",
-                      static_cast<unsigned long>(summary.sender_id & 0xFFFFU));
-        sender_name = sender;
+        sender_name = "You";
+    }
+    else
+    {
+        sender_name = app::messagingFacade().getContactService().getContactName(
+            summary.sender_id);
+        if (sender_name.empty())
+        {
+            std::snprintf(sender,
+                          sizeof(sender),
+                          "%04lX",
+                          static_cast<unsigned long>(summary.sender_id & 0xFFFFU));
+            sender_name = sender;
+        }
     }
     const lv_coord_t max_meta_w =
         std::max<lv_coord_t>(kBubbleMaxWidth - 2 * bubble_pad_x(), 24);
-    item.meta_row = create_meta_row(bubble, max_meta_w, false);
+    item.meta_row = create_meta_row(bubble, max_meta_w, summary.outgoing);
     item.sender_label = create_meta_chip(
         item.meta_row, sender_name.c_str(), lv_color_hex(0xF1B75A), max_meta_w);
     item.source_label = create_meta_chip(
         item.meta_row,
-        summary.source_unverified ? "VMP broadcast (unverified)" : "VMP private",
+        voice_source_label(summary),
         summary.source_unverified ? lv_color_hex(0xFFB4A2) : lv_color_hex(0xCFE4FF),
         max_meta_w);
     char time_buf[24] = {};
@@ -839,20 +899,42 @@ void ChatConversationScreen::addVoiceMessage(
                         summary.received_at_seconds);
     item.time_label = create_meta_chip(
         item.meta_row, time_buf, lv_color_hex(0xD4F0D2), max_meta_w);
+    if (summary.outgoing)
+    {
+        item.status_label = create_meta_chip(
+            item.meta_row,
+            "Sending...",
+            delivery_status_chip_color(voice_delivery_state(summary.delivery)),
+            max_meta_w);
+        update_delivery_status_chip(item.status_label,
+                                    voice_delivery_state(summary.delivery));
+    }
 
     item.text_label = chat::ui::layout::create_bubble_text(bubble);
     chat::ui::conversation::styles::apply_bubble_text(item.text_label);
-    lv_label_set_text(item.text_label, "Voice message - tap to play");
+    char voice_text[40] = {};
+    format_voice_text(voice_text, sizeof(voice_text), summary.duration_ms, false);
+    lv_label_set_text(item.text_label, voice_text);
     ::ui::fonts::apply_chat_content_font(
         item.text_label, lv_label_get_text(item.text_label));
     lv_obj_set_width(item.text_label,
                      std::max<lv_coord_t>(kBubbleMaxWidth - 2 * bubble_pad_x(), 24));
-    item.voice_playback_ctx.reset(new VoicePlaybackContext{summary.local_id});
+    item.voice_playback_ctx.reset(new VoicePlaybackContext{
+        summary.local_id, summary.duration_ms, item.text_label, nullptr});
+    item.voice_playback_ctx->reset_timer = add_timer(
+        voice_playback_reset_cb,
+        1000U,
+        item.voice_playback_ctx.get(),
+        TimerDomain::VoicePlayback);
+    if (item.voice_playback_ctx->reset_timer)
+    {
+        lv_timer_pause(item.voice_playback_ctx->reset_timer);
+    }
     lv_obj_add_event_cb(bubble,
                         voice_message_event_cb,
                         LV_EVENT_CLICKED,
                         item.voice_playback_ctx.get());
-    chat::ui::layout::align_message_row(item.container, false);
+    chat::ui::layout::align_message_row(item.container, summary.outgoing);
     messages_.push_back(std::move(item));
 }
 
@@ -868,6 +950,7 @@ void ChatConversationScreen::clearMessages()
         CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=conversation_clear reject\n");
         return;
     }
+    clear_timers(TimerDomain::VoicePlayback);
     size_t index = 0;
     for (auto& item : messages_)
     {
@@ -891,15 +974,61 @@ void ChatConversationScreen::voice_message_event_cb(lv_event_t* e)
     {
         return;
     }
-    const auto* context =
-        static_cast<const VoicePlaybackContext*>(lv_event_get_user_data(e));
+    auto* context =
+        static_cast<VoicePlaybackContext*>(lv_event_get_user_data(e));
     if (!context || context->local_id == 0U)
     {
         return;
     }
     const bool started = ::ui::chat_voice::requestPlayback(context->local_id);
-    ::ui::feedback::show_notice(started ? "Playing voice" : "Voice playback unavailable",
-                                started ? 1400 : 1800);
+    if (!started)
+    {
+        ::ui::feedback::show_notice("Voice audio is busy", 1600);
+        return;
+    }
+
+    if (context->text_label && lv_obj_is_valid(context->text_label))
+    {
+        char voice_text[40] = {};
+        format_voice_text(voice_text,
+                          sizeof(voice_text),
+                          context->duration_ms,
+                          true);
+        lv_label_set_text(context->text_label, voice_text);
+        ::ui::fonts::apply_chat_content_font(context->text_label, voice_text);
+    }
+    if (context->reset_timer)
+    {
+        const uint32_t reset_after_ms =
+            std::max<uint32_t>(1000U, static_cast<uint32_t>(context->duration_ms) + 500U);
+        lv_timer_set_period(context->reset_timer, reset_after_ms);
+        lv_timer_reset(context->reset_timer);
+        lv_timer_resume(context->reset_timer);
+    }
+    CHAT_CONVERSATION_LOG("[ChatUiTrace][VMP] playback queued local_id=%llu duration_ms=%u\n",
+                          static_cast<unsigned long long>(context->local_id),
+                          static_cast<unsigned>(context->duration_ms));
+}
+
+void ChatConversationScreen::voice_playback_reset_cb(lv_timer_t* timer)
+{
+    auto* context = timer ? static_cast<VoicePlaybackContext*>(
+                                lv_timer_get_user_data(timer))
+                          : nullptr;
+    if (context && context->text_label && lv_obj_is_valid(context->text_label))
+    {
+        char voice_text[40] = {};
+        format_voice_text(voice_text,
+                          sizeof(voice_text),
+                          context->duration_ms,
+                          false);
+        lv_label_set_text(context->text_label, voice_text);
+        ::ui::fonts::apply_chat_content_font(context->text_label, voice_text);
+    }
+    if (timer)
+    {
+        lv_timer_pause(timer);
+    }
 }
 
 void ChatConversationScreen::scrollToTop()

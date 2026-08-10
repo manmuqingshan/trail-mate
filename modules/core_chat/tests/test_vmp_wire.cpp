@@ -14,7 +14,7 @@ ControlFrame makePrivateOffer()
     ControlFrame frame{};
     frame.type = ControlType::Offer;
     frame.flags = ControlFlagPrivate;
-    frame.key_or_profile_id = 7;
+    frame.conversation_channel = 7;
     frame.sender_id = 0x12345678U;
     frame.target_id = 0x90ABCDEFU;
     frame.session_id = 0x0123456789ABCDEFULL;
@@ -52,6 +52,7 @@ void testPrivateControlRoundTrip()
     assert(decodeControlFrame(bytes.data(), bytes.size(), &actual));
     assert(actual.type == expected.type);
     assert(actual.flags == expected.flags);
+    assert(actual.conversation_channel == expected.conversation_channel);
     assert(actual.sender_id == expected.sender_id);
     assert(actual.target_id == expected.target_id);
     assert(actual.session_id == expected.session_id);
@@ -78,7 +79,7 @@ void testBroadcastAndInvalidControlConstraints()
     ControlFrame broadcast = makePrivateOffer();
     broadcast.type = ControlType::Announce;
     broadcast.flags = ControlFlagBroadcast | ControlFlagPublicBroadcast;
-    broadcast.key_or_profile_id = 0;
+    broadcast.conversation_channel = 0;
     std::memset(broadcast.ephemeral_public_key,
                 0,
                 sizeof(broadcast.ephemeral_public_key));
@@ -95,7 +96,7 @@ void testBroadcastAndInvalidControlConstraints()
     assert(!isValidControlFrame(invalid_broadcast_target));
 
     ControlFrame invalid_broadcast_key = broadcast;
-    invalid_broadcast_key.key_or_profile_id = 1;
+    invalid_broadcast_key.conversation_channel = 8;
     assert(!isValidControlFrame(invalid_broadcast_key));
 
     ControlFrame invalid_broadcast_ephemeral = broadcast;

@@ -29,16 +29,42 @@ bool canRecordAndSend()
     return s_runtime && s_runtime->canRecordAndSend();
 }
 
-StartResult requestRecordAndSend(uint32_t target_id)
+StartResult requestRecordAndSend(const SendRequest& request)
 {
-    return s_runtime ? s_runtime->requestRecordAndSend(target_id)
+    return s_runtime ? s_runtime->requestRecordAndSend(request)
                      : StartResult::Unsupported;
+}
+
+bool requestStopRecording()
+{
+    return s_runtime && s_runtime->requestStopRecording();
+}
+
+bool isOutboundActive()
+{
+    return s_runtime && s_runtime->isOutboundActive();
+}
+
+std::size_t listMessages(MessageSummary* out_messages, std::size_t capacity)
+{
+    return s_runtime ? s_runtime->listMessages(out_messages, capacity) : 0U;
+}
+
+bool markConversationRead(uint8_t presentation_protocol,
+                          uint8_t presentation_channel,
+                          uint32_t peer_id,
+                          bool broadcast)
+{
+    return s_runtime && s_runtime->markConversationRead(presentation_protocol,
+                                                        presentation_channel,
+                                                        peer_id,
+                                                        broadcast);
 }
 
 std::size_t listReceivedMessages(MessageSummary* out_messages,
                                  std::size_t capacity)
 {
-    return s_runtime ? s_runtime->listReceivedMessages(out_messages, capacity) : 0U;
+    return listMessages(out_messages, capacity);
 }
 
 bool requestPlayback(uint64_t local_id)

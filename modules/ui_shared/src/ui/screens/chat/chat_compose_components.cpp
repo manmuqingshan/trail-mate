@@ -167,6 +167,21 @@ ChatComposeScreen::ChatComposeScreen(lv_obj_t* parent, chat::ConversationId conv
     impl_->cancel_ctx.intent = ActionIntent::Cancel;
     lv_obj_add_event_cb(impl_->w.send_btn, on_action_click, LV_EVENT_CLICKED, &impl_->send_ctx);
     lv_obj_add_event_cb(impl_->w.position_btn, on_action_click, LV_EVENT_CLICKED, &impl_->auxiliary_ctx);
+    // Voice mode deliberately uses press/release rather than CLICKED. CLICKED
+    // is emitted only after release, which would start a five-second capture
+    // after the user had already stopped holding the control.
+    lv_obj_add_event_cb(impl_->w.position_btn,
+                        on_voice_pressed,
+                        LV_EVENT_PRESSED,
+                        &impl_->auxiliary_ctx);
+    lv_obj_add_event_cb(impl_->w.position_btn,
+                        on_voice_released,
+                        LV_EVENT_RELEASED,
+                        &impl_->auxiliary_ctx);
+    lv_obj_add_event_cb(impl_->w.position_btn,
+                        on_voice_released,
+                        LV_EVENT_PRESS_LOST,
+                        &impl_->auxiliary_ctx);
     lv_obj_add_event_cb(impl_->w.cancel_btn, on_action_click, LV_EVENT_CLICKED, &impl_->cancel_ctx);
     lv_obj_add_event_cb(impl_->w.send_btn, on_key, LV_EVENT_KEY, this);
     lv_obj_add_event_cb(impl_->w.position_btn, on_key, LV_EVENT_KEY, this);
@@ -297,7 +312,7 @@ void ChatComposeScreen::setPositionButton(const char* label, bool visible)
 void ChatComposeScreen::setVoiceButton(const char* label, bool visible)
 {
     if (!impl_ || !impl_->w.position_btn) return;
-    impl_->auxiliary_ctx.intent = ActionIntent::Voice;
+    impl_->auxiliary_ctx.intent = ActionIntent::VoiceStart;
     if (label)
     {
         set_btn_label_text(impl_->w.position_btn, label);
@@ -552,7 +567,52 @@ void ChatComposeScreen::on_action_click(lv_event_t* e)
     {
         return;
     }
+    // A voice hold has already begun on LV_EVENT_PRESSED. Ignore the synthetic
+    // click emitted after release so it cannot begin a second recording.
+    if (ctx->intent == ActionIntent::VoiceStart)
+    {
+        return;
+    }
     screen->schedule_action_async(ctx->intent);
+}
+
+void ChatComposeScreen::on_voice_pressed(lv_event_t* e)
+{
+    auto* ctx = static_cast<Impl::ActionContext*>(lv_event_get_user_data(e));
+    if (!ctx || ctx->intent != ActionIntent::VoiceStart || !ctx->screen)
+    {
+        return;
+    }
+    auto* const screen = ctx->screen;
+    if (!screen->impl_ || !screen->impl_->guard || !screen->impl_->guard->alive ||
+        !screen->action_cb_)
+    {
+        return;
+    }
+    CHAT_COMPOSE_LOG("[ChatCompose][VMP] voice press: begin capture\n");
+    screen->action_cb_(ActionIntent::VoiceStart, screen->action_cb_user_data_);
+}
+
+void ChatComposeScreen::on_voice_released(lv_event_t* e)
+{
+    auto* ctx = static_cast<Impl::ActionContext*>(lv_event_get_user_data(e));
+    if (!ctx || ctx->intent != ActionIntent::VoiceStart || !ctx->screen)
+    {
+        return;
+    }
+    auto* const screen = ctx->screen;
+    if (!screen->impl_ || !screen->impl_->guard || !screen->impl_->guard->alive ||
+        !screen->action_cb_)
+    {
+        return;
+    }
+    // Stopping capture may immediately switch back to the conversation and
+    // destroy this compose button.  Defer that state transition until after
+    // LVGL has finished dispatching RELEASED/PRESS_LOST; recording itself was
+    // already started synchronously on PRESSED, so this does not reintroduce
+    // the old click-to-start behavior.
+    CHAT_COMPOSE_LOG("[ChatCompose][VMP] voice release: schedule capture stop\n");
+    screen->schedule_action_async(ActionIntent::VoiceStop);
 }
 
 void ChatComposeScreen::on_text_changed(lv_event_t* e)

@@ -136,6 +136,8 @@ class UiController : public IChatUiRefreshSink
     void switchToCompose(chat::ConversationId conv);
     void appendVoiceMessagesToConversation();
     uint64_t currentVoiceProjectionSignature();
+    uint64_t currentVoiceListSignature();
+    void updateVoiceComposeSession();
     void handleChannelSelected(const chat::ConversationId& conv);
     void handlePingDestination(const chat::ConversationId& conv);
     void handleDeleteConversation(const chat::ConversationId& conv);
@@ -187,7 +189,12 @@ class UiController : public IChatUiRefreshSink
     static constexpr std::size_t kVoiceProjectionCapacity = 8U;
     ::ui::chat_voice::MessageSummary voice_projection_buffer_[kVoiceProjectionCapacity] = {};
     uint64_t rendered_voice_projection_signature_ = 0U;
+    uint64_t rendered_voice_list_signature_ = 0U;
     uint32_t voice_projection_last_poll_ms_ = 0U;
+    uint32_t voice_list_last_poll_ms_ = 0U;
+    uint32_t voice_hold_started_ms_ = 0U;
+    uint32_t voice_hold_last_render_ms_ = 0U;
+    bool voice_hold_active_ = false;
     bool conversation_list_dirty_ = true;
     bool conversation_list_loaded_ = false;
     bool conversation_view_loaded_ = false;

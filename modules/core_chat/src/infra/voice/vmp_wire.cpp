@@ -199,6 +199,10 @@ bool isValidControlFrame(const ControlFrame& frame)
     {
         return false;
     }
+    if (frame.conversation_channel > 7U)
+    {
+        return false;
+    }
 
     if (mode == DeliveryMode::Private)
     {
@@ -216,7 +220,6 @@ bool isValidControlFrame(const ControlFrame& frame)
     else
     {
         if (frame.target_id != kBroadcastTargetId || frame.type == ControlType::Accept ||
-            frame.key_or_profile_id != 0 ||
             (frame.flags & ControlFlagPublicBroadcast) == 0)
         {
             return false;
@@ -270,7 +273,7 @@ bool encodeControlFrame(const ControlFrame& frame,
     out[2] = kVersion;
     out[3] = static_cast<uint8_t>(frame.type);
     out[4] = frame.flags;
-    out[5] = frame.key_or_profile_id;
+    out[5] = frame.conversation_channel;
     writeU32(frame.sender_id, out + 6);
     writeU32(frame.target_id, out + 10);
     writeU64(frame.session_id, out + 14);
@@ -307,7 +310,7 @@ bool decodeControlFrame(const uint8_t* data,
     ControlFrame frame{};
     frame.type = static_cast<ControlType>(data[3]);
     frame.flags = data[4];
-    frame.key_or_profile_id = data[5];
+    frame.conversation_channel = data[5];
     frame.sender_id = readU32(data + 6);
     frame.target_id = readU32(data + 10);
     frame.session_id = readU64(data + 14);

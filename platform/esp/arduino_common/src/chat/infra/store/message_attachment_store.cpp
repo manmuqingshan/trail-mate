@@ -27,9 +27,11 @@ constexpr const char* kVoiceSnapshotBackupPath =
     "/data/v2/attachments/voice/inbox.v1.bak";
 constexpr uint32_t kSnapshotMagic = 0x54414D56UL;       // "VMAT", little-endian.
 constexpr uint32_t kSnapshotFooterMagic = 0x454E4456UL; // "VDNE".
-constexpr uint16_t kSnapshotSchemaVersion = 1U;
+constexpr uint16_t kSnapshotSchemaVersion = 2U;
 constexpr uint8_t kVoiceCompleteFlag = 0x01U;
 constexpr uint8_t kVoiceUnverifiedFlag = 0x02U;
+constexpr uint8_t kVoiceOutgoingFlag = 0x04U;
+constexpr uint8_t kVoiceReadFlag = 0x08U;
 
 struct SnapshotHeader
 {
@@ -121,22 +123,36 @@ VoiceRecordHeader makeRecordHeader(const vmp::VoiceMessageMetadata& metadata,
     record.encoded_media_len = metadata.encoded_media_len;
     record.codec = static_cast<uint8_t>(metadata.codec);
     record.mode = static_cast<uint8_t>(metadata.mode);
-    record.flags = (metadata.complete ? kVoiceCompleteFlag : 0U) |
-                   (metadata.source_unverified ? kVoiceUnverifiedFlag : 0U);
+    record.flags = (vmp::voiceMessageComplete(metadata) ? kVoiceCompleteFlag : 0U) |
+                   (vmp::voiceMessageSourceUnverified(metadata)
+                        ? kVoiceUnverifiedFlag
+                        : 0U) |
+                   (vmp::voiceMessageOutgoing(metadata) ? kVoiceOutgoingFlag : 0U) |
+                   (vmp::voiceMessageRead(metadata) ? kVoiceReadFlag : 0U);
+    // The retained V1 record ABI had three reserved bytes. V2 uses them for
+    // local-only delivery and conversation binding without changing the
+    // fixed 48-byte record size or placing a mesh protocol inside VMP media.
+    record.reserved[0] = static_cast<uint8_t>(metadata.delivery);
+    record.reserved[1] = static_cast<uint8_t>(metadata.presentation_protocol);
+    record.reserved[2] = metadata.presentation_channel;
     record.media_crc32 = crc32(media, metadata.encoded_media_len);
     return record;
 }
 
 bool decodeRecordMetadata(const VoiceRecordHeader& record,
+                          uint16_t schema,
                           vmp::VoiceMessageMetadata* metadata)
 {
     if (!metadata || record.local_id == 0U ||
         record.encoded_media_len == 0U ||
         record.encoded_media_len > vmp::kMaxEncodedMediaSize ||
         (record.flags & kVoiceCompleteFlag) == 0U ||
+        (record.flags & ~(kVoiceCompleteFlag | kVoiceUnverifiedFlag |
+                          kVoiceOutgoingFlag | kVoiceReadFlag)) != 0U ||
         record.codec != static_cast<uint8_t>(vmp::Codec::Codec2_1300) ||
         (record.mode != static_cast<uint8_t>(vmp::DeliveryMode::Private) &&
-         record.mode != static_cast<uint8_t>(vmp::DeliveryMode::Broadcast)))
+         record.mode != static_cast<uint8_t>(vmp::DeliveryMode::Broadcast)) ||
+        record.reserved[0] > static_cast<uint8_t>(vmp::VoiceDeliveryState::Failed))
     {
         return false;
     }
@@ -150,8 +166,31 @@ bool decodeRecordMetadata(const VoiceRecordHeader& record,
     metadata->encoded_media_len = record.encoded_media_len;
     metadata->codec = static_cast<vmp::Codec>(record.codec);
     metadata->mode = static_cast<vmp::DeliveryMode>(record.mode);
-    metadata->source_unverified = (record.flags & kVoiceUnverifiedFlag) != 0U;
-    metadata->complete = true;
+    metadata->flags = 0U;
+    vmp::setVoiceMessageFlag(metadata,
+                             vmp::VoiceMessageFlagSourceUnverified,
+                             (record.flags & kVoiceUnverifiedFlag) != 0U);
+    vmp::setVoiceMessageFlag(metadata, vmp::VoiceMessageFlagComplete, true);
+    vmp::setVoiceMessageFlag(metadata,
+                             vmp::VoiceMessageFlagOutgoing,
+                             (record.flags & kVoiceOutgoingFlag) != 0U);
+    // A V1 snapshot had no read bit. Existing received clips predate the
+    // unread model, so migration deliberately treats them as already seen.
+    vmp::setVoiceMessageFlag(metadata,
+                             vmp::VoiceMessageFlagRead,
+                             schema == 1U || (record.flags & kVoiceReadFlag) != 0U);
+    metadata->delivery = static_cast<vmp::VoiceDeliveryState>(record.reserved[0]);
+    metadata->presentation_protocol =
+        schema == 1U ? vmp::VoicePresentationProtocol::Unknown
+                     : static_cast<vmp::VoicePresentationProtocol>(record.reserved[1]);
+    metadata->presentation_channel =
+        schema == 1U ? vmp::kVoicePresentationPrimaryChannel : record.reserved[2];
+    if (schema != 1U &&
+        !vmp::isValidVoicePresentationBinding(metadata->presentation_protocol,
+                                              metadata->presentation_channel))
+    {
+        return false;
+    }
     return true;
 }
 
@@ -211,7 +250,7 @@ VoiceInboxLoadResult restoreVoiceInboxSnapshot(
     SnapshotHeader header{};
     if (!readExact(&file, &header, sizeof(header)) ||
         header.magic != kSnapshotMagic ||
-        header.schema != kSnapshotSchemaVersion ||
+        (header.schema != 1U && header.schema != kSnapshotSchemaVersion) ||
         header.kind != static_cast<uint8_t>(AttachmentKind::Voice) ||
         header.record_count > vmp::kVoiceInboxCapacity)
     {
@@ -226,10 +265,17 @@ VoiceInboxLoadResult restoreVoiceInboxSnapshot(
         VoiceRecordHeader record{};
         vmp::VoiceMessageMetadata metadata{};
         if (!readExact(&file, &record, sizeof(record)) ||
-            !decodeRecordMetadata(record, &metadata) ||
+            !decodeRecordMetadata(record, header.schema, &metadata) ||
             !readExact(&file, media_scratch, metadata.encoded_media_len) ||
             crc32(media_scratch, metadata.encoded_media_len) != record.media_crc32 ||
-            !inbox->restore(metadata, media_scratch, metadata.encoded_media_len))
+            // Snapshot records are written newest-first by listMetadata().
+            // Restore their descending insertion order explicitly so a
+            // power cycle keeps chat history and replacement policy ordered
+            // exactly as before persistence, including legacy V1 snapshots.
+            !inbox->restore(metadata,
+                            media_scratch,
+                            metadata.encoded_media_len,
+                            static_cast<uint64_t>(header.record_count - index)))
         {
             file.close();
             inbox->clear();
@@ -293,13 +339,14 @@ bool persistVoiceInbox(const vmp::VoiceMessageInbox& inbox,
     header.record_count = static_cast<uint8_t>(count);
     bool wrote = writeExact(&file, &header, sizeof(header));
     uint32_t payload_crc = 0xFFFFFFFFUL;
-    // `listMetadata` is newest-first; serializing oldest-first lets inbox
-    // restore rebuild the original presentation order without a second RAM
-    // array or storing its private insertion sequence on disk.
-    for (std::size_t remaining = count; wrote && remaining > 0U; --remaining)
+    // `listMetadata` is newest-first and the V1 loader restores records with
+    // a descending insertion sequence.  Keep the on-disk ordering newest to
+    // oldest so the durable timeline and bounded oldest-entry replacement
+    // policy survive a reboot without a second metadata array.
+    for (std::size_t index = 0U; wrote && index < count; ++index)
     {
         const vmp::VoiceMessageMetadata& metadata =
-            metadata_scratch[remaining - 1U];
+            metadata_scratch[index];
         vmp::VoiceMessageView view{};
         if (!inbox.get(metadata.local_id, &view) ||
             !view.encoded_media ||

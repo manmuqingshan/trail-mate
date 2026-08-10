@@ -67,10 +67,13 @@ class PagerVoiceMessageRuntime final : public ::ui::chat_voice::IVoiceMessageRun
         return ::platform::esp::arduino_common::voice::vmp_session::canRecordAndSend();
     }
 
-    ::ui::chat_voice::StartResult requestRecordAndSend(uint32_t target_id) override
+    ::ui::chat_voice::StartResult requestRecordAndSend(
+        const ::ui::chat_voice::SendRequest& request) override
     {
         switch (::platform::esp::arduino_common::voice::vmp_session::requestRecordAndSend(
-            target_id))
+            request.target_id,
+            request.presentation_protocol,
+            request.presentation_channel))
         {
         case ::platform::esp::arduino_common::voice::vmp_session::StartSendResult::Queued:
             return ::ui::chat_voice::StartResult::Queued;
@@ -84,7 +87,19 @@ class PagerVoiceMessageRuntime final : public ::ui::chat_voice::IVoiceMessageRun
         }
     }
 
-    std::size_t listReceivedMessages(
+    bool requestStopRecording() override
+    {
+        return ::platform::esp::arduino_common::voice::vmp_session::
+            requestStopRecording();
+    }
+
+    bool isOutboundActive() const override
+    {
+        return ::platform::esp::arduino_common::voice::vmp_session::
+            isOutboundActive();
+    }
+
+    std::size_t listMessages(
         ::ui::chat_voice::MessageSummary* out_messages,
         std::size_t capacity) const override
     {
@@ -106,11 +121,36 @@ class PagerVoiceMessageRuntime final : public ::ui::chat_voice::IVoiceMessageRun
             out_messages[index].sender_id = metadata.sender_id;
             out_messages[index].target_id = metadata.target_id;
             out_messages[index].received_at_seconds = metadata.received_at_seconds;
+            // Codec2-1300 frames are fixed at 40 ms and seven encoded bytes.
+            // The UI receives duration only, never a pointer to media bytes.
+            out_messages[index].duration_ms = static_cast<uint16_t>(
+                (metadata.encoded_media_len / 7U) * 40U);
             out_messages[index].private_message =
                 metadata.mode == chat::voice::vmp::DeliveryMode::Private;
-            out_messages[index].source_unverified = metadata.source_unverified;
+            out_messages[index].source_unverified =
+                chat::voice::vmp::voiceMessageSourceUnverified(metadata);
+            out_messages[index].outgoing =
+                chat::voice::vmp::voiceMessageOutgoing(metadata);
+            out_messages[index].delivery =
+                static_cast<::ui::chat_voice::DeliveryState>(metadata.delivery);
+            out_messages[index].presentation_protocol =
+                static_cast<uint8_t>(metadata.presentation_protocol);
+            out_messages[index].presentation_channel = metadata.presentation_channel;
+            out_messages[index].read = chat::voice::vmp::voiceMessageRead(metadata);
         }
         return count;
+    }
+
+    bool markConversationRead(uint8_t presentation_protocol,
+                              uint8_t presentation_channel,
+                              uint32_t peer_id,
+                              bool broadcast) override
+    {
+        return ::platform::esp::arduino_common::voice::vmp_session::
+            markConversationRead(presentation_protocol,
+                                 presentation_channel,
+                                 peer_id,
+                                 broadcast);
     }
 
     bool requestPlayback(uint64_t local_id) override
@@ -341,6 +381,9 @@ void AppContext::initChatRuntime(bool use_mock_adapter)
     }
     else
     {
+        ::platform::esp::arduino_common::voice::vmp_session::setPresentationProtocol(
+            static_cast<uint8_t>(chat::infra::normalizeMeshProtocol(
+                config_.mesh_protocol)));
         ::platform::esp::arduino_common::voice::vmp_session::setVerifiedContactSecretDeriver(
             &deriveVmpVerifiedContactSecret, this);
 #if defined(ARDUINO_LILYGO_LORA_LR1121)
@@ -669,6 +712,10 @@ void AppContext::applyMeshConfig()
         chat::infra::isReticulumMeshProtocol(
             chat::infra::normalizeMeshProtocol(config_.mesh_protocol)));
 #endif
+#if defined(ARDUINO_T_LORA_PAGER)
+    ::platform::esp::arduino_common::voice::vmp_session::setPresentationProtocol(
+        static_cast<uint8_t>(chat::infra::normalizeMeshProtocol(config_.mesh_protocol)));
+#endif
 }
 
 void AppContext::applyUserInfo()
@@ -871,6 +918,8 @@ bool AppContext::switchMeshProtocol(chat::MeshProtocol protocol, bool persist)
     }
 #if defined(ARDUINO_T_LORA_PAGER)
     ::platform::esp::arduino_common::voice::vmp_session::invalidateContactSecretCache();
+    ::platform::esp::arduino_common::voice::vmp_session::setPresentationProtocol(
+        static_cast<uint8_t>(normalized));
 #if defined(ARDUINO_LILYGO_LORA_LR1121)
     ::platform::esp::arduino_common::voice::vmp_session::setLxmfCarrierEnabled(
         chat::infra::isReticulumMeshProtocol(normalized));

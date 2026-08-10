@@ -16,6 +16,7 @@
 #include "chat/infra/voice/vmp_mqtt_transport.h"
 #include "chat/infra/voice/vmp_receive_block.h"
 #include "platform/esp/arduino_common/chat/infra/store/message_attachment_store.h"
+#include "sys/clock.h"
 
 #include <Arduino.h>
 
@@ -54,6 +55,14 @@ constexpr uint32_t kPersistentInboxRetryMs = 5000U;
 bool deadlineExpired(uint32_t deadline)
 {
     return static_cast<int32_t>(millis() - deadline) >= 0;
+}
+
+uint32_t voiceTimestampSeconds()
+{
+    // Use the same real-time source as text-message persistence. A missing
+    // clock deliberately remains zero instead of fabricating an uptime value
+    // that would sort a voice attachment ahead of dated text history.
+    return ::sys::epoch_seconds_now();
 }
 
 bool profileFor(const vmp::ControlFrame& control, radio::PhyProfile* out_profile)
@@ -142,6 +151,9 @@ class PagerReceiveSession final
             control::setEnvelopeHandler(&PagerReceiveSession::controlEnvelopeReceived, this);
         }
         initialized_ = true;
+        Serial.printf("[VMP] init carrier=%s durable_inbox=%u\n",
+                      direct_rf_voice_supported_ ? "lr1121_rf" : "sx1262_mqtt_only",
+                      requires_durable_attachment_store_ ? 1U : 0U);
         return true;
     }
 
@@ -204,11 +216,30 @@ class PagerReceiveSession final
                           VoiceInboxLoadResult::Empty)
         {
             inbox_ready_ = true;
-            Serial.printf("[VMP] attachment inbox restore=%s\n",
+            const bool rebound_legacy =
+                presentation_protocol_ != vmp::VoicePresentationProtocol::Unknown &&
+                media_->inbox.bindUnassignedMessages(
+                    presentation_protocol_,
+                    vmp::kVoicePresentationPrimaryChannel,
+                    true);
+            if (result == ::platform::esp::arduino_common::chat_attachment::
+                              VoiceInboxLoadResult::Restored &&
+                !::platform::esp::arduino_common::chat_attachment::persistVoiceInbox(
+                    media_->inbox,
+                    media_->persistence_metadata,
+                    vmp::kVoiceInboxCapacity))
+            {
+                // Restore converts an interrupted outgoing `Sending` state to
+                // local `Failed`; retain the safe RAM state even if the first
+                // healing snapshot cannot be committed yet.
+                Serial.printf("[VMP] attachment inbox status-heal deferred\n");
+            }
+            Serial.printf("[VMP] attachment inbox restore=%s legacy_rebound=%u\n",
                           result == ::platform::esp::arduino_common::chat_attachment::
                                         VoiceInboxLoadResult::Restored
                               ? "restored"
-                              : "empty");
+                              : "empty",
+                          rebound_legacy ? 1U : 0U);
         }
         else
         {
@@ -290,6 +321,8 @@ class PagerReceiveSession final
         unlockState();
         if (unavailable)
         {
+            Serial.printf("[VMP][PLAY] rejected local_id=%llu reason=voice_busy\n",
+                          static_cast<unsigned long long>(local_id));
             return false;
         }
 
@@ -300,6 +333,8 @@ class PagerReceiveSession final
         if (active_ || playback_task_)
         {
             unlockState();
+            Serial.printf("[VMP][PLAY] rejected local_id=%llu reason=became_busy\n",
+                          static_cast<unsigned long long>(local_id));
             return false;
         }
         vmp::VoiceMessageView view{};
@@ -307,6 +342,8 @@ class PagerReceiveSession final
             view.metadata.encoded_media_len > sizeof(media_->playback_media))
         {
             unlockState();
+            Serial.printf("[VMP][PLAY] rejected local_id=%llu reason=not_found\n",
+                          static_cast<unsigned long long>(local_id));
             return false;
         }
         std::memcpy(media_->playback_media,
@@ -326,9 +363,14 @@ class PagerReceiveSession final
             playback_local_id_ = 0U;
             playback_task_ = nullptr;
             unlockState();
+            Serial.printf("[VMP][PLAY] rejected local_id=%llu reason=worker_create\n",
+                          static_cast<unsigned long long>(local_id));
             return false;
         }
         unlockState();
+        Serial.printf("[VMP][PLAY] queued local_id=%llu bytes=%u\n",
+                      static_cast<unsigned long long>(local_id),
+                      static_cast<unsigned>(playback_media_len_));
         return true;
     }
 
@@ -407,6 +449,20 @@ class PagerReceiveSession final
         }
     }
 
+    void setPresentationProtocol(uint8_t protocol)
+    {
+        const auto presentation =
+            static_cast<vmp::VoicePresentationProtocol>(protocol);
+        if (!vmp::isValidVoicePresentationBinding(
+                presentation, vmp::kVoicePresentationPrimaryChannel) ||
+            !lockState())
+        {
+            return;
+        }
+        presentation_protocol_ = presentation;
+        unlockState();
+    }
+
     bool acceptMqttEnvelope(const uint8_t* envelope, std::size_t envelope_len)
     {
         return acceptStoreForwardEnvelope(0U, envelope, envelope_len);
@@ -477,7 +533,7 @@ class PagerReceiveSession final
                 recovered && storeCompletedVoice(media_->mqtt_receive.control(),
                                                  media_->mqtt_received_media,
                                                  media_len,
-                                                 millis() / 1000U);
+                                                 voiceTimestampSeconds());
             secureClear(media_->mqtt_received_media, sizeof(media_->mqtt_received_media));
             media_->mqtt_receive.clear();
             stored = stored_voice;
@@ -495,27 +551,39 @@ class PagerReceiveSession final
         }
     }
 
-    StartSendResult requestRecordAndSend(uint32_t target_id)
+    StartSendResult requestRecordAndSend(uint32_t target_id,
+                                         uint8_t presentation_protocol,
+                                         uint8_t presentation_channel)
     {
         const bool broadcast = target_id == vmp::kBroadcastTargetId;
+        const auto presentation =
+            static_cast<vmp::VoicePresentationProtocol>(presentation_protocol);
         if (!initialized_ || !media_ || !inbox_ready_ ||
             !media_->audio.isSupported())
         {
+            Serial.printf("[VMP][TX] hold begin rejected reason=unavailable\n");
             return StartSendResult::Unsupported;
         }
-        if ((!broadcast && target_id == 0U) || !lockState())
+        if ((!broadcast && target_id == 0U) ||
+            !vmp::isValidVoicePresentationBinding(presentation,
+                                                  presentation_channel) ||
+            !lockState())
         {
+            Serial.printf("[VMP][TX] hold begin rejected reason=invalid_target_or_lock\n");
             return StartSendResult::Busy;
         }
-        const bool unavailable = active_ || outbound_task_ || playback_task_ ||
+        const bool unavailable = presentation != presentation_protocol_ || active_ ||
+                                 outbound_task_ || playback_task_ ||
                                  (!direct_rf_voice_supported_ && !mqtt_uplink_enabled_);
         unlockState();
         if (unavailable)
         {
+            Serial.printf("[VMP][TX] hold begin rejected reason=busy_or_no_carrier\n");
             return StartSendResult::Busy;
         }
         if (!broadcast && !ensureVerifiedContactSecret(target_id))
         {
+            Serial.printf("[VMP][TX] hold begin rejected reason=private_contact_unverified\n");
             return StartSendResult::PrivateContactUnverified;
         }
 
@@ -526,12 +594,21 @@ class PagerReceiveSession final
         if (active_ || outbound_task_ || playback_task_)
         {
             unlockState();
+            Serial.printf("[VMP][TX] hold begin rejected reason=became_busy\n");
             return StartSendResult::Busy;
         }
         outbound_target_id_ = target_id;
         outbound_is_broadcast_ = broadcast;
+        outbound_presentation_protocol_ = presentation;
+        outbound_presentation_channel_ = presentation_channel;
+        record_stop_requested_ = false;
         active_ = true;
+        outbound_active_ = true;
         unlockState();
+        Serial.printf("[VMP][TX] hold begin accepted mode=%s target=%08lX carrier=%s\n",
+                      broadcast ? "broadcast" : "private",
+                      static_cast<unsigned long>(target_id),
+                      direct_rf_voice_supported_ ? "lr1121_rf" : "sx1262_mqtt_only");
         if (xTaskCreatePinnedToCore(&PagerReceiveSession::outboundTaskEntry,
                                     "vmp_tx",
                                     kOutboundTaskStackWords,
@@ -540,10 +617,85 @@ class PagerReceiveSession final
                                     nullptr,
                                     tskNO_AFFINITY) != pdPASS)
         {
-            setActive(false);
+            if (lockState())
+            {
+                active_ = false;
+                outbound_active_ = false;
+                unlockState();
+            }
+            Serial.printf("[VMP][TX] hold begin failed reason=worker_create\n");
             return StartSendResult::Unsupported;
         }
+        Serial.printf("[VMP][TX] capture worker queued\n");
         return StartSendResult::Queued;
+    }
+
+    bool isOutboundActive() const
+    {
+        if (!initialized_ || !lockState())
+        {
+            return false;
+        }
+        const bool active = outbound_active_;
+        unlockState();
+        return active;
+    }
+
+    bool requestStopRecording()
+    {
+        if (!initialized_ || !lockState())
+        {
+            Serial.printf("[VMP][TX] hold release ignored reason=unavailable\n");
+            return false;
+        }
+        const bool active = active_;
+        if (active)
+        {
+            // The capture loop observes this without taking the state mutex,
+            // so a release cannot block the LVGL task behind an I2S read.
+            record_stop_requested_ = true;
+        }
+        unlockState();
+        Serial.printf("[VMP][TX] hold release stop_requested=%u\n",
+                      active ? 1U : 0U);
+        return active;
+    }
+
+    bool markConversationRead(uint8_t presentation_protocol,
+                              uint8_t presentation_channel,
+                              uint32_t peer_id,
+                              bool broadcast)
+    {
+        const auto protocol =
+            static_cast<vmp::VoicePresentationProtocol>(presentation_protocol);
+        if (!initialized_ || !media_ || !inbox_ready_ ||
+            !vmp::isValidVoicePresentationBinding(protocol,
+                                                  presentation_channel) ||
+            !lockState())
+        {
+            return false;
+        }
+        const bool changed = media_->inbox.markConversationRead(protocol,
+                                                                presentation_channel,
+                                                                peer_id,
+                                                                broadcast);
+        const bool persisted =
+            !changed || !requires_durable_attachment_store_ ||
+            ::platform::esp::arduino_common::chat_attachment::persistVoiceInbox(
+                media_->inbox,
+                media_->persistence_metadata,
+                vmp::kVoiceInboxCapacity);
+        unlockState();
+        if (changed)
+        {
+            Serial.printf("[VMP][UI] conversation_read protocol=%u channel=%u peer=%08lX broadcast=%u durable=%u\n",
+                          static_cast<unsigned>(presentation_protocol),
+                          static_cast<unsigned>(presentation_channel),
+                          static_cast<unsigned long>(peer_id),
+                          broadcast ? 1U : 0U,
+                          persisted ? 1U : 0U);
+        }
+        return persisted;
     }
 
   private:
@@ -607,6 +759,7 @@ class PagerReceiveSession final
         if (self)
         {
             self->setOutboundTask(xTaskGetCurrentTaskHandle());
+            Serial.printf("[VMP][TX] capture worker start\n");
             self->runOutbound();
         }
         vTaskDelete(nullptr);
@@ -625,23 +778,53 @@ class PagerReceiveSession final
     void runOutbound()
     {
         bool sent = false;
+        bool local_object_stored = false;
         bool used_lxmf = false;
-        if (media_->audio.capture(nullptr) == audio::CaptureResult::Complete &&
-            media_->audio.hasEncodedMedia() &&
-            media_->transmit_block.prepare(media_->audio.encodedMedia(), media_->audio.encodedMediaSize()) &&
-            prepareOutboundControl())
+        const uint32_t started_ms = millis();
+        const audio::CaptureResult capture_result =
+            media_->audio.capture(&record_stop_requested_);
+        if (capture_result != audio::CaptureResult::Complete ||
+            !media_->audio.hasEncodedMedia())
         {
+            Serial.printf("[VMP][TX] capture discarded result=%u bytes=%u\n",
+                          static_cast<unsigned>(capture_result),
+                          static_cast<unsigned>(media_->audio.encodedMediaSize()));
+        }
+        else if (!media_->transmit_block.prepare(media_->audio.encodedMedia(),
+                                                 media_->audio.encodedMediaSize()))
+        {
+            Serial.printf("[VMP][TX] encode rejected reason=fec_prepare bytes=%u\n",
+                          static_cast<unsigned>(media_->audio.encodedMediaSize()));
+        }
+        else if (!prepareOutboundControl())
+        {
+            Serial.printf("[VMP][TX] encode rejected reason=control_prepare\n");
+        }
+        else if (!storeOutboundVoice())
+        {
+            Serial.printf("[VMP][TX] local message commit failed; carrier skipped\n");
+        }
+        else
+        {
+            local_object_stored = true;
+            Serial.printf("[VMP][TX] encoded bytes=%u shards=%u mode=%s\n",
+                          static_cast<unsigned>(media_->audio.encodedMediaSize()),
+                          static_cast<unsigned>(vmp::kTotalShardsPerBlock),
+                          outbound_is_broadcast_ ? "broadcast" : "private");
             if (!direct_rf_voice_supported_)
             {
                 // SX1262 can encode and publish the VMP object through an
                 // explicitly enabled MT MQTT uplink, but has no legal RF or
                 // LXMF voice carrier.  No READY/control/2.4 GHz operation is
                 // reachable from this branch.
+                Serial.printf("[VMP][TX] carrier=mqtt plan_begin\n");
                 sent = queueMqttPublication();
             }
             else
             {
                 used_lxmf = shouldUseLxmfCarrier();
+                Serial.printf("[VMP][TX] carrier=%s begin\n",
+                              used_lxmf ? "lxmf" : (outbound_is_broadcast_ ? "lr1121_rf_broadcast" : "lr1121_rf_private"));
                 sent = used_lxmf ? sendLxmfVoice()
                                  : (outbound_is_broadcast_ ? sendBroadcastVoice()
                                                            : sendPrivateVoice());
@@ -651,7 +834,14 @@ class PagerReceiveSession final
                 }
             }
         }
-        (void)sent;
+        if (local_object_stored)
+        {
+            commitOutboundDelivery(sent ? vmp::VoiceDeliveryState::Sent
+                                        : vmp::VoiceDeliveryState::Failed);
+        }
+        Serial.printf("[VMP][TX] outbound end sent=%u elapsed_ms=%lu\n",
+                      sent ? 1U : 0U,
+                      static_cast<unsigned long>(millis() - started_ms));
         clearOutboundAcceptWait();
         media_->audio.clearEncodedMedia();
         media_->transmit_block.clear();
@@ -662,13 +852,20 @@ class PagerReceiveSession final
 
     void runPlayback()
     {
+        audio::PlaybackResult result = audio::PlaybackResult::InvalidMedia;
         if (playback_local_id_ != 0U && playback_media_len_ != 0U)
         {
-            (void)media_->audio.play(media_->playback_media,
-                                     playback_media_len_,
-                                     playback_codec_,
-                                     70U);
+            Serial.printf("[VMP][PLAY] begin local_id=%llu bytes=%u\n",
+                          static_cast<unsigned long long>(playback_local_id_),
+                          static_cast<unsigned>(playback_media_len_));
+            result = media_->audio.play(media_->playback_media,
+                                        playback_media_len_,
+                                        playback_codec_,
+                                        70U);
         }
+        Serial.printf("[VMP][PLAY] end local_id=%llu result=%u\n",
+                      static_cast<unsigned long long>(playback_local_id_),
+                      static_cast<unsigned>(result));
         clearPlaybackTask();
     }
 
@@ -681,6 +878,7 @@ class PagerReceiveSession final
         if (!mqtt_uplink_enabled_)
         {
             unlockState();
+            Serial.printf("[VMP][MQTT] plan rejected reason=uplink_disabled\n");
             return false;
         }
         const bool prepared = outbound_is_broadcast_
@@ -696,6 +894,9 @@ class PagerReceiveSession final
             media_->mqtt_transmit.clear();
         }
         unlockState();
+        Serial.printf("[VMP][MQTT] plan %s mode=%s\n",
+                      prepared ? "ready" : "rejected",
+                      outbound_is_broadcast_ ? "broadcast" : "private");
         return prepared;
     }
 
@@ -828,6 +1029,7 @@ class PagerReceiveSession final
                                       : static_cast<uint8_t>(vmp::ControlFlagPrivate);
         outgoing_control_.sender_id = self_node_id_;
         outgoing_control_.target_id = outbound_target_id_;
+        outgoing_control_.conversation_channel = outbound_presentation_channel_;
         esp_fill_random(&outgoing_control_.session_id,
                         sizeof(outgoing_control_.session_id));
         if (outgoing_control_.session_id == 0U)
@@ -884,10 +1086,13 @@ class PagerReceiveSession final
                 &control_len) ||
             !radio::tryAcquire(&radio_lease_))
         {
+            Serial.printf("[VMP][RF] private offer prepare_or_lease_failed\n");
             return false;
         }
 
         beginOutboundAcceptWait();
+        Serial.printf("[VMP][RF] private offer tx; wait_accept_ms=%lu\n",
+                      static_cast<unsigned long>(kPrivateAcceptWindowMs));
         if (!radio::transmit(&radio_lease_, control_wire_, control_len))
         {
             clearOutboundAcceptWait();
@@ -906,8 +1111,10 @@ class PagerReceiveSession final
                                            &session_keys_))
         {
             clearOutboundAcceptWait();
+            Serial.printf("[VMP][RF] private accept failed_or_timed_out\n");
             return false;
         }
+        Serial.printf("[VMP][RF] private accept authenticated; enter_2g_ready\n");
         return transmitPrivateDataTrain();
     }
 
@@ -923,9 +1130,12 @@ class PagerReceiveSession final
             !radio::transmit(&radio_lease_, control_wire_, control_len))
         {
             releaseRadio();
+            Serial.printf("[VMP][RF] broadcast announce failed\n");
             return false;
         }
         releaseRadio();
+        Serial.printf("[VMP][RF] broadcast announce sent; enter_2g_after_ms=%lu\n",
+                      static_cast<unsigned long>(outgoing_control_.data_start_delay_ms));
 
         vTaskDelay(pdMS_TO_TICKS(outgoing_control_.data_start_delay_ms));
         radio::PhyProfile profile{};
@@ -946,8 +1156,12 @@ class PagerReceiveSession final
                 !radio::transmit(&radio_lease_, data_wire_, probe_len))
             {
                 releaseRadio();
+                Serial.printf("[VMP][RF] broadcast ready_probe failed index=%u\n",
+                              static_cast<unsigned>(probe));
                 return false;
             }
+            Serial.printf("[VMP][RF] broadcast ready_probe sent index=%u\n",
+                          static_cast<unsigned>(probe + 1U));
             vTaskDelay(pdMS_TO_TICKS(kReadyProbeSpacingMs));
         }
         return transmitDataShards(false);
@@ -966,6 +1180,8 @@ class PagerReceiveSession final
         vTaskDelay(pdMS_TO_TICKS(outgoing_control_.data_start_delay_ms));
         for (uint8_t probe = 0U; probe < kReadyProbeCount; ++probe)
         {
+            Serial.printf("[VMP][RF] private ready_probe attempt=%u\n",
+                          static_cast<unsigned>(probe + 1U));
             if (!sendPrivateReadyProbe() || !waitForPrivateReady())
             {
                 if (probe + 1U == kReadyProbeCount)
@@ -976,6 +1192,7 @@ class PagerReceiveSession final
                 vTaskDelay(pdMS_TO_TICKS(kReadyProbeSpacingMs));
                 continue;
             }
+            Serial.printf("[VMP][RF] private ready authenticated\n");
             return transmitDataShards(true);
         }
         releaseRadio();
@@ -1030,6 +1247,9 @@ class PagerReceiveSession final
 
     bool transmitDataShards(bool private_mode)
     {
+        Serial.printf("[VMP][RF] shard_train begin mode=%s count=%u\n",
+                      private_mode ? "private" : "broadcast",
+                      static_cast<unsigned>(vmp::kTotalShardsPerBlock));
         for (uint8_t shard_index = 0U; shard_index < vmp::kTotalShardsPerBlock;
              ++shard_index)
         {
@@ -1050,10 +1270,13 @@ class PagerReceiveSession final
             if (!built || !radio::transmit(&radio_lease_, data_wire_, frame_len))
             {
                 releaseRadio();
+                Serial.printf("[VMP][RF] shard_train failed index=%u\n",
+                              static_cast<unsigned>(shard_index));
                 return false;
             }
         }
         releaseRadio();
+        Serial.printf("[VMP][RF] shard_train complete\n");
         return true;
     }
 
@@ -1328,7 +1551,7 @@ class PagerReceiveSession final
         const bool stored = storeCompletedVoice(incoming_control_,
                                                 media_->received_media,
                                                 media_len,
-                                                millis() / 1000U);
+                                                voiceTimestampSeconds());
         secureClear(media_->received_media, sizeof(media_->received_media));
         unlockState();
         return stored;
@@ -1463,6 +1686,8 @@ class PagerReceiveSession final
             outbound_waiting_accept_ = false;
             outbound_accept_received_ = false;
             outbound_task_ = nullptr;
+            outbound_active_ = false;
+            outbound_local_id_ = 0U;
             active_ = false;
             unlockState();
         }
@@ -1496,18 +1721,27 @@ class PagerReceiveSession final
             encoded_media_len,
             true,
             received_at_seconds,
+            presentation_protocol_,
+            control.conversation_channel,
             &local_id);
         if (result == vmp::VoiceInboxStoreResult::Duplicate)
         {
+            Serial.printf("[VMP][RX] inbox duplicate bytes=%u\n",
+                          static_cast<unsigned>(encoded_media_len));
             return true;
         }
         if (result != vmp::VoiceInboxStoreResult::Stored)
         {
+            Serial.printf("[VMP][RX] inbox rejected result=%u bytes=%u\n",
+                          static_cast<unsigned>(result),
+                          static_cast<unsigned>(encoded_media_len));
             return false;
         }
 
         if (!requires_durable_attachment_store_)
         {
+            Serial.printf("[VMP][RX] inbox stored volatile bytes=%u\n",
+                          static_cast<unsigned>(encoded_media_len));
             return true;
         }
         const bool persisted =
@@ -1521,14 +1755,93 @@ class PagerReceiveSession final
             // object is not exposed locally until both its payload and index
             // have been committed. There is no VMP ACK or retransmit here.
             (void)media_->inbox.erase(local_id);
+            Serial.printf("[VMP][RX] inbox persistence failed rollback=1\n");
+        }
+        else
+        {
+            Serial.printf("[VMP][RX] inbox durable_commit local_id=%llu bytes=%u\n",
+                          static_cast<unsigned long long>(local_id),
+                          static_cast<unsigned>(encoded_media_len));
         }
         return persisted;
+    }
+
+    bool storeOutboundVoice()
+    {
+        if (!media_ || !inbox_ready_ || !media_->audio.hasEncodedMedia())
+        {
+            return false;
+        }
+
+        uint64_t local_id = 0U;
+        const vmp::VoiceInboxStoreResult result = media_->inbox.storeOutgoing(
+            outgoing_control_,
+            media_->audio.encodedMedia(),
+            media_->audio.encodedMediaSize(),
+            voiceTimestampSeconds(),
+            outbound_presentation_protocol_,
+            outbound_presentation_channel_,
+            &local_id);
+        if (result != vmp::VoiceInboxStoreResult::Stored)
+        {
+            Serial.printf("[VMP][TX] local message store rejected result=%u\n",
+                          static_cast<unsigned>(result));
+            return false;
+        }
+
+        if (requires_durable_attachment_store_ &&
+            !::platform::esp::arduino_common::chat_attachment::persistVoiceInbox(
+                media_->inbox,
+                media_->persistence_metadata,
+                vmp::kVoiceInboxCapacity))
+        {
+            (void)media_->inbox.erase(local_id);
+            Serial.printf("[VMP][TX] local message persistence failed rollback=1\n");
+            return false;
+        }
+
+        outbound_local_id_ = local_id;
+        Serial.printf("[VMP][TX] local message committed local_id=%llu delivery=sending\n",
+                      static_cast<unsigned long long>(local_id));
+        return true;
+    }
+
+    void commitOutboundDelivery(vmp::VoiceDeliveryState delivery)
+    {
+        if (!media_ || outbound_local_id_ == 0U ||
+            !media_->inbox.updateDeliveryState(outbound_local_id_, delivery))
+        {
+            Serial.printf("[VMP][TX] local delivery update skipped state=%u\n",
+                          static_cast<unsigned>(delivery));
+            return;
+        }
+
+        if (requires_durable_attachment_store_ &&
+            !::platform::esp::arduino_common::chat_attachment::persistVoiceInbox(
+                media_->inbox,
+                media_->persistence_metadata,
+                vmp::kVoiceInboxCapacity))
+        {
+            // Do not report a durable terminal status that was not committed.
+            // A later UI refresh keeps the safe `Sending` state rather than
+            // inventing a successful or failed history entry.
+            (void)media_->inbox.updateDeliveryState(
+                outbound_local_id_, vmp::VoiceDeliveryState::Sending);
+            Serial.printf("[VMP][TX] local delivery persistence deferred state=%u\n",
+                          static_cast<unsigned>(delivery));
+            return;
+        }
+        Serial.printf("[VMP][TX] local delivery committed local_id=%llu state=%u\n",
+                      static_cast<unsigned long long>(outbound_local_id_),
+                      static_cast<unsigned>(delivery));
     }
 
     uint32_t self_node_id_ = 0U;
     bool initialized_ = false;
     bool direct_rf_voice_supported_ = false;
     bool active_ = false;
+    bool outbound_active_ = false;
+    volatile bool record_stop_requested_ = false;
     bool requires_durable_attachment_store_ = false;
     bool attachment_store_ready_ = false;
     bool inbox_ready_ = false;
@@ -1544,6 +1857,12 @@ class PagerReceiveSession final
     uint16_t playback_media_len_ = 0U;
     vmp::Codec playback_codec_ = vmp::Codec::Codec2_1300;
     uint32_t outbound_target_id_ = 0U;
+    vmp::VoicePresentationProtocol presentation_protocol_ =
+        vmp::VoicePresentationProtocol::Unknown;
+    vmp::VoicePresentationProtocol outbound_presentation_protocol_ =
+        vmp::VoicePresentationProtocol::Unknown;
+    uint8_t outbound_presentation_channel_ = vmp::kVoicePresentationPrimaryChannel;
+    uint64_t outbound_local_id_ = 0U;
     bool outbound_is_broadcast_ = false;
     bool mqtt_uplink_enabled_ = false;
     bool lxmf_carrier_enabled_ = false;
@@ -1657,6 +1976,11 @@ void setLxmfCarrierEnabled(bool enabled)
     s_session.setLxmfCarrierEnabled(enabled);
 }
 
+void setPresentationProtocol(uint8_t protocol)
+{
+    s_session.setPresentationProtocol(protocol);
+}
+
 bool acceptMqttEnvelope(const uint8_t* envelope, std::size_t envelope_len)
 {
     return s_session.acceptMqttEnvelope(envelope, envelope_len);
@@ -1674,9 +1998,34 @@ void discardMqttPublication()
     s_session.discardMqttPublication();
 }
 
-StartSendResult requestRecordAndSend(uint32_t target_id)
+StartSendResult requestRecordAndSend(uint32_t target_id,
+                                     uint8_t presentation_protocol,
+                                     uint8_t presentation_channel)
 {
-    return s_session.requestRecordAndSend(target_id);
+    return s_session.requestRecordAndSend(target_id,
+                                          presentation_protocol,
+                                          presentation_channel);
+}
+
+bool markConversationRead(uint8_t presentation_protocol,
+                          uint8_t presentation_channel,
+                          uint32_t peer_id,
+                          bool broadcast)
+{
+    return s_session.markConversationRead(presentation_protocol,
+                                          presentation_channel,
+                                          peer_id,
+                                          broadcast);
+}
+
+bool requestStopRecording()
+{
+    return s_session.requestStopRecording();
+}
+
+bool isOutboundActive()
+{
+    return s_session.isOutboundActive();
 }
 
 } // namespace platform::esp::arduino_common::voice::vmp_session
@@ -1761,6 +2110,10 @@ void setLxmfCarrierEnabled(bool)
 {
 }
 
+void setPresentationProtocol(uint8_t)
+{
+}
+
 bool acceptMqttEnvelope(const uint8_t*, std::size_t)
 {
     return false;
@@ -1775,9 +2128,24 @@ void discardMqttPublication()
 {
 }
 
-StartSendResult requestRecordAndSend(uint32_t)
+StartSendResult requestRecordAndSend(uint32_t, uint8_t, uint8_t)
 {
     return StartSendResult::Unsupported;
+}
+
+bool markConversationRead(uint8_t, uint8_t, uint32_t, bool)
+{
+    return false;
+}
+
+bool requestStopRecording()
+{
+    return false;
+}
+
+bool isOutboundActive()
+{
+    return false;
 }
 
 } // namespace platform::esp::arduino_common::voice::vmp_session

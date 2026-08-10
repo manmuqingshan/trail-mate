@@ -103,7 +103,44 @@ The Pager implementation deliberately separates RF control state from bulk media
 
 VMP is persistent whenever the active text chat uses the existing `SdStore`; it follows the **same deferred-storage hydration boundary**. Until that shared hydration completes, VMP cannot record, receive, display, or play an object, so a restore cannot overwrite a newly received voice. If text falls back to `RamStore` because SD persistence is unavailable, VMP explicitly follows the same volatile policy rather than pretending that received media is durable.
 
-The first implemented adapter stores voice under `/data/v2/attachments/voice/inbox.v1`. It is an atomic bounded snapshot with a temporary file, a retained previous snapshot, schema/version, per-media CRC-32, and whole-payload CRC-32. The committed primary and previous backup require at most 21,280 B for a full eight-object V1 inbox; writing a new temporary snapshot raises the bounded peak to 31,920 B. A completed media object is first validated by VMP, then placed in the PSRAM inbox, and is exposed to the UI only if the snapshot commit succeeds. A failed commit removes that tentative inbox entry. This mirrors text incoming-message behavior: the UI never presents an entry as received before its authoritative persistent record is durable. Restore validates the primary first and, on I/O or integrity failure, attempts the retained backup before declaring the inbox unavailable. It preserves each local playback ID and the `(sender_id, session_id)` deduplication key; it never feeds a restored item to any RF, MQTT, or LXMF transmit path.
+The first implemented adapter stores VMP local message attachments under `/data/v2/attachments/voice/inbox.v1`. The historical file name is retained for compatibility, but the bounded PSRAM store is no longer receive-only: it is the authoritative local VMP message-object index for both incoming and outgoing voice. It is an atomic bounded snapshot with a temporary file, a retained previous snapshot, schema/version, per-media CRC-32, and whole-payload CRC-32. The committed primary and previous backup require at most 21,280 B for a full eight-object V1 store; writing a new temporary snapshot raises the bounded peak to 31,920 B.
+
+### 3.1.1 Voice as a durable local chat-message extension
+
+Text and VMP must not be made equivalent by inserting a fake `"[voice]"` text packet into an MT, MC, or RT journal. That would corrupt protocol ownership, create a message that other clients interpret as ordinary text, and make a received VMP object appear relayable. Instead, VMP follows the **same durability and projection rules** as text through a typed local attachment-message record:
+
+| Field | VMP attachment-message rule | Text-message analogue |
+| --- | --- | --- |
+| Stable identity | `VoiceMessageMetadata.local_id` is the local attachment/message ID; `(sender_id, session_id)` remains its VMP duplicate key | protocol `message_id` plus protocol-specific dedup identity |
+| Conversation ownership | persisted `{presentation protocol, logical channel, peer}`: peer is `sender_id` for incoming private, `target_id` for outgoing private, or zero for broadcast; the logical channel is authenticated/CRC-covered in VMP control and is distinct from the 2.4 GHz RF channel | `ConversationId` in the protocol message slot |
+| Direction/read state | packed local `outgoing` and persistent `read` bits | `from`/delivery direction plus read projection in `ChatMessage` |
+| Delivery state | `Received`, `Sending`, `Sent`, `Failed` | `Incoming`, `Queued`, `Sent`, `Failed` in the message/status projections |
+| Body | Codec2 bytes in the typed voice attachment slot | UTF-8 text in protocol-specific fixed slot |
+| Presentation | Chat projection merges attachment messages with text rows by conversation and timestamp | Chat workspace projection |
+
+`Sent` is deliberately a **local carrier-result** state, not a remote delivery receipt. For direct private RF it means authenticated `ACCEPT`/`READY` completed and the bounded shard train was handed to the LR1121; for broadcast it means the public train was emitted once; for MQTT/LXMF it means the bounded carrier plan was accepted. No receiver forwards, acknowledges full media, or changes the sender's state. An inbound object remains unread until its own bound conversation is opened; an outgoing object is born read.
+
+The durable transactions are intentionally symmetric with text-message lifecycle rules:
+
+```text
+incoming: validate/auth/FEC
+  -> insert local attachment object
+  -> atomically commit voice snapshot
+  -> publish/projection/play eligibility
+
+outgoing: capture + encode + prepare control
+  -> insert local `Sending` attachment object
+  -> atomically commit voice snapshot
+  -> choose exactly one VMP carrier and transmit once
+  -> atomically commit `Sent` or `Failed`
+  -> refresh conversation projection
+```
+
+If the **pre-send** snapshot commit fails, VMP MUST NOT use any carrier: a clip is never transmitted without a recoverable local message record. If a terminal-state commit fails, the UI retains the safe `Sending` state rather than inventing a terminal result. A reboot cannot resume a VMP transmission; hydration converts a retained outgoing `Sending` entry to `Failed` and immediately attempts a healing snapshot commit. This gives a truthful, recoverable result without adding a retry queue, extra audio buffer, or a forbidden receiver-side transmit path.
+
+The attachment record remains 48 bytes. Direction/read state are encoded in compact flags; delivery state, presentation protocol, and logical chat channel occupy existing reserved bytes. V2 snapshots retain the V1 record ABI; V1 records are hydrated as already-read, unbound legacy objects, then safely bound to the boot-time active protocol/primary channel and rewritten as V2. Snapshot records are serialized newest-first, and hydration explicitly restores their descending insertion sequence, so a reboot retains both chronological conversation order and oldest-object eviction behavior. No payload is duplicated: the same existing eight PSRAM slots hold both incoming and outgoing clips, and oldest-object replacement is across the combined local VMP history.
+
+Restore validates the primary first and, on I/O or integrity failure, attempts the retained backup before declaring the attachment store unavailable. It preserves each local playback ID and VMP duplicate key; it never feeds a restored item to any RF, MQTT, or LXMF transmit path.
 
 The attachment store shares the SD runtime's controlled file access, bounded transfer slices, and temporary/backup recovery protocol. It does not create another uncoordinated SPI client. The current product SD policy, like existing text-chat storage, does not provide a claim of at-rest encryption for a device whose removable storage is physically compromised. Private VMP provides end-to-end confidentiality over RF/LXMF/MQTT carriers; a storage-encryption product requirement must be implemented at the common storage layer for text and all attachments together, not as a voice-only cipher.
 
@@ -113,11 +150,11 @@ Text remains in the protocol-partitioned chat journal. Binary and structured bod
 
 | Attachment kind | Storage role | Intended chat record linkage | Current status |
 | --- | --- | --- | --- |
-| Voice | Codec2 encoded object, codec/mode/identity metadata, play action | local voice ID projected into the owning conversation | implemented |
+| Voice | Codec2 encoded object plus direction, delivery, codec/mode/identity metadata and play action | stable local attachment/message ID projected into the owning conversation; never a fake MT/MC/RT text packet | implemented |
 | Image | immutable compressed image/blob with MIME, dimensions, content hash, thumbnail policy | attachment ID in a normal chat message record | storage family reserved; transport/UI not yet implemented |
 | Location | compact structured coordinates, timestamp, accuracy, and optional text preview | inline metadata where small, attachment ID only if extended history/track payload is required | storage family reserved; transport/UI not yet implemented |
 
-Images and location messages MUST use this attachment boundary rather than inventing protocol-specific caches or direct SD paths. The future chat message schema should carry an attachment descriptor (kind, local attachment ID, content hash, presentation metadata) rather than a full image/audio byte vector. Retention, eviction, export, delete, and at-rest encryption then remain common storage concerns. The attachment layer has no mesh/radio/MQTT/LXMF send function by design; bearer adapters may create a local attachment only after their own validation.
+Images and location messages MUST use this attachment boundary rather than inventing protocol-specific caches or direct SD paths. Their attachment descriptor MUST carry `kind`, stable local attachment/message ID, conversation identity, direction, delivery state, content hash, and presentation metadata rather than a full image/audio byte vector. Retention, eviction, export, delete, and at-rest encryption then remain common storage concerns. The attachment layer has no mesh/radio/MQTT/LXMF send function by design; bearer adapters may create a local attachment only after their own validation.
 
 If a message cannot be stored, the receiver reports a local storage failure and returns to Sub-GHz; it never asks another node to retransmit.
 
@@ -136,7 +173,7 @@ Before a private sender emits any source or parity shard, it performs a bounded 
 VMP uses a separate, versioned **voice key domain**. It MUST NOT reinterpret MT channel keys or MC forwarding keys as VMP keys.
 
 * A private contact has a VMP-specific, verified 32-byte static contact secret `K_contact`. The Pager keeps only a bounded RAM cache of this derived VMP value. It is never an MT channel key, MC forwarding key, or a key copied from an unrelated protocol packet.
-* A broadcast session is public: it has **no group key, no key exchange, no encryption, and no sender authentication**. Its `key_or_profile_id` is zero and the `public-broadcast` flag is mandatory.
+* A broadcast session is public: it has **no group key, no key exchange, no encryption, and no sender authentication**. Its logical chat-channel byte is public, bounds projection to the originating channel, and the `public-broadcast` flag is mandatory.
 * Key material is never placed in a chat event, a diagnostic log, or an MQTT topic name.
 
 For a **private** session, `OFFER` carries the sender's fresh X25519 ephemeral public key `E_s` and `ACCEPT` carries the receiver's fresh ephemeral public key `E_r`. The private portions never go on air and MUST be erased immediately after completion, failure, or timeout. Given a 64-bit `session_id` and 96-bit `session_nonce`, derive:
@@ -188,7 +225,7 @@ VMP control bytes use the binary envelope below. They are carried by the `VoiceC
 | 2 | 1 | version | `1` |
 | 3 | 1 | type | `1=OFFER`, `2=ACCEPT`, `3=ANNOUNCE`, `4=CANCEL` |
 | 4 | 1 | flags | bit 0 private, bit 1 broadcast, bit 2 public-broadcast, bit 3 RT-carrier hint |
-| 5 | 1 | key/profile ID | private key slot; public broadcast MUST use `0` |
+| 5 | 1 | logical chat channel | local conversation channel `0..7`; authenticated for private control and corruption-covered for public broadcast; **not** the 2.4 GHz RF channel |
 | 6 | 4 | sender ID | Trail Mate node identity short ID |
 | 10 | 4 | target ID | recipient short ID, or `0xFFFFFFFF` for broadcast |
 | 14 | 8 | session ID | cryptographically random, nonzero |
@@ -404,11 +441,12 @@ This directly enforces the requirement that a voice message received from MQTT i
 
 `chat_compose` displays a microphone action only when the isolated VMP runtime reports `recordAndSend` currently possible. On LR1121 this is available after local inbox hydration. On SX1262 it becomes available only while the MT MQTT uplink is enabled and is immediately hidden when that uplink is disabled. It is available for both a selected private conversation and the broadcast/channel conversation when their applicable carrier condition is met.
 
-1. Selecting the microphone enters a recording state with a visible five-second countdown and a stop/cancel action.
-2. At 5.0 seconds it stops automatically and encodes/sends in the background. The destination is derived from the active conversation: peer means private; channel/group means one-hop broadcast.
+1. The microphone is **push-to-talk**, never click-to-start: `LV_EVENT_PRESSED` immediately starts capture and visibly changes the action to `Release 0.0s`; the compose header shows `REC <elapsed>/5`. `LV_EVENT_RELEASED` and `LV_EVENT_PRESS_LOST` immediately request capture stop after the current Codec2 frame. The post-release synthetic click is ignored.
+2. At 5.0 seconds the worker stops capture automatically, changes the in-place state to `Sending`, and encodes/sends in the background. Release before five seconds follows the same path; a tap shorter than one complete Codec2 frame is discarded without creating a message. The destination is derived from the active conversation: peer means private; channel/group means one-hop broadcast.
 3. If the active protocol/board cannot provide VMP, the action is hidden or disabled with a reason; it does not silently fall back to text, MT, or MC payloads.
-4. The conversation renders a voice bubble with direction, duration, mode (private/broadcast), delivery state, integrity state (`complete` or `incomplete`), and a play button. Playback decodes on demand through the audio port.
-5. A received message is added only after cryptographic validation and bounded local-inbox storage. The notification can be a normal incoming-message tone; it must never auto-play voice.
+4. Once capture ends, the compose page returns to the conversation **without waiting for RF, MQTT, or LXMF to finish**. The worker first creates the durable outgoing attachment object; while a local voice worker is active, the conversation projection polls at 150 ms so the new `Sending` bubble appears as soon as that commit exists, then changes to `Sent` or `Failed` after the one carrier attempt. A discarded sub-frame tap creates no bubble. Incoming and outgoing private clips use the same persisted `{protocol, channel, peer}` conversation; a broadcast clip uses the originating broadcast channel. This is not a toast-only result.
+5. Tapping a playable bubble starts asynchronous decoder output and changes that bubble to `playing` for the clip duration. It returns to `tap to play` afterward; playback has no radio or MQTT effect. The UI rejects only the genuinely unavailable/busy speaker case with the specific `Voice audio is busy` notice.
+6. A received message is added only after cryptographic validation and bounded durable attachment-message storage. It appears in the conversation list with a `Voice message` preview and unread count even when that thread is closed; opening precisely that bound thread persists its read state. The notification can be a normal incoming-message tone; it must never auto-play voice.
 
 ## 12. Error behavior and observability
 
@@ -431,12 +469,12 @@ No delivery receipt is added to V1 because receiving one would require another r
 | Area | Current implementation status | Remaining release gate |
 | --- | --- | --- |
 | Core VMP v1 | Implemented: binary control/data codecs, private/public validation, RS(10,8), replay/session state, `K_contact` domain derivation, bounded inbox, and host test sources. | Run the OpenSSL-enabled private crypto/transport tests in CI; this workstation's CMake OpenSSL discovery is unavailable. |
-| Pager audio/UI | Implemented: 5-second Codec2 capture, chat-compose microphone action, local inbox projection, and on-demand playback. | Hardware exercise capture/playback ownership alongside a real call and a text conversation. |
+| Pager audio/UI | Implemented: push-to-talk press/release capture with a visible 5-second in-place countdown, local outgoing/incoming attachment-message projection with `Sending`/`Sent`/`Failed`, and on-demand playback progress. | Hardware exercise press/release, auto-cap, capture/playback ownership, and a text conversation. |
 | LR1121 direct carrier | Implemented: Sub-GHz control, authenticated private `ACCEPT`, repeated `READY_PROBE`, 2.4 GHz ten-shard train, timeout cleanup, and Sub-GHz restoration. | Two-Pager over-the-air timing, packet-loss, coexistence, regional channel, EIRP, and current-consumption validation. |
 | SX1262 MQTT-only carrier | Implemented: VMP service/audio/inbox and UI runtime initialize for the SX1262 Pager; it records only while MT MQTT uplink is enabled, queues the same bounded VQ publication, and rejects direct RF and LXMF VMP paths. | Build and hardware test with MQTT enabled/disabled, publish failure/reconnect, and proof that no VMP frame reaches SX1262 LoRa TX. |
 | MT MQTT | Implemented: isolated VQ topic, optional QoS 0 upload plan, local-only inbound termination, and no-MT-downlink contract test. | Broker interoperability and retained/duplicate/partition test on hardware. |
 | RT/LXMF | Implemented: reserved AppData VQ port, private carrier, nested VMP encryption, local-only inbound termination, and isolation contract test. | LXMF path/identity lifecycle and delayed-delivery validation on two devices. |
-| Persistent storage | Implemented: VMP voice uses the common SD attachment-store boundary, atomic snapshot/backup recovery, CRC validation, stable playback IDs, and the same delayed hydration/durable-incoming behavior as text chat. Bulk live state is PSRAM; only active PCM scratch is internal DMA RAM. | Hardware power-loss/SD-removal recovery and common text+attachment at-rest encryption policy validation. |
+| Persistent storage | Implemented: VMP voice uses the common typed attachment-message boundary for both incoming and outgoing clips, atomic snapshot/backup recovery, CRC validation, stable playback IDs, durable delivery-state transitions, interrupted-send recovery, and the same delayed hydration/durable-incoming behavior as text chat. Bulk live state is PSRAM; only active PCM scratch is internal DMA RAM. | Hardware power-loss/SD-removal recovery and common text+attachment at-rest encryption policy validation. |
 
 Completed automated gates in this workspace are the Pager release build, clang-format 14, ESP stack-hygiene validation, and the MT MQTT/LXMF local-only ingress contract tests. RF and audio behavior still require the two-device hardware gates above before a production-default rollout.
 

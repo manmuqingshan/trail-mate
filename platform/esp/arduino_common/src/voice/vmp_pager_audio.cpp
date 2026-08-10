@@ -10,6 +10,7 @@
 
 #if defined(ARDUINO_T_LORA_PAGER)
 
+#include <Arduino.h>
 #include <codec2.h>
 #include <esp_heap_caps.h>
 
@@ -101,14 +102,19 @@ bool PagerCodec2Audio::isSupported() const
 CaptureResult PagerCodec2Audio::capture(const volatile bool* stop_requested)
 {
     clearEncodedMedia();
+    const uint32_t started_ms = millis();
+    Serial.printf("[VMP][AUDIO] capture begin max_ms=5000 stop_hook=%u\n",
+                  stop_requested ? 1U : 0U);
     TLoRaPagerBoard* const board = pagerBoard();
     if (!board || !acquireFrameScratch())
     {
+        Serial.printf("[VMP][AUDIO] capture rejected reason=unsupported\n");
         return CaptureResult::Unsupported;
     }
     if (!beginAudio(board, false))
     {
         releaseFrameScratch();
+        Serial.printf("[VMP][AUDIO] capture rejected reason=audio_busy\n");
         return CaptureResult::AudioBusy;
     }
 
@@ -124,16 +130,22 @@ CaptureResult PagerCodec2Audio::capture(const volatile bool* stop_requested)
         }
         board->closeAudioSession(kOwner);
         releaseFrameScratch();
+        Serial.printf("[VMP][AUDIO] capture rejected reason=codec_failure\n");
         return CaptureResult::CodecFailure;
     }
 
     CaptureResult result = CaptureResult::Complete;
+    bool stopped_by_release = false;
     for (std::size_t frame = 0; frame < kCodec2FramesPerMessage; ++frame)
     {
         if (stop_requested && *stop_requested)
         {
+            stopped_by_release = true;
             result = encoded_media_size_ == 0U ? CaptureResult::Cancelled
                                                : CaptureResult::Complete;
+            Serial.printf("[VMP][AUDIO] capture stop_requested frames=%u bytes=%u\n",
+                          static_cast<unsigned>(frame),
+                          static_cast<unsigned>(encoded_media_size_));
             break;
         }
         if (!readCaptureFrame())
@@ -146,15 +158,29 @@ CaptureResult PagerCodec2Audio::capture(const volatile bool* stop_requested)
                       encoded_media_ + encoded_media_size_,
                       frame_scratch_->mono);
         encoded_media_size_ += kCodec2BytesPerFrame;
+        if ((frame + 1U) % 25U == 0U)
+        {
+            Serial.printf("[VMP][AUDIO] capture progress elapsed_ms=%lu frames=%u bytes=%u\n",
+                          static_cast<unsigned long>(millis() - started_ms),
+                          static_cast<unsigned>(frame + 1U),
+                          static_cast<unsigned>(encoded_media_size_));
+        }
     }
 
     codec2_destroy(encoder);
     board->closeAudioSession(kOwner);
     releaseFrameScratch();
+    const std::size_t encoded_size = encoded_media_size_;
     if (result != CaptureResult::Complete)
     {
         clearEncodedMedia();
     }
+    Serial.printf("[VMP][AUDIO] capture end result=%u reason=%s elapsed_ms=%lu frames=%u bytes=%u\n",
+                  static_cast<unsigned>(result),
+                  stopped_by_release ? "release" : "limit_or_error",
+                  static_cast<unsigned long>(millis() - started_ms),
+                  static_cast<unsigned>(encoded_size / kCodec2BytesPerFrame),
+                  static_cast<unsigned>(encoded_size));
     return result;
 }
 

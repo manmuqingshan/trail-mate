@@ -27,7 +27,8 @@ class ChatComposeScreen
     {
         Send,
         Position,
-        Voice,
+        VoiceStart,
+        VoiceStop,
         Cancel
     };
 
@@ -86,6 +87,8 @@ class ChatComposeScreen
     static void async_back_cb(void* user_data);
     static void on_root_deleted(lv_event_t* e);
     static void on_action_click(lv_event_t* e);
+    static void on_voice_pressed(lv_event_t* e);
+    static void on_voice_released(lv_event_t* e);
     static void on_text_changed(lv_event_t* e);
     static void on_key(lv_event_t* e);
     static void on_back(void* user_data);
