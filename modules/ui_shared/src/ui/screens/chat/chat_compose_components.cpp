@@ -199,6 +199,7 @@ ChatComposeScreen::ChatComposeScreen(lv_obj_t* parent, chat::ConversationId conv
 
     input::bind_textarea_events(impl_->w, this, on_key, on_text_changed);
     input::setup_default_group_focus(impl_->w);
+    syncFocusOrder();
 
     if (impl_->w.container && !lv_obj_is_valid(impl_->w.container))
     {
@@ -296,17 +297,7 @@ void ChatComposeScreen::setPositionButton(const char* label, bool visible)
         lv_obj_add_flag(impl_->w.position_btn, LV_OBJ_FLAG_HIDDEN);
     }
 
-    if (lv_group_t* g = lv_group_get_default())
-    {
-        if (visible)
-        {
-            lv_group_add_obj(g, impl_->w.position_btn);
-        }
-        else
-        {
-            lv_group_remove_obj(impl_->w.position_btn);
-        }
-    }
+    syncFocusOrder();
 }
 
 void ChatComposeScreen::setVoiceButton(const char* label, bool visible)
@@ -327,17 +318,7 @@ void ChatComposeScreen::setVoiceButton(const char* label, bool visible)
         lv_obj_add_flag(impl_->w.position_btn, LV_OBJ_FLAG_HIDDEN);
     }
 
-    if (lv_group_t* g = lv_group_get_default())
-    {
-        if (visible)
-        {
-            lv_group_add_obj(g, impl_->w.position_btn);
-        }
-        else
-        {
-            lv_group_remove_obj(impl_->w.position_btn);
-        }
-    }
+    syncFocusOrder();
 }
 
 std::string ChatComposeScreen::getText() const
@@ -391,6 +372,11 @@ void ChatComposeScreen::attachImeWidget(::ui::widgets::ImeWidget* widget)
         return;
     }
 
+    // Keep the invisible IME proxy out of the rotary sequence.  Key events
+    // instead enter through the visible IME control, so a hardware keyboard
+    // can still type while focus traversal stays entirely visual.
+    lv_obj_add_event_cb(ime_toggle, on_key, LV_EVENT_KEY, this);
+
     lv_group_t* group = lv_group_get_default();
     const auto ensure_candidate_button =
         [&](lv_obj_t*& button, ::ui::widgets::text_candidates::CandidateSet set, std::uint32_t index)
@@ -431,6 +417,69 @@ void ChatComposeScreen::attachImeWidget(::ui::widgets::ImeWidget* widget)
         impl_->emoji_btn,
         ::ui::widgets::text_candidates::CandidateSet::Emoji,
         2);
+    syncFocusOrder(true);
+}
+
+void ChatComposeScreen::syncFocusOrder(bool focus_ime)
+{
+    if (!impl_)
+    {
+        return;
+    }
+    lv_group_t* const group = lv_group_get_default();
+    if (!group)
+    {
+        return;
+    }
+
+    // A rotary user traverses visible controls in their visual sequence. The
+    // textarea stays editable through touch/IME, while IME's hidden proxy
+    // stays internal and never appears as a focus stop.
+    lv_obj_t* const ime_toggle =
+        ime_widget_ && lv_obj_is_valid(ime_widget_->toggle_btn())
+            ? ime_widget_->toggle_btn()
+            : nullptr;
+    lv_obj_t* const focus_proxy =
+        ime_widget_ && lv_obj_is_valid(ime_widget_->focus_obj())
+            ? ime_widget_->focus_obj()
+            : nullptr;
+    const auto remove = [group](lv_obj_t* object)
+    {
+        if (object && lv_obj_is_valid(object))
+        {
+            lv_group_remove_obj(object);
+        }
+    };
+    remove(impl_->w.textarea);
+    remove(focus_proxy);
+    remove(ime_toggle);
+    remove(impl_->sym_btn);
+    remove(impl_->emoji_btn);
+    remove(impl_->w.send_btn);
+    remove(impl_->w.position_btn);
+    remove(impl_->w.cancel_btn);
+    remove(impl_->w.top_bar.back_btn);
+
+    const auto add_visible = [group](lv_obj_t* object)
+    {
+        if (object && lv_obj_is_valid(object) &&
+            !lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN))
+        {
+            lv_group_add_obj(group, object);
+        }
+    };
+    add_visible(ime_toggle);
+    add_visible(impl_->sym_btn);
+    add_visible(impl_->emoji_btn);
+    add_visible(impl_->w.send_btn);
+    add_visible(impl_->w.position_btn);
+    add_visible(impl_->w.cancel_btn);
+    add_visible(impl_->w.top_bar.back_btn);
+
+    if (focus_ime && ime_toggle)
+    {
+        lv_group_focus_obj(ime_toggle);
+    }
 }
 
 lv_obj_t* ChatComposeScreen::getTextarea() const
@@ -648,6 +697,9 @@ void ChatComposeScreen::on_key(lv_event_t* e)
     }
 
     uint32_t key = lv_event_get_key(e);
+    lv_obj_t* const target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+    lv_indev_t* indev = lv_indev_get_act();
+    const bool is_encoder = indev && lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER;
     if (key == LV_KEY_ESC)
     {
         if (screen->back_cb_)
@@ -660,7 +712,6 @@ void ChatComposeScreen::on_key(lv_event_t* e)
 
     if (key == LV_KEY_ENTER && screen->impl_->w.send_btn)
     {
-        lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
         lv_obj_t* focused = nullptr;
         if (lv_group_t* g = lv_group_get_default())
         {
@@ -674,15 +725,21 @@ void ChatComposeScreen::on_key(lv_event_t* e)
         }
     }
 
+    // LVGL turns the encoder's ENTER on a focused button into CLICKED.  Do
+    // not consume it here: the visible IME control must keep its ordinary
+    // mode-switch action.  Keypad ENTER continues into the IME as text input.
+    if (screen->ime_widget_ && target == screen->ime_widget_->toggle_btn() &&
+        is_encoder && key == LV_KEY_ENTER)
+    {
+        return;
+    }
+
     if (screen->ime_widget_ && screen->ime_widget_->handle_key(e))
     {
         return;
     }
 
     CHAT_COMPOSE_LOG("[ChatCompose] key=%lu\n", static_cast<unsigned long>(key));
-
-    lv_indev_t* indev = lv_indev_get_act();
-    bool is_encoder = indev && lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER;
 
     if (is_encoder && key == LV_KEY_ENTER && screen->impl_->w.send_btn)
     {

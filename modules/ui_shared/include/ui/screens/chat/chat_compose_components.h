@@ -80,6 +80,7 @@ class ChatComposeScreen
 
     void init_topbar();
     void refresh_len();
+    void syncFocusOrder(bool focus_ime = false);
     void schedule_action_async(ActionIntent intent);
     void schedule_back_async();
     static void release_async_guard(LifetimeGuard* guard);

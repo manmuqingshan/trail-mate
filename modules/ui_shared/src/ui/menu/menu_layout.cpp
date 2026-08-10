@@ -1257,6 +1257,36 @@ lv_obj_t* menuPanel()
     return s_menu_panel;
 }
 
+bool launchAppByStableId(const char* stable_id)
+{
+    if (stable_id == nullptr || stable_id[0] == '\0' || s_app_panel == nullptr ||
+        !lv_obj_is_valid(s_app_panel))
+    {
+        return false;
+    }
+
+    const size_t app_count = ui::catalogCount(s_init_options.apps);
+    for (size_t index = 0; index < app_count; ++index)
+    {
+        AppScreen* const app = ui::catalogAt(s_init_options.apps, index);
+        if (app == nullptr || app->stable_id() == nullptr ||
+            std::strcmp(app->stable_id(), stable_id) != 0)
+        {
+            continue;
+        }
+        if (app->launch_mode() != ui::AppLaunchMode::Screen)
+        {
+            return false;
+        }
+
+        set_default_group(nullptr);
+        ui_switch_to_app(app, s_app_panel);
+        menuHidden();
+        return ui_get_active_app() == app;
+    }
+    return false;
+}
+
 void bringContentToFront()
 {
     if (s_grid_panel != nullptr)

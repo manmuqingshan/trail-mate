@@ -63,6 +63,12 @@ int main(int argc, char** argv)
         root / "modules/ui_shared/src/ui/screens/chat/chat_ui_controller.cpp");
     const std::string chat_compose = readFile(
         root / "modules/ui_shared/src/ui/screens/chat/chat_compose_components.cpp");
+    const std::string contacts_components = readFile(
+        root / "modules/ui_shared/src/ui/screens/contacts/contacts_page_components.cpp");
+    const std::string chat_page_runtime = readFile(
+        root / "modules/ui_shared/src/ui/screens/chat/chat_page_runtime.cpp");
+    const std::string storage_runtime = readFile(
+        root / "platform/esp/arduino_common/src/storage/storage_runtime.cpp");
     const std::string chat_voice_runtime = readFile(
         root / "modules/ui_shared/src/ui/chat_voice_runtime.cpp");
 
@@ -117,6 +123,9 @@ int main(int argc, char** argv)
     assert(chat_controller.find("setVoiceButton(\"Voice\", voice_runtime_bound)") !=
            std::string::npos);
     assert(chat_controller.find("Hold to talk") == std::string::npos);
+    assert(chat_controller.find("setVoiceButton(\"Release\", true)") !=
+           std::string::npos);
+    assert(chat_controller.find("Release %lu.%lus") == std::string::npos);
     // Typed attachments have the same conversation boundary as text: a peer
     // number alone is insufficient because channels and mesh backends can
     // legitimately reuse it. The logical chat channel is part of VMP control
@@ -150,6 +159,44 @@ int main(int argc, char** argv)
            std::string::npos);
     assert(bindings.find("vmp_session::onPersistentStorageReady()") !=
            std::string::npos);
+    assert(storage_runtime.find("bool initial_hydration_ready()") !=
+           std::string::npos);
+    assert(session.find("initial_hydration_ready()") != std::string::npos);
+    assert(session.find("[VMP][Store] durable hydration observed after edge") !=
+           std::string::npos);
+
+    // Contacts chooses a destination but must not create a competing Compose
+    // tree. The Chat app owns push-to-talk, durable projections, and the
+    // post-send return to the conversation for every entry path.
+    assert(contacts_components.find("chat::ui::runtime::requestCompose(conv)") !=
+           std::string::npos);
+    assert(contacts_components.find("launchAppByStableId(\"chat\")") !=
+           std::string::npos);
+    assert(contacts_components.find("new chat::ui::ChatComposeScreen") ==
+           std::string::npos);
+    assert(chat_page_runtime.find("PendingComposeRoute") != std::string::npos);
+    assert(chat_page_runtime.find("openComposeForConversation(requested)") !=
+           std::string::npos);
+
+    // Rotary focus follows the visible compact layout, rather than append
+    // timing: IME, Symbols, Emoji, Send, optional Voice/Position, Cancel,
+    // then the top-bar Back button. The hidden IME proxy and text area are
+    // intentionally excluded from that cycle.
+    assert(chat_compose.find("void ChatComposeScreen::syncFocusOrder") !=
+           std::string::npos);
+    const std::size_t ime_focus = chat_compose.find("add_visible(ime_toggle)");
+    const std::size_t sym_focus = chat_compose.find("add_visible(impl_->sym_btn)");
+    const std::size_t emoji_focus = chat_compose.find("add_visible(impl_->emoji_btn)");
+    const std::size_t send_focus = chat_compose.find("add_visible(impl_->w.send_btn)");
+    const std::size_t auxiliary_focus =
+        chat_compose.find("add_visible(impl_->w.position_btn)");
+    const std::size_t cancel_focus =
+        chat_compose.find("add_visible(impl_->w.cancel_btn)");
+    const std::size_t back_focus =
+        chat_compose.find("add_visible(impl_->w.top_bar.back_btn)");
+    assert(ime_focus < sym_focus && sym_focus < emoji_focus &&
+           emoji_focus < send_focus && send_focus < auxiliary_focus &&
+           auxiliary_focus < cancel_focus && cancel_focus < back_focus);
 
     assert(attachment.find("/data/v2/attachments/voice/inbox.v1") !=
            std::string::npos);

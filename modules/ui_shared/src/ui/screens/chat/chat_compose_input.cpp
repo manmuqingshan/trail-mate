@@ -6,17 +6,9 @@ namespace chat::ui::compose::input
 
 void setup_default_group_focus(const layout::Widgets& w)
 {
-    if (lv_group_t* g = lv_group_get_default())
-    {
-        lv_group_add_obj(g, w.textarea);
-        lv_group_add_obj(g, w.send_btn);
-        if (w.position_btn && !lv_obj_has_flag(w.position_btn, LV_OBJ_FLAG_HIDDEN))
-        {
-            lv_group_add_obj(g, w.position_btn);
-        }
-        lv_group_add_obj(g, w.cancel_btn);
-        lv_group_focus_obj(w.textarea);
-    }
+    // ChatComposeScreen owns the complete rotary order once IME, optional
+    // actions, and the top-bar Back control all exist. Registering controls as
+    // they are constructed makes the cycle depend on creation timing.
     lv_obj_add_state(w.textarea, LV_STATE_FOCUSED);
 }
 

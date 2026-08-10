@@ -111,6 +111,21 @@ bool has_reticulum_destination(const chat::ConversationId& conv)
            chat::hasReticulumDestinationIdentity(conv.reticulum_identity);
 }
 
+bool supports_text_for_conversation(const chat::ConversationId& conv)
+{
+    return has_reticulum_destination(conv)
+               ? chat_support::supports_reticulum_destination_text()
+               : chat_support::supports_local_text_chat();
+}
+
+const char* text_unavailable_message_for_conversation(
+    const chat::ConversationId& conv)
+{
+    return has_reticulum_destination(conv)
+               ? chat_support::reticulum_destination_text_unavailable_message()
+               : chat_support::local_text_chat_unavailable_message();
+}
+
 std::string reticulum_destination_label(const chat::ReticulumPeerIdentity& identity)
 {
     if (!chat::hasReticulumDestinationIdentity(identity))
@@ -1340,7 +1355,7 @@ void UiController::switchToConversation(chat::ConversationId conv)
     const bool can_reply = team_conv_active_
                                ? chat_support::supports_team_chat()
                                : (conv.protocol == chat_support::active_mesh_protocol() &&
-                                  chat_support::supports_local_text_chat());
+                                  supports_text_for_conversation(conv));
     conversation_->setReplyEnabled(can_reply);
 
     if (team_conv_active_)
@@ -1470,9 +1485,10 @@ void UiController::switchToCompose(chat::ConversationId conv)
         ::ui::feedback::show_notice("Conversation protocol mismatch", 2000);
         return;
     }
-    if (!is_team_conv && !chat_support::supports_local_text_chat())
+    if (!is_team_conv && !supports_text_for_conversation(conv))
     {
-        ::ui::feedback::show_notice(chat_support::local_text_chat_unavailable_message(), 2200);
+        ::ui::feedback::show_notice(
+            text_unavailable_message_for_conversation(conv), 2200);
         return;
     }
     if (is_team_conv && !chat_support::supports_team_chat())
@@ -1537,10 +1553,6 @@ void UiController::switchToCompose(chat::ConversationId conv)
         }
         compose_ime_->init(compose_content, compose_textarea);
         compose_->attachImeWidget(compose_ime_.get());
-        if (lv_group_t* group = lv_group_get_default())
-        {
-            lv_group_add_obj(group, compose_ime_->focus_obj());
-        }
     }
 
     std::string title = resolveConversationDisplayName(conv);
@@ -1602,6 +1614,16 @@ void UiController::switchToCompose(chat::ConversationId conv)
 #else
     compose_->setPositionButton(nullptr, false);
 #endif
+}
+
+bool UiController::openComposeForConversation(const chat::ConversationId& conv)
+{
+    CHAT_UI_LOG("[ChatUiTrace] stage=external_compose_route protocol=%u channel=%u peer=%08lX\n",
+                static_cast<unsigned>(conv.protocol),
+                static_cast<unsigned>(conv.channel),
+                static_cast<unsigned long>(conv.peer));
+    switchToCompose(conv);
+    return state_ == State::Compose;
 }
 
 void UiController::handleChannelSelected(const chat::ConversationId& conv)
@@ -1866,11 +1888,12 @@ void UiController::handleSendMessage(const std::string& text)
         handleComposeSendDone(result.ok, false);
         return;
     }
-    if (!chat_support::supports_local_text_chat())
+    if (!supports_text_for_conversation(current_conv_))
     {
         CHAT_UI_LOG("[ChatUiTrace] stage=handle_send reject reason=unsupported elapsed_ms=%lu\n",
                     static_cast<unsigned long>(lv_tick_elaps(started_ms)));
-        ::ui::feedback::show_notice(chat_support::local_text_chat_unavailable_message(), 2200);
+        ::ui::feedback::show_notice(
+            text_unavailable_message_for_conversation(current_conv_), 2200);
         return;
     }
 
@@ -2208,19 +2231,16 @@ void UiController::updateVoiceComposeSession()
     {
         voice_hold_last_render_ms_ = lv_tick_get();
         const uint32_t tenths = (elapsed_ms + 99U) / 100U;
-        char label[16] = {};
         char status[16] = {};
-        std::snprintf(label,
-                      sizeof(label),
-                      "Release %lu.%lus",
-                      static_cast<unsigned long>(tenths / 10U),
-                      static_cast<unsigned long>(tenths % 10U));
         std::snprintf(status,
                       sizeof(status),
                       "REC %lu.%lus/5",
                       static_cast<unsigned long>(tenths / 10U),
                       static_cast<unsigned long>(tenths % 10U));
-        compose_->setVoiceButton(label, true);
+        // The compact button is the press-and-hold affordance.  Keep its
+        // label stable for the entire capture; the variable-length elapsed
+        // time belongs in the top bar, where it cannot overflow the control.
+        compose_->setVoiceButton("Release", true);
         compose_->setHeaderText(nullptr, status);
     }
 
@@ -2668,9 +2688,11 @@ void UiController::handleConversationAction(ChatConversationScreen::ActionIntent
             ::ui::feedback::show_notice("Reply disabled for this protocol", 2000);
             return;
         }
-        if (!team_conv_active_ && !chat_support::supports_local_text_chat())
+        if (!team_conv_active_ &&
+            !supports_text_for_conversation(current_conv_))
         {
-            ::ui::feedback::show_notice(chat_support::local_text_chat_unavailable_message(), 2200);
+            ::ui::feedback::show_notice(
+                text_unavailable_message_for_conversation(current_conv_), 2200);
             return;
         }
         if (team_conv_active_ && !chat_support::supports_team_chat())

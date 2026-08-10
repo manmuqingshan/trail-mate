@@ -11,14 +11,12 @@
 #include "platform/ui/reticulum_directory_runtime.h"
 #include "platform/ui/reticulum_group_config_runtime.h"
 #include "ui/app_runtime.h"
-#include "ui/screens/chat/chat_compose_components.h"
 #include "ui/screens/chat/chat_conversation_components.h"
 #include "ui/screens/contacts/contacts_page_components.h"
 #include "ui/screens/contacts/contacts_page_input.h"
 #include "ui/screens/contacts/contacts_page_layout.h"
 #include "ui/screens/contacts/contacts_state.h"
 #include "ui/ui_common.h"
-#include "ui/widgets/ime/ime_widget.h"
 #include "ui/widgets/top_bar.h"
 
 #include <algorithm>
@@ -58,17 +56,6 @@ bool contacts_initial_hydration_pending()
 
 void destroy_contacts_page_runtime()
 {
-    if (g_contacts_state.compose_screen)
-    {
-        if (g_contacts_state.compose_ime)
-        {
-            g_contacts_state.compose_ime->detach();
-            delete g_contacts_state.compose_ime;
-            g_contacts_state.compose_ime = nullptr;
-        }
-        delete g_contacts_state.compose_screen;
-        g_contacts_state.compose_screen = nullptr;
-    }
     if (g_contacts_state.conversation_screen)
     {
         delete g_contacts_state.conversation_screen;

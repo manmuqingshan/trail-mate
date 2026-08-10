@@ -84,6 +84,10 @@ class UiController : public IChatUiRefreshSink
     void handleComposeAction(ChatComposeScreen::ActionIntent intent);
     void exitToMenu();
 
+    // Called by the app-level route only after the Chat page has entered.
+    // Other pages must not construct a ChatComposeScreen in their own tree.
+    bool openComposeForConversation(const chat::ConversationId& conv);
+
     State getState() const { return state_; }
     bool isTeamConversationActive() const { return team_conv_active_; }
     lv_obj_t* getParent() const { return parent_; }

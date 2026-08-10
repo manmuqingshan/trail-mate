@@ -7,6 +7,7 @@
 
 #if defined(ARDUINO_T_LORA_PAGER)
 
+#include "platform/esp/arduino_common/storage/storage_runtime.h"
 #include "platform/esp/arduino_common/voice/vmp_control_runtime.h"
 #include "platform/esp/arduino_common/voice/vmp_pager_audio.h"
 #include "platform/esp/arduino_common/voice/vmp_radio_lease.h"
@@ -159,15 +160,20 @@ class PagerReceiveSession final
         }
         self_node_id_ = self_node_id;
         requires_durable_attachment_store_ = durable_attachment_store;
+        attachment_store_ready_ = !requires_durable_attachment_store_;
         inbox_ready_ = !requires_durable_attachment_store_;
+        attachment_store_wait_logged_ = false;
+        last_persistent_inbox_attempt_ms_ = 0U;
         if (direct_rf_voice_supported_)
         {
             control::setEnvelopeHandler(&PagerReceiveSession::controlEnvelopeReceived, this);
         }
         initialized_ = true;
-        Serial.printf("[VMP] init carrier=%s durable_inbox=%u\n",
+        Serial.printf("[VMP] init carrier=%s durable_inbox=%u inbox_ready=%u audio=%u\n",
                       direct_rf_voice_supported_ ? "lr1121_rf" : "sx1262_mqtt_only",
-                      requires_durable_attachment_store_ ? 1U : 0U);
+                      requires_durable_attachment_store_ ? 1U : 0U,
+                      inbox_ready_ ? 1U : 0U,
+                      media_->audio.isSupported() ? 1U : 0U);
         return true;
     }
 
@@ -195,9 +201,11 @@ class PagerReceiveSession final
         if (lockState())
         {
             attachment_store_ready_ = true;
+            attachment_store_wait_logged_ = false;
             last_persistent_inbox_attempt_ms_ = 0U;
             unlockState();
         }
+        Serial.printf("[VMP][Store] deferred hydration edge received\n");
         servicePersistentInbox();
     }
 
@@ -209,6 +217,35 @@ class PagerReceiveSession final
             return;
         }
         const uint32_t now_ms = millis();
+        if (!attachment_store_ready_ &&
+            ::platform::esp::arduino_common::storage::initial_hydration_ready())
+        {
+            // The hydration-ready edge is intentionally one-shot and may have
+            // been consumed before VMP's UI runtime became active. Read the
+            // durable completion state as a subscriber-independent fallback.
+            attachment_store_ready_ = true;
+            attachment_store_wait_logged_ = false;
+            last_persistent_inbox_attempt_ms_ = 0U;
+            Serial.printf("[VMP][Store] durable hydration observed after edge\n");
+        }
+        if (!attachment_store_ready_)
+        {
+            if (!attachment_store_wait_logged_)
+            {
+                attachment_store_wait_logged_ = true;
+                Serial.printf("[VMP][Store] waiting hydration pending=%u active=%u\n",
+                              ::platform::esp::arduino_common::storage::
+                                      initial_hydration_pending()
+                                  ? 1U
+                                  : 0U,
+                              ::platform::esp::arduino_common::storage::
+                                      hydration_active()
+                                  ? 1U
+                                  : 0U);
+            }
+            unlockState();
+            return;
+        }
         const bool retry_due = attachment_store_ready_ && !inbox_ready_ &&
                                (last_persistent_inbox_attempt_ms_ == 0U ||
                                 now_ms - last_persistent_inbox_attempt_ms_ >=
@@ -575,7 +612,13 @@ class PagerReceiveSession final
         if (!initialized_ || !media_ || !inbox_ready_ ||
             !media_->audio.isSupported())
         {
-            Serial.printf("[VMP][TX] hold begin rejected reason=unavailable\n");
+            Serial.printf("[VMP][TX] hold begin rejected reason=unavailable initialized=%u media=%u inbox_ready=%u audio=%u durable=%u store_ready=%u\n",
+                          initialized_ ? 1U : 0U,
+                          media_ ? 1U : 0U,
+                          inbox_ready_ ? 1U : 0U,
+                          (media_ && media_->audio.isSupported()) ? 1U : 0U,
+                          requires_durable_attachment_store_ ? 1U : 0U,
+                          attachment_store_ready_ ? 1U : 0U);
             return StartSendResult::Unsupported;
         }
         if ((!broadcast && target_id == 0U) ||
@@ -1907,6 +1950,7 @@ class PagerReceiveSession final
     volatile bool record_stop_requested_ = false;
     bool requires_durable_attachment_store_ = false;
     bool attachment_store_ready_ = false;
+    bool attachment_store_wait_logged_ = false;
     bool inbox_ready_ = false;
     uint32_t last_persistent_inbox_attempt_ms_ = 0U;
     StaticSemaphore_t state_mutex_storage_{};

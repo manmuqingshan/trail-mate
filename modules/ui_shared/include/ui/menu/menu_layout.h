@@ -20,6 +20,9 @@ struct InitOptions
 
 void init(const InitOptions& options);
 lv_obj_t* menuPanel();
+// Performs a full app lifecycle transition using a catalog stable id. This is
+// used when one app hands the user to another app-owned screen.
+bool launchAppByStableId(const char* stable_id);
 void bringContentToFront();
 void refresh_localized_text();
 void set_bottom_bar_node_text(const char* text);

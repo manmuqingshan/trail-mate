@@ -21,19 +21,10 @@ class ContactService;
 } // namespace contacts
 namespace ui
 {
-class ChatComposeScreen;
 class ChatConversationScreen;
 } // namespace ui
 class ChatService;
 } // namespace chat
-
-namespace ui
-{
-namespace widgets
-{
-class ImeWidget;
-} // namespace widgets
-} // namespace ui
 
 namespace contacts
 {
@@ -136,9 +127,8 @@ struct ContactsPageState
     lv_timer_t* discover_scan_timer = nullptr;
     size_t discover_scan_start_nearby = 0;
 
-    // Compose screen (Chat button)
-    chat::ui::ChatComposeScreen* compose_screen = nullptr;
-    ::ui::widgets::ImeWidget* compose_ime = nullptr;
+    // Contacts has its own team conversation preview. Compose itself is always
+    // routed to the single Chat app-owned implementation.
     chat::ui::ChatConversationScreen* conversation_screen = nullptr;
     lv_timer_t* conversation_timer = nullptr;
 

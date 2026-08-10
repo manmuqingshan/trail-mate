@@ -25,11 +25,12 @@
 #include "ui/components/info_card.h"
 #include "ui/components/shortcut_help_modal.h"
 #include "ui/localization.h"
+#include "ui/menu/menu_layout.h"
 #include "ui/page/page_profile.h"
 #include "ui/presentation_sources/team_chat_presentation_source.h"
 #include "ui/runtime/ui_feedback.h"
-#include "ui/screens/chat/chat_compose_components.h"
 #include "ui/screens/chat/chat_conversation_components.h"
+#include "ui/screens/chat/chat_page_runtime.h"
 #include "ui/screens/chat/chat_page_shell.h"
 #include "ui/screens/chat/chat_protocol_support.h"
 #include "ui/screens/contacts/contacts_filter_profile.h"
@@ -43,7 +44,6 @@
 #include "ui/team_actions/team_runtime_adapters.h"
 #include "ui/ui_common.h"
 #include "ui/widgets/busy_overlay.h"
-#include "ui/widgets/ime/ime_widget.h"
 #include "ui/widgets/reticulum_ping_overlay.h"
 #include "ui/widgets/top_bar.h"
 
@@ -83,13 +83,6 @@ static constexpr uint32_t kColorLine = 0xE7C98F;
 static constexpr uint32_t kColorText = 0x6B4A1E;
 static constexpr uint32_t kColorWarn = 0xB94A2C;
 
-static lv_group_t* s_compose_group = nullptr;
-static lv_group_t* s_compose_prev_group = nullptr;
-static uint32_t s_compose_peer_id = 0;
-static chat::ChannelId s_compose_channel = chat::ChannelId::PRIMARY;
-static chat::MeshProtocol s_compose_protocol = chat::MeshProtocol::Meshtastic;
-static chat::ConversationId s_compose_conversation{};
-static std::string s_compose_target_display_name;
 static bool s_refreshing_ui = false;
 static lv_coord_t page_button_height()
 {
@@ -103,8 +96,6 @@ static lv_coord_t page_button_min_width()
 
 static lv_group_t* s_conv_group = nullptr;
 static lv_group_t* s_conv_prev_group = nullptr;
-static bool s_compose_from_conversation = false;
-static bool s_compose_is_team = false;
 static std::unique_ptr<::ui::presentation_sources::ITeamChatCommandPort> s_team_chat_command_port;
 static std::unique_ptr<::ui::team_actions::ITeamLocationSource> s_team_location_source;
 static std::unique_ptr<::ui::team_actions::TeamActionRuntimeSink> s_team_action_sink;
@@ -135,38 +126,6 @@ static void format_reticulum_hash_prefix(const chat::ReticulumPeerIdentity& iden
                   static_cast<unsigned>(identity.destination_hash[1]),
                   static_cast<unsigned>(identity.destination_hash[2]),
                   static_cast<unsigned>(identity.destination_hash[3]));
-}
-
-static void format_log_text_preview(const std::string& text, char* out, size_t out_len)
-{
-    if (!out || out_len == 0)
-    {
-        return;
-    }
-    out[0] = '\0';
-    const size_t max_copy = out_len - 1U;
-    size_t used = 0;
-    for (char value : text)
-    {
-        if (used >= max_copy)
-        {
-            break;
-        }
-        const unsigned char c = static_cast<unsigned char>(value);
-        if (c == '\r' || c == '\n' || c == '\t')
-        {
-            out[used++] = ' ';
-        }
-        else if (c < 0x20U || c == 0x7FU)
-        {
-            out[used++] = '.';
-        }
-        else
-        {
-            out[used++] = value;
-        }
-    }
-    out[used] = '\0';
 }
 
 static void format_reticulum_hash_text(const uint8_t* hash, char* out, size_t out_len)
@@ -309,9 +268,6 @@ static void on_discovery_scan_done(lv_timer_t* timer);
 static void execute_discovery_command(uint8_t command_index);
 static void on_node_info_key(lv_event_t* e);
 static void open_chat_compose();
-static void close_chat_compose();
-static void on_compose_action(chat::ui::ChatComposeScreen::ActionIntent intent, void* user_data);
-static void on_compose_back(void* user_data);
 [[maybe_unused]] static void open_team_conversation();
 static void close_team_conversation();
 static void refresh_team_conversation();
@@ -517,11 +473,6 @@ static std::string format_nearby_seen_age(uint32_t last_seen)
         return ::ui::i18n::tr("SNR -");
     }
     return ::ui::i18n::format("SNR %.0f", snr);
-}
-
-static const char* mesh_protocol_short_label(chat::MeshProtocol protocol)
-{
-    return chat::infra::meshProtocolShortName(protocol);
 }
 
 static bool node_protocol_to_mesh(chat::contacts::NodeProtocolType protocol, chat::MeshProtocol* out)
@@ -797,19 +748,6 @@ static void delete_static_group(lv_group_t*& group)
     group = nullptr;
 }
 
-static void reset_compose_runtime_state()
-{
-    delete_static_group(s_compose_group);
-    s_compose_prev_group = nullptr;
-    s_compose_peer_id = 0;
-    s_compose_channel = chat::ChannelId::PRIMARY;
-    s_compose_protocol = chat::MeshProtocol::Meshtastic;
-    s_compose_conversation = chat::ConversationId{};
-    s_compose_target_display_name.clear();
-    s_compose_from_conversation = false;
-    s_compose_is_team = false;
-}
-
 static void reset_conversation_runtime_state()
 {
     delete_static_group(s_conv_group);
@@ -889,56 +827,6 @@ static const char* team_action_failure_message(
     return default_message;
 }
 
-static const char* local_text_failure_message(chat::MeshOperationFailure failure)
-{
-    switch (failure)
-    {
-    case chat::MeshOperationFailure::PeerKeyMissing:
-        return "Peer key missing";
-    case chat::MeshOperationFailure::ChannelKeyMissing:
-        return "Channel key missing";
-    case chat::MeshOperationFailure::TxDisabled:
-        return "TX disabled";
-    case chat::MeshOperationFailure::RadioOffline:
-        return "Radio offline";
-    case chat::MeshOperationFailure::DutyCycleLimited:
-        return "TX rate limited";
-    case chat::MeshOperationFailure::RadioTxFailed:
-        return "Radio TX failed";
-    case chat::MeshOperationFailure::LocalIdentityMissing:
-        return "Identity missing";
-    case chat::MeshOperationFailure::Busy:
-        return "Radio busy";
-    case chat::MeshOperationFailure::Unsupported:
-        return "Chat unsupported";
-    case chat::MeshOperationFailure::InvalidInput:
-        return "Invalid message";
-    case chat::MeshOperationFailure::NotReady:
-        return "Mesh not ready";
-    case chat::MeshOperationFailure::EncodeFailed:
-        return "Packet build failed";
-    case chat::MeshOperationFailure::CryptoFailed:
-        return "Signature failed";
-    case chat::MeshOperationFailure::None:
-    case chat::MeshOperationFailure::Unknown:
-        break;
-    }
-    return "Send failed";
-}
-
-static const char* compose_text_failure_message(chat::MeshOperationFailure failure,
-                                                bool reticulum_destination_send,
-                                                int detail)
-{
-    if (reticulum_destination_send &&
-        failure == chat::MeshOperationFailure::NotReady &&
-        detail > 0)
-    {
-        return detail == 1 ? "Path requested" : "Path pending";
-    }
-    return local_text_failure_message(failure);
-}
-
 static uint32_t current_timestamp_seconds()
 {
     uint32_t ts = sys::epoch_seconds_now();
@@ -947,13 +835,6 @@ static uint32_t current_timestamp_seconds()
         ts = sys::millis_now() / 1000U;
     }
     return ts;
-}
-
-static bool is_reticulum_destination_conversation(const chat::ConversationId& conversation)
-{
-    return conversation.protocol == chat::MeshProtocol::Reticulum &&
-           conversation.peer == 0 &&
-           chat::hasReticulumDestinationIdentity(conversation.reticulum_identity);
 }
 
 static bool is_searchable_contacts_mode(ContactsMode mode)
@@ -2724,14 +2605,6 @@ static void close_node_info_screen()
 
 static void open_chat_compose()
 {
-    if (g_contacts_state.compose_screen)
-    {
-        return;
-    }
-    if (!g_contacts_state.conversation_screen)
-    {
-        s_compose_from_conversation = false;
-    }
     const auto* node = get_selected_node();
     const auto* group = get_selected_reticulum_group();
     if (g_contacts_state.current_mode != ContactsMode::Broadcast &&
@@ -2855,14 +2728,6 @@ static void open_chat_compose()
         }
     }
 
-    s_compose_prev_group = lv_group_get_default();
-    if (!s_compose_group)
-    {
-        s_compose_group = lv_group_create();
-    }
-    lv_group_remove_all_objs(s_compose_group);
-    set_default_group(s_compose_group);
-
     chat::ConversationId conv(channel, peer_id, protocol);
     if (chat::hasReticulumDestinationIdentity(reticulum_destination))
     {
@@ -2873,275 +2738,34 @@ static void open_chat_compose()
     {
         conv.reticulum_identity = node->reticulum_identity;
     }
-    char compose_dest_hash[12] = {};
+
+    // Contacts owns target selection only.  Compose, its focus group, VMP
+    // affordances, durable voice state, and post-send return behaviour are
+    // all owned by the Chat app.  Never construct a second Compose tree here.
+    if (!chat::ui::runtime::requestCompose(conv))
+    {
+        std::printf("[Contacts][Route] chat_compose rejected reason=chat_runtime_unavailable\n");
+        ::ui::feedback::show_notice("Chat unavailable", 1800);
+        return;
+    }
+    if (!::ui::menu_layout::launchAppByStableId("chat"))
+    {
+        chat::ui::runtime::clearRequestedCompose();
+        std::printf("[Contacts][Route] chat_compose rejected reason=chat_app_unavailable\n");
+        ::ui::feedback::show_notice("Chat unavailable", 1800);
+        return;
+    }
+    char routed_dest_hash[12] = {};
     format_reticulum_hash_prefix(conv.reticulum_identity,
-                                 compose_dest_hash,
-                                 sizeof(compose_dest_hash));
-    std::printf("[Contacts][TX] compose_open protocol=%s group=%u target=\"%s\" ch=%u peer=%08lX dest=%s\n",
+                                 routed_dest_hash,
+                                 sizeof(routed_dest_hash));
+    std::printf("[Contacts][Route] chat_compose protocol=%s group=%u target=\"%s\" ch=%u peer=%08lX dest=%s\n",
                 chat::infra::meshProtocolName(protocol),
                 g_contacts_state.current_mode == ContactsMode::Groups ? 1U : 0U,
                 title.c_str(),
                 static_cast<unsigned>(channel),
                 static_cast<unsigned long>(peer_id),
-                compose_dest_hash);
-    g_contacts_state.compose_screen = new chat::ui::ChatComposeScreen(parent, conv);
-    g_contacts_state.compose_screen->setActionCallback(on_compose_action, nullptr);
-    g_contacts_state.compose_screen->setBackCallback(on_compose_back, nullptr);
-
-    if (!g_contacts_state.compose_ime)
-    {
-        g_contacts_state.compose_ime = new ::ui::widgets::ImeWidget();
-    }
-    lv_obj_t* compose_content = g_contacts_state.compose_screen->getContent();
-    lv_obj_t* compose_textarea = g_contacts_state.compose_screen->getTextarea();
-    if (compose_content && compose_textarea)
-    {
-        g_contacts_state.compose_ime->init(compose_content, compose_textarea);
-        g_contacts_state.compose_screen->attachImeWidget(g_contacts_state.compose_ime);
-        if (lv_group_t* g = lv_group_get_default())
-        {
-            lv_group_add_obj(g, g_contacts_state.compose_ime->focus_obj());
-        }
-    }
-
-    std::string header = "[" + std::string(mesh_protocol_short_label(protocol)) + "] " + title;
-    g_contacts_state.compose_screen->setHeaderText(header.c_str(), nullptr);
-    s_compose_peer_id = peer_id;
-    s_compose_channel = channel;
-    s_compose_protocol = protocol;
-    s_compose_conversation = conv;
-    s_compose_target_display_name = title;
-    s_compose_is_team = (g_contacts_state.current_mode == ContactsMode::Team);
-    if (s_compose_is_team)
-    {
-        g_contacts_state.compose_screen->setActionLabels("Send", "Cancel");
-        g_contacts_state.compose_screen->setPositionButton("Position", true);
-    }
-    else
-    {
-        g_contacts_state.compose_screen->setPositionButton(nullptr, false);
-    }
-
-    if (s_compose_from_conversation && g_contacts_state.conversation_screen)
-    {
-        lv_obj_add_flag(g_contacts_state.conversation_screen->getObj(), LV_OBJ_FLAG_HIDDEN);
-        if (g_contacts_state.conversation_timer)
-        {
-            lv_timer_pause(g_contacts_state.conversation_timer);
-        }
-    }
-    else
-    {
-        if (g_contacts_state.root)
-        {
-            lv_obj_add_flag(g_contacts_state.root, LV_OBJ_FLAG_HIDDEN);
-        }
-        if (g_contacts_state.refresh_timer)
-        {
-            lv_timer_pause(g_contacts_state.refresh_timer);
-        }
-    }
-}
-
-static void close_chat_compose()
-{
-    if (!g_contacts_state.compose_screen)
-    {
-        return;
-    }
-    if (g_contacts_state.compose_ime)
-    {
-        g_contacts_state.compose_ime->detach();
-        delete g_contacts_state.compose_ime;
-        g_contacts_state.compose_ime = nullptr;
-    }
-    delete g_contacts_state.compose_screen;
-    g_contacts_state.compose_screen = nullptr;
-    s_compose_peer_id = 0;
-    s_compose_channel = chat::ChannelId::PRIMARY;
-    s_compose_protocol = chat::MeshProtocol::Meshtastic;
-    s_compose_conversation = chat::ConversationId{};
-    s_compose_target_display_name.clear();
-    s_compose_is_team = false;
-
-    if (s_compose_from_conversation && g_contacts_state.conversation_screen)
-    {
-        lv_obj_clear_flag(g_contacts_state.conversation_screen->getObj(), LV_OBJ_FLAG_HIDDEN);
-        if (g_contacts_state.conversation_timer)
-        {
-            lv_timer_resume(g_contacts_state.conversation_timer);
-        }
-        s_compose_from_conversation = false;
-        s_compose_prev_group = nullptr;
-        if (s_conv_group)
-        {
-            set_default_group(s_conv_group);
-        }
-    }
-    else
-    {
-        if (g_contacts_state.root)
-        {
-            lv_obj_clear_flag(g_contacts_state.root, LV_OBJ_FLAG_HIDDEN);
-        }
-        if (g_contacts_state.refresh_timer)
-        {
-            lv_timer_resume(g_contacts_state.refresh_timer);
-        }
-        lv_group_t* contacts_group = contacts_input_get_group();
-        if (contacts_group)
-        {
-            set_default_group(contacts_group);
-        }
-        else if (s_compose_prev_group)
-        {
-            set_default_group(s_compose_prev_group);
-        }
-        s_compose_prev_group = nullptr;
-        contacts_focus_to_list();
-        refresh_ui();
-    }
-}
-
-static void on_compose_action(chat::ui::ChatComposeScreen::ActionIntent intent, void* /*user_data*/)
-{
-    if ((intent == chat::ui::ChatComposeScreen::ActionIntent::Send ||
-         intent == chat::ui::ChatComposeScreen::ActionIntent::Position) &&
-        g_contacts_state.compose_screen)
-    {
-        if (s_compose_is_team)
-        {
-            auto* action_sink = contacts_team_action_sink();
-            if (!action_sink || !is_team_available())
-            {
-                ::ui::feedback::show_notice("Team chat send failed", 2000);
-                close_chat_compose();
-                return;
-            }
-
-            ::ui::team_actions::TeamActionRequest request;
-            if (intent == chat::ui::ChatComposeScreen::ActionIntent::Position)
-            {
-                std::string label = g_contacts_state.compose_screen->getText();
-                request.kind = ::ui::team_actions::TeamActionKind::LocationShare;
-                request.location_share.use_current_location = true;
-                request.location_share.label = label.empty() ? nullptr : label.c_str();
-            }
-            else
-            {
-                std::string text = g_contacts_state.compose_screen->getText();
-                if (text.empty())
-                {
-                    close_chat_compose();
-                    return;
-                }
-                request.kind = ::ui::team_actions::TeamActionKind::Text;
-                request.text = text.c_str();
-            }
-
-            const auto result = action_sink->sendTeamAction(request);
-            if (!result.ok)
-            {
-                const char* default_message =
-                    (intent == chat::ui::ChatComposeScreen::ActionIntent::Position)
-                        ? "Team location send failed"
-                        : "Team chat send failed";
-                const bool location_action =
-                    intent == chat::ui::ChatComposeScreen::ActionIntent::Position;
-                ::ui::feedback::show_notice(
-                    team_action_failure_message(result,
-                                                default_message,
-                                                location_action),
-                    2000);
-                if (location_action &&
-                    result.failure == ::ui::UiActionFailure::NotReady)
-                {
-                    return;
-                }
-            }
-            close_chat_compose();
-            if (g_contacts_state.conversation_screen)
-            {
-                refresh_team_conversation();
-            }
-            return;
-        }
-
-        if (chat::infra::normalizeMeshProtocol(s_compose_protocol) !=
-            chat::infra::normalizeMeshProtocol(chat_support::active_mesh_protocol()))
-        {
-            ::ui::feedback::show_notice("Conversation protocol mismatch", 2000);
-            close_chat_compose();
-            return;
-        }
-
-        const bool reticulum_destination_send =
-            is_reticulum_destination_conversation(s_compose_conversation);
-        const bool send_supported =
-            reticulum_destination_send
-                ? chat_support::supports_reticulum_destination_text()
-                : chat_support::supports_local_text_chat();
-        if (!send_supported)
-        {
-            ::ui::feedback::show_notice(
-                reticulum_destination_send
-                    ? chat_support::reticulum_destination_text_unavailable_message()
-                    : chat_support::local_text_chat_unavailable_message(),
-                2200);
-            close_chat_compose();
-            return;
-        }
-
-        std::string text = g_contacts_state.compose_screen->getText();
-        if (!text.empty())
-        {
-            if (g_contacts_state.chat_service)
-            {
-                char dest_hash[12] = {};
-                char text_preview[64] = {};
-                format_reticulum_hash_prefix(s_compose_conversation.reticulum_identity,
-                                             dest_hash,
-                                             sizeof(dest_hash));
-                format_log_text_preview(text, text_preview, sizeof(text_preview));
-                std::printf("[Contacts][TX] send_begin destination=%u protocol=%s target=\"%s\" ch=%u peer=%08lX dest=%s len=%u text=\"%s\"\n",
-                            reticulum_destination_send ? 1U : 0U,
-                            chat::infra::meshProtocolName(s_compose_protocol),
-                            s_compose_target_display_name.c_str(),
-                            static_cast<unsigned>(s_compose_channel),
-                            static_cast<unsigned long>(s_compose_peer_id),
-                            dest_hash,
-                            static_cast<unsigned>(text.size()),
-                            text_preview);
-                const chat::MeshSendResult result =
-                    g_contacts_state.chat_service->sendTextToConversationDetailed(
-                        s_compose_conversation,
-                        text);
-                std::printf("[Contacts][TX] send_end ok=%u msg=%lu failure=%u target=\"%s\" dest=%s text=\"%s\"\n",
-                            result.ok ? 1U : 0U,
-                            static_cast<unsigned long>(result.msg_id),
-                            static_cast<unsigned>(result.failure),
-                            s_compose_target_display_name.c_str(),
-                            dest_hash,
-                            text_preview);
-                if (!result.ok || result.msg_id == 0)
-                {
-                    ::ui::feedback::show_notice(
-                        compose_text_failure_message(result.failure,
-                                                     reticulum_destination_send,
-                                                     result.detail),
-                        2000);
-                }
-                close_chat_compose();
-                return;
-            }
-        }
-    }
-    close_chat_compose();
-}
-
-static void on_compose_back(void* /*user_data*/)
-{
-    close_chat_compose();
+                routed_dest_hash);
 }
 
 static void refresh_team_conversation()
@@ -3174,7 +2798,6 @@ static void on_team_conversation_action(chat::ui::ChatConversationScreen::Action
 {
     if (intent == chat::ui::ChatConversationScreen::ActionIntent::Reply)
     {
-        s_compose_from_conversation = true;
         open_chat_compose();
     }
 }
@@ -4943,7 +4566,6 @@ void cleanup_modals()
         g_contacts_state.modal_group = nullptr;
     }
     g_contacts_state.prev_group = nullptr;
-    reset_compose_runtime_state();
     reset_conversation_runtime_state();
     reset_contacts_team_chat_runtime();
 }
