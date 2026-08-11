@@ -133,6 +133,8 @@ struct CODEC2 * codec2_create(int mode)
 	return NULL;
 
     c2->mode = mode;
+    c2->analysis_spectrum = NULL;
+    c2->mode_1300_scratch = NULL;
 
     /* store constants in a few places for convenience */
     
@@ -209,9 +211,27 @@ struct CODEC2 * codec2_create(int mode)
     c2->post_filter_en = true;
     
     c2->bpf_buf = (float*)MALLOC(sizeof(float)*(BPF_N+4*c2->n_samp));
-    assert(c2->bpf_buf != NULL);
+    if (c2->bpf_buf == NULL) {
+        codec2_destroy(c2);
+        return NULL;
+    }
     for(i=0; i<BPF_N+4*c2->n_samp; i++)
         c2->bpf_buf[i] = 0.0;
+
+    c2->analysis_spectrum = (COMP*)MALLOC(sizeof(COMP)*FFT_ENC);
+    if (c2->analysis_spectrum == NULL) {
+        codec2_destroy(c2);
+        return NULL;
+    }
+
+    if ( CODEC2_MODE_ACTIVE(CODEC2_MODE_1300, c2->mode)) {
+        c2->mode_1300_scratch =
+            (CODEC2_1300_SCRATCH*)CALLOC(1, sizeof(CODEC2_1300_SCRATCH));
+        if (c2->mode_1300_scratch == NULL) {
+            codec2_destroy(c2);
+            return NULL;
+        }
+    }
 
     c2->softdec = NULL;
     c2->gray = 1;
@@ -340,6 +360,8 @@ struct CODEC2 * codec2_create(int mode)
 void codec2_destroy(struct CODEC2 *c2)
 {
     assert(c2 != NULL);
+    FREE(c2->mode_1300_scratch);
+    FREE(c2->analysis_spectrum);
     FREE(c2->bpf_buf);
     nlp_destroy(c2->nlp);
     codec2_fft_free(c2->fft_fwd_cfg);
@@ -1246,19 +1268,27 @@ void codec2_encode_1300(struct CODEC2 *c2, unsigned char * bits, short speech[])
 
 void codec2_decode_1300(struct CODEC2 *c2, short speech[], const unsigned char * bits, float ber_est)
 {
-    MODEL   model[4];
-    int     lsp_indexes[LPC_ORD];
-    float   lsps[4][LPC_ORD];
+    CODEC2_1300_SCRATCH *scratch = c2->mode_1300_scratch;
+    MODEL   *model;
+    int     *lsp_indexes;
+    float   (*lsps)[LPC_ORD];
     int     Wo_index, e_index;
-    float   e[4];
+    float   *e;
     float   snr;
-    float   ak[4][LPC_ORD+1];
+    float   (*ak)[LPC_ORD+1];
     int     i,j;
     unsigned int nbit = 0;
     float   weight;
-    COMP    Aw[FFT_ENC];
+    COMP    *Aw;
 
     assert(c2 != NULL);
+    assert(scratch != NULL);
+    model = scratch->decoder_model;
+    lsp_indexes = scratch->decoder_lsp_indexes;
+    lsps = scratch->decoder_lsps;
+    e = scratch->decoder_e;
+    ak = scratch->decoder_ak;
+    Aw = scratch->decoder_aw;
     
     /* only need to zero these out due to (unused) snr calculation */
 
@@ -2075,11 +2105,13 @@ void synthesise_one_frame(struct CODEC2 *c2, short speech[], MODEL *model, COMP 
 
 void analyse_one_frame(struct CODEC2 *c2, MODEL *model, short speech[])
 {
-    COMP    Sw[FFT_ENC];
+    COMP    *Sw = c2->analysis_spectrum;
     float   pitch;
     int     i;
     int     n_samp = c2->n_samp;
     int     m_pitch = c2->m_pitch;
+
+    assert(Sw != NULL);
 
     /* Read input speech */
 

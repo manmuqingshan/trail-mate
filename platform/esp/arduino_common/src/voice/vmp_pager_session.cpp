@@ -50,14 +50,15 @@ constexpr uint8_t kReadyProbeCount = 3U;
 // ESP-IDF's xTaskCreatePinnedToCore stack-depth argument is expressed in
 // bytes. Codec2 plus the Pager I2S/codec/I2C driver call chain overflows the
 // former 4 KiB VMP task before its first capture frame. The VMP media/FEC
-// state is PSRAM-backed, but this stack must remain internal because the
-// Arduino Codec2/I2S path may enter ROM/cache-disabled code. 10 KiB leaves
-// sufficient headroom over the original crash while fitting the Pager's
-// fragmented internal heap under Wi-Fi load. These stacks exist only for an
-// active record/play operation and are released by vTaskDelete.
-constexpr uint32_t kOutboundTaskStackBytes = 10U * 1024U;
+// state and non-DMA Codec2 workspaces are PSRAM-backed, but this stack must
+// remain internal because the Arduino I2S/codec path may enter
+// ROM/cache-disabled code. Keeping Codec2's large automatic workspaces out
+// of the task leaves a bounded 8 KiB stack with useful guard space while it
+// still fits the Pager's Wi-Fi-fragmented internal heap. These stacks exist
+// only for an active record/play operation and are released by vTaskDelete.
+constexpr uint32_t kOutboundTaskStackBytes = 8U * 1024U;
 constexpr UBaseType_t kOutboundTaskPriority = 4U;
-constexpr uint32_t kPlaybackTaskStackBytes = 10U * 1024U;
+constexpr uint32_t kPlaybackTaskStackBytes = 8U * 1024U;
 constexpr UBaseType_t kPlaybackTaskPriority = 3U;
 constexpr uint32_t kPersistentInboxRetryMs = 5000U;
 

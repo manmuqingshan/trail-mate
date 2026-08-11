@@ -59,6 +59,12 @@ int main(int argc, char** argv)
                "voice/vmp_pager_session.h");
     const std::string pager_audio = readFile(
         root / "platform/esp/arduino_common/src/voice/vmp_pager_audio.cpp");
+    const std::string codec2 = readFile(root / "third_party/codec2/src/codec2.c");
+    const std::string codec2_internal =
+        readFile(root / "third_party/codec2/src/codec2_internal.h");
+    const std::string codec2_nlp = readFile(root / "third_party/codec2/src/nlp.c");
+    const std::string codec2_memtools =
+        readFile(root / "third_party/codec2/src/memtools.c");
     const std::string chat_controller = readFile(
         root / "modules/ui_shared/src/ui/screens/chat/chat_ui_controller.cpp");
     const std::string chat_compose = readFile(
@@ -292,10 +298,11 @@ int main(int argc, char** argv)
     // stack depth as bytes: do not regress the overflow fix to the old 4 KiB
     // TX or 3 KiB playback task, and keep runtime proof of the high-water mark.
     // The Pager's Wi-Fi-loaded internal heap cannot reliably satisfy the former
-    // 16 KiB request, so the bounded workers use the verified 10 KiB budget.
-    assert(session.find("kOutboundTaskStackBytes = 10U * 1024U") !=
+    // 10/16 KiB request. Codec2's non-DMA workspaces are PSRAM-backed, leaving
+    // a bounded 8 KiB internal stack for the I2S/codec call chain.
+    assert(session.find("kOutboundTaskStackBytes = 8U * 1024U") !=
            std::string::npos);
-    assert(session.find("kPlaybackTaskStackBytes = 10U * 1024U") !=
+    assert(session.find("kPlaybackTaskStackBytes = 8U * 1024U") !=
            std::string::npos);
     assert(session.find("kOutboundTaskStackWords") == std::string::npos);
     assert(session.find("kPlaybackTaskStackWords") == std::string::npos);
@@ -305,6 +312,26 @@ int main(int argc, char** argv)
            std::string::npos);
     assert(session.find("stack_budget_bytes=%u") != std::string::npos);
     assert(session.find("logTaskCreateFailure(\"vmp_tx\", kOutboundTaskStackBytes)") !=
+           std::string::npos);
+    assert(codec2_internal.find("CODEC2_1300_SCRATCH") != std::string::npos);
+    assert(codec2.find("c2->analysis_spectrum = (COMP*)MALLOC") !=
+           std::string::npos);
+    assert(codec2.find("c2->mode_1300_scratch") != std::string::npos);
+    const std::size_t decoder_1300 = positionOf(codec2, "void codec2_decode_1300(");
+    const std::size_t encoder_1200 =
+        positionOfAfter(codec2, "void codec2_encode_1200(", decoder_1300);
+    const std::string decoder_1300_body =
+        codec2.substr(decoder_1300, encoder_1200 - decoder_1300);
+    const std::size_t analyse_frame = positionOf(codec2, "void analyse_one_frame(");
+    const std::size_t ear_protection =
+        positionOfAfter(codec2, "static void ear_protection(", analyse_frame);
+    const std::string analyse_frame_body =
+        codec2.substr(analyse_frame, ear_protection - analyse_frame);
+    assert(analyse_frame_body.find("COMP    Sw[FFT_ENC]") == std::string::npos);
+    assert(decoder_1300_body.find("COMP    Aw[FFT_ENC]") == std::string::npos);
+    assert(codec2_nlp.find("COMP   Fw[PE_FFT_SIZE]") == std::string::npos);
+    assert(codec2_nlp.find("nlp->Fw = (COMP*)MALLOC") != std::string::npos);
+    assert(codec2_memtools.find("MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT") !=
            std::string::npos);
 
     // Pager's physical rotary button is an input level, not a one-shot click.
