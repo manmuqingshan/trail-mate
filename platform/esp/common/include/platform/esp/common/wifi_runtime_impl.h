@@ -1094,9 +1094,10 @@ void wifi_event_handler(void*,
                 break;
             }
 
-            const bool attempt_failed = s_runtime.connecting;
+            const bool retry_after_disconnect =
+                s_runtime.connecting || s_runtime.connected;
             clear_connection_details();
-            if (attempt_failed && s_runtime.profile_count > 1)
+            if (retry_after_disconnect && s_runtime.profile_count > 1)
             {
                 s_runtime.next_profile_index =
                     (s_runtime.next_profile_index + 1U) %
@@ -1106,7 +1107,7 @@ void wifi_event_handler(void*,
                             static_cast<unsigned>(s_runtime.profile_count));
             }
             refresh_runtime_status_message();
-            if (attempt_failed)
+            if (retry_after_disconnect)
             {
                 schedule_profile_retry();
             }
@@ -1593,7 +1594,8 @@ void disconnect()
     cancel_profile_retry();
     if (s_runtime.wifi_started)
     {
-        (void)esp_wifi_disconnect();
+        s_runtime.intentional_disconnect_pending =
+            esp_wifi_disconnect() == ESP_OK;
     }
     clear_connection_details();
     refresh_runtime_status_message();
