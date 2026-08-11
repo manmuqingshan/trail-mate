@@ -96,6 +96,8 @@ struct RuntimeState
     bool connect_deferred_for_resources = false;
     bool intentional_disconnect_pending = false;
     bool profile_retry_pending = false;
+    bool automatic_profile_attempt_active = false;
+    bool automatic_profile_shutdown_pending = false;
     bool scanning = false;
     int rssi = -127;
     Config config{};
@@ -104,6 +106,7 @@ struct RuntimeState
     wifi_ap_record_t auto_scan_records[kWifiAutoScanMaxRecords] = {};
     std::size_t profile_count = 0;
     std::size_t next_profile_index = 0;
+    std::size_t automatic_profile_failures = 0;
     char ssid[kMaxSsidLength + 1] = {};
     char ip[kMaxIpLength + 1] = {};
     char message[kMaxStatusMessageLength + 1] = {};
@@ -182,9 +185,44 @@ void cancel_profile_retry()
     s_runtime.profile_retry_pending = false;
 }
 
+void reset_automatic_profile_failure_cycle()
+{
+    s_runtime.automatic_profile_attempt_active = false;
+    s_runtime.automatic_profile_shutdown_pending = false;
+    s_runtime.automatic_profile_failures = 0;
+}
+
+void disable_wifi_after_profile_exhaustion()
+{
+    s_runtime.automatic_profile_shutdown_pending = false;
+    s_runtime.automatic_profile_attempt_active = false;
+    s_runtime.automatic_profile_failures = 0;
+
+    Config disabled_config = s_runtime.config;
+    disabled_config.enabled = false;
+    const bool persisted = save_config(disabled_config);
+    if (!persisted)
+    {
+        // Do not leave the radio retrying just because its disabled state
+        // could not be written. The next explicit enable will start a new
+        // profile cycle; a reboot can retry only if persistence also failed.
+        s_runtime.config = disabled_config;
+        s_runtime.config_cached = true;
+    }
+    const bool stopped = apply_enabled(false);
+    std::printf("[WiFi] saved profiles exhausted action=wifi_off persisted=%u stopped=%u\n",
+                persisted ? 1U : 0U,
+                stopped ? 1U : 0U);
+}
+
 void profile_retry_timer_cb(void*)
 {
     s_runtime.profile_retry_pending = false;
+    if (s_runtime.automatic_profile_shutdown_pending)
+    {
+        disable_wifi_after_profile_exhaustion();
+        return;
+    }
     if (!s_runtime.wifi_started || !s_runtime.config_cached || !s_runtime.config.enabled ||
         s_runtime.connected || s_runtime.connecting || s_runtime.profile_count == 0 ||
         radio_is_reserved())
@@ -241,6 +279,40 @@ void schedule_profile_retry()
         return;
     }
     s_runtime.profile_retry_pending = true;
+}
+
+void note_automatic_profile_failure(std::size_t failed_index, const char* source)
+{
+    s_runtime.automatic_profile_attempt_active = false;
+    if (s_runtime.profile_count == 0)
+    {
+        return;
+    }
+
+    if (s_runtime.automatic_profile_failures < s_runtime.profile_count)
+    {
+        ++s_runtime.automatic_profile_failures;
+    }
+    s_runtime.next_profile_index = (failed_index + 1U) % s_runtime.profile_count;
+
+    if (s_runtime.automatic_profile_failures >= s_runtime.profile_count)
+    {
+        s_runtime.automatic_profile_shutdown_pending = true;
+        std::printf("[WiFi] saved profiles failed=%u/%u source=%s action=wifi_off\n",
+                    static_cast<unsigned>(s_runtime.automatic_profile_failures),
+                    static_cast<unsigned>(s_runtime.profile_count),
+                    source ? source : "unknown");
+    }
+    else
+    {
+        std::printf("[WiFi] saved profile failed=%u/%u next=%u/%u source=%s\n",
+                    static_cast<unsigned>(s_runtime.automatic_profile_failures),
+                    static_cast<unsigned>(s_runtime.profile_count),
+                    static_cast<unsigned>(s_runtime.next_profile_index + 1U),
+                    static_cast<unsigned>(s_runtime.profile_count),
+                    source ? source : "unknown");
+    }
+    schedule_profile_retry();
 }
 
 void release_reconnect_memory_reserve()
@@ -1094,21 +1166,27 @@ void wifi_event_handler(void*,
                 break;
             }
 
-            const bool retry_after_disconnect =
-                s_runtime.connecting || s_runtime.connected;
+            const bool retry_after_disconnect = s_runtime.connecting || s_runtime.connected;
+            const bool failed_automatic_profile =
+                s_runtime.connecting && s_runtime.automatic_profile_attempt_active;
+            const std::size_t failed_profile_index = s_runtime.next_profile_index;
             clear_connection_details();
-            if (retry_after_disconnect && s_runtime.profile_count > 1)
+            refresh_runtime_status_message();
+            if (failed_automatic_profile)
             {
-                s_runtime.next_profile_index =
-                    (s_runtime.next_profile_index + 1U) %
-                    s_runtime.profile_count;
-                std::printf("[WiFi] connect event failed; next profile=%u/%u\n",
+                // Only an association failure may advance the saved-profile
+                // cycle. A service, DNS, or reachability failure while this
+                // station is already connected never reaches this path.
+                note_automatic_profile_failure(failed_profile_index, "association");
+            }
+            else if (retry_after_disconnect && s_runtime.profile_count > 0)
+            {
+                // A station that had reached GOT_IP retries its current SSID
+                // first. Do not silently turn a connected-session loss into a
+                // profile switch.
+                std::printf("[WiFi] station link lost action=retry_current_profile index=%u/%u\n",
                             static_cast<unsigned>(s_runtime.next_profile_index + 1U),
                             static_cast<unsigned>(s_runtime.profile_count));
-            }
-            refresh_runtime_status_message();
-            if (retry_after_disconnect)
-            {
                 schedule_profile_retry();
             }
             break;
@@ -1126,6 +1204,7 @@ void wifi_event_handler(void*,
         const auto* got_ip = static_cast<ip_event_got_ip_t*>(event_data);
         s_runtime.connected = true;
         s_runtime.connecting = false;
+        reset_automatic_profile_failure_cycle();
         if (got_ip)
         {
             std::snprintf(s_runtime.ip,
@@ -1381,6 +1460,7 @@ bool apply_enabled(bool enabled)
 
     if (!enabled)
     {
+        reset_automatic_profile_failure_cycle();
         cancel_profile_retry();
         if (!::platform::ui::wifi_access::set_transport_enabled(false))
         {
@@ -1422,6 +1502,8 @@ bool apply_enabled(bool enabled)
     {
         return false;
     }
+    // An explicit user enable starts a fresh, bounded saved-profile cycle.
+    reset_automatic_profile_failure_cycle();
     if (!::platform::ui::wifi_access::set_transport_enabled(true))
     {
         set_status_message("Wi-Fi clients unavailable");
@@ -1444,6 +1526,7 @@ enum class ConnectStartResult : uint8_t
 {
     Started,
     DeferredForResources,
+    NotAttempted,
     Failed,
 };
 
@@ -1452,23 +1535,23 @@ static ConnectStartResult connect_single_profile(const Config& config)
     if (!config.enabled)
     {
         set_status_message("Enable Wi-Fi first");
-        return ConnectStartResult::Failed;
+        return ConnectStartResult::NotAttempted;
     }
 
     if (!has_saved_credentials(config))
     {
         set_status_message("SSID is not set");
-        return ConnectStartResult::Failed;
+        return ConnectStartResult::NotAttempted;
     }
 
     if (radio_is_reserved())
     {
-        return ConnectStartResult::Failed;
+        return ConnectStartResult::NotAttempted;
     }
 
     if (!ensure_wifi_started())
     {
-        return ConnectStartResult::Failed;
+        return ConnectStartResult::NotAttempted;
     }
 
     if (!internal_memory_ready_for_wifi_connect("before esp_wifi_connect"))
@@ -1523,6 +1606,7 @@ bool connect(const Config* override_config)
     cancel_profile_retry();
     if (override_config)
     {
+        reset_automatic_profile_failure_cycle();
         if (s_runtime.connecting && same_ssid(s_runtime.config, *override_config) &&
             std::strncmp(s_runtime.config.password,
                          override_config->password,
@@ -1567,9 +1651,11 @@ bool connect(const Config* override_config)
                 static_cast<unsigned>(index + 1U),
                 static_cast<unsigned>(s_runtime.profile_count),
                 candidate.ssid);
+    s_runtime.automatic_profile_attempt_active = false;
     const ConnectStartResult result = connect_single_profile(candidate);
     if (result == ConnectStartResult::Started)
     {
+        s_runtime.automatic_profile_attempt_active = true;
         return true;
     }
     if (result == ConnectStartResult::DeferredForResources)
@@ -1580,17 +1666,21 @@ bool connect(const Config* override_config)
         schedule_profile_retry();
         return false;
     }
-    s_runtime.next_profile_index = (index + 1U) % s_runtime.profile_count;
-    std::printf("[WiFi] auto connect profile failed index=%u/%u next=%u\n",
-                static_cast<unsigned>(index + 1U),
-                static_cast<unsigned>(s_runtime.profile_count),
-                static_cast<unsigned>(s_runtime.next_profile_index + 1U));
-    schedule_profile_retry();
+    if (result == ConnectStartResult::NotAttempted)
+    {
+        std::printf("[WiFi] auto connect deferred profile index=%u/%u reason=not_attempted\n",
+                    static_cast<unsigned>(index + 1U),
+                    static_cast<unsigned>(s_runtime.profile_count));
+        schedule_profile_retry();
+        return false;
+    }
+    note_automatic_profile_failure(index, "start");
     return false;
 }
 
 void disconnect()
 {
+    reset_automatic_profile_failure_cycle();
     cancel_profile_retry();
     if (s_runtime.wifi_started)
     {

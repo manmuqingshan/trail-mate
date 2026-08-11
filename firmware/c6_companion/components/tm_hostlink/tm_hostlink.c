@@ -275,7 +275,7 @@ static bool handle_config_set(const tm_c6_frame_view_t* frame)
             has_report_failure = true;
         }
     }
-    if (err == ESP_OK && config.wifi.wifi_enabled)
+    if (err == ESP_OK)
     {
         const esp_err_t wifi_err = tm_wifi_apply_config(&config.wifi);
         tm_services_mark_wifi_configured(wifi_err, "wifi_config_failed");

@@ -380,6 +380,18 @@ esp_err_t tm_wifi_apply_config(const tm_c6_wifi_config_t* config)
     s_config = *config;
     if (!config->wifi_enabled)
     {
+        cancel_network_time_sync();
+        s_time_sync_attempted = false;
+        if (s_wifi_started)
+        {
+            (void)esp_wifi_disconnect();
+            const esp_err_t stop_err = esp_wifi_stop();
+            if (stop_err != ESP_OK && stop_err != ESP_ERR_WIFI_NOT_INIT)
+            {
+                return stop_err;
+            }
+            s_wifi_started = false;
+        }
         return ESP_OK;
     }
 
