@@ -81,6 +81,8 @@ class PagerVoiceMessageRuntime final : public ::ui::chat_voice::IVoiceMessageRun
             return ::ui::chat_voice::StartResult::Busy;
         case ::platform::esp::arduino_common::voice::vmp_session::StartSendResult::PrivateContactUnverified:
             return ::ui::chat_voice::StartResult::PrivateContactUnverified;
+        case ::platform::esp::arduino_common::voice::vmp_session::StartSendResult::ResourceUnavailable:
+            return ::ui::chat_voice::StartResult::ResourceUnavailable;
         case ::platform::esp::arduino_common::voice::vmp_session::StartSendResult::Unsupported:
         default:
             return ::ui::chat_voice::StartResult::Unsupported;

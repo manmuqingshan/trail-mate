@@ -226,8 +226,6 @@ bool withSharedSpiRadioAccess(const char* owner,
 #endif
 #include <BoschFirmware.h>
 
-#define TASK_ROTARY_START_PRESSED_FLAG _BV(0)
-
 // Keyboard configuration
 #ifdef USING_INPUT_DEV_KEYBOARD
 // 4x10 character map
@@ -259,7 +257,6 @@ static const LilyGoKeyboardConfigure_t keyboardConfig = {
 
 static QueueHandle_t rotaryMsg;
 static TaskHandle_t rotaryHandler;
-static EventGroupHandle_t rotaryTaskFlag;
 static TimerHandle_t hapticStopTimer;
 
 static void hapticStopCallback(TimerHandle_t timer)
@@ -275,8 +272,9 @@ static void hapticStopCallback(TimerHandle_t timer)
  * @brief Read rotary encoder center button state with debouncing
  * @return true if button is pressed (LOW), false otherwise
  *
- * This function implements debouncing logic to filter out mechanical switch bounce.
- * It also handles the TASK_ROTARY_START_PRESSED_FLAG to prevent multiple triggers.
+ * This function returns the debounced level, not a one-shot press edge. LVGL
+ * needs to see a stable pressed state for the complete physical hold so an
+ * action such as voice push-to-talk receives its matching release event.
  */
 static bool getButtonState()
 {
@@ -286,22 +284,6 @@ static bool getButtonState()
     const uint8_t debounceDelay = 20; // Debounce delay in milliseconds
 
     int reading = digitalRead(ROTARY_C);
-
-    // Check if button press flag is set (prevents multiple triggers)
-    EventBits_t eventBits = xEventGroupGetBits(rotaryTaskFlag);
-    if (eventBits & TASK_ROTARY_START_PRESSED_FLAG)
-    {
-        if (reading == HIGH)
-        {
-            // Button released, clear the flag
-            xEventGroupClearBits(rotaryTaskFlag, TASK_ROTARY_START_PRESSED_FLAG);
-        }
-        else
-        {
-            // Button still pressed, don't trigger again
-            return false;
-        }
-    }
 
     // Debouncing logic
     if (reading != lastButtonState)
@@ -316,17 +298,11 @@ static bool getButtonState()
         if (reading != buttonState)
         {
             buttonState = reading;
-            if (buttonState == LOW)
-            {
-                // Button pressed (LOW = pressed due to pull-up)
-                lastButtonState = reading;
-                return true;
-            }
         }
     }
 
     lastButtonState = reading;
-    return false;
+    return buttonState == LOW;
 }
 
 TLoRaPagerBoard::TLoRaPagerBoard()
@@ -767,17 +743,6 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
     else
     {
         Serial.printf("[TLoRaPagerBoard::begin] rotary queue create ok=1\n");
-    }
-
-    rotaryTaskFlag = xEventGroupCreate();
-    if (rotaryTaskFlag == nullptr)
-    {
-        log_e("Failed to create rotary encoder event group");
-        Serial.printf("[TLoRaPagerBoard::begin] rotary event group create ok=0\n");
-    }
-    else
-    {
-        Serial.printf("[TLoRaPagerBoard::begin] rotary event group create ok=1\n");
     }
 
     BaseType_t task_result = xTaskCreate(rotaryTask, "rotary", 2 * 1024, NULL, 10, &rotaryHandler);
@@ -2829,7 +2794,10 @@ RotaryMsg_t TLoRaPagerBoard::getRotary()
     {
         return msg;
     }
-    msg.centerBtnPressed = false;
+    // Keep the last debounced button level between queue events. The rotary
+    // task queues only edges, whereas LVGL polls the current level every
+    // input cycle. Clearing this here fabricated an immediate release a few
+    // milliseconds after every press and made long-press UI actions unreliable.
     msg.dir = ROTARY_DIR_NONE;
     return msg;
 }

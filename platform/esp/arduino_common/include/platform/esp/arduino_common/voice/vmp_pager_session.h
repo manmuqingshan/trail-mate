@@ -27,6 +27,7 @@ enum class StartSendResult : uint8_t
     Unsupported = 2,
     Busy = 3,
     PrivateContactUnverified = 4,
+    ResourceUnavailable = 5,
 };
 
 /** LXMF AppData port reserved exclusively for the VMP VQ envelope carrier. */

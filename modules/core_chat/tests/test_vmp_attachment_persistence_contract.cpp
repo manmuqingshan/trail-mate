@@ -71,6 +71,8 @@ int main(int argc, char** argv)
         root / "platform/esp/arduino_common/src/storage/storage_runtime.cpp");
     const std::string chat_voice_runtime = readFile(
         root / "modules/ui_shared/src/ui/chat_voice_runtime.cpp");
+    const std::string pager_board = readFile(
+        root / "boards/tlora_pager/src/tlora_pager_board.cpp");
 
     const std::size_t store_completed = positionOf(session, "bool storeCompletedVoice(");
     const std::size_t outbound_store = positionOf(session, "bool storeOutboundVoice()");
@@ -275,9 +277,11 @@ int main(int argc, char** argv)
     // VMP worker, not the UI task. ESP-IDF interprets xTaskCreatePinnedToCore
     // stack depth as bytes: do not regress the overflow fix to the old 4 KiB
     // TX or 3 KiB playback task, and keep runtime proof of the high-water mark.
-    assert(session.find("kOutboundTaskStackBytes = 16U * 1024U") !=
+    // The Pager's Wi-Fi-loaded internal heap cannot reliably satisfy the former
+    // 16 KiB request, so the bounded workers use the verified 10 KiB budget.
+    assert(session.find("kOutboundTaskStackBytes = 10U * 1024U") !=
            std::string::npos);
-    assert(session.find("kPlaybackTaskStackBytes = 16U * 1024U") !=
+    assert(session.find("kPlaybackTaskStackBytes = 10U * 1024U") !=
            std::string::npos);
     assert(session.find("kOutboundTaskStackWords") == std::string::npos);
     assert(session.find("kPlaybackTaskStackWords") == std::string::npos);
@@ -286,5 +290,28 @@ int main(int argc, char** argv)
     assert(session.find("logCurrentTaskStack(\"vmp_play\", \"after_playback\")") !=
            std::string::npos);
     assert(session.find("stack_budget_bytes=%u") != std::string::npos);
+    assert(session.find("logTaskCreateFailure(\"vmp_tx\", kOutboundTaskStackBytes)") !=
+           std::string::npos);
+
+    // Pager's physical rotary button is an input level, not a one-shot click.
+    // A VoiceStart press must remain pressed until the user actually releases
+    // it; otherwise LVGL cannot dispatch a reliable VoiceStop event.
+    const std::size_t button_reader = positionOf(pager_board, "static bool getButtonState()");
+    const std::size_t pager_constructor =
+        positionOfAfter(pager_board, "TLoRaPagerBoard::TLoRaPagerBoard()", button_reader);
+    const std::string button_reader_body =
+        pager_board.substr(button_reader, pager_constructor - button_reader);
+    assert(button_reader_body.find("return buttonState == LOW;") != std::string::npos);
+    assert(button_reader_body.find("rotaryTaskFlag") == std::string::npos);
+
+    const std::size_t rotary_reader = positionOf(pager_board, "RotaryMsg_t TLoRaPagerBoard::getRotary()");
+    const std::size_t rotary_feedback =
+        positionOfAfter(pager_board, "void TLoRaPagerBoard::feedback", rotary_reader);
+    const std::string rotary_reader_body =
+        pager_board.substr(rotary_reader, rotary_feedback - rotary_reader);
+    const std::size_t queue_receive =
+        positionOf(rotary_reader_body, "if (xQueueReceive(rotaryMsg");
+    const std::string idle_rotary_body = rotary_reader_body.substr(queue_receive);
+    assert(idle_rotary_body.find("msg.centerBtnPressed = false;") == std::string::npos);
     return 0;
 }

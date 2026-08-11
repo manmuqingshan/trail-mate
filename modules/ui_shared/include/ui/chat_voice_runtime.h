@@ -27,6 +27,7 @@ enum class StartResult : uint8_t
     Unsupported = 2,
     Busy = 3,
     PrivateContactUnverified = 4,
+    ResourceUnavailable = 5,
 };
 
 /** Local-only presentation state of one VMP voice attachment. */

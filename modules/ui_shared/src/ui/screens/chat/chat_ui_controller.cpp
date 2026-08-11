@@ -2834,6 +2834,10 @@ void UiController::handleComposeAction(ChatComposeScreen::ActionIntent intent)
         case ::ui::chat_voice::StartResult::Busy:
             ::ui::feedback::show_notice("Voice busy; wait", 1800);
             return;
+        case ::ui::chat_voice::StartResult::ResourceUnavailable:
+            CHAT_UI_LOG("[ChatUiTrace][VMP] voice press rejected result=resources\n");
+            ::ui::feedback::show_notice("Voice memory busy; retry", 2000);
+            return;
         case ::ui::chat_voice::StartResult::Unsupported:
         default:
             CHAT_UI_LOG("[ChatUiTrace][VMP] voice press rejected result=unsupported bound=%u send_ready=%u\n",

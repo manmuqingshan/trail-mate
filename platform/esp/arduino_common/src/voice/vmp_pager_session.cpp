@@ -49,11 +49,15 @@ constexpr uint32_t kReadyProbeSpacingMs = 40U;
 constexpr uint8_t kReadyProbeCount = 3U;
 // ESP-IDF's xTaskCreatePinnedToCore stack-depth argument is expressed in
 // bytes. Codec2 plus the Pager I2S/codec/I2C driver call chain overflows the
-// former 4 KiB VMP task before its first capture frame. These stacks exist
-// only for an active record/play operation and are released by vTaskDelete.
-constexpr uint32_t kOutboundTaskStackBytes = 16U * 1024U;
+// former 4 KiB VMP task before its first capture frame. The VMP media/FEC
+// state is PSRAM-backed, but this stack must remain internal because the
+// Arduino Codec2/I2S path may enter ROM/cache-disabled code. 10 KiB leaves
+// sufficient headroom over the original crash while fitting the Pager's
+// fragmented internal heap under Wi-Fi load. These stacks exist only for an
+// active record/play operation and are released by vTaskDelete.
+constexpr uint32_t kOutboundTaskStackBytes = 10U * 1024U;
 constexpr UBaseType_t kOutboundTaskPriority = 4U;
-constexpr uint32_t kPlaybackTaskStackBytes = 16U * 1024U;
+constexpr uint32_t kPlaybackTaskStackBytes = 10U * 1024U;
 constexpr UBaseType_t kPlaybackTaskPriority = 3U;
 constexpr uint32_t kPersistentInboxRetryMs = 5000U;
 
@@ -70,6 +74,25 @@ void logCurrentTaskStack(const char* task, const char* phase)
                   phase ? phase : "-",
                   static_cast<unsigned>(free_words),
                   static_cast<unsigned>(free_words * sizeof(StackType_t)));
+}
+
+void logTaskCreateFailure(const char* task, uint32_t stack_bytes)
+{
+    const std::size_t internal_free =
+        heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const std::size_t internal_largest =
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const std::size_t psram_free =
+        heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    const std::size_t psram_largest =
+        heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    Serial.printf("[VMP][Mem] task=%s create_failed stack_bytes=%u internal_free=%u internal_largest=%u psram_free=%u psram_largest=%u\n",
+                  task ? task : "-",
+                  static_cast<unsigned>(stack_bytes),
+                  static_cast<unsigned>(internal_free),
+                  static_cast<unsigned>(internal_largest),
+                  static_cast<unsigned>(psram_free),
+                  static_cast<unsigned>(psram_largest));
 }
 
 uint32_t voiceTimestampSeconds()
@@ -680,8 +703,9 @@ class PagerReceiveSession final
                 outbound_active_ = false;
                 unlockState();
             }
+            logTaskCreateFailure("vmp_tx", kOutboundTaskStackBytes);
             Serial.printf("[VMP][TX] hold begin failed reason=worker_create\n");
-            return StartSendResult::Unsupported;
+            return StartSendResult::ResourceUnavailable;
         }
         Serial.printf("[VMP][TX] capture worker queued\n");
         return StartSendResult::Queued;
