@@ -1,12 +1,12 @@
 # Pager Voice Message Protocol (VMP) v1
 
 **Status:** proposed implementation specification
-**Scope:** Trail Mate Pager devices with microphone/audio hardware. LR1121 has the direct Sub-GHz/2.4 GHz VMP carrier; SX1262 supports the isolated MT MQTT carrier only when its MQTT uplink is enabled.
+**Scope:** Trail Mate Pager devices with microphone/audio hardware. LR1121 has a direct Sub-GHz/2.4 GHz VMP fallback carrier and prefers the isolated MT MQTT carrier only while a configured MQTT session has completed CONNACK; SX1262 supports that MQTT carrier only.
 **Normative words:** the terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are to be interpreted as requirements for the VMP implementation.
 
 ## 1. Purpose and boundaries
 
-VMP carries a short, recorded voice message between Trail Mate Pager devices. On an LR1121 it uses the currently selected Sub-GHz radio configuration only as a control plane, then sends compressed voice bytes over LR1121 2.4 GHz GFSK: private delivery is encrypted end to end; broadcast delivery is intentionally public cleartext. An SX1262 cannot enter that path: it may encode and publish the same bounded VMP object only through an enabled isolated MT MQTT uplink. A recording is at most **five seconds** long.
+VMP carries a short, recorded voice message between Trail Mate Pager devices. On an LR1121 it uses the currently selected Sub-GHz radio configuration only as a control plane, then sends compressed voice bytes over LR1121 2.4 GHz GFSK: private delivery is encrypted end to end; broadcast delivery is intentionally public cleartext. To protect constrained Pager resources, an LR1121 MUST instead choose the isolated MT MQTT carrier when the configured MQTT session has completed CONNACK and can publish; that clip MUST NOT start a Sub-GHz control exchange or a 2.4 GHz voice session. An SX1262 cannot enter the RF path and may encode/publish the same bounded VMP object only through that live MT MQTT carrier. A recording is at most **five seconds** long.
 
 The protocol deliberately has two delivery modes:
 
@@ -25,8 +25,8 @@ The implementation treats the radio chip as a hard carrier-security and RF-capab
 
 | Pager hardware | Direct Sub-GHz control + LR1121 2.4 GHz train | MT MQTT publish/ingest | RT/LXMF VQ carrier | Record/send button |
 | --- | --- | --- | --- | --- |
-| LR1121 | allowed; private `OFFER`/`ACCEPT`/`READY` and public `ANNOUNCE` are available | allowed only when the existing MT MQTT uplink is enabled | allowed for private VMP when RT is active | available after local inbox hydration; direct RF does not require MQTT |
-| SX1262 | **MUST NOT** enter any VMP RF control, `READY`, lease, or 2.4 GHz state | the **only** VMP carrier; allowed only while the existing MT MQTT uplink is enabled | **MUST NOT** send or accept VMP through LXMF | hidden/disabled unless the MQTT-only carrier is actually enabled |
+| LR1121 | fallback only; private `OFFER`/`ACCEPT`/`READY` and public `ANNOUNCE` are available when MQTT is not live | preferred only after the configured MT uplink has a live CONNACK-established session | allowed for private VMP when RT is active | available after local inbox hydration; MQTT policy alone never hides RF fallback |
+| SX1262 | **MUST NOT** enter any VMP RF control, `READY`, lease, or 2.4 GHz state | the **only** VMP carrier; allowed only while the existing MT MQTT uplink has a live CONNACK-established session | **MUST NOT** send or accept VMP through LXMF | hidden/disabled unless the MQTT-only carrier is live |
 
 An SX1262 receiving an MQTT VMP object still terminates it locally in the attachment inbox and may play it. It MUST NOT announce, relay, downlink, retransmit, or transform that object into a LoRa/Sub-GHz/2.4 GHz transmission. The SX1262 restriction applies to both egress and ingress: no direct VMP RF receive path and no LXMF VMP carrier are installed on that hardware.
 
@@ -38,6 +38,7 @@ An SX1262 receiving an MQTT VMP object still terminates it locally in the attach
 4. **Validate before expensive work.** A private device validates a control authentication tag before reserving radio time and authenticates each private 2.4 GHz data frame before writing it. A public broadcast validates only unkeyed corruption checks and is intentionally marked unverified.
 5. **Best-effort media, deterministic completion.** VMP uses no data ACK and no radio data retransmission. It can use proactive FEC, but a message is either stored as complete, stored as recoverable-with-gaps, or discarded. It is never re-originated by the receiver.
 6. **Fail closed.** Unknown VMP versions, invalid profile identifiers, bad authentication tags, oversized objects, expired reservations, and duplicate sessions are rejected locally.
+7. **One selected egress carrier.** MQTT policy and MQTT liveness are separate. A live MQTT session is selected before capture and suppresses LR1121 RF for that clip; MQTT loss after selection leaves a local retryable/failed result and MUST NOT automatically emit an RF or LXMF copy. If MQTT is not live at admission, LR1121 MAY select its normal direct RF/LXMF fallback.
 
 ## 3. Architecture
 
@@ -119,7 +120,7 @@ Text and VMP must not be made equivalent by inserting a fake `"[voice]"` text pa
 | Body | Codec2 bytes in the typed voice attachment slot | UTF-8 text in protocol-specific fixed slot |
 | Presentation | Chat projection merges attachment messages with text rows by conversation and timestamp | Chat workspace projection |
 
-`Sent` is deliberately a **local carrier-result** state, not a remote delivery receipt. For direct private RF it means authenticated `ACCEPT`/`READY` completed and the bounded shard train was handed to the LR1121; for broadcast it means the public train was emitted once; for MQTT/LXMF it means the bounded carrier plan was accepted. No receiver forwards, acknowledges full media, or changes the sender's state. An inbound object remains unread until its own bound conversation is opened; an outgoing object is born read.
+`Sent` is deliberately a **local carrier-result** state, not a remote delivery receipt. For direct private RF it means authenticated `ACCEPT`/`READY` completed and the bounded shard train was handed to the LR1121; for broadcast it means the public train was emitted once; for LXMF it means the bounded carrier plan was accepted. For MQTT, the durable local attachment remains `Sending` while its fixed envelope sequence is retained in the isolated VMP queue; it becomes `Sent` only after the final envelope has been written through the live MQTT socket. This is a local socket-write boundary, not a remote playback receipt or an application-layer ACK. A socket failure retains the same in-memory VMP envelope for the next live MQTT session and MUST NOT trigger RF/LXMF fallback for that object. No receiver forwards, acknowledges full media, or changes the sender's state. An inbound object remains unread until its own bound conversation is opened; an outgoing object is born read.
 
 The durable transactions are intentionally symmetric with text-message lifecycle rules:
 
@@ -132,10 +133,27 @@ incoming: validate/auth/FEC
 outgoing: capture + encode + prepare control
   -> insert local `Sending` attachment object
   -> atomically commit voice snapshot
-  -> choose exactly one VMP carrier and transmit once
-  -> atomically commit `Sent` or `Failed`
+  -> choose exactly one VMP carrier at press admission
+  -> MQTT-live: queue only isolated MQTT envelopes; do not start RF
+  -> RF/LXMF: transmit once through that selected carrier
+  -> atomically commit `Sent` or `Failed` at the selected local carrier boundary
   -> refresh conversation projection
 ```
+
+### 3.1.2 MQTT-first carrier admission
+
+The MT MQTT configuration switch is not a carrier-health signal. The direct MQTT runtime publishes VMP liveness to the session only after a successful MQTT `CONNACK`; it withdraws the signal before any Wi-Fi, socket, handshake, ping, or broker-stop return path. `SUBACK` remains an inbound routing concern and does not delay an already-authorized MQTT publish, consistent with the existing bridge behavior.
+
+At Voice press, the sender snapshots exactly one carrier. This makes the five-second recording interval deterministic even if the network changes mid-recording:
+
+| Admission state | LR1121 selected carrier | SX1262 selected carrier | RF behavior |
+| --- | --- | --- | --- |
+| MT MQTT policy enabled **and** live MQTT session | isolated VMP MQTT | isolated VMP MQTT | LR1121 RF control/2.4 GHz is suppressed for this clip |
+| MQTT policy enabled but Wi-Fi, TCP, CONNACK, or liveness is not ready | direct RF (or private RT/LXMF where active) | none; voice compose is unavailable | LR1121 uses normal bounded fallback; SX1262 MUST NOT attempt RF |
+| MT MQTT transfer for a prior clip is pending | wait for the queued MQTT object rather than overwrite its bounded transfer storage | wait for the queued MQTT object | no opportunistic duplicate RF copy |
+| MQTT disconnects after MQTT was selected | retain the fixed MQTT plan in `Sending`; retry only after a later live MQTT session, or mark failed if explicitly discarded/disabled | same | MUST NOT automatically transmit that same voice through RF/LXMF |
+
+The VMP transfer plan is held in bounded PSRAM and is intentionally not reconstructed across reboot. This preserves the existing attachment contract: on reboot an interrupted `Sending` item is healed to `Failed`, never silently re-originated. The already durable local clip remains visible for user review; retry UI, if added later, must create an explicit new carrier attempt with the same attachment semantics rather than secretly replaying it.
 
 If the **pre-send** snapshot commit fails, VMP MUST NOT use any carrier: a clip is never transmitted without a recoverable local message record. If a terminal-state commit fails, the UI retains the safe `Sending` state rather than inventing a terminal result. A reboot cannot resume a VMP transmission; hydration converts a retained outgoing `Sending` entry to `Failed` and immediately attempts a healing snapshot commit. This gives a truthful, recoverable result without adding a retry queue, extra audio buffer, or a forbidden receiver-side transmit path.
 

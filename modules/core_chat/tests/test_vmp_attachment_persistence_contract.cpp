@@ -84,14 +84,15 @@ int main(int argc, char** argv)
 
     // VMP is a local attachment-message extension, not a receive-only
     // scratch inbox. The sender must durably create `Sending` before choosing
-    // a carrier, then persist a terminal local state after that one attempt.
+    // one immutable carrier. Direct RF/LXMF commit a terminal state in the
+    // worker; MQTT remains Sending until the final socket-write acknowledgement.
     const std::size_t outbound_run = positionOf(session, "void runOutbound()");
     const std::size_t outbound_store_call = positionOfAfter(
         session, "storeOutboundVoice()", outbound_run);
     const std::size_t carrier_select = positionOfAfter(
-        session, "if (!direct_rf_voice_supported_)", outbound_store_call);
+        session, "switch (outbound_carrier_)", outbound_store_call);
     const std::size_t terminal_commit = positionOfAfter(
-        session, "commitOutboundDelivery(", carrier_select);
+        session, "commitDelivery(outbound_local_id_", carrier_select);
     assert(outbound_store_call < carrier_select);
     assert(carrier_select < terminal_commit);
     const std::size_t outbound_store_commit = positionOfAfter(
@@ -102,6 +103,10 @@ int main(int argc, char** argv)
     assert(session.find("VoiceDeliveryState::Sending") != std::string::npos);
     assert(session.find("VoiceDeliveryState::Sent") != std::string::npos);
     assert(session.find("VoiceDeliveryState::Failed") != std::string::npos);
+    assert(session.find("local delivery awaiting_mqtt_socket") !=
+           std::string::npos);
+    assert(session.find("commitMqttDeliveryLocked(vmp::VoiceDeliveryState::Sent)") !=
+           std::string::npos);
     assert(session.find("requires_durable_attachment_store_") !=
            std::string::npos);
     assert(session.find("inbox_ready_") != std::string::npos);
@@ -237,13 +242,22 @@ int main(int argc, char** argv)
     assert(attachment.find("mqtt_") == std::string::npos);
     assert(attachment.find("lxmf_") == std::string::npos);
 
-    // The Pager's SX1262 variant can only create the isolated MQTT plan. It
-    // must never become a hidden direct-RF/LXMF fallback merely because the
-    // shared VMP session is compiled for both Pager radio variants.
+    // The Pager's SX1262 variant can only create the isolated MQTT plan after
+    // a live broker session exists. It must never become a hidden direct-RF or
+    // LXMF fallback merely because the shared VMP session is compiled for both
+    // Pager radio variants. LR1121 prefers MQTT when it is live and does not
+    // append a second MQTT copy after an RF transfer.
     assert(session.find("#if defined(ARDUINO_T_LORA_PAGER)") !=
            std::string::npos);
     assert(session.find("direct_rf_voice_supported_") != std::string::npos);
-    assert(session.find("sent = queueMqttPublication();") != std::string::npos);
+    assert(session.find("mqtt_queued = queueMqttPublication();") !=
+           std::string::npos);
+    assert(session.find("mqtt_uplink_enabled_ && mqtt_uplink_online_") !=
+           std::string::npos);
+    assert(session.find("rf_suppressed=%u") != std::string::npos);
+    assert(session.find("if (sent && !used_lxmf)") == std::string::npos);
+    assert(session.find("OutboundCarrier selectOutboundCarrierLocked") !=
+           std::string::npos);
     assert(session.find("return direct_rf_voice_supported_ && source_id != 0U") !=
            std::string::npos);
     assert(pager_header.find("SX1262 never has a") != std::string::npos);

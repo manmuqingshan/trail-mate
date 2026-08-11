@@ -250,6 +250,8 @@ class PlainMqttRuntime
 
         if (!config_.configured)
         {
+            ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkOnline(
+                false);
             stop("disabled");
             syncAdapterDisabled(app_context);
             return;
@@ -293,6 +295,8 @@ class PlainMqttRuntime
 
         if (!ensureWifi(now_ms))
         {
+            ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkOnline(
+                false);
             syncAdapterDisabled(app_context);
             return;
         }
@@ -308,6 +312,8 @@ class PlainMqttRuntime
 
         if (!ensureMqtt(now_ms))
         {
+            ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkOnline(
+                false);
             return;
         }
 
@@ -319,8 +325,17 @@ class PlainMqttRuntime
         const uint32_t after_network_ms = millis();
         if (!checkSessionLiveness(after_network_ms))
         {
+            ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkOnline(
+                false);
             return;
         }
+        // VMP must distinguish the persisted MT uplink switch from a live
+        // MQTT session. CONNACK is the earliest point at which the existing
+        // client can publish, so only this state suppresses LR1121 2.4 GHz
+        // voice for a newly admitted clip.
+        ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkOnline(
+            config_.protocol == RuntimeProtocol::Meshtastic && config_.uplink_enabled &&
+            mqtt_ready_);
         flushPublishQueue(mt, mc);
         maybePing(after_network_ms);
     }
@@ -1142,6 +1157,8 @@ class PlainMqttRuntime
 
     void stop(const char* reason)
     {
+        ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkOnline(
+            false);
 #if TRAIL_MATE_MESH_MQTT_HAS_SOCKET
         const bool retry_after_live_transport = socket_ >= 0;
         connector_.cancel();

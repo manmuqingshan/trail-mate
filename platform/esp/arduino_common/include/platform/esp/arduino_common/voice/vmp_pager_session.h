@@ -67,9 +67,11 @@ bool initialize(uint32_t self_node_id, bool durable_attachment_store);
 /**
  * @brief True when this Pager can currently record and send a VMP object.
  *
- * LR1121 has the direct Sub-GHz/2.4 GHz carrier. SX1262 returns true only
- * while the isolated Meshtastic MQTT uplink is enabled; SX1262 never has a
- * direct-RF or LXMF VMP carrier.
+ * LR1121 has a direct Sub-GHz/2.4 GHz fallback carrier.  When the isolated
+ * Meshtastic MQTT uplink is both enabled and MQTT-ready, LR1121 chooses MQTT
+ * and suppresses the 2.4 GHz session for that clip. SX1262 returns true only
+ * while that MQTT carrier is ready; SX1262 never has a direct-RF or LXMF VMP
+ * carrier.
  */
 bool canRecordAndSend();
 
@@ -128,11 +130,26 @@ bool requestPlayback(uint64_t local_id);
  */
 bool peekMqttEnvelope(uint8_t* out, std::size_t* inout_len);
 
-/** @brief Commits the envelope only after the MQTT client wrote it to socket. */
+/**
+ * @brief Commits one envelope only after the MQTT client wrote it to socket.
+ *
+ * When this commits the final envelope of one clip, VMP changes that durable
+ * local attachment from `Sending` to `Sent`. A socket failure leaves the same
+ * envelope and `Sending` record available for the next MQTT-ready session.
+ */
 bool acknowledgeMqttEnvelope();
 
 /** @brief Mirrors the active MT MQTT uplink policy into the isolated VMP queue. */
 void setMqttUplinkEnabled(bool enabled);
+
+/**
+ * @brief Mirrors MQTT's live CONNACK-established session state into VMP.
+ *
+ * This is intentionally distinct from `setMqttUplinkEnabled()`: configuration
+ * alone must not suppress LR1121 RF. A live MQTT carrier selects MQTT for a
+ * newly recorded clip; a later disconnect never causes an automatic RF copy.
+ */
+void setMqttUplinkOnline(bool online);
 
 /** Installs the narrow RT/LXMF egress bridge; it is never a radio callback. */
 void setLxmfEnvelopeSender(LxmfEnvelopeSender sender, void* context);
@@ -167,7 +184,11 @@ bool acceptLxmfEnvelope(uint32_t source_id,
                         const uint8_t* envelope,
                         std::size_t envelope_len);
 
-/** @brief Explicitly discards a not-yet-uploaded in-memory VMP cloud object. */
+/**
+ * @brief Explicitly fails and discards a not-yet-uploaded in-memory VMP cloud object.
+ *
+ * It does not reroute that object through RF or LXMF.
+ */
 void discardMqttPublication();
 
 /**

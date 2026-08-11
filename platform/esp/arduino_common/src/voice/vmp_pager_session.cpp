@@ -162,6 +162,30 @@ PagerMediaStorage* allocatePagerMediaStorage()
     return storage;
 }
 
+enum class OutboundCarrier : uint8_t
+{
+    None = 0U,
+    Mqtt,
+    Lxmf,
+    DirectRf,
+};
+
+const char* outboundCarrierName(OutboundCarrier carrier)
+{
+    switch (carrier)
+    {
+    case OutboundCarrier::Mqtt:
+        return "mqtt";
+    case OutboundCarrier::Lxmf:
+        return "lxmf";
+    case OutboundCarrier::DirectRf:
+        return "lr1121_rf";
+    case OutboundCarrier::None:
+    default:
+        return "none";
+    }
+}
+
 class PagerReceiveSession final
 {
   public:
@@ -207,10 +231,13 @@ class PagerReceiveSession final
         {
             return false;
         }
-        // SX1262 does not have the LR1121 2.4 GHz path.  Its Pager voice
-        // compose action becomes available only while MT MQTT uplink is
-        // genuinely enabled; it cannot fall through to RF or LXMF.
-        const bool available = direct_rf_voice_supported_ || mqtt_uplink_enabled_;
+        // SX1262 does not have the LR1121 2.4 GHz path. Its Pager voice
+        // compose action becomes available only after the MT MQTT uplink has
+        // completed CONNACK; it cannot fall through to RF or LXMF. LR1121
+        // remains recordable through its direct-RF fallback while MQTT is
+        // disconnected.
+        const bool available = direct_rf_voice_supported_ ||
+                               (mqtt_uplink_enabled_ && mqtt_uplink_online_);
         unlockState();
         return available;
     }
@@ -454,7 +481,7 @@ class PagerReceiveSession final
         {
             return false;
         }
-        const bool emitted = mqtt_uplink_enabled_ &&
+        const bool emitted = mqtt_uplink_enabled_ && mqtt_uplink_online_ &&
                              media_->mqtt_transmit.copyNextEnvelope(out, inout_len);
         unlockState();
         return emitted;
@@ -474,6 +501,7 @@ class PagerReceiveSession final
         if (!media_->mqtt_transmit.hasNext())
         {
             media_->mqtt_transmit.clear();
+            commitMqttDeliveryLocked(vmp::VoiceDeliveryState::Sent);
         }
         unlockState();
         return true;
@@ -484,12 +512,30 @@ class PagerReceiveSession final
         if (lockState())
         {
             mqtt_uplink_enabled_ = enabled;
-            if (!enabled && !lxmf_carrier_enabled_)
+            if (!enabled)
             {
-                media_->mqtt_transmit.clear();
+                mqtt_uplink_online_ = false;
+                discardMqttDeliveryLocked("uplink_disabled");
             }
             unlockState();
         }
+    }
+
+    void setMqttUplinkOnline(bool online)
+    {
+        if (!lockState())
+        {
+            return;
+        }
+        const bool next_online = online && mqtt_uplink_enabled_;
+        if (mqtt_uplink_online_ != next_online)
+        {
+            mqtt_uplink_online_ = next_online;
+            Serial.printf("[VMP][MQTT] carrier online=%u policy_enabled=%u\n",
+                          mqtt_uplink_online_ ? 1U : 0U,
+                          mqtt_uplink_enabled_ ? 1U : 0U);
+        }
+        unlockState();
     }
 
     void setLxmfEnvelopeSender(LxmfEnvelopeSender sender, void* context)
@@ -503,7 +549,7 @@ class PagerReceiveSession final
                 lxmf_carrier_enabled_ = false;
                 if (!mqtt_uplink_enabled_)
                 {
-                    media_->mqtt_transmit.clear();
+                    discardMqttDeliveryLocked("no_carrier");
                 }
             }
             unlockState();
@@ -517,7 +563,7 @@ class PagerReceiveSession final
             lxmf_carrier_enabled_ = enabled && lxmf_sender_ != nullptr;
             if (!lxmf_carrier_enabled_ && !mqtt_uplink_enabled_)
             {
-                media_->mqtt_transmit.clear();
+                discardMqttDeliveryLocked("no_carrier");
             }
             unlockState();
         }
@@ -620,7 +666,7 @@ class PagerReceiveSession final
     {
         if (lockState())
         {
-            media_->mqtt_transmit.clear();
+            discardMqttDeliveryLocked("discarded");
             unlockState();
         }
     }
@@ -652,9 +698,15 @@ class PagerReceiveSession final
             Serial.printf("[VMP][TX] hold begin rejected reason=invalid_target_or_lock\n");
             return StartSendResult::Busy;
         }
+        const OutboundCarrier candidate_carrier =
+            selectOutboundCarrierLocked(broadcast);
+        const bool mqtt_carrier_busy =
+            candidate_carrier == OutboundCarrier::Mqtt &&
+            (mqtt_pending_local_id_ != 0U || media_->mqtt_transmit.hasNext());
         const bool unavailable = presentation != presentation_protocol_ || active_ ||
                                  outbound_task_ || playback_task_ ||
-                                 (!direct_rf_voice_supported_ && !mqtt_uplink_enabled_);
+                                 candidate_carrier == OutboundCarrier::None ||
+                                 mqtt_carrier_busy;
         unlockState();
         if (unavailable)
         {
@@ -671,24 +723,35 @@ class PagerReceiveSession final
         {
             return StartSendResult::Busy;
         }
-        if (active_ || outbound_task_ || playback_task_)
+        const OutboundCarrier selected_carrier =
+            selectOutboundCarrierLocked(broadcast);
+        const bool selected_mqtt_busy =
+            selected_carrier == OutboundCarrier::Mqtt &&
+            (mqtt_pending_local_id_ != 0U || media_->mqtt_transmit.hasNext());
+        if (active_ || outbound_task_ || playback_task_ ||
+            selected_carrier == OutboundCarrier::None || selected_mqtt_busy)
         {
             unlockState();
-            Serial.printf("[VMP][TX] hold begin rejected reason=became_busy\n");
+            Serial.printf("[VMP][TX] hold begin rejected reason=became_busy_or_no_carrier\n");
             return StartSendResult::Busy;
         }
         outbound_target_id_ = target_id;
         outbound_is_broadcast_ = broadcast;
         outbound_presentation_protocol_ = presentation;
         outbound_presentation_channel_ = presentation_channel;
+        outbound_carrier_ = selected_carrier;
         record_stop_requested_ = false;
         active_ = true;
         outbound_active_ = true;
         unlockState();
-        Serial.printf("[VMP][TX] hold begin accepted mode=%s target=%08lX carrier=%s\n",
+        Serial.printf("[VMP][TX] hold begin accepted mode=%s target=%08lX carrier=%s rf_suppressed=%u\n",
                       broadcast ? "broadcast" : "private",
                       static_cast<unsigned long>(target_id),
-                      direct_rf_voice_supported_ ? "lr1121_rf" : "sx1262_mqtt_only");
+                      outboundCarrierName(selected_carrier),
+                      selected_carrier == OutboundCarrier::Mqtt &&
+                              direct_rf_voice_supported_
+                          ? 1U
+                          : 0U);
         if (xTaskCreatePinnedToCore(&PagerReceiveSession::outboundTaskEntry,
                                     "vmp_tx",
                                     kOutboundTaskStackBytes,
@@ -870,8 +933,8 @@ class PagerReceiveSession final
     void runOutbound()
     {
         bool sent = false;
+        bool mqtt_queued = false;
         bool local_object_stored = false;
-        bool used_lxmf = false;
         const uint32_t started_ms = millis();
         const audio::CaptureResult capture_result =
             media_->audio.capture(&record_stop_requested_);
@@ -904,36 +967,52 @@ class PagerReceiveSession final
                           static_cast<unsigned>(media_->audio.encodedMediaSize()),
                           static_cast<unsigned>(vmp::kTotalShardsPerBlock),
                           outbound_is_broadcast_ ? "broadcast" : "private");
-            if (!direct_rf_voice_supported_)
+            switch (outbound_carrier_)
             {
-                // SX1262 can encode and publish the VMP object through an
-                // explicitly enabled MT MQTT uplink, but has no legal RF or
-                // LXMF voice carrier.  No READY/control/2.4 GHz operation is
-                // reachable from this branch.
-                Serial.printf("[VMP][TX] carrier=mqtt plan_begin\n");
-                sent = queueMqttPublication();
-            }
-            else
-            {
-                used_lxmf = shouldUseLxmfCarrier();
+            case OutboundCarrier::Mqtt:
+                // A live MT MQTT session is the one selected carrier. In
+                // particular, LR1121 never starts its Sub-GHz/2.4 GHz voice
+                // session for this clip, and an MQTT-plan failure cannot turn
+                // into an automatic RF duplicate.
+                Serial.printf("[VMP][TX] carrier=mqtt plan_begin rf_suppressed=%u\n",
+                              direct_rf_voice_supported_ ? 1U : 0U);
+                mqtt_queued = queueMqttPublication();
+                break;
+            case OutboundCarrier::Lxmf:
+                Serial.printf("[VMP][TX] carrier=lxmf begin\n");
+                sent = sendLxmfVoice();
+                break;
+            case OutboundCarrier::DirectRf:
                 Serial.printf("[VMP][TX] carrier=%s begin\n",
-                              used_lxmf ? "lxmf" : (outbound_is_broadcast_ ? "lr1121_rf_broadcast" : "lr1121_rf_private"));
-                sent = used_lxmf ? sendLxmfVoice()
-                                 : (outbound_is_broadcast_ ? sendBroadcastVoice()
-                                                           : sendPrivateVoice());
-                if (sent && !used_lxmf)
-                {
-                    (void)queueMqttPublication();
-                }
+                              outbound_is_broadcast_ ? "lr1121_rf_broadcast"
+                                                     : "lr1121_rf_private");
+                sent = outbound_is_broadcast_ ? sendBroadcastVoice()
+                                              : sendPrivateVoice();
+                break;
+            case OutboundCarrier::None:
+            default:
+                Serial.printf("[VMP][TX] carrier unavailable after capture\n");
+                break;
             }
         }
         if (local_object_stored)
         {
-            commitOutboundDelivery(sent ? vmp::VoiceDeliveryState::Sent
-                                        : vmp::VoiceDeliveryState::Failed);
+            if (mqtt_queued)
+            {
+                Serial.printf("[VMP][TX] local delivery awaiting_mqtt_socket\n");
+            }
+            else
+            {
+                commitDelivery(outbound_local_id_,
+                               sent ? vmp::VoiceDeliveryState::Sent
+                                    : vmp::VoiceDeliveryState::Failed,
+                               outboundCarrierName(outbound_carrier_));
+            }
         }
-        Serial.printf("[VMP][TX] outbound end sent=%u elapsed_ms=%lu\n",
+        Serial.printf("[VMP][TX] outbound end carrier=%s sent=%u mqtt_pending=%u elapsed_ms=%lu\n",
+                      outboundCarrierName(outbound_carrier_),
                       sent ? 1U : 0U,
+                      mqtt_queued ? 1U : 0U,
                       static_cast<unsigned long>(millis() - started_ms));
         clearOutboundAcceptWait();
         media_->audio.clearEncodedMedia();
@@ -977,6 +1056,18 @@ class PagerReceiveSession final
             Serial.printf("[VMP][MQTT] plan rejected reason=uplink_disabled\n");
             return false;
         }
+        if (!mqtt_uplink_online_)
+        {
+            unlockState();
+            Serial.printf("[VMP][MQTT] plan rejected reason=offline\n");
+            return false;
+        }
+        if (mqtt_pending_local_id_ != 0U || media_->mqtt_transmit.hasNext())
+        {
+            unlockState();
+            Serial.printf("[VMP][MQTT] plan rejected reason=previous_delivery_pending\n");
+            return false;
+        }
         const bool prepared = outbound_is_broadcast_
                                   ? media_->mqtt_transmit.prepareBroadcast(outgoing_control_,
                                                                            media_->audio.encodedMedia(),
@@ -989,24 +1080,36 @@ class PagerReceiveSession final
         {
             media_->mqtt_transmit.clear();
         }
+        else
+        {
+            mqtt_pending_local_id_ = outbound_local_id_;
+        }
         unlockState();
-        Serial.printf("[VMP][MQTT] plan %s mode=%s\n",
+        Serial.printf("[VMP][MQTT] plan %s mode=%s local_id=%llu\n",
                       prepared ? "ready" : "rejected",
-                      outbound_is_broadcast_ ? "broadcast" : "private");
+                      outbound_is_broadcast_ ? "broadcast" : "private",
+                      static_cast<unsigned long long>(outbound_local_id_));
         return prepared;
     }
 
-    bool shouldUseLxmfCarrier() const
+    OutboundCarrier selectOutboundCarrierLocked(bool broadcast) const
     {
-        if (!lockState())
+        // MQTT priority is deliberately a session-admission decision. Once a
+        // clip is accepted, its selected carrier is immutable: a later MQTT
+        // loss records failure/retry state but never creates an RF duplicate.
+        if (mqtt_uplink_enabled_ && mqtt_uplink_online_)
         {
-            return false;
+            return OutboundCarrier::Mqtt;
         }
-        const bool use_lxmf = direct_rf_voice_supported_ && !outbound_is_broadcast_ &&
-                              lxmf_carrier_enabled_ &&
-                              lxmf_sender_ != nullptr;
-        unlockState();
-        return use_lxmf;
+        if (!direct_rf_voice_supported_)
+        {
+            return OutboundCarrier::None;
+        }
+        if (!broadcast && lxmf_carrier_enabled_ && lxmf_sender_ != nullptr)
+        {
+            return OutboundCarrier::Lxmf;
+        }
+        return OutboundCarrier::DirectRf;
     }
 
     bool ensureVerifiedContactSecret(uint32_t peer_id)
@@ -1818,6 +1921,7 @@ class PagerReceiveSession final
             outbound_task_ = nullptr;
             outbound_active_ = false;
             outbound_local_id_ = 0U;
+            outbound_carrier_ = OutboundCarrier::None;
             active_ = false;
             unlockState();
         }
@@ -1936,10 +2040,40 @@ class PagerReceiveSession final
         return true;
     }
 
-    void commitOutboundDelivery(vmp::VoiceDeliveryState delivery)
+    void commitMqttDeliveryLocked(vmp::VoiceDeliveryState delivery)
     {
-        if (!media_ || outbound_local_id_ == 0U ||
-            !media_->inbox.updateDeliveryState(outbound_local_id_, delivery))
+        if (mqtt_pending_local_id_ == 0U)
+        {
+            Serial.printf("[VMP][MQTT] delivery update skipped reason=no_pending_local_id\n");
+            return;
+        }
+        const uint64_t local_id = mqtt_pending_local_id_;
+        mqtt_pending_local_id_ = 0U;
+        commitDelivery(local_id, delivery, "mqtt_socket");
+    }
+
+    void discardMqttDeliveryLocked(const char* reason)
+    {
+        if (media_)
+        {
+            media_->mqtt_transmit.clear();
+        }
+        if (mqtt_pending_local_id_ == 0U)
+        {
+            return;
+        }
+        Serial.printf("[VMP][MQTT] delivery discarded reason=%s local_id=%llu\n",
+                      reason ? reason : "unknown",
+                      static_cast<unsigned long long>(mqtt_pending_local_id_));
+        commitMqttDeliveryLocked(vmp::VoiceDeliveryState::Failed);
+    }
+
+    void commitDelivery(uint64_t local_id,
+                        vmp::VoiceDeliveryState delivery,
+                        const char* carrier)
+    {
+        if (!media_ || local_id == 0U ||
+            !media_->inbox.updateDeliveryState(local_id, delivery))
         {
             Serial.printf("[VMP][TX] local delivery update skipped state=%u\n",
                           static_cast<unsigned>(delivery));
@@ -1956,14 +2090,15 @@ class PagerReceiveSession final
             // A later UI refresh keeps the safe `Sending` state rather than
             // inventing a successful or failed history entry.
             (void)media_->inbox.updateDeliveryState(
-                outbound_local_id_, vmp::VoiceDeliveryState::Sending);
+                local_id, vmp::VoiceDeliveryState::Sending);
             Serial.printf("[VMP][TX] local delivery persistence deferred state=%u\n",
                           static_cast<unsigned>(delivery));
             return;
         }
-        Serial.printf("[VMP][TX] local delivery committed local_id=%llu state=%u\n",
-                      static_cast<unsigned long long>(outbound_local_id_),
-                      static_cast<unsigned>(delivery));
+        Serial.printf("[VMP][TX] local delivery committed local_id=%llu state=%u carrier=%s\n",
+                      static_cast<unsigned long long>(local_id),
+                      static_cast<unsigned>(delivery),
+                      carrier ? carrier : "unknown");
     }
 
     uint32_t self_node_id_ = 0U;
@@ -1995,7 +2130,10 @@ class PagerReceiveSession final
     uint8_t outbound_presentation_channel_ = vmp::kVoicePresentationPrimaryChannel;
     uint64_t outbound_local_id_ = 0U;
     bool outbound_is_broadcast_ = false;
+    OutboundCarrier outbound_carrier_ = OutboundCarrier::None;
     bool mqtt_uplink_enabled_ = false;
+    bool mqtt_uplink_online_ = false;
+    uint64_t mqtt_pending_local_id_ = 0U;
     bool lxmf_carrier_enabled_ = false;
     bool contact_secret_cache_stale_ = false;
     bool outbound_waiting_accept_ = false;
@@ -2095,6 +2233,11 @@ bool acknowledgeMqttEnvelope()
 void setMqttUplinkEnabled(bool enabled)
 {
     s_session.setMqttUplinkEnabled(enabled);
+}
+
+void setMqttUplinkOnline(bool online)
+{
+    s_session.setMqttUplinkOnline(online);
 }
 
 void setLxmfEnvelopeSender(LxmfEnvelopeSender sender, void* context)
@@ -2230,6 +2373,10 @@ bool acknowledgeMqttEnvelope()
 }
 
 void setMqttUplinkEnabled(bool)
+{
+}
+
+void setMqttUplinkOnline(bool)
 {
 }
 
