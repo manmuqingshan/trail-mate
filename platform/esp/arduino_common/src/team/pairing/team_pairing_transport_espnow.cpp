@@ -1,5 +1,6 @@
 #include "platform/esp/arduino_common/team/pairing/team_pairing_transport_espnow.h"
 
+#include "platform/ui/wifi_access_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 
 #include "esp_err.h"
@@ -213,6 +214,11 @@ bool EspNowTeamPairingTransport::begin(Receiver& receiver)
         return false;
     }
 
+    // ESP-NOW uses the same 2.4 GHz radio as normal Wi-Fi. Publish the lease
+    // through the shared Wi-Fi access runtime so a later Settings toggle
+    // cannot reconfigure the driver during Team pairing.
+    ::platform::ui::wifi_access::set_non_preemptible_activity(true, "team_pairing");
+
     receiver_ = &receiver;
     instance_ = this;
     esp_now_register_recv_cb([](const uint8_t* mac, const uint8_t* data, int len)
@@ -232,6 +238,7 @@ void EspNowTeamPairingTransport::end()
         return;
     }
     esp_now_deinit();
+    ::platform::ui::wifi_access::set_non_preemptible_activity(false);
     esp_err_t stop_err = esp_wifi_stop();
     if (stop_err != ESP_OK)
     {

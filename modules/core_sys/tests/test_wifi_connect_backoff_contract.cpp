@@ -33,6 +33,12 @@ int main(int argc, char** argv)
     const std::string access_runtime = readFile(
         repo_root /
         "platform/esp/arduino_common/src/platform_ui_wifi_access_runtime.cpp");
+    const std::string wifi_runtime = readFile(
+        repo_root /
+        "platform/esp/common/include/platform/esp/common/wifi_runtime_impl.h");
+    const std::string team_pairing_transport = readFile(
+        repo_root /
+        "platform/esp/arduino_common/src/team/pairing/team_pairing_transport_espnow.cpp");
     const std::string mqtt_runtime = readFile(
         repo_root /
         "platform/esp/arduino_common/src/chat/infra/mesh_mqtt_client_runtime.cpp");
@@ -44,6 +50,17 @@ int main(int argc, char** argv)
                     "window.retry_after_ms = kConnectBackoffMs - age_ms;"));
     assert(contains(access_runtime,
                     "if (decision != Decision::Granted && log_denial)"));
+
+    assert(contains(wifi_runtime,
+                    "esp_netif_get_handle_from_ifkey(\"WIFI_STA_DEF\")"));
+    assert(contains(wifi_runtime, "profile_retry_timer"));
+    assert(contains(wifi_runtime, "void schedule_profile_retry()"));
+    assert(contains(wifi_runtime, "void profile_retry_timer_cb(void*)"));
+    assert(contains(wifi_runtime, "schedule_profile_retry();"));
+    assert(contains(wifi_runtime, "(void)connect(nullptr);"));
+    assert(contains(team_pairing_transport,
+                    "set_non_preemptible_activity(true, \"team_pairing\")"));
+    assert(contains(team_pairing_transport, "set_non_preemptible_activity(false)"));
 
     assert(contains(mqtt_runtime, "wifi_retry_not_before_ms_"));
     assert(contains(
