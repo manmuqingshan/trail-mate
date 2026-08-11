@@ -58,7 +58,7 @@ class ChatConversationScreen
     /** Moves the non-touch timeline selection without changing rotary scroll. */
     bool selectPreviousMessage();
     bool selectNextMessage();
-    /** Plays the selected voice bubble; selected non-voice bubbles consume Enter. */
+    /** Plays the selected voice bubble. Non-voice bubbles retain normal Enter behavior. */
     bool activateSelectedMessage();
     void scrollToTop();
     void scrollToBottom();

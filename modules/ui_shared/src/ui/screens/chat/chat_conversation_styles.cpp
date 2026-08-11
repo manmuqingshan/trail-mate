@@ -19,10 +19,10 @@ static lv_style_t s_reply_label;
 static lv_style_t s_row;
 
 static lv_style_t s_bubble_base;
+static lv_style_t s_bubble_base_selected;
 static lv_style_t s_bubble_self;
 static lv_style_t s_bubble_other;
 static lv_style_t s_bubble_unverified;
-static lv_style_t s_bubble_selected;
 static lv_style_t s_bubble_text;
 static lv_style_t s_bubble_time;
 
@@ -104,18 +104,27 @@ void init_once()
     lv_style_set_radius(&s_row, 0);
     lv_style_set_pad_column(&s_row, dense ? 3 : 6);
 
-    lv_style_init(&s_bubble_base);
-    lv_style_set_bg_opa(&s_bubble_base, LV_OPA_COVER);
-    lv_style_set_border_width(&s_bubble_base, 1);
-    lv_style_set_border_color(&s_bubble_base, lv_color_hex(0xD7B979));
-    lv_style_set_radius(&s_bubble_base, bubble_radius);
-    lv_style_set_pad_left(&s_bubble_base, bubble_pad_x);
-    lv_style_set_pad_right(&s_bubble_base, bubble_pad_x);
-    lv_style_set_pad_top(&s_bubble_base, bubble_pad_y);
-    lv_style_set_pad_bottom(&s_bubble_base, bubble_pad_y);
-    lv_style_set_pad_row(&s_bubble_base, dense ? 1 : 2);
-    lv_style_set_pad_column(&s_bubble_base, 0);
-    lv_style_set_bg_grad_dir(&s_bubble_base, LV_GRAD_DIR_NONE);
+    const auto init_bubble_base = [=](lv_style_t* style)
+    {
+        lv_style_init(style);
+        lv_style_set_bg_opa(style, LV_OPA_COVER);
+        lv_style_set_border_width(style, 1);
+        lv_style_set_border_color(style, lv_color_hex(0xD7B979));
+        lv_style_set_radius(style, bubble_radius);
+        lv_style_set_pad_left(style, bubble_pad_x);
+        lv_style_set_pad_right(style, bubble_pad_x);
+        lv_style_set_pad_top(style, bubble_pad_y);
+        lv_style_set_pad_bottom(style, bubble_pad_y);
+        lv_style_set_pad_row(style, dense ? 1 : 2);
+        lv_style_set_pad_column(style, 0);
+        lv_style_set_bg_grad_dir(style, LV_GRAD_DIR_NONE);
+    };
+    init_bubble_base(&s_bubble_base);
+    init_bubble_base(&s_bubble_base_selected);
+    lv_style_set_outline_width(&s_bubble_base_selected, dense ? 1 : 2);
+    lv_style_set_outline_pad(&s_bubble_base_selected, dense ? 1 : 2);
+    lv_style_set_outline_color(&s_bubble_base_selected, lv_color_hex(0xE57B1F));
+    lv_style_set_outline_opa(&s_bubble_base_selected, LV_OPA_COVER);
 
     lv_style_init(&s_bubble_self);
     lv_style_set_bg_color(&s_bubble_self, kBubbleSelf);
@@ -128,15 +137,6 @@ void init_once()
     lv_style_init(&s_bubble_unverified);
     lv_style_set_bg_color(&s_bubble_unverified, lv_color_hex(0xF4E1DE));
     lv_style_set_border_color(&s_bubble_unverified, lv_color_hex(0xC47D70));
-
-    // This style is shared by every bubble.  W/S selection only toggles the
-    // LV_STATE_USER_1 bit; it does not add bubbles to an LVGL group or create
-    // any per-message focus bookkeeping/allocation.
-    lv_style_init(&s_bubble_selected);
-    lv_style_set_outline_width(&s_bubble_selected, dense ? 1 : 2);
-    lv_style_set_outline_pad(&s_bubble_selected, dense ? 1 : 2);
-    lv_style_set_outline_color(&s_bubble_selected, lv_color_hex(0xE57B1F));
-    lv_style_set_outline_opa(&s_bubble_selected, LV_OPA_COVER);
 
     lv_style_init(&s_bubble_text);
     lv_style_set_text_color(&s_bubble_text, kTextColor);
@@ -194,7 +194,19 @@ void apply_bubble(lv_obj_t* bubble, bool is_self, bool source_unverified)
         is_self ? &s_bubble_self
                 : (source_unverified ? &s_bubble_unverified : &s_bubble_other);
     lv_obj_add_style(bubble, message_style, LV_PART_MAIN);
-    lv_obj_add_style(bubble, &s_bubble_selected, LV_PART_MAIN | LV_STATE_USER_1);
+}
+
+void set_bubble_selected(lv_obj_t* bubble, bool selected)
+{
+    if (!bubble || !lv_obj_is_valid(bubble))
+    {
+        return;
+    }
+    init_once();
+    (void)lv_obj_replace_style(bubble,
+                               selected ? &s_bubble_base : &s_bubble_base_selected,
+                               selected ? &s_bubble_base_selected : &s_bubble_base,
+                               LV_PART_MAIN);
 }
 
 void apply_bubble_text(lv_obj_t* label)

@@ -126,7 +126,8 @@ static bool handle_map_key(ChatConversationScreen* screen,
 
 static bool handle_conversation_shortcut(ChatConversationScreen* screen,
                                          lv_event_t* e,
-                                         uint32_t key)
+                                         uint32_t key,
+                                         bool allow_message_selection)
 {
     if (!screen || !screen->isAlive())
     {
@@ -143,41 +144,51 @@ static bool handle_conversation_shortcut(ChatConversationScreen* screen,
         consume(e);
         return true;
     }
-    if (key == 'r' || key == 'R')
+    if (key == 's' || key == 'S')
     {
         return send_reply(screen, e);
     }
-    if (key == 'w' || key == 'W')
+    if (allow_message_selection)
     {
-        if (screen->selectPreviousMessage())
+        if (key == 'a' || key == 'A')
+        {
+            if (screen->selectPreviousMessage())
+            {
+                consume(e);
+            }
+            return true;
+        }
+        if (key == 'd' || key == 'D')
+        {
+            if (screen->selectNextMessage())
+            {
+                consume(e);
+            }
+            return true;
+        }
+        if (key == LV_KEY_ENTER && screen->activateSelectedMessage())
         {
             consume(e);
+            return true;
         }
-        return true;
-    }
-    if (key == 's' || key == 'S')
-    {
-        if (screen->selectNextMessage())
-        {
-            consume(e);
-        }
-        return true;
-    }
-    if (key == LV_KEY_ENTER && screen->activateSelectedMessage())
-    {
-        consume(e);
-        return true;
     }
     if (handle_map_key(screen, e, key))
     {
         return true;
     }
 
-    if (key == LV_KEY_UP || key == kEncoderKeyRotateUp)
+    // The message list owns rotary scrolling only while its group is in
+    // editing mode. Once Enter leaves that mode, return rotation to LVGL so
+    // it can move focus between the list, Send, and the top-bar Back button.
+    const lv_group_t* const group = lv_group_get_default();
+    const bool list_scrolling_enabled = !group || lv_group_get_editing(group);
+    if (list_scrolling_enabled &&
+        (key == LV_KEY_UP || key == kEncoderKeyRotateUp))
     {
         return scroll_messages(screen, e, -kScrollStep);
     }
-    if (key == LV_KEY_DOWN || key == kEncoderKeyRotateDown)
+    if (list_scrolling_enabled &&
+        (key == LV_KEY_DOWN || key == kEncoderKeyRotateDown))
     {
         return scroll_messages(screen, e, kScrollStep);
     }
@@ -217,7 +228,7 @@ static void on_msg_list_key(lv_event_t* e)
     if (!screen || !screen->isAlive()) return;
 
     uint32_t key = lv_event_get_key(e);
-    if (handle_conversation_shortcut(screen, e, key))
+    if (handle_conversation_shortcut(screen, e, key, true))
     {
         return;
     }
@@ -261,7 +272,7 @@ static void on_control_key(lv_event_t* e)
     auto* screen = static_cast<ChatConversationScreen*>(lv_event_get_user_data(e));
     if (!screen || !screen->isAlive()) return;
     uint32_t key = lv_event_get_key(e);
-    (void)handle_conversation_shortcut(screen, e, key);
+    (void)handle_conversation_shortcut(screen, e, key, false);
 }
 
 void init(ChatConversationScreen* screen, Binding* binding)

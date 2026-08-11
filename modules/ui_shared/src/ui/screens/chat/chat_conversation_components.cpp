@@ -1004,14 +1004,15 @@ bool ChatConversationScreen::activateSelectedMessage()
     }
 
     MessageItem& item = messages_[static_cast<size_t>(selected_message_index_)];
-    if (item.voice_playback_ctx && item.bubble && lv_obj_is_valid(item.bubble))
+    if (!item.voice_playback_ctx || !item.bubble || !lv_obj_is_valid(item.bubble))
     {
-        lv_obj_send_event(item.bubble, LV_EVENT_CLICKED, nullptr);
+        return false;
     }
 
-    // A selected text, image, or location bubble deliberately consumes Enter.
-    // This reserves the key for an eventual type-specific bubble action and
-    // prevents the message-list's edit mode from changing unexpectedly.
+    lv_obj_send_event(item.bubble, LV_EVENT_CLICKED, nullptr);
+    // A second press can now leave the list's editing mode and return the
+    // rotary to the fixed Send/Back focus group.
+    setSelectedMessageIndex(-1);
     return true;
 }
 
@@ -1049,7 +1050,7 @@ void ChatConversationScreen::setSelectedMessageIndex(int index)
         MessageItem& previous = messages_[static_cast<size_t>(selected_message_index_)];
         if (previous.bubble && lv_obj_is_valid(previous.bubble))
         {
-            lv_obj_clear_state(previous.bubble, LV_STATE_USER_1);
+            chat::ui::conversation::styles::set_bubble_selected(previous.bubble, false);
         }
     }
 
@@ -1063,7 +1064,7 @@ void ChatConversationScreen::setSelectedMessageIndex(int index)
     MessageItem& selected = messages_[static_cast<size_t>(selected_message_index_)];
     if (selected.bubble && lv_obj_is_valid(selected.bubble))
     {
-        lv_obj_add_state(selected.bubble, LV_STATE_USER_1);
+        chat::ui::conversation::styles::set_bubble_selected(selected.bubble, true);
     }
     if (selected.container && lv_obj_is_valid(selected.container))
     {
@@ -1333,8 +1334,8 @@ void ChatConversationScreen::toggleShortcutHelp()
     }
 
     static constexpr ::ui::components::shortcut_help_modal::Row rows[] = {
-        {"R", nullptr, "Compose message"},
-        {"W/S", nullptr, "Select message"},
+        {"S", nullptr, "Compose message"},
+        {"A/D", nullptr, "Select message"},
         {"Enter", nullptr, "Play selected voice"},
         {"Up/Down", nullptr, "Scroll messages"},
         {"Prev/Next", nullptr, "Load older/newer"},
