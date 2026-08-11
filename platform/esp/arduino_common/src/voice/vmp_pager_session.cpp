@@ -700,13 +700,17 @@ class PagerReceiveSession final
         }
         const OutboundCarrier candidate_carrier =
             selectOutboundCarrierLocked(broadcast);
-        const bool mqtt_carrier_busy =
-            candidate_carrier == OutboundCarrier::Mqtt &&
-            (mqtt_pending_local_id_ != 0U || media_->mqtt_transmit.hasNext());
+        // There is one bounded MQTT transfer slot. Do not start a second
+        // record/send session while it owns an earlier clip, even if MQTT has
+        // subsequently gone offline and LR1121 RF would otherwise be usable.
+        // This avoids overwriting the clip, dual live media allocations, and
+        // an implicit alternate-carrier copy under memory pressure.
+        const bool mqtt_delivery_pending =
+            mqtt_pending_local_id_ != 0U || media_->mqtt_transmit.hasNext();
         const bool unavailable = presentation != presentation_protocol_ || active_ ||
                                  outbound_task_ || playback_task_ ||
                                  candidate_carrier == OutboundCarrier::None ||
-                                 mqtt_carrier_busy;
+                                 mqtt_delivery_pending;
         unlockState();
         if (unavailable)
         {
@@ -725,11 +729,10 @@ class PagerReceiveSession final
         }
         const OutboundCarrier selected_carrier =
             selectOutboundCarrierLocked(broadcast);
-        const bool selected_mqtt_busy =
-            selected_carrier == OutboundCarrier::Mqtt &&
-            (mqtt_pending_local_id_ != 0U || media_->mqtt_transmit.hasNext());
+        const bool selected_mqtt_delivery_pending =
+            mqtt_pending_local_id_ != 0U || media_->mqtt_transmit.hasNext();
         if (active_ || outbound_task_ || playback_task_ ||
-            selected_carrier == OutboundCarrier::None || selected_mqtt_busy)
+            selected_carrier == OutboundCarrier::None || selected_mqtt_delivery_pending)
         {
             unlockState();
             Serial.printf("[VMP][TX] hold begin rejected reason=became_busy_or_no_carrier\n");
