@@ -7,6 +7,8 @@
 
 #include "codec2_fft.h"
 
+#include <assert.h>
+
 #include "debug_alloc.h"
 
 #ifdef USE_KISS_FFT
@@ -129,6 +131,35 @@ void codec2_fftr_free(codec2_fftr_cfg cfg)
 // not noticeable
 // the reduced usage of RAM and increased performance on STM32 platforms
 // should be worth it.
+//
+// Codec2's real-time encoder cannot pay this temporary space from its task
+// stack. Callers that own a persistent work buffer use this variant so the
+// input copy can live with their codec state instead.
+void codec2_fft_inplace_with_scratch(codec2_fft_cfg cfg, codec2_fft_cpx* inout,
+                                     codec2_fft_cpx scratch[])
+{
+
+#ifdef USE_KISS_FFT
+    if (cfg->nfft <= 512)
+    {
+        assert(scratch != NULL);
+        memcpy(scratch, inout, cfg->nfft*sizeof(kiss_fft_cpx));
+        kiss_fft(cfg, (kiss_fft_cpx*)scratch, (kiss_fft_cpx*)inout);
+    }
+    else
+    {
+        kiss_fft(cfg, (kiss_fft_cpx*)inout, (kiss_fft_cpx*)inout);
+    }
+#else
+    (void)scratch;
+    arm_cfft_f32(cfg->instance,(float*)inout,cfg->inverse,1);
+    if (cfg->inverse)
+    {
+        arm_scale_f32((float*)inout,cfg->instance->fftLen,(float*)inout,cfg->instance->fftLen*2);
+    }
+#endif
+}
+
 void codec2_fft_inplace(codec2_fft_cfg cfg, codec2_fft_cpx* inout)
 {
 

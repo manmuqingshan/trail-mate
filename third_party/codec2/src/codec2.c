@@ -108,6 +108,7 @@ static void ear_protection(float in_out[], int n);
 struct CODEC2 * codec2_create(int mode)
 {
     struct CODEC2 *c2;
+    COMP          *analysis_window_scratch;
     int            i,l;
 
     // ALL POSSIBLE MODES MUST BE CHECKED HERE!
@@ -134,6 +135,7 @@ struct CODEC2 * codec2_create(int mode)
 
     c2->mode = mode;
     c2->analysis_spectrum = NULL;
+    c2->fft_inplace_scratch = NULL;
     c2->mode_1300_scratch = NULL;
 
     /* store constants in a few places for convenience */
@@ -170,6 +172,24 @@ struct CODEC2 * codec2_create(int mode)
 	return NULL;
     }
 
+    /*
+     * Analysis-window initialisation uses two FFT_ENC complex buffers only
+     * while establishing c2->w and c2->W. Keeping them as automatic arrays
+     * costs more than 8 KiB on every caller's stack, which overflows Pager's
+     * bounded voice worker before it can capture its first frame. Allocate
+     * this non-DMA scratch through Codec2's platform allocator instead; the
+     * Pager routes it to PSRAM and it is freed immediately after setup.
+     */
+    analysis_window_scratch = (COMP*)MALLOC(2U * FFT_ENC * sizeof(COMP));
+    if (analysis_window_scratch == NULL) {
+        FREE(c2->Pn);
+        FREE(c2->Sn_);
+        FREE(c2->w);
+        FREE(c2->Sn);
+        FREE(c2);
+	return NULL;
+    }
+
     for(i=0; i<m_pitch; i++)
 	c2->Sn[i] = 1.0;
     c2->hpf_states[0] = c2->hpf_states[1] = 0.0;
@@ -177,7 +197,9 @@ struct CODEC2 * codec2_create(int mode)
 	c2->Sn_[i] = 0;
     c2->fft_fwd_cfg = codec2_fft_alloc(FFT_ENC, 0, NULL, NULL);
     c2->fftr_fwd_cfg = codec2_fftr_alloc(FFT_ENC, 0, NULL, NULL);
-    make_analysis_window(&c2->c2const, c2->fft_fwd_cfg, c2->w,c2->W);
+    make_analysis_window(&c2->c2const, c2->fft_fwd_cfg, c2->w, c2->W,
+                         analysis_window_scratch);
+    FREE(analysis_window_scratch);
     make_synthesis_window(&c2->c2const, c2->Pn);
     c2->fftr_inv_cfg = codec2_fftr_alloc(FFT_DEC, 1, NULL, NULL);
     c2->prev_f0_enc = 1/P_MAX_S;
@@ -220,6 +242,16 @@ struct CODEC2 * codec2_create(int mode)
 
     c2->analysis_spectrum = (COMP*)MALLOC(sizeof(COMP)*FFT_ENC);
     if (c2->analysis_spectrum == NULL) {
+        codec2_destroy(c2);
+        return NULL;
+    }
+    /*
+     * KISS FFT requires a distinct input buffer for its in-place API. Reuse
+     * this instance-owned workspace for both analysis and NLP transforms so
+     * the VMP capture task never needs codec2_fft_inplace()'s 4 KiB local.
+     */
+    c2->fft_inplace_scratch = (COMP*)MALLOC(sizeof(COMP)*FFT_ENC);
+    if (c2->fft_inplace_scratch == NULL) {
         codec2_destroy(c2);
         return NULL;
     }
@@ -361,6 +393,7 @@ void codec2_destroy(struct CODEC2 *c2)
 {
     assert(c2 != NULL);
     FREE(c2->mode_1300_scratch);
+    FREE(c2->fft_inplace_scratch);
     FREE(c2->analysis_spectrum);
     FREE(c2->bpf_buf);
     nlp_destroy(c2->nlp);
@@ -2120,10 +2153,12 @@ void analyse_one_frame(struct CODEC2 *c2, MODEL *model, short speech[])
     for(i=0; i<n_samp; i++)
       c2->Sn[i+m_pitch-n_samp] = speech[i];
 
-    dft_speech(&c2->c2const, c2->fft_fwd_cfg, Sw, c2->Sn, c2->w);
+    dft_speech(&c2->c2const, c2->fft_fwd_cfg, Sw, c2->Sn, c2->w,
+               c2->fft_inplace_scratch);
 
     /* Estimate pitch */
-    nlp(c2->nlp, c2->Sn, n_samp, &pitch, Sw, c2->W, &c2->prev_f0_enc);
+    nlp(c2->nlp, c2->Sn, n_samp, &pitch, Sw, c2->W, &c2->prev_f0_enc,
+        c2->fft_inplace_scratch);
     model->Wo = TWO_PI/pitch;
     model->L = PI/model->Wo;
 

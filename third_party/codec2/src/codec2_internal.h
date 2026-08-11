@@ -63,6 +63,7 @@ struct CODEC2 {
     float        *bpf_buf;                 /* buffer for band pass filter               */
     float        *Sn;                      /* [m_pitch] input speech                    */
     COMP         *analysis_spectrum;       /* [FFT_ENC] encoder working spectrum        */
+    COMP         *fft_inplace_scratch;     /* [FFT_ENC] encoder FFT input copy           */
     float         hpf_states[2];           /* high pass filter states                   */
     void         *nlp;                     /* pitch predictor states                    */
     int           gray;                    /* non-zero for gray encoding                */

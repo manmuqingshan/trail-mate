@@ -62,9 +62,16 @@ int main(int argc, char** argv)
     const std::string codec2 = readFile(root / "third_party/codec2/src/codec2.c");
     const std::string codec2_internal =
         readFile(root / "third_party/codec2/src/codec2_internal.h");
+    const std::string codec2_fft =
+        readFile(root / "third_party/codec2/src/codec2_fft.c");
+    const std::string codec2_fft_header =
+        readFile(root / "third_party/codec2/src/codec2_fft.h");
     const std::string codec2_nlp = readFile(root / "third_party/codec2/src/nlp.c");
     const std::string codec2_memtools =
         readFile(root / "third_party/codec2/src/memtools.c");
+    const std::string codec2_sine = readFile(root / "third_party/codec2/src/sine.c");
+    const std::string codec2_sine_header =
+        readFile(root / "third_party/codec2/src/sine.h");
     const std::string chat_controller = readFile(
         root / "modules/ui_shared/src/ui/screens/chat/chat_ui_controller.cpp");
     const std::string chat_compose = readFile(
@@ -314,15 +321,21 @@ int main(int argc, char** argv)
     assert(session.find("logTaskCreateFailure(\"vmp_tx\", kOutboundTaskStackBytes)") !=
            std::string::npos);
     assert(codec2_internal.find("CODEC2_1300_SCRATCH") != std::string::npos);
+    assert(codec2_internal.find("COMP         *fft_inplace_scratch") !=
+           std::string::npos);
     assert(codec2.find("c2->analysis_spectrum = (COMP*)MALLOC") !=
            std::string::npos);
     assert(codec2.find("c2->mode_1300_scratch") != std::string::npos);
+    assert(codec2.find("c2->fft_inplace_scratch = (COMP*)MALLOC") !=
+           std::string::npos);
+    assert(codec2.find("FREE(c2->fft_inplace_scratch);") != std::string::npos);
     const std::size_t decoder_1300 = positionOf(codec2, "void codec2_decode_1300(");
     const std::size_t encoder_1200 =
         positionOfAfter(codec2, "void codec2_encode_1200(", decoder_1300);
     const std::string decoder_1300_body =
         codec2.substr(decoder_1300, encoder_1200 - decoder_1300);
-    const std::size_t analyse_frame = positionOf(codec2, "void analyse_one_frame(");
+    const std::size_t analyse_frame = positionOfAfter(
+        codec2, "\nvoid analyse_one_frame(", decoder_1300);
     const std::size_t ear_protection =
         positionOfAfter(codec2, "static void ear_protection(", analyse_frame);
     const std::string analyse_frame_body =
@@ -331,7 +344,53 @@ int main(int argc, char** argv)
     assert(decoder_1300_body.find("COMP    Aw[FFT_ENC]") == std::string::npos);
     assert(codec2_nlp.find("COMP   Fw[PE_FFT_SIZE]") == std::string::npos);
     assert(codec2_nlp.find("nlp->Fw = (COMP*)MALLOC") != std::string::npos);
+    assert(codec2_nlp.find(
+               "codec2_fft_inplace_with_scratch(nlp->fft_cfg, Fw, fft_scratch)") !=
+           std::string::npos);
     assert(codec2_memtools.find("MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT") !=
+           std::string::npos);
+    // Codec2 creation happens after the Pager has acquired the I2S session.
+    // Its analysis-window setup must not put two FFT_ENC complex buffers on
+    // the bounded VMP task stack; the scratch belongs to the codec allocator
+    // only for the duration of initialization and is then released.
+    const std::size_t make_analysis_window =
+        positionOf(codec2_sine, "void make_analysis_window(");
+    const std::size_t hpf = positionOfAfter(
+        codec2_sine, "float hpf(", make_analysis_window);
+    const std::string make_analysis_window_body =
+        codec2_sine.substr(make_analysis_window, hpf - make_analysis_window);
+    assert(make_analysis_window_body.find("COMP  wshift[FFT_ENC]") ==
+           std::string::npos);
+    assert(make_analysis_window_body.find("COMP temp[FFT_ENC]") ==
+           std::string::npos);
+    assert(make_analysis_window_body.find("COMP  *wshift = scratch") !=
+           std::string::npos);
+    assert(make_analysis_window_body.find("COMP  *temp = scratch + FFT_ENC") !=
+           std::string::npos);
+    assert(codec2_sine_header.find("COMP scratch[]") != std::string::npos);
+    assert(codec2.find("analysis_window_scratch = (COMP*)MALLOC") !=
+           std::string::npos);
+    assert(codec2.find("FREE(analysis_window_scratch);") != std::string::npos);
+
+    // A VMP encoder runs both the analysis and NLP KISS FFTs while its audio
+    // task is live. The generic legacy helper retains its stack fallback for
+    // non-Codec2 callers, but the Codec2 path must pass instance PSRAM scratch
+    // to the no-local-buffer variant.
+    const std::size_t scratch_fft =
+        positionOf(codec2_fft, "void codec2_fft_inplace_with_scratch(");
+    const std::size_t legacy_fft = positionOfAfter(
+        codec2_fft, "void codec2_fft_inplace(", scratch_fft);
+    const std::string scratch_fft_body =
+        codec2_fft.substr(scratch_fft, legacy_fft - scratch_fft);
+    assert(scratch_fft_body.find("kiss_fft_cpx in[512]") == std::string::npos);
+    assert(scratch_fft_body.find("kiss_fft(cfg, (kiss_fft_cpx*)scratch") !=
+           std::string::npos);
+    assert(codec2_fft_header.find("codec2_fft_inplace_with_scratch") !=
+           std::string::npos);
+    assert(codec2_sine.find(
+               "codec2_fft_inplace_with_scratch(fft_fwd_cfg, Sw, fft_scratch)") !=
+           std::string::npos);
+    assert(analyse_frame_body.find("c2->fft_inplace_scratch") !=
            std::string::npos);
 
     // Pager's physical rotary button is an input level, not a one-shot click.

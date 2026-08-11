@@ -264,7 +264,8 @@ float nlp(
   float *pitch,			/* estimated pitch period in samples at current Fs    */
   COMP   Sw[],                  /* Freq domain version of Sn[]                        */
   float  W[],                   /* Freq domain window                                 */
-  float *prev_f0                /* previous pitch f0 in Hz, memory for pitch tracking */
+  float *prev_f0,               /* previous pitch f0 in Hz, memory for pitch tracking */
+  COMP   fft_scratch[]          /* caller-owned KISS FFT input copy                   */
 )
 {
     NLP   *nlp;
@@ -366,7 +367,7 @@ float nlp(
 
     // FIXME: check if this can be converted to a real fft
     // since all imag inputs are 0
-    codec2_fft_inplace(nlp->fft_cfg, Fw);
+    codec2_fft_inplace_with_scratch(nlp->fft_cfg, Fw, fft_scratch);
     PROFILE_SAMPLE_AND_LOG(fft, window, "      fft");
 
     for(i=0; i<PE_FFT_SIZE; i++)
