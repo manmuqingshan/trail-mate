@@ -32,6 +32,50 @@ constexpr uint32_t radio_rx_done_mask()
 #endif
 }
 
+constexpr uint32_t radio_terminal_irq_mask()
+{
+    uint32_t mask = radio_rx_done_mask();
+#if defined(ARDUINO_LILYGO_LORA_LR1121)
+#if defined(RADIOLIB_LR11X0_IRQ_CRC_ERR)
+    mask |= RADIOLIB_LR11X0_IRQ_CRC_ERR;
+#endif
+#if defined(RADIOLIB_LR11X0_IRQ_HEADER_ERR)
+    mask |= RADIOLIB_LR11X0_IRQ_HEADER_ERR;
+#endif
+#if defined(RADIOLIB_LR11X0_IRQ_TIMEOUT)
+    mask |= RADIOLIB_LR11X0_IRQ_TIMEOUT;
+#endif
+#else
+#if defined(RADIOLIB_SX126X_IRQ_CRC_ERR)
+    mask |= RADIOLIB_SX126X_IRQ_CRC_ERR;
+#endif
+#if defined(RADIOLIB_SX126X_IRQ_HEADER_ERR)
+    mask |= RADIOLIB_SX126X_IRQ_HEADER_ERR;
+#endif
+#if defined(RADIOLIB_SX126X_IRQ_TIMEOUT)
+    mask |= RADIOLIB_SX126X_IRQ_TIMEOUT;
+#endif
+#endif
+    return mask;
+}
+
+#if defined(ARDUINO_LILYGO_LORA_LR1121) &&            \
+    defined(RADIOLIB_LR11X0_IRQ_PREAMBLE_DETECTED) && \
+    defined(RADIOLIB_LR11X0_IRQ_SYNC_WORD_HEADER_VALID)
+static_assert((radio_terminal_irq_mask() &
+               (RADIOLIB_LR11X0_IRQ_PREAMBLE_DETECTED |
+                RADIOLIB_LR11X0_IRQ_SYNC_WORD_HEADER_VALID)) == 0u,
+              "LR1121 receive progress IRQs must not restart the radio");
+#elif defined(RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED) && \
+    defined(RADIOLIB_SX126X_IRQ_SYNC_WORD_VALID) &&     \
+    defined(RADIOLIB_SX126X_IRQ_HEADER_VALID)
+static_assert((radio_terminal_irq_mask() &
+               (RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED |
+                RADIOLIB_SX126X_IRQ_SYNC_WORD_VALID |
+                RADIOLIB_SX126X_IRQ_HEADER_VALID)) == 0u,
+              "SX126x receive progress IRQs must not restart the radio");
+#endif
+
 } // namespace
 
 bool is_supported()
@@ -62,16 +106,27 @@ bool configure_receive(float freq_mhz, const ReceiveConfig& config)
         return false;
     }
 
-    s_lora->configureLoraRadio(freq_mhz,
-                               config.bw_khz,
-                               config.sf,
-                               config.cr,
-                               config.tx_power,
-                               config.preamble_len,
-                               config.sync_word,
-                               config.crc_len);
-    s_lora->startRadioReceive();
-    return true;
+    return s_lora->configureLoraRadio(freq_mhz,
+                                      config.bw_khz,
+                                      config.sf,
+                                      config.cr,
+                                      config.tx_power,
+                                      config.preamble_len,
+                                      config.sync_word,
+                                      config.crc_len) == 0 &&
+           s_lora->startRadioReceive() == 0;
+}
+
+bool transmit_packet(const uint8_t* data, std::size_t size)
+{
+    if (!s_lora || !data || size == 0)
+    {
+        return false;
+    }
+
+    const int state = s_lora->transmitRadio(data, size);
+    (void)s_lora->startRadioReceive();
+    return state == 0;
 }
 
 float read_instant_rssi()
@@ -92,7 +147,13 @@ bool poll_received_packet(uint8_t* buffer, std::size_t capacity, ReceivedPacket*
         if (irq != 0u)
         {
             s_lora->clearRadioIrqFlags(irq);
-            (void)s_lora->startRadioReceive();
+            // Preamble, sync-word, and header-valid IRQs are progress signals,
+            // not a completed receive. Restarting here aborts the packet before
+            // RX_DONE, especially for long low-rate LoRa frames.
+            if ((irq & radio_terminal_irq_mask()) != 0u)
+            {
+                (void)s_lora->startRadioReceive();
+            }
         }
         return false;
     }

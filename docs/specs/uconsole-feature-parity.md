@@ -17,7 +17,7 @@ native implementation.
 - `F1`/`H` opens a Pager/T-Deck-style shortcut reference; direct workspace
   letters and `[`/`]` navigation keep every feature reachable without touch.
 - Related low-frequency ESP screens are combined where a desktop workbench is
-  more efficient. Energy Sweep, SSTV, and Walkie share **Radio tools** while
+  more efficient. Protocol Probe, SSTV, and Walkie share **Radio tools** while
   keeping their independent runtimes and controls.
 
 ## Feature matrix
@@ -32,7 +32,7 @@ native implementation.
 | GPS and Sky Plot | GPS & sky plot | GPS runtime and GNSS sky-plot presenter | Implemented |
 | Team | Team operations | Dashboard team snapshot and chat model | Implemented |
 | Tracker | Tracker | Linux GPX/CSV/binary tracker runtime | Implemented; saved settings now drive runtime |
-| Energy Sweep | Radio tools | Existing LoRa runtime | Implemented; scan restores the active radio configuration |
+| Protocol Probe | Radio tools | Existing LoRa runtime | Implemented; protocol evidence gates profile selection and the active radio configuration is restored after a probe |
 | SSTV | Radio tools | Existing SSTV runtime | Implemented; capability state identifies simulated backends |
 | Walkie | Radio tools | Existing Walkie runtime | Implemented; capability state identifies simulated backends |
 | Extensions | Extensions | Existing pack repository runtime | Implemented |

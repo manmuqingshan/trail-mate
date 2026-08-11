@@ -425,22 +425,32 @@ float TWatchS3Board::getRadioSNR()
     return radio_.getSNR();
 }
 
-void TWatchS3Board::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
-                                       int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
-                                       uint8_t crc_len)
+int TWatchS3Board::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
+                                      int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
+                                      uint8_t crc_len)
 {
-    radio_.setFrequency(freq_mhz);
-    radio_.setBandwidth(bw_khz);
-    radio_.setSpreadingFactor(sf);
-    radio_.setCodingRate(cr_denom);
+    int first_error = RADIOLIB_ERR_NONE;
+    const auto note_error = [&first_error](int rc)
+    {
+        if (rc != RADIOLIB_ERR_NONE && first_error == RADIOLIB_ERR_NONE)
+        {
+            first_error = rc;
+        }
+    };
+
+    note_error(radio_.setFrequency(freq_mhz));
+    note_error(radio_.setBandwidth(bw_khz));
+    note_error(radio_.setSpreadingFactor(sf));
+    note_error(radio_.setCodingRate(cr_denom));
 #if defined(ARDUINO_LILYGO_LORA_SX1262)
     apply_tx_power(radio_, tx_power);
 #else
-    radio_.setOutputPower(tx_power);
+    note_error(radio_.setOutputPower(tx_power));
 #endif
-    radio_.setPreambleLength(preamble_len);
-    radio_.setSyncWord(sync_word);
-    radio_.setCRC(crc_len);
+    note_error(radio_.setPreambleLength(preamble_len));
+    note_error(radio_.setSyncWord(sync_word));
+    note_error(radio_.setCRC(crc_len));
+    return first_error;
 }
 
 namespace

@@ -978,6 +978,8 @@ bool Sx126xRadio::configure_lora_locked(float freq_mhz,
         return false;
     }
 
+    lora_preamble_len_ = preamble_len;
+    lora_crc_len_ = crc_len;
     return true;
 }
 
@@ -1116,7 +1118,9 @@ bool Sx126xRadio::startReceive()
         return false;
     }
     board_prepare_lora_direction(false);
-    const bool ok = set_dio_irq_params_locked(kIrqRxDone | kIrqTimeout | kIrqCrcErr, kIrqRxDone) &&
+    const bool ok = set_dio_irq_params_locked(
+                        kIrqRxDone | kIrqTimeout | kIrqCrcErr | kIrqHeaderErr,
+                        kIrqRxDone) &&
                     clear_irq_locked(kIrqAll) &&
                     set_buffer_base_locked(0x00, 0x00) &&
                     set_rx_locked(kRxTimeoutInf);
@@ -1159,7 +1163,14 @@ int Sx126xRadio::startTransmit(const uint8_t* data, size_t size)
     board_prepare_lora_direction(true);
     if (packet_type_ == kPacketTypeLoRa)
     {
-        const uint8_t lo[6] = {0x00, 0x08, kLoRaHeaderExplicit, static_cast<uint8_t>(size), kLoRaCrcOn, kLoRaIqStandard};
+        const uint8_t lo[6] = {
+            static_cast<uint8_t>((lora_preamble_len_ >> 8) & 0xFF),
+            static_cast<uint8_t>(lora_preamble_len_ & 0xFF),
+            kLoRaHeaderExplicit,
+            static_cast<uint8_t>(size),
+            lora_crc_len_ ? kLoRaCrcOn : kLoRaCrcOff,
+            kLoRaIqStandard,
+        };
         ok = ok && write_command_locked(kCmdSetPacketParams, lo, sizeof(lo), true);
     }
     else

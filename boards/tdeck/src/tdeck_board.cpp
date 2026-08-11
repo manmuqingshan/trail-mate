@@ -1232,28 +1232,37 @@ static void apply_tx_power(SX1262Access& radio, int8_t tx_power)
 }
 #endif
 
-void TDeckBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
-                                    int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
-                                    uint8_t crc_len)
+int TDeckBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
+                                   int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
+                                   uint8_t crc_len)
 {
-    (void)withSharedSpiRadioAccess("radio_cfg", pdMS_TO_TICKS(100), [&]()
-                                   {
+    int first_error = RADIOLIB_ERR_NONE;
+    const bool configured = withSharedSpiRadioAccess("radio_cfg", pdMS_TO_TICKS(100), [&]()
+                                                     {
+        const auto note_error = [&first_error](int rc)
+        {
+            if (rc != RADIOLIB_ERR_NONE && first_error == RADIOLIB_ERR_NONE)
+            {
+                first_error = rc;
+            }
+        };
 #if defined(ARDUINO_LILYGO_LORA_SX1262)
-        radio_.setDio2AsRfSwitch(true);
-        radio_.setCurrentLimit(kTDeckRadioCurrentLimitMa);
+        note_error(radio_.setDio2AsRfSwitch(true));
+        note_error(radio_.setCurrentLimit(kTDeckRadioCurrentLimitMa));
 #endif
-        radio_.setFrequency(freq_mhz);
-        radio_.setBandwidth(bw_khz);
-        radio_.setSpreadingFactor(sf);
-        radio_.setCodingRate(cr_denom);
+        note_error(radio_.setFrequency(freq_mhz));
+        note_error(radio_.setBandwidth(bw_khz));
+        note_error(radio_.setSpreadingFactor(sf));
+        note_error(radio_.setCodingRate(cr_denom));
 #if defined(ARDUINO_LILYGO_LORA_SX1262)
         apply_tx_power(radio_, tx_power);
 #else
-        radio_.setOutputPower(tx_power);
+        note_error(radio_.setOutputPower(tx_power));
 #endif
-        radio_.setPreambleLength(preamble_len);
-        radio_.setSyncWord(sync_word);
-        radio_.setCRC(crc_len); });
+        note_error(radio_.setPreambleLength(preamble_len));
+        note_error(radio_.setSyncWord(sync_word));
+        note_error(radio_.setCRC(crc_len)); });
+    return configured ? first_error : RADIOLIB_ERR_SPI_WRITE_FAILED;
 }
 
 RotaryMsg_t TDeckBoard::getRotary()

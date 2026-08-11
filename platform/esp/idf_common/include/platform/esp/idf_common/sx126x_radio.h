@@ -96,6 +96,8 @@ class Sx126xRadio
     bool online_ = false;
     uint8_t packet_type_ = 0xFF;
     float freq_mhz_ = 0.0f;
+    uint16_t lora_preamble_len_ = 8;
+    uint8_t lora_crc_len_ = 2;
     uint8_t last_rx_offset_ = 0;
     uint32_t users_ = 0;
     char last_error_[96] = {0};

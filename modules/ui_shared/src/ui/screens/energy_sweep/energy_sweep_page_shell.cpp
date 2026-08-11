@@ -6,7 +6,7 @@
 namespace
 {
 
-auto s_placeholder_state = ::ui::page_shell_fallback::make_unavailable_state("Packet Probe", "Packet Probe is unavailable on this target.");
+auto s_placeholder_state = ::ui::page_shell_fallback::make_unavailable_state("Protocol Probe", "Protocol Probe is unavailable on this target.");
 
 } // namespace
 

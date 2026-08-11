@@ -76,7 +76,7 @@
 - `PC Link`
 - `USB`
 - `SSTV`
-- `Energy Sweep`
+- `Protocol Probe` (internal route: `energy_sweep`)
 - `Walkie Talkie`
 
 ### 3.2 apps 侧现状

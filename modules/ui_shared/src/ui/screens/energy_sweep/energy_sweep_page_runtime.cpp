@@ -5,10 +5,18 @@
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
 #include "chat/infra/meshcore/mc_region_presets.h"
+#include "chat/infra/meshcore/meshcore_identity_crypto.h"
+#include "chat/infra/meshcore/meshcore_payload_helpers.h"
 #include "chat/infra/meshcore/meshcore_protocol_helpers.h"
 #include "chat/infra/meshtastic/mt_packet_wire.h"
+#include "chat/infra/meshtastic/mt_protocol_helpers.h"
 #include "chat/infra/meshtastic/mt_radio_config.h"
 #include "chat/infra/meshtastic/mt_region.h"
+#include "chat/infra/reticulum/reticulum_wire.h"
+#include "chat/infra/rnode/rnode_packet_wire.h"
+#include "meshtastic/mesh.pb.h"
+#include "meshtastic/portnums.pb.h"
+#include "pb_decode.h"
 #include "platform/ui/lora_runtime.h"
 #include "platform/ui/screen_runtime.h"
 #include "sys/clock.h"
@@ -24,6 +32,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <limits>
 
 #if !defined(LV_FONT_MONTSERRAT_12) || !LV_FONT_MONTSERRAT_12
@@ -53,15 +62,24 @@ constexpr lv_coord_t kPagerHeight = 222;
 constexpr lv_coord_t kPagerTopBarHeight = 30;
 constexpr lv_coord_t kPagerBottomBarHeight = 24;
 constexpr lv_coord_t kPagerOuterMargin = 10;
-constexpr int kMaxCandidates = 96;
+constexpr int kMaxCandidates = 24;
 constexpr int kMaxObservations = 8;
 constexpr std::size_t kPacketScratchSize = 255;
 constexpr uint32_t kRefreshIntervalMs = 35;
-constexpr uint32_t kCandidateDwellMs = 700;
-constexpr float kDefaultFreqStartMhz = 433.050f;
-constexpr float kDefaultFreqEndMhz = 434.790f;
-constexpr float kStepQuantMhz = 0.025f;
-constexpr int kTargetCandidateCount = 70;
+constexpr uint32_t kActiveProfileDwellMs = 10000;
+constexpr uint32_t kKnownProfileDwellMs = 2500;
+constexpr uint32_t kObservedProfileDwellMs = 4200;
+constexpr uint32_t kFullFrameGuardMs = 1200;
+constexpr uint32_t kMeshCoreMinimumResponseWindowMs = 5000;
+constexpr uint32_t kMeshtasticAckWindowMs = 12000;
+constexpr uint32_t kMeshCorePassiveListenMs = 1100;
+constexpr uint8_t kMeshCoreDirectRoute = 0x02;
+constexpr uint8_t kMeshtasticDefaultPskIndex = 1;
+constexpr uint32_t kMeshCoreDiscoverResponseDelaySlots = 20;
+constexpr uint32_t kMeshCoreDiscoverResponseGuardMs = 2500;
+constexpr std::size_t kMeshCoreDiscoverResponseFrameBytes =
+    2 + chat::meshcore::kMeshCoreDiscoverResponseBasePayloadSize +
+    chat::meshcore::kMeshCorePubKeySize;
 
 constexpr uint32_t kColorAmber = 0xEBA341;
 constexpr uint32_t kColorAmberDark = 0xC98118;
@@ -89,12 +107,49 @@ struct AirProfile
     uint8_t crc_len = 2;
 };
 
-struct ProbeBandPlan
+enum class CandidateOrigin : uint8_t
 {
-    float freq_start_mhz = kDefaultFreqStartMhz;
-    float freq_end_mhz = kDefaultFreqEndMhz;
-    float step_mhz = kStepQuantMhz;
-    int candidate_count = 2;
+    Active,
+    Standard,
+    Regional,
+};
+
+enum class EvidenceLevel : uint8_t
+{
+    None,
+    Observed,
+    Confirmed,
+};
+
+enum class VerificationKind : uint8_t
+{
+    None,
+    MeshCoreDiscover,
+    MeshtasticAck,
+};
+
+struct PacketEvidence
+{
+    EvidenceLevel level = EvidenceLevel::None;
+    chat::NodeId source_node = 0;
+    uint8_t channel_hash = 0;
+};
+
+struct ProbeVerification
+{
+    VerificationKind kind = VerificationKind::None;
+    int candidate_index = -1;
+    uint32_t ticket = 0;
+    chat::NodeId target_node = 0;
+    uint8_t channel_hash = 0;
+    uint32_t started_ms = 0;
+    uint32_t deadline_ms = 0;
+};
+
+struct ProbeCandidate
+{
+    AirProfile profile{};
+    CandidateOrigin origin = CandidateOrigin::Standard;
 };
 
 struct RadioContext
@@ -103,11 +158,16 @@ struct RadioContext
     bool acquired = false;
     chat::MeshProtocol protocol = chat::MeshProtocol::Meshtastic;
     AirProfile base_profile{};
+    int candidate_count = 0;
+    std::array<ProbeCandidate, kMaxCandidates> candidates{};
 };
 
 struct ProbeObservation
 {
     AirProfile profile{};
+    EvidenceLevel level = EvidenceLevel::None;
+    chat::NodeId last_mt_source = 0;
+    uint8_t last_mt_channel_hash = 0;
     uint32_t evidence_count = 0;
     uint32_t first_seen_ms = 0;
     uint32_t last_seen_ms = 0;
@@ -129,9 +189,17 @@ struct ProbeState
     int selected_observation = 0;
     int visible_page_start = 0;
     int observation_count = 0;
+    uint32_t crc_frame_count = 0;
+    std::array<bool, kMaxCandidates> verification_attempted{};
+    ProbeVerification verification{};
     std::array<ProbeObservation, kMaxObservations> observations{};
     std::array<uint8_t, kPacketScratchSize> receive_scratch{};
     std::array<uint8_t, kPacketScratchSize> protocol_scratch{};
+    std::array<uint8_t, kPacketScratchSize> plaintext_scratch{};
+    std::array<uint8_t, kPacketScratchSize> transmit_scratch{};
+    std::array<uint8_t, chat::kMeshtasticChannelKeyMaxLen> mt_key_scratch{};
+    meshtastic_Data mt_data_scratch = meshtastic_Data_init_zero;
+    meshtastic_Routing mt_routing_scratch = meshtastic_Routing_init_zero;
 };
 
 struct PacketProbeLayout
@@ -145,6 +213,7 @@ struct PacketProbeLayout
     lv_coord_t content_x = kPagerOuterMargin;
     lv_coord_t content_w = kPagerWidth - (kPagerOuterMargin * 2);
     bool pager = true;
+    bool compact = true;
 };
 
 struct PacketProbeUi
@@ -153,11 +222,11 @@ struct PacketProbeUi
     ::ui::widgets::TopBar top_bar = {};
     lv_obj_t* content_area = nullptr;
     lv_obj_t* state_label = nullptr;
-    lv_obj_t* observed_label = nullptr;
     lv_obj_t* empty_label = nullptr;
     std::array<lv_obj_t*, kMaxObservations> result_rows{};
     std::array<lv_obj_t*, kMaxObservations> result_primary{};
     std::array<lv_obj_t*, kMaxObservations> result_secondary{};
+    std::array<lv_obj_t*, kMaxObservations> result_state{};
     std::array<lv_obj_t*, kMaxObservations> result_count{};
     lv_obj_t* progress_label = nullptr;
     lv_obj_t* bottom_bar = nullptr;
@@ -173,7 +242,6 @@ struct PacketProbeUi
 UI_PACKET_PROBE_STATE_RAM_ATTR PacketProbeUi s_ui;
 UI_PACKET_PROBE_STATE_RAM_ATTR ProbeState s_state;
 UI_PACKET_PROBE_STATE_RAM_ATTR RadioContext s_radio;
-UI_PACKET_PROBE_STATE_RAM_ATTR ProbeBandPlan s_band;
 UI_PACKET_PROBE_STATE_RAM_ATTR PacketProbeLayout s_layout;
 lv_timer_t* s_refresh_timer = nullptr;
 
@@ -189,7 +257,7 @@ void request_exit()
 
 int active_candidate_count()
 {
-    return std::clamp(s_band.candidate_count, 2, kMaxCandidates);
+    return std::clamp(s_radio.candidate_count, 0, kMaxCandidates);
 }
 
 int clamp_observation_index(int index)
@@ -203,13 +271,127 @@ int clamp_observation_index(int index)
 
 int visible_result_capacity()
 {
-    return s_layout.pager ? 4 : kMaxObservations;
+    return 4;
 }
 
-float candidate_frequency_mhz(int index)
+chat::MeshProtocol normalize_probe_protocol(chat::MeshProtocol protocol)
 {
-    const int clamped = std::clamp(index, 0, active_candidate_count() - 1);
-    return s_band.freq_start_mhz + static_cast<float>(clamped) * s_band.step_mhz;
+    return protocol == chat::MeshProtocol::RNode ? chat::MeshProtocol::Reticulum
+                                                 : protocol;
+}
+
+const char* protocol_tag(chat::MeshProtocol protocol)
+{
+    switch (normalize_probe_protocol(protocol))
+    {
+    case chat::MeshProtocol::MeshCore:
+        return "MC";
+    case chat::MeshProtocol::Reticulum:
+        return "RT";
+    case chat::MeshProtocol::Meshtastic:
+    default:
+        return "MT";
+    }
+}
+
+const ProbeCandidate& current_candidate()
+{
+    const int count = active_candidate_count();
+    const int index = count > 0 ? std::clamp(s_state.candidate_index, 0, count - 1) : 0;
+    return s_radio.candidates[index];
+}
+
+bool same_profile(const AirProfile& lhs, const AirProfile& rhs);
+
+bool profile_is_observed(const AirProfile& profile)
+{
+    for (int index = 0; index < s_state.observation_count; ++index)
+    {
+        const AirProfile& seen = s_state.observations[index].profile;
+        if (std::fabs(seen.frequency_mhz - profile.frequency_mhz) < 0.0005f &&
+            std::fabs(seen.bw_khz - profile.bw_khz) < 0.01f && seen.sf == profile.sf &&
+            seen.cr == profile.cr && seen.preamble_len == profile.preamble_len &&
+            seen.sync_word == profile.sync_word && seen.crc_len == profile.crc_len)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool profile_is_confirmed(const AirProfile& profile)
+{
+    for (int index = 0; index < s_state.observation_count; ++index)
+    {
+        const ProbeObservation& observation = s_state.observations[index];
+        if (observation.level == EvidenceLevel::Confirmed &&
+            same_profile(observation.profile, profile))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+uint32_t maximum_frame_dwell_ms(const AirProfile& profile)
+{
+    const int sf = std::clamp<int>(profile.sf, 5, 12);
+    const int coding_rate_denom = std::clamp<int>(profile.cr, 5, 8);
+    const double bandwidth_hz = std::max(1.0, static_cast<double>(profile.bw_khz) * 1000.0);
+    const bool low_data_rate_optimize = sf >= 11 && profile.bw_khz <= 125.0f;
+    const int denominator = 4 * (sf - (low_data_rate_optimize ? 2 : 0));
+    const int crc_bits = profile.crc_len > 0 ? 16 : 0;
+    const double payload_term =
+        (8.0 * static_cast<double>(kPacketScratchSize) - (4.0 * static_cast<double>(sf)) +
+         28.0 + static_cast<double>(crc_bits)) /
+        static_cast<double>(denominator);
+    const double payload_symbols =
+        8.0 + (std::max(0.0, std::ceil(payload_term)) * static_cast<double>(coding_rate_denom));
+    const double symbol_ms = std::ldexp(1.0, sf) * 1000.0 / bandwidth_hz;
+    const double frame_ms = (static_cast<double>(profile.preamble_len) + 4.25 + payload_symbols) *
+                            symbol_ms;
+    return static_cast<uint32_t>(std::ceil(frame_ms)) + kFullFrameGuardMs;
+}
+
+uint32_t meshcore_discover_response_window_ms(const AirProfile& profile)
+{
+    // MeshCore peers schedule a Discover response in one of twenty airtime
+    // slots (random 1..5, multiplied by four). The current adapter estimates
+    // that slot with an eight-symbol preamble, while this probe receives using
+    // the candidate's actual preamble length.
+    const float peer_slot_airtime_ms = chat::meshcore::estimateLoRaAirtimeMs(
+        kMeshCoreDiscoverResponseFrameBytes, profile.bw_khz, profile.sf, profile.cr);
+    if (!std::isfinite(peer_slot_airtime_ms) || peer_slot_airtime_ms <= 0.0f)
+    {
+        return kMeshCoreMinimumResponseWindowMs;
+    }
+
+    const double symbol_ms =
+        std::ldexp(1.0, std::clamp<int>(profile.sf, 5, 12)) * 1000.0 /
+        std::max(1.0, static_cast<double>(profile.bw_khz) * 1000.0);
+    const double preamble_adjustment_ms =
+        std::max(0, static_cast<int>(profile.preamble_len) - 8) * symbol_ms;
+    const uint64_t response_slot_ms = std::max<uint64_t>(
+        1, static_cast<uint64_t>(std::llround((peer_slot_airtime_ms * 52.0f / 50.0f) / 2.0f)));
+    const uint64_t response_window_ms =
+        (response_slot_ms * kMeshCoreDiscoverResponseDelaySlots) +
+        static_cast<uint64_t>(std::ceil(peer_slot_airtime_ms + preamble_adjustment_ms)) +
+        kMeshCoreDiscoverResponseGuardMs;
+    return static_cast<uint32_t>(std::min<uint64_t>(
+        std::numeric_limits<uint32_t>::max(),
+        std::max<uint64_t>(kMeshCoreMinimumResponseWindowMs, response_window_ms)));
+}
+
+uint32_t candidate_dwell_ms(const ProbeCandidate& candidate)
+{
+    const uint32_t policy_dwell =
+        profile_is_observed(candidate.profile)
+            ? kObservedProfileDwellMs
+            : (candidate.origin == CandidateOrigin::Active ? kActiveProfileDwellMs
+                                                           : kKnownProfileDwellMs);
+    // A short fixed visit cannot receive a long low-rate frame that starts
+    // shortly after retuning. Keep RX through one maximum protocol-sized frame.
+    return std::max(policy_dwell, maximum_frame_dwell_ms(candidate.profile));
 }
 
 PacketProbeLayout resolve_layout(lv_obj_t* parent)
@@ -223,17 +405,18 @@ PacketProbeLayout resolve_layout(lv_obj_t* parent)
     const lv_coord_t parent_w = parent ? lv_obj_get_width(parent) : 0;
     const lv_coord_t parent_h = parent ? lv_obj_get_height(parent) : 0;
     const bool pager = parent_w <= 0 || parent_h <= 0 ||
-                       (parent_w <= 600 && parent_h <= 320);
+                       (parent_w == kPagerWidth && parent_h == kPagerHeight);
+    const bool compact = pager || (parent_w <= 360 && parent_h <= 280);
     layout.pager = pager;
+    layout.compact = compact;
     layout.screen_w = pager ? kPagerWidth : parent_w;
     layout.screen_h = pager ? kPagerHeight : parent_h;
-    layout.topbar_h = pager ? kPagerTopBarHeight
-                            : std::max<lv_coord_t>(42, ::ui::page_profile::current().top_bar_height);
-    layout.bottom_bar_h = pager ? kPagerBottomBarHeight : 34;
+    layout.topbar_h = compact ? kPagerTopBarHeight : ::ui::page_profile::current().top_bar_height;
+    layout.bottom_bar_h = compact ? kPagerBottomBarHeight : 34;
     layout.work_top = layout.topbar_h;
     layout.work_bottom = layout.screen_h - layout.bottom_bar_h;
 
-    const lv_coord_t margin = pager ? kPagerOuterMargin : 18;
+    const lv_coord_t margin = compact ? kPagerOuterMargin : 18;
     layout.content_x = margin;
     layout.content_w = layout.screen_w - (margin * 2);
     return layout;
@@ -252,144 +435,185 @@ platform::ui::lora::ReceiveConfig receive_config_for(const AirProfile& profile)
     return config;
 }
 
-const chat::meshtastic::RegionInfo* find_region_for_frequency(float frequency_mhz)
+bool same_profile(const AirProfile& lhs, const AirProfile& rhs)
 {
-    size_t count = 0;
-    const auto* regions = chat::meshtastic::getRegionTable(&count);
-    const chat::meshtastic::RegionInfo* nearest = nullptr;
-    float nearest_distance = std::numeric_limits<float>::max();
-    for (size_t index = 0; regions && index < count; ++index)
+    return std::fabs(lhs.frequency_mhz - rhs.frequency_mhz) < 0.0005f &&
+           std::fabs(lhs.bw_khz - rhs.bw_khz) < 0.01f && lhs.sf == rhs.sf &&
+           lhs.cr == rhs.cr && lhs.preamble_len == rhs.preamble_len &&
+           lhs.sync_word == rhs.sync_word && lhs.crc_len == rhs.crc_len;
+}
+
+bool add_candidate(const AirProfile& profile, CandidateOrigin origin)
+{
+    if (!std::isfinite(profile.frequency_mhz) || profile.frequency_mhz <= 0.0f ||
+        !std::isfinite(profile.bw_khz) || profile.bw_khz <= 0.0f ||
+        s_radio.candidate_count >= kMaxCandidates)
     {
-        const auto& region = regions[index];
-        if (region.code == meshtastic_Config_LoRaConfig_RegionCode_UNSET)
+        return false;
+    }
+
+    for (int index = 0; index < s_radio.candidate_count; ++index)
+    {
+        if (same_profile(s_radio.candidates[index].profile, profile))
+        {
+            if (origin == CandidateOrigin::Active)
+            {
+                s_radio.candidates[index].origin = CandidateOrigin::Active;
+            }
+            return false;
+        }
+    }
+
+    ProbeCandidate& candidate = s_radio.candidates[s_radio.candidate_count++];
+    candidate.profile = profile;
+    candidate.origin = origin;
+    return true;
+}
+
+AirProfile profile_from_meshtastic(const chat::meshtastic::RadioConfig& radio)
+{
+    AirProfile profile{};
+    profile.frequency_mhz = radio.freq_mhz;
+    profile.bw_khz = radio.bw_khz;
+    profile.sf = radio.sf;
+    profile.cr = radio.cr_denom;
+    profile.tx_power = radio.tx_power_dbm;
+    profile.preamble_len = radio.preamble_len;
+    profile.sync_word = radio.sync_word;
+    profile.crc_len = radio.crc_len;
+    return profile;
+}
+
+AirProfile profile_from_meshcore(const chat::MeshConfig& mesh)
+{
+    AirProfile profile{};
+    profile.frequency_mhz = mesh.meshcore_freq_mhz;
+    profile.bw_khz = mesh.meshcore_bw_khz;
+    profile.sf = std::clamp<uint8_t>(mesh.meshcore_sf, 5, 12);
+    profile.cr = std::clamp<uint8_t>(mesh.meshcore_cr, 5, 8);
+    profile.tx_power = mesh.tx_power;
+    profile.preamble_len = 16;
+    profile.sync_word = 0x12;
+    profile.crc_len = 2;
+
+    if (mesh.meshcore_region_preset > 0)
+    {
+        if (const auto* preset = chat::meshcore::findRegionPresetById(mesh.meshcore_region_preset))
+        {
+            profile.frequency_mhz = preset->freq_mhz;
+            profile.bw_khz = preset->bw_khz;
+            profile.sf = preset->sf;
+            profile.cr = preset->cr;
+            profile.tx_power = preset->tx_power_dbm;
+        }
+    }
+    return profile;
+}
+
+AirProfile profile_from_reticulum(const chat::MeshConfig& mesh)
+{
+    AirProfile profile{};
+    profile.frequency_mhz = mesh.override_frequency_mhz > 0.0f
+                                ? mesh.override_frequency_mhz
+                                : app::AppConfig::kRNodeDefaultFreqMHz;
+    profile.bw_khz = std::isfinite(mesh.bandwidth_khz) && mesh.bandwidth_khz > 0.0f
+                         ? mesh.bandwidth_khz
+                         : app::AppConfig::kRNodeDefaultBwKHz;
+    profile.sf = std::clamp<uint8_t>(mesh.spread_factor, 5, 12);
+    profile.cr = std::clamp<uint8_t>(mesh.coding_rate, 5, 8);
+    profile.tx_power = mesh.tx_power;
+    profile.sync_word = 0x12;
+    profile.crc_len = 2;
+    const uint32_t bandwidth_hz = static_cast<uint32_t>(std::round(profile.bw_khz * 1000.0f));
+    profile.preamble_len = chat::rnode::recommendPreambleSymbols(bandwidth_hz,
+                                                                 profile.sf,
+                                                                 profile.cr);
+    return profile;
+}
+
+void add_meshtastic_standard_candidates(const app::AppConfig& config)
+{
+    constexpr std::array<meshtastic_Config_LoRaConfig_ModemPreset, 9> kPresets = {
+        meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST,
+        meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW,
+        meshtastic_Config_LoRaConfig_ModemPreset_LONG_MODERATE,
+        meshtastic_Config_LoRaConfig_ModemPreset_LONG_TURBO,
+        meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_FAST,
+        meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_SLOW,
+        meshtastic_Config_LoRaConfig_ModemPreset_SHORT_FAST,
+        meshtastic_Config_LoRaConfig_ModemPreset_SHORT_SLOW,
+        meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO,
+    };
+
+    for (const auto preset : kPresets)
+    {
+        const chat::meshtastic::RadioConfig radio =
+            chat::meshtastic::deriveRadioConfigForModemPreset(config.meshtastic_config,
+                                                              preset);
+        (void)add_candidate(profile_from_meshtastic(radio), CandidateOrigin::Standard);
+    }
+}
+
+bool same_frequency_family(float lhs_mhz, float rhs_mhz)
+{
+    return std::fabs(lhs_mhz - rhs_mhz) <= 20.0f;
+}
+
+void add_meshcore_regional_candidates(const AirProfile& active_profile)
+{
+    size_t preset_count = 0;
+    const chat::meshcore::RegionPreset* presets =
+        chat::meshcore::getRegionPresetTable(&preset_count);
+    for (size_t index = 0; presets && index < preset_count; ++index)
+    {
+        const auto& preset = presets[index];
+        if (!same_frequency_family(active_profile.frequency_mhz, preset.freq_mhz))
         {
             continue;
         }
-        const float distance = frequency_mhz < region.freq_start_mhz
-                                   ? region.freq_start_mhz - frequency_mhz
-                                   : (frequency_mhz > region.freq_end_mhz
-                                          ? frequency_mhz - region.freq_end_mhz
-                                          : 0.0f);
-        if (!nearest || distance < nearest_distance)
-        {
-            nearest = &region;
-            nearest_distance = distance;
-        }
-    }
-    return nearest ? nearest
-                   : chat::meshtastic::findRegion(meshtastic_Config_LoRaConfig_RegionCode_CN);
-}
 
-void setup_band_plan(float start_mhz, float end_mhz, float bandwidth_khz)
-{
-    if (!std::isfinite(start_mhz) || !std::isfinite(end_mhz) || start_mhz <= 0.0f ||
-        end_mhz <= 0.0f)
-    {
-        start_mhz = kDefaultFreqStartMhz;
-        end_mhz = kDefaultFreqEndMhz;
+        AirProfile profile = active_profile;
+        profile.frequency_mhz = preset.freq_mhz;
+        profile.bw_khz = preset.bw_khz;
+        profile.sf = preset.sf;
+        profile.cr = preset.cr;
+        profile.tx_power = preset.tx_power_dbm;
+        (void)add_candidate(profile, CandidateOrigin::Regional);
     }
-    if (end_mhz < start_mhz)
-    {
-        std::swap(start_mhz, end_mhz);
-    }
-
-    const float safe_bw_khz = (std::isfinite(bandwidth_khz) && bandwidth_khz > 1.0f)
-                                  ? bandwidth_khz
-                                  : 125.0f;
-    const float half_bandwidth_mhz = safe_bw_khz / 2000.0f;
-    if ((end_mhz - start_mhz) > (2.0f * half_bandwidth_mhz))
-    {
-        start_mhz += half_bandwidth_mhz;
-        end_mhz -= half_bandwidth_mhz;
-    }
-
-    const float span_mhz = std::max(kStepQuantMhz, end_mhz - start_mhz);
-    float step_mhz = span_mhz / static_cast<float>(kTargetCandidateCount - 1);
-    step_mhz = std::max(kStepQuantMhz, std::ceil(step_mhz / kStepQuantMhz) * kStepQuantMhz);
-    int candidates = static_cast<int>(std::floor(span_mhz / step_mhz)) + 1;
-    while (candidates > kMaxCandidates)
-    {
-        step_mhz += kStepQuantMhz;
-        candidates = static_cast<int>(std::floor(span_mhz / step_mhz)) + 1;
-    }
-
-    s_band.freq_start_mhz = start_mhz;
-    s_band.freq_end_mhz = start_mhz + step_mhz * static_cast<float>(std::max(1, candidates - 1));
-    s_band.step_mhz = step_mhz;
-    s_band.candidate_count = std::max(2, candidates);
 }
 
 void setup_radio_context()
 {
     s_radio = {};
-    s_band = {};
 
     const app::AppConfig& config = app::configFacade().readConfig();
-    s_radio.protocol = config.mesh_protocol;
-    if (config.mesh_protocol == chat::MeshProtocol::Meshtastic)
+    s_radio.protocol = normalize_probe_protocol(config.mesh_protocol);
+    if (s_radio.protocol == chat::MeshProtocol::Meshtastic)
     {
         const chat::meshtastic::RadioConfig radio =
             chat::meshtastic::deriveRadioConfig(config.meshtastic_config);
         s_radio.supported_protocol = true;
-        s_radio.base_profile.bw_khz = radio.bw_khz;
-        s_radio.base_profile.sf = radio.sf;
-        s_radio.base_profile.cr = radio.cr_denom;
-        s_radio.base_profile.tx_power = radio.tx_power_dbm;
-        s_radio.base_profile.preamble_len = radio.preamble_len;
-        s_radio.base_profile.sync_word = radio.sync_word;
-        s_radio.base_profile.crc_len = radio.crc_len;
-
-        const auto* region = chat::meshtastic::findRegion(radio.region_code);
-        if (region)
-        {
-            setup_band_plan(region->freq_start_mhz, region->freq_end_mhz, radio.bw_khz);
-        }
-        else
-        {
-            setup_band_plan(kDefaultFreqStartMhz, kDefaultFreqEndMhz, radio.bw_khz);
-        }
+        s_radio.base_profile = profile_from_meshtastic(radio);
+        (void)add_candidate(s_radio.base_profile, CandidateOrigin::Active);
+        add_meshtastic_standard_candidates(config);
         return;
     }
 
-    if (config.mesh_protocol == chat::MeshProtocol::MeshCore)
+    if (s_radio.protocol == chat::MeshProtocol::MeshCore)
     {
-        const chat::MeshConfig& mesh = config.meshcore_config;
         s_radio.supported_protocol = true;
-        s_radio.base_profile.bw_khz = mesh.meshcore_bw_khz;
-        s_radio.base_profile.sf = std::clamp<uint8_t>(mesh.meshcore_sf, 5, 12);
-        s_radio.base_profile.cr = std::clamp<uint8_t>(mesh.meshcore_cr, 5, 8);
-        s_radio.base_profile.tx_power = mesh.tx_power;
-        s_radio.base_profile.preamble_len = 16;
-        s_radio.base_profile.sync_word = 0x12;
-        s_radio.base_profile.crc_len = 2;
-
-        float hint_frequency = mesh.meshcore_freq_mhz;
-        if (mesh.meshcore_region_preset > 0)
-        {
-            if (const auto* preset =
-                    chat::meshcore::findRegionPresetById(mesh.meshcore_region_preset))
-            {
-                hint_frequency = preset->freq_mhz;
-            }
-        }
-        if (const auto* region = find_region_for_frequency(hint_frequency))
-        {
-            setup_band_plan(region->freq_start_mhz, region->freq_end_mhz,
-                            s_radio.base_profile.bw_khz);
-        }
-        else
-        {
-            setup_band_plan(kDefaultFreqStartMhz, kDefaultFreqEndMhz,
-                            s_radio.base_profile.bw_khz);
-        }
+        s_radio.base_profile = profile_from_meshcore(config.meshcore_config);
+        (void)add_candidate(s_radio.base_profile, CandidateOrigin::Active);
+        add_meshcore_regional_candidates(s_radio.base_profile);
+        return;
     }
-}
 
-AirProfile current_candidate()
-{
-    AirProfile profile = s_radio.base_profile;
-    profile.frequency_mhz = candidate_frequency_mhz(s_state.candidate_index);
-    return profile;
+    if (s_radio.protocol == chat::MeshProtocol::Reticulum)
+    {
+        s_radio.supported_protocol = true;
+        s_radio.base_profile = profile_from_reticulum(config.reticulumConfig());
+        (void)add_candidate(s_radio.base_profile, CandidateOrigin::Active);
+    }
 }
 
 bool acquire_radio_runtime()
@@ -414,7 +638,7 @@ void release_radio_runtime()
 
 bool configure_current_candidate()
 {
-    const AirProfile profile = current_candidate();
+    const AirProfile& profile = current_candidate().profile;
     if (!platform::ui::lora::configure_receive(profile.frequency_mhz,
                                                receive_config_for(profile)))
     {
@@ -424,47 +648,215 @@ bool configure_current_candidate()
     return true;
 }
 
-bool validate_protocol_packet(const uint8_t* data, std::size_t size)
+bool resolve_meshtastic_channel(uint8_t channel_hash,
+                                uint8_t* out_key,
+                                std::size_t* out_key_len)
 {
-    if (!data || size == 0)
+    if (!out_key || !out_key_len)
     {
         return false;
+    }
+
+    const chat::MeshConfig& mesh = app::configFacade().readConfig().meshtastic_config;
+    const auto prepare_primary = [&mesh, out_key, out_key_len]() -> uint8_t
+    {
+        if (chat::meshtastic::isZeroKey(mesh.primary_key, sizeof(mesh.primary_key)))
+        {
+            chat::meshtastic::expandShortPsk(kMeshtasticDefaultPskIndex, out_key, out_key_len);
+        }
+        else
+        {
+            *out_key_len = chat::normalizeMeshtasticChannelKeyLen(
+                mesh.primary_key, sizeof(mesh.primary_key), mesh.primary_key_len);
+            std::memcpy(out_key, mesh.primary_key, *out_key_len);
+        }
+        return chat::meshtastic::computeChannelHash(
+            chat::meshtastic::primaryChannelName(mesh), out_key, *out_key_len);
+    };
+
+    const auto prepare_secondary = [&mesh, out_key, out_key_len]() -> uint8_t
+    {
+        if (chat::meshtastic::isZeroKey(mesh.secondary_key, sizeof(mesh.secondary_key)))
+        {
+            *out_key_len = 0;
+            return 0;
+        }
+        *out_key_len = chat::normalizeMeshtasticChannelKeyLen(
+            mesh.secondary_key, sizeof(mesh.secondary_key), mesh.secondary_key_len);
+        std::memcpy(out_key, mesh.secondary_key, *out_key_len);
+        return chat::meshtastic::computeChannelHash(
+            chat::meshtastic::secondaryChannelName(mesh), out_key, *out_key_len);
+    };
+
+    const uint8_t primary_hash = prepare_primary();
+    if (channel_hash == primary_hash)
+    {
+        return *out_key_len > 0;
+    }
+
+    const uint8_t secondary_hash = prepare_secondary();
+    return channel_hash == secondary_hash && *out_key_len > 0;
+}
+
+bool is_matching_meshtastic_ack(const chat::meshtastic::PacketHeaderWire& header,
+                                const uint8_t* cipher,
+                                std::size_t cipher_size)
+{
+    const ProbeVerification& verification = s_state.verification;
+    if (verification.kind != VerificationKind::MeshtasticAck ||
+        header.from != verification.target_node ||
+        header.to != app::appFacade().getSelfNodeId() ||
+        header.channel != verification.channel_hash ||
+        !cipher || cipher_size == 0)
+    {
+        return false;
+    }
+
+    std::size_t key_len = 0;
+    if (!resolve_meshtastic_channel(header.channel,
+                                    s_state.mt_key_scratch.data(),
+                                    &key_len))
+    {
+        return false;
+    }
+
+    std::size_t plaintext_size = s_state.plaintext_scratch.size();
+    if (!chat::meshtastic::decryptPayload(header,
+                                          cipher,
+                                          cipher_size,
+                                          s_state.mt_key_scratch.data(),
+                                          key_len,
+                                          s_state.plaintext_scratch.data(),
+                                          &plaintext_size))
+    {
+        return false;
+    }
+
+    s_state.mt_data_scratch = meshtastic_Data_init_zero;
+    pb_istream_t stream =
+        pb_istream_from_buffer(s_state.plaintext_scratch.data(), plaintext_size);
+    if (!pb_decode(&stream, meshtastic_Data_fields, &s_state.mt_data_scratch) ||
+        s_state.mt_data_scratch.portnum != meshtastic_PortNum_ROUTING_APP ||
+        s_state.mt_data_scratch.request_id != verification.ticket ||
+        s_state.mt_data_scratch.payload.size == 0)
+    {
+        return false;
+    }
+
+    s_state.mt_routing_scratch = meshtastic_Routing_init_zero;
+    pb_istream_t routing_stream = pb_istream_from_buffer(
+        s_state.mt_data_scratch.payload.bytes, s_state.mt_data_scratch.payload.size);
+    if (!pb_decode(&routing_stream, meshtastic_Routing_fields, &s_state.mt_routing_scratch))
+    {
+        return false;
+    }
+
+    return s_state.mt_routing_scratch.which_variant == meshtastic_Routing_error_reason_tag &&
+           s_state.mt_routing_scratch.error_reason == meshtastic_Routing_Error_NONE;
+}
+
+bool has_valid_meshtastic_data(const chat::meshtastic::PacketHeaderWire& header,
+                               const uint8_t* cipher,
+                               std::size_t cipher_size)
+{
+    if (!cipher || cipher_size == 0)
+    {
+        return false;
+    }
+
+    std::size_t key_len = 0;
+    if (!resolve_meshtastic_channel(header.channel,
+                                    s_state.mt_key_scratch.data(),
+                                    &key_len))
+    {
+        // Meshtastic's unauthenticated outer header is not protocol proof.
+        // Without a locally configured channel key the frame remains E1
+        // diagnostics only, never a selectable Protocol Probe result.
+        return false;
+    }
+
+    std::size_t plaintext_size = s_state.plaintext_scratch.size();
+    return chat::meshtastic::decryptAndValidateDataPayload(
+        header,
+        cipher,
+        cipher_size,
+        s_state.mt_key_scratch.data(),
+        key_len,
+        s_state.plaintext_scratch.data(),
+        &plaintext_size,
+        &s_state.mt_data_scratch);
+}
+
+PacketEvidence classify_protocol_packet(const uint8_t* data, std::size_t size)
+{
+    PacketEvidence evidence{};
+    if (!data || size == 0)
+    {
+        return evidence;
     }
 
     if (s_radio.protocol == chat::MeshProtocol::Meshtastic)
     {
         chat::meshtastic::PacketHeaderWire header{};
         std::size_t payload_size = s_state.protocol_scratch.size();
-        return chat::meshtastic::parseWirePacket(data,
-                                                 size,
-                                                 &header,
-                                                 s_state.protocol_scratch.data(),
-                                                 &payload_size) &&
-               header.id != 0 && header.from != 0 && payload_size > 0;
+        if (chat::meshtastic::parseWirePacket(data,
+                                              size,
+                                              &header,
+                                              s_state.protocol_scratch.data(),
+                                              &payload_size) &&
+            header.id != 0 && header.from != 0 && payload_size > 0 &&
+            has_valid_meshtastic_data(header,
+                                      s_state.protocol_scratch.data(),
+                                      payload_size))
+        {
+            evidence.level = is_matching_meshtastic_ack(
+                                 header, s_state.protocol_scratch.data(), payload_size)
+                                 ? EvidenceLevel::Confirmed
+                                 : EvidenceLevel::Observed;
+            evidence.source_node = header.from;
+            evidence.channel_hash = header.channel;
+        }
+        return evidence;
     }
 
     if (s_radio.protocol == chat::MeshProtocol::MeshCore)
     {
         chat::meshcore::ParsedPacket packet{};
-        return chat::meshcore::parsePacket(data, size, &packet) && packet.payload != nullptr &&
-               packet.payload_len > 0;
+        if (chat::meshcore::parsePacket(data, size, &packet) &&
+            chat::meshcore::isPlausibleProtocolPacket(packet))
+        {
+            evidence.level = EvidenceLevel::Observed;
+            chat::meshcore::DecodedDiscoverResponse response{};
+            if (s_state.verification.kind == VerificationKind::MeshCoreDiscover &&
+                chat::meshcore::decodeDiscoverResponse(
+                    packet.payload, packet.payload_len, &response) &&
+                response.valid && response.tag == s_state.verification.ticket)
+            {
+                evidence.level = EvidenceLevel::Confirmed;
+            }
+        }
+        return evidence;
     }
 
-    return false;
-}
+    if (s_radio.protocol == chat::MeshProtocol::Reticulum)
+    {
+        chat::reticulum::ParsedPacket packet{};
+        if (chat::reticulum::parsePacket(data, size, &packet) && packet.valid &&
+            chat::reticulum::isPlausibleDiscoveryPacket(packet))
+        {
+            evidence.level = EvidenceLevel::Observed;
+        }
+        return evidence;
+    }
 
-bool same_profile(const AirProfile& lhs, const AirProfile& rhs)
-{
-    return std::fabs(lhs.frequency_mhz - rhs.frequency_mhz) < 0.0005f &&
-           std::fabs(lhs.bw_khz - rhs.bw_khz) < 0.01f && lhs.sf == rhs.sf &&
-           lhs.cr == rhs.cr && lhs.preamble_len == rhs.preamble_len &&
-           lhs.sync_word == rhs.sync_word && lhs.crc_len == rhs.crc_len;
+    return evidence;
 }
 
 void restore_page_focus();
 
 void record_observation(const AirProfile& profile,
-                        const platform::ui::lora::ReceivedPacket& packet)
+                        const platform::ui::lora::ReceivedPacket& packet,
+                        const PacketEvidence& evidence)
 {
     int observation_index = -1;
     bool is_new_observation = false;
@@ -490,6 +882,12 @@ void record_observation(const AirProfile& profile,
     }
 
     ProbeObservation& observation = s_state.observations[observation_index];
+    observation.level = std::max(observation.level, evidence.level);
+    if (evidence.source_node != 0)
+    {
+        observation.last_mt_source = evidence.source_node;
+        observation.last_mt_channel_hash = evidence.channel_hash;
+    }
     observation.evidence_count++;
     observation.last_seen_ms = sys::millis_now();
     observation.last_rssi_dbm = packet.rssi_dbm;
@@ -507,14 +905,174 @@ void record_observation(const AirProfile& profile,
 void stop_probe()
 {
     s_state.scanning = false;
+    s_state.verification = {};
     release_radio_runtime();
+}
+
+uint32_t make_verification_ticket()
+{
+    const uint32_t node_id = app::appFacade().getSelfNodeId();
+    uint32_t ticket = sys::millis_now() ^ node_id ^
+                      (static_cast<uint32_t>(s_state.candidate_index + 1) * 0x45D9F3BU);
+    return ticket == 0 ? 1 : ticket;
+}
+
+bool begin_meshcore_discover_verification()
+{
+    const chat::MeshConfig& mesh = app::configFacade().readConfig().meshcore_config;
+    if (!mesh.tx_enabled)
+    {
+        return false;
+    }
+
+    chat::meshcore::MeshCoreDiscoverRequestBuildInfo request{};
+    request.tag = make_verification_ticket();
+    request.type_filter = chat::meshcore::kMeshCoreDiscoverTypeFilterAll;
+
+    std::size_t payload_size = s_state.protocol_scratch.size();
+    if (!chat::meshcore::buildDiscoverRequestControlPayload(request,
+                                                            s_state.protocol_scratch.data(),
+                                                            s_state.protocol_scratch.size(),
+                                                            &payload_size))
+    {
+        return false;
+    }
+
+    const chat::meshcore::PayloadProfile profile =
+        mesh.meshcore_send_profile == chat::MeshCorePayloadSendProfile::V1Only
+            ? chat::meshcore::PayloadProfile::V1
+            : chat::meshcore::PayloadProfile::V2;
+    std::size_t frame_size = s_state.transmit_scratch.size();
+    if (!chat::meshcore::buildFrameNoTransport(profile,
+                                               kMeshCoreDirectRoute,
+                                               chat::meshcore::kMeshCorePayloadTypeControl,
+                                               nullptr,
+                                               0,
+                                               s_state.protocol_scratch.data(),
+                                               payload_size,
+                                               s_state.transmit_scratch.data(),
+                                               s_state.transmit_scratch.size(),
+                                               &frame_size) ||
+        !platform::ui::lora::transmit_packet(s_state.transmit_scratch.data(), frame_size))
+    {
+        return false;
+    }
+
+    s_state.verification.kind = VerificationKind::MeshCoreDiscover;
+    s_state.verification.candidate_index = s_state.candidate_index;
+    s_state.verification.ticket = request.tag;
+    s_state.verification.started_ms = sys::millis_now();
+    s_state.verification.deadline_ms =
+        s_state.verification.started_ms + meshcore_discover_response_window_ms(current_candidate().profile);
+    return true;
+}
+
+const ProbeObservation* find_meshtastic_observation(const AirProfile& profile)
+{
+    for (int index = 0; index < s_state.observation_count; ++index)
+    {
+        const ProbeObservation& observation = s_state.observations[index];
+        if (same_profile(observation.profile, profile) && observation.last_mt_source != 0)
+        {
+            return &observation;
+        }
+    }
+    return nullptr;
+}
+
+bool begin_meshtastic_ack_verification(const ProbeObservation& observation)
+{
+    const app::AppConfig& config = app::configFacade().readConfig();
+    const uint32_t self_node = app::appFacade().getSelfNodeId();
+    if (self_node == 0 || !config.meshtastic_config.tx_enabled)
+    {
+        return false;
+    }
+
+    std::size_t key_len = 0;
+    if (!resolve_meshtastic_channel(observation.last_mt_channel_hash,
+                                    s_state.mt_key_scratch.data(),
+                                    &key_len))
+    {
+        return false;
+    }
+
+    // Private-app payload keeps the packet outside the user-visible text and
+    // NodeInfo paths while still requesting the normal routing acknowledgement.
+    constexpr std::array<uint8_t, 6> kProbeAppData = {0x08, 0x80, 0x02, 0x12, 0x01, 0x00};
+    const uint32_t ticket = make_verification_ticket();
+    std::size_t wire_size = s_state.transmit_scratch.size();
+    const uint8_t hop_limit = config.meshtastic_config.hop_limit > 0
+                                  ? config.meshtastic_config.hop_limit
+                                  : 1;
+    if (!chat::meshtastic::buildWirePacket(kProbeAppData.data(),
+                                           kProbeAppData.size(),
+                                           self_node,
+                                           ticket,
+                                           observation.last_mt_source,
+                                           observation.last_mt_channel_hash,
+                                           hop_limit,
+                                           true,
+                                           s_state.mt_key_scratch.data(),
+                                           key_len,
+                                           s_state.transmit_scratch.data(),
+                                           &wire_size) ||
+        !platform::ui::lora::transmit_packet(s_state.transmit_scratch.data(), wire_size))
+    {
+        return false;
+    }
+
+    s_state.verification.kind = VerificationKind::MeshtasticAck;
+    s_state.verification.candidate_index = s_state.candidate_index;
+    s_state.verification.ticket = ticket;
+    s_state.verification.target_node = observation.last_mt_source;
+    s_state.verification.channel_hash = observation.last_mt_channel_hash;
+    s_state.verification.started_ms = sys::millis_now();
+    s_state.verification.deadline_ms =
+        s_state.verification.started_ms + kMeshtasticAckWindowMs;
+    return true;
+}
+
+bool maybe_start_verification(uint32_t now_ms)
+{
+    if (s_state.verification.kind != VerificationKind::None ||
+        s_state.candidate_index < 0 || s_state.candidate_index >= active_candidate_count() ||
+        s_state.verification_attempted[s_state.candidate_index] ||
+        profile_is_confirmed(current_candidate().profile))
+    {
+        return false;
+    }
+
+    if (s_radio.protocol == chat::MeshProtocol::MeshCore)
+    {
+        if ((now_ms - s_state.candidate_started_ms) < kMeshCorePassiveListenMs)
+        {
+            return false;
+        }
+        s_state.verification_attempted[s_state.candidate_index] = true;
+        return begin_meshcore_discover_verification();
+    }
+
+    if (s_radio.protocol == chat::MeshProtocol::Meshtastic)
+    {
+        const ProbeObservation* observation = find_meshtastic_observation(current_candidate().profile);
+        if (!observation)
+        {
+            return false;
+        }
+        s_state.verification_attempted[s_state.candidate_index] = true;
+        return begin_meshtastic_ack_verification(*observation);
+    }
+
+    return false;
 }
 
 void start_probe()
 {
     s_state.applied = false;
     s_state.radio_error = false;
-    if (!s_radio.supported_protocol || !platform::ui::lora::is_supported() ||
+    if (!s_radio.supported_protocol || active_candidate_count() == 0 ||
+        !platform::ui::lora::is_supported() ||
         !acquire_radio_runtime())
     {
         s_state.radio_error = true;
@@ -524,6 +1082,8 @@ void start_probe()
     s_state.candidate_index = 0;
     s_state.checked_in_pass = 0;
     s_state.candidate_started_ms = 0;
+    s_state.verification = {};
+    s_state.verification_attempted.fill(false);
     if (!configure_current_candidate())
     {
         s_state.radio_error = true;
@@ -540,7 +1100,7 @@ void process_scan_step()
         return;
     }
 
-    for (int packet_index = 0; packet_index < 2; ++packet_index)
+    for (int packet_index = 0; packet_index < 4; ++packet_index)
     {
         platform::ui::lora::ReceivedPacket packet{};
         if (!platform::ui::lora::poll_received_packet(s_state.receive_scratch.data(),
@@ -549,14 +1109,36 @@ void process_scan_step()
         {
             break;
         }
-        if (validate_protocol_packet(s_state.receive_scratch.data(), packet.size))
+        // RadioLib only yields CRC-passing frames here. Keep that diagnostic
+        // separate from protocol evidence, which needs a protocol parser.
+        s_state.crc_frame_count++;
+        const PacketEvidence evidence =
+            classify_protocol_packet(s_state.receive_scratch.data(), packet.size);
+        if (evidence.level != EvidenceLevel::None)
         {
-            record_observation(current_candidate(), packet);
+            record_observation(current_candidate().profile, packet, evidence);
+            if (evidence.level == EvidenceLevel::Confirmed)
+            {
+                s_state.verification = {};
+            }
         }
     }
 
     const uint32_t now = sys::millis_now();
-    if ((now - s_state.candidate_started_ms) < kCandidateDwellMs)
+    if (s_state.verification.kind != VerificationKind::None)
+    {
+        if (static_cast<int32_t>(now - s_state.verification.deadline_ms) < 0)
+        {
+            return;
+        }
+        s_state.verification = {};
+    }
+
+    if (maybe_start_verification(now))
+    {
+        return;
+    }
+    if ((now - s_state.candidate_started_ms) < candidate_dwell_ms(current_candidate()))
     {
         return;
     }
@@ -569,6 +1151,9 @@ void process_scan_step()
         s_state.checked_in_pass = 0;
         s_state.completed_passes++;
     }
+    // An unconfirmed profile gets one low-rate active attempt per full pass.
+    // Confirmed profiles are excluded by maybe_start_verification().
+    s_state.verification_attempted[s_state.candidate_index] = false;
     if (!configure_current_candidate())
     {
         s_state.radio_error = true;
@@ -583,7 +1168,7 @@ void format_profile_params(const AirProfile& profile, char* buffer, std::size_t 
     {
         snprintf(buffer,
                  buffer_size,
-                 "BW %.0fk  SF%u  CR4/%u",
+                 "%.0fK SF%02u C4/%u",
                  static_cast<double>(rounded_bandwidth),
                  static_cast<unsigned>(profile.sf),
                  static_cast<unsigned>(profile.cr));
@@ -591,10 +1176,25 @@ void format_profile_params(const AirProfile& profile, char* buffer, std::size_t 
     }
     snprintf(buffer,
              buffer_size,
-             "BW %.1fk  SF%u  CR4/%u",
+             "%.1fK SF%02u C4/%u",
              static_cast<double>(profile.bw_khz),
              static_cast<unsigned>(profile.sf),
              static_cast<unsigned>(profile.cr));
+}
+
+const char* evidence_state(EvidenceLevel level)
+{
+    return level == EvidenceLevel::Confirmed ? "CONFIRMED" : "OBSERVED";
+}
+
+uint32_t total_protocol_evidence()
+{
+    uint32_t total = 0;
+    for (int index = 0; index < s_state.observation_count; ++index)
+    {
+        total += s_state.observations[index].evidence_count;
+    }
+    return total;
 }
 
 void refresh_rows()
@@ -618,12 +1218,19 @@ void refresh_rows()
         const ProbeObservation& observation = s_state.observations[observation_index];
         char primary[32];
         char secondary[40];
+        char state[16];
         char count[16];
-        snprintf(primary, sizeof(primary), "%.3f MHz", observation.profile.frequency_mhz);
+        snprintf(primary,
+                 sizeof(primary),
+                 "%s %.3f",
+                 protocol_tag(s_radio.protocol),
+                 observation.profile.frequency_mhz);
         format_profile_params(observation.profile, secondary, sizeof(secondary));
+        snprintf(state, sizeof(state), "%s", evidence_state(observation.level));
         snprintf(count, sizeof(count), "x%lu", static_cast<unsigned long>(observation.evidence_count));
         lv_label_set_text(s_ui.result_primary[visual_index], primary);
         lv_label_set_text(s_ui.result_secondary[visual_index], secondary);
+        lv_label_set_text(s_ui.result_state[visual_index], state);
         lv_label_set_text(s_ui.result_count[visual_index], count);
 
         const bool selected = observation_index == clamp_observation_index(s_state.selected_observation);
@@ -639,6 +1246,12 @@ void refresh_rows()
         lv_obj_set_style_text_color(s_ui.result_secondary[visual_index],
                                     lv_color_hex(selected ? kColorText : kColorTextDim),
                                     0);
+        lv_obj_set_style_text_color(
+            s_ui.result_state[visual_index],
+            lv_color_hex(selected ? kColorText
+                                  : (observation.level == EvidenceLevel::Confirmed ? kColorOk
+                                                                                   : kColorInfo)),
+            0);
         lv_obj_set_style_text_color(s_ui.result_count[visual_index],
                                     lv_color_hex(selected ? kColorText : kColorOk),
                                     0);
@@ -650,7 +1263,11 @@ void refresh_rows()
         {
             lv_obj_clear_flag(s_ui.empty_label, LV_OBJ_FLAG_HIDDEN);
             ::ui::i18n::set_label_text(s_ui.empty_label,
-                                       s_state.scanning ? "NO VALIDATED PACKETS" : "NO OBSERVED PROFILES");
+                                       s_state.scanning
+                                           ? "NO PROTOCOL EVIDENCE YET"
+                                           : (s_state.completed_passes > 0
+                                                  ? "NO EVIDENCE IN THIS PASS"
+                                                  : "READY TO PROBE KNOWN PROFILES"));
         }
         else
         {
@@ -680,22 +1297,53 @@ void refresh_status()
     }
     else if (s_state.applied)
     {
-        snprintf(text, sizeof(text), "APPLIED TO MESH");
+        snprintf(text, sizeof(text), "APPLIED PROTOCOL PROFILE");
         color = kColorOk;
     }
-    else if (s_state.scanning)
+    else if (s_state.verification.kind == VerificationKind::MeshCoreDiscover)
     {
         snprintf(text,
                  sizeof(text),
-                 "LISTENING  %d/%d  PASS %lu",
-                 s_state.checked_in_pass + 1,
-                 active_candidate_count(),
-                 static_cast<unsigned long>(s_state.completed_passes + 1));
+                 "MC TX %.3f",
+                 current_candidate().profile.frequency_mhz);
+        color = kColorInfo;
+    }
+    else if (s_state.verification.kind == VerificationKind::MeshtasticAck)
+    {
+        snprintf(text,
+                 sizeof(text),
+                 "MT ACK %.3f",
+                 current_candidate().profile.frequency_mhz);
+        color = kColorInfo;
+    }
+    else if (s_state.scanning)
+    {
+        if (s_radio.protocol == chat::MeshProtocol::Reticulum &&
+            total_protocol_evidence() > 0)
+        {
+            snprintf(text,
+                     sizeof(text),
+                     "RT TRAFFIC %lu",
+                     static_cast<unsigned long>(total_protocol_evidence()));
+        }
+        else
+        {
+            const AirProfile& profile = current_candidate().profile;
+            snprintf(text,
+                     sizeof(text),
+                     "%s %.3f B%.0f S%u %d/%d",
+                     protocol_tag(s_radio.protocol),
+                     profile.frequency_mhz,
+                     profile.bw_khz,
+                     static_cast<unsigned>(profile.sf),
+                     s_state.candidate_index + 1,
+                     active_candidate_count());
+        }
         color = kColorInfo;
     }
     else
     {
-        snprintf(text, sizeof(text), "READY  1 SF LANE");
+        snprintf(text, sizeof(text), "READY TO PROBE KNOWN PROFILES");
     }
     lv_label_set_text(s_ui.state_label, text);
     lv_obj_set_style_text_color(s_ui.state_label, lv_color_hex(color), 0);
@@ -704,10 +1352,9 @@ void refresh_status()
     {
         snprintf(text,
                  sizeof(text),
-                 "%d/%d PROFILES  %d OBSERVED",
-                 s_state.scanning ? s_state.checked_in_pass + 1 : 0,
-                 active_candidate_count(),
-                 s_state.observation_count);
+                 "%d FOUND  %lu PROTOCOL FRAMES",
+                 s_state.observation_count,
+                 static_cast<unsigned long>(total_protocol_evidence()));
         lv_label_set_text(s_ui.progress_label, text);
     }
 
@@ -806,7 +1453,7 @@ bool apply_selected_profile()
 
     app::IAppFacade& app_ctx = app::appFacade();
     auto edit = app_ctx.beginConfigEdit();
-    if (!edit || edit.config().mesh_protocol != s_radio.protocol)
+    if (!edit || normalize_probe_protocol(edit.config().mesh_protocol) != s_radio.protocol)
     {
         s_state.radio_error = true;
         return false;
@@ -831,6 +1478,16 @@ bool apply_selected_profile()
         mesh.meshcore_sf = profile.sf;
         mesh.meshcore_cr = profile.cr;
     }
+    else if (s_radio.protocol == chat::MeshProtocol::Reticulum)
+    {
+        chat::MeshConfig& mesh = edit.config().reticulumConfig();
+        mesh.use_preset = false;
+        mesh.bandwidth_khz = profile.bw_khz;
+        mesh.spread_factor = profile.sf;
+        mesh.coding_rate = profile.cr;
+        mesh.override_frequency_mhz = profile.frequency_mhz;
+        mesh.frequency_offset_mhz = 0.0f;
+    }
     else
     {
         return false;
@@ -838,6 +1495,9 @@ bool apply_selected_profile()
 
     edit.commit(app::AppConfigChangeSet::mesh());
     app_ctx.applyMeshConfig();
+    // The next manual probe must start from the profile just committed, not
+    // from the candidate queue captured when this page was entered.
+    setup_radio_context();
     s_state.applied = true;
     s_state.radio_error = false;
     return true;
@@ -869,8 +1529,10 @@ void open_confirmation()
     lv_obj_set_style_pad_all(s_ui.confirmation, 0, 0);
     lv_obj_clear_flag(s_ui.confirmation, LV_OBJ_FLAG_SCROLLABLE);
 
-    const lv_coord_t panel_w = s_layout.pager ? 236 : 340;
-    const lv_coord_t panel_h = s_layout.pager ? 126 : 168;
+    const lv_coord_t requested_panel_w = s_layout.pager ? 236 : 340;
+    const lv_coord_t panel_w =
+        std::min<lv_coord_t>(requested_panel_w, s_layout.screen_w - (s_layout.compact ? 20 : 32));
+    const lv_coord_t panel_h = s_layout.pager ? 126 : (s_layout.compact ? 148 : 168);
     lv_obj_t* panel = lv_obj_create(s_ui.confirmation);
     lv_obj_set_size(panel, panel_w, panel_h);
     lv_obj_center(panel);
@@ -879,11 +1541,11 @@ void open_confirmation()
     lv_obj_set_style_border_width(panel, 2, 0);
     lv_obj_set_style_border_color(panel, lv_color_hex(kColorAmberDark), 0);
     lv_obj_set_style_radius(panel, 8, 0);
-    lv_obj_set_style_pad_all(panel, s_layout.pager ? 8 : 14, 0);
+    lv_obj_set_style_pad_all(panel, s_layout.compact ? 8 : 14, 0);
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* title = lv_label_create(panel);
-    ::ui::i18n::set_label_text(title, "APPLY OBSERVED PROFILE?");
+    ::ui::i18n::set_label_text(title, "APPLY PROTOCOL PROFILE?");
     lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(kColorText), 0);
     lv_obj_set_pos(title, 8, 8);
@@ -892,7 +1554,11 @@ void open_confirmation()
         s_state.observations[clamp_observation_index(s_state.selected_observation)];
     char frequency[32];
     char params[40];
-    snprintf(frequency, sizeof(frequency), "%.3f MHz", observation.profile.frequency_mhz);
+    snprintf(frequency,
+             sizeof(frequency),
+             "%s %.3f MHz",
+             protocol_tag(s_radio.protocol),
+             observation.profile.frequency_mhz);
     format_profile_params(observation.profile, params, sizeof(params));
 
     lv_obj_t* detail = lv_label_create(panel);
@@ -907,8 +1573,21 @@ void open_confirmation()
     lv_obj_set_style_text_color(detail_params, lv_color_hex(kColorTextDim), 0);
     lv_obj_set_pos(detail_params, 8, 50);
 
-    const lv_coord_t button_y = panel_h - (s_layout.pager ? 32 : 46);
-    const lv_coord_t button_h = s_layout.pager ? 24 : 34;
+    lv_obj_t* evidence = lv_label_create(panel);
+    ::ui::i18n::set_label_text(evidence,
+                               observation.level == EvidenceLevel::Confirmed
+                                   ? "CONFIRMED BY PROTOCOL RESPONSE"
+                                   : "OBSERVED VIA PROTOCOL FRAME");
+    lv_obj_set_style_text_font(evidence, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(evidence,
+                                lv_color_hex(observation.level == EvidenceLevel::Confirmed
+                                                 ? kColorOk
+                                                 : kColorInfo),
+                                0);
+    lv_obj_set_pos(evidence, 8, 69);
+
+    const lv_coord_t button_y = panel_h - (s_layout.compact ? 32 : 46);
+    const lv_coord_t button_h = s_layout.compact ? 24 : 34;
     const lv_coord_t button_w = (panel_w - 24) / 2;
     s_ui.confirm_cancel = lv_btn_create(panel);
     lv_obj_set_pos(s_ui.confirm_cancel, 8, button_y);
@@ -1144,7 +1823,7 @@ void build_topbar(lv_obj_t* root)
     ::ui::widgets::TopBarConfig config{};
     config.height = s_layout.topbar_h;
     ::ui::widgets::top_bar_init(s_ui.top_bar, root, config);
-    ::ui::widgets::top_bar_set_title(s_ui.top_bar, ::ui::i18n::tr("PACKET PROBE"));
+    ::ui::widgets::top_bar_set_title(s_ui.top_bar, ::ui::i18n::tr("PROTOCOL PROBE"));
     ::ui::widgets::top_bar_set_back_callback(s_ui.top_bar, top_bar_back_requested, nullptr);
     if (s_ui.top_bar.container)
     {
@@ -1184,22 +1863,16 @@ void build_work_area(lv_obj_t* root)
     lv_obj_set_style_pad_all(s_ui.content_area, 0, 0);
     lv_obj_clear_flag(s_ui.content_area, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_ui.observed_label = create_text(s_ui.content_area,
-                                      "OBSERVED PARAMETERS",
-                                      &lv_font_montserrat_14,
-                                      kColorText,
-                                      0,
-                                      s_layout.pager ? 7 : 12);
     s_ui.state_label = create_text(s_ui.content_area,
-                                   "READY  1 SF LANE",
+                                   "READY TO PROBE KNOWN PROFILES",
                                    &lv_font_montserrat_12,
                                    kColorTextDim,
                                    0,
-                                   s_layout.pager ? 25 : 34);
+                                   s_layout.compact ? 7 : 10);
 
-    const lv_coord_t row_y = s_layout.pager ? 43 : 62;
-    const lv_coord_t row_h = s_layout.pager ? 24 : 40;
-    const lv_coord_t row_gap = s_layout.pager ? 3 : 8;
+    const lv_coord_t row_y = s_layout.compact ? 28 : 34;
+    const lv_coord_t row_h = s_layout.pager ? 24 : (s_layout.compact ? 30 : 44);
+    const lv_coord_t row_gap = s_layout.pager ? 3 : (s_layout.compact ? 4 : 6);
     for (int index = 0; index < kMaxObservations; ++index)
     {
         lv_obj_t* row = lv_btn_create(s_ui.content_area);
@@ -1219,38 +1892,47 @@ void build_work_area(lv_obj_t* root)
         s_ui.result_rows[index] = row;
 
         s_ui.result_primary[index] = create_text(row,
-                                                 "---.--- MHz",
-                                                 &lv_font_montserrat_14,
+                                                 "MT ---.---",
+                                                 &lv_font_montserrat_12,
                                                  kColorText,
                                                  6,
-                                                 s_layout.pager ? 1 : 5);
+                                                 s_layout.pager ? 4 : (s_layout.compact ? 2 : 5));
         s_ui.result_secondary[index] = create_text(row,
-                                                   "BW ---  SF--  CR--",
+                                                   "---K SF-- C4/-",
                                                    &lv_font_montserrat_12,
                                                    kColorTextDim,
-                                                   s_layout.pager ? 118 : 160,
-                                                   s_layout.pager ? 4 : 11);
+                                                   s_layout.pager ? 90 : 6,
+                                                   s_layout.pager ? 4 : (s_layout.compact ? 15 : 22));
+        s_ui.result_state[index] = create_text(row,
+                                               "OBSERVED",
+                                               &lv_font_montserrat_12,
+                                               kColorInfo,
+                                               s_layout.pager ? s_layout.content_w - 164
+                                                              : s_layout.content_w -
+                                                                    (s_layout.compact ? 96 : 92),
+                                               s_layout.pager ? 4 : 5);
         s_ui.result_count[index] = create_text(row,
                                                "x0",
                                                &lv_font_montserrat_12,
                                                kColorOk,
-                                               s_layout.content_w - (s_layout.pager ? 31 : 45),
-                                               s_layout.pager ? 4 : 11);
+                                               s_layout.content_w -
+                                                   (s_layout.pager ? 31 : (s_layout.compact ? 28 : 45)),
+                                               s_layout.pager ? 4 : (s_layout.compact ? 5 : 22));
         lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN);
     }
 
     s_ui.empty_label = create_text(s_ui.content_area,
-                                   "NO OBSERVED PROFILES",
+                                   "READY TO PROBE KNOWN PROFILES",
                                    &lv_font_montserrat_12,
                                    kColorTextDim,
                                    0,
                                    row_y + 7);
     s_ui.progress_label = create_text(s_ui.content_area,
-                                      "0/70 PROFILES  0 OBSERVED",
+                                      "0 FOUND  0 PROTOCOL FRAMES",
                                       &lv_font_montserrat_12,
                                       kColorTextDim,
                                       0,
-                                      work_height - (s_layout.pager ? 18 : 26));
+                                      work_height - (s_layout.compact ? 18 : 26));
 }
 
 lv_obj_t* create_bottom_control(lv_obj_t* parent,
@@ -1300,7 +1982,7 @@ void build_bottom_bar(lv_obj_t* root)
     lv_obj_set_style_pad_all(s_ui.bottom_bar, 0, 0);
     lv_obj_clear_flag(s_ui.bottom_bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    const lv_coord_t gap = s_layout.pager ? 4 : 8;
+    const lv_coord_t gap = s_layout.compact ? 4 : 8;
     const lv_coord_t available = s_layout.screen_w - (gap * 5);
     const lv_coord_t first_width = (available * 30) / 100;
     const lv_coord_t action_width = (available - first_width) / 3;
@@ -1408,7 +2090,6 @@ void ui_energy_sweep_exit(lv_obj_t* parent)
     }
     s_state = {};
     s_radio = {};
-    s_band = {};
     s_host = nullptr;
 }
 

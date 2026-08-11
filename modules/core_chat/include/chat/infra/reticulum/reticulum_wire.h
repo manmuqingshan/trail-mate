@@ -131,6 +131,10 @@ void computeTruncatedPacketHash(const uint8_t* raw_packet, size_t len,
 uint32_t nodeIdFromDestinationHash(const uint8_t destination_hash[kTruncatedHashSize]);
 
 bool parsePacket(const uint8_t* data, size_t len, ParsedPacket* out_packet);
+/// Returns true only for Reticulum control/announce frames that carry enough
+/// self-consistent wire evidence to identify a protocol profile without a
+/// locally held destination identity.
+bool isPlausibleDiscoveryPacket(const ParsedPacket& packet);
 bool buildHeader1Packet(PacketType packet_type,
                         DestinationType destination_type,
                         PacketContext context,

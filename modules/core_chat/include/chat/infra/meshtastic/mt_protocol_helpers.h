@@ -28,6 +28,17 @@ bool hasValidPosition(const meshtastic_Position& pos);
 void expandShortPsk(uint8_t index, uint8_t* out, size_t* out_len);
 bool isZeroKey(const uint8_t* key, size_t len);
 uint8_t computeChannelHash(const char* name, const uint8_t* key, size_t key_len);
+// Decrypts a channel-protected packet and accepts only a concrete Meshtastic
+// Data payload with a supported, non-zero port number. Callers provide both
+// scratch buffers so embedded receive paths do not allocate on task stacks.
+bool decryptAndValidateDataPayload(const PacketHeaderWire& header,
+                                   const uint8_t* cipher,
+                                   size_t cipher_len,
+                                   const uint8_t* psk,
+                                   size_t psk_len,
+                                   uint8_t* plaintext_scratch,
+                                   size_t* inout_plaintext_len,
+                                   meshtastic_Data* out_data);
 std::string toHex(const uint8_t* data, size_t len, size_t max_len = 64);
 uint8_t computeHopsAway(uint8_t flags);
 void insertTraceRouteUnknownHops(uint8_t flags,

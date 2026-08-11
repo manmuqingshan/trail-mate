@@ -886,6 +886,20 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_meshtastic_runtime_smoke
              COMMAND trailmate_meshtastic_runtime_smoke)
 
+    add_executable(trailmate_meshtastic_radio_config_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_meshtastic_radio_config.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshtastic/mt_radio_config.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshtastic/mt_region.cpp")
+    target_include_directories(trailmate_meshtastic_radio_config_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/generated"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/third_party/nanopb")
+    target_compile_features(trailmate_meshtastic_radio_config_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_meshtastic_radio_config_smoke
+             COMMAND trailmate_meshtastic_radio_config_smoke)
+
     add_executable(trailmate_meshtastic_node_payload_smoke
         "${TRAIL_MATE_REPO_ROOT}/apps/linux_uconsole_gtk/tests/uconsole_meshtastic_node_payload_smoke.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/meshtastic/mt_node_payload.cpp"

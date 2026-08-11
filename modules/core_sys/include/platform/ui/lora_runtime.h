@@ -32,6 +32,7 @@ bool is_supported();
 bool acquire();
 bool is_online();
 bool configure_receive(float freq_mhz, const ReceiveConfig& config);
+bool transmit_packet(const uint8_t* data, std::size_t size);
 bool poll_received_packet(uint8_t* buffer, std::size_t capacity, ReceivedPacket* out_packet);
 float read_instant_rssi();
 void release();

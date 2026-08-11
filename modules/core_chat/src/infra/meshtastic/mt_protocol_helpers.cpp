@@ -186,6 +186,45 @@ uint8_t computeChannelHash(const char* name, const uint8_t* key, size_t key_len)
     return h;
 }
 
+bool decryptAndValidateDataPayload(const PacketHeaderWire& header,
+                                   const uint8_t* cipher,
+                                   size_t cipher_len,
+                                   const uint8_t* psk,
+                                   size_t psk_len,
+                                   uint8_t* plaintext_scratch,
+                                   size_t* inout_plaintext_len,
+                                   meshtastic_Data* out_data)
+{
+    if (!cipher || cipher_len == 0 || !psk || psk_len == 0 || !plaintext_scratch ||
+        !inout_plaintext_len || !out_data)
+    {
+        return false;
+    }
+
+    if (!decryptPayload(header,
+                        cipher,
+                        cipher_len,
+                        psk,
+                        psk_len,
+                        plaintext_scratch,
+                        inout_plaintext_len))
+    {
+        return false;
+    }
+
+    *out_data = meshtastic_Data_init_zero;
+    pb_istream_t stream =
+        pb_istream_from_buffer(plaintext_scratch, *inout_plaintext_len);
+    if (!pb_decode(&stream, meshtastic_Data_fields, out_data))
+    {
+        return false;
+    }
+
+    const uint32_t portnum = static_cast<uint32_t>(out_data->portnum);
+    return portnum > static_cast<uint32_t>(meshtastic_PortNum_UNKNOWN_APP) &&
+           portnum <= static_cast<uint32_t>(meshtastic_PortNum_MAX);
+}
+
 std::string toHex(const uint8_t* data, size_t len, size_t max_len)
 {
     if (!data || len == 0)

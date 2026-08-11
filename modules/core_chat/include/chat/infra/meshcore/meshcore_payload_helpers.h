@@ -132,6 +132,9 @@ bool isPeerCipherShape(size_t payload_len);
 bool isPeerCipherShape(PayloadProfile profile, size_t payload_len);
 bool isAnonReqCipherShape(size_t payload_len);
 bool isAnonReqCipherShape(PayloadProfile profile, size_t payload_len);
+/// Checks whether a supported MeshCore payload has a protocol-specific wire
+/// shape without requiring a locally held key.
+bool isPlausibleProtocolPacket(const ParsedPacket& packet);
 bool buildFrameNoTransport(uint8_t route_type, uint8_t payload_type,
                            const uint8_t* path, size_t path_len,
                            const uint8_t* payload, size_t payload_len,

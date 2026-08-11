@@ -39,6 +39,7 @@ constexpr size_t kHeader1Size = 2 + kTruncatedHashSize + 1;
 constexpr size_t kHeader2Size = 2 + kTruncatedHashSize + kTruncatedHashSize + 1;
 constexpr uint8_t kHeaderType1 = 0x00;
 constexpr uint8_t kHeaderType2 = 0x01;
+constexpr uint8_t kInterfaceAccessCodeFlag = 0x80;
 
 #if defined(TRAIL_MATE_RETICULUM_SOFTWARE_AES)
 constexpr std::array<uint8_t, 256> kAesSbox = {
@@ -1186,6 +1187,63 @@ bool parseAnnounce(const ParsedPacket& packet, ParsedAnnounce* out_announce)
 
     *out_announce = parsed;
     return true;
+}
+
+bool isPlausibleDiscoveryPacket(const ParsedPacket& packet)
+{
+#if defined(TRAIL_MATE_RETICULUM_PARSE_ONLY)
+    // A parse-only build deliberately has no hash implementation. It cannot
+    // establish the self-consistency required for passive discovery evidence.
+    (void)packet;
+    return false;
+#else
+    // This device-side parser does not consume optional Reticulum interface
+    // access codes. Treat an IFAC-bearing frame as unsupported evidence rather
+    // than interpreting its access code as a Reticulum destination header.
+    if (!packet.valid || !packet.destination_hash ||
+        (packet.raw_flags & kInterfaceAccessCodeFlag) != 0u)
+    {
+        return false;
+    }
+
+    if (packet.packet_type == PacketType::Announce &&
+        packet.destination_type == DestinationType::Single)
+    {
+        ParsedAnnounce announce{};
+        if (!parseAnnounce(packet, &announce) || !announce.valid || !announce.public_key ||
+            !announce.name_hash)
+        {
+            return false;
+        }
+
+        std::array<uint8_t, kTruncatedHashSize> identity_hash = {};
+        std::array<uint8_t, kTruncatedHashSize> expected_destination = {};
+        computeIdentityHash(announce.public_key, identity_hash.data());
+        computeDestinationHash(announce.name_hash,
+                               identity_hash.data(),
+                               expected_destination.data());
+        return std::memcmp(packet.destination_hash,
+                           expected_destination.data(),
+                           expected_destination.size()) == 0;
+    }
+
+    // A Path Request targets Reticulum's fixed plain control destination. Its
+    // well-known 128-bit hash supplies useful passive evidence even though the
+    // request's destination and tag are application-independent payload data.
+    if (packet.packet_type == PacketType::Data &&
+        packet.destination_type == DestinationType::Plain &&
+        packet.context == static_cast<uint8_t>(PacketContext::None) &&
+        packet.payload != nullptr && packet.payload_len >= kTruncatedHashSize)
+    {
+        std::array<uint8_t, kTruncatedHashSize> path_request_destination = {};
+        computePathRequestDestinationHash(path_request_destination.data());
+        return std::memcmp(packet.destination_hash,
+                           path_request_destination.data(),
+                           path_request_destination.size()) == 0;
+    }
+
+    return false;
+#endif
 }
 
 bool hkdfSha256(const uint8_t* ikm, size_t ikm_len,

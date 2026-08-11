@@ -327,9 +327,9 @@ class TLoRaPagerBoard : public BoardBase,
     float getRadioRSSI() override;
     float getRadioInstantRSSI() override;
     float getRadioSNR() override;
-    void configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
-                            int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
-                            uint8_t crc_len) override;
+    int configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
+                           int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
+                           uint8_t crc_len) override;
     int radioStandby();
     int configureFskRadio(float freq_mhz, float bit_rate_kbps, float freq_dev_khz, float rx_bw_khz,
                           int8_t tx_power, uint16_t preamble_len, float tcxo_voltage,

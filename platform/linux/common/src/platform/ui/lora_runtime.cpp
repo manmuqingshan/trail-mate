@@ -225,6 +225,20 @@ bool configure_receive(float freq_mhz, const ReceiveConfig& config)
     return simulated_lora_enabled();
 }
 
+bool transmit_packet(const uint8_t* data, std::size_t size)
+{
+    std::lock_guard<std::mutex> lock(s_mutex);
+    if (!s_acquired || !s_configured || !s_real_driver || !data || size == 0)
+    {
+        return false;
+    }
+
+    auto& radio = ::platform::linux_runtime::Sx126xRadio::instance();
+    const bool sent = radio.transmit(data, size);
+    (void)radio.startReceive();
+    return sent;
+}
+
 float read_instant_rssi()
 {
     std::lock_guard<std::mutex> lock(s_mutex);

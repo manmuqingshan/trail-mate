@@ -1533,28 +1533,41 @@ float TDisplayP4Board::getRadioSNR()
     return 0.0f;
 }
 
-void TDisplayP4Board::configureLoraRadio(float freq_mhz,
-                                         float bw_khz,
-                                         uint8_t sf,
-                                         uint8_t cr_denom,
-                                         int8_t tx_power,
-                                         uint16_t preamble_len,
-                                         uint8_t sync_word,
-                                         uint8_t crc_len)
+int TDisplayP4Board::configureLoraRadio(float freq_mhz,
+                                        float bw_khz,
+                                        uint8_t sf,
+                                        uint8_t cr_denom,
+                                        int8_t tx_power,
+                                        uint16_t preamble_len,
+                                        uint8_t sync_word,
+                                        uint8_t crc_len)
 {
     if (!ensureRadioReady())
     {
-        return;
+        ESP_LOGE(kTag, "SX1262 LoRa configuration skipped: radio is not ready");
+        return -1;
     }
 
-    (void)radio().configureLoRaReceive(freq_mhz,
-                                       bw_khz,
-                                       sf,
-                                       cr_denom,
-                                       tx_power,
-                                       preamble_len,
-                                       sync_word,
-                                       crc_len);
+    const bool configured = radio().configureLoRaReceive(freq_mhz,
+                                                         bw_khz,
+                                                         sf,
+                                                         cr_denom,
+                                                         tx_power,
+                                                         preamble_len,
+                                                         sync_word,
+                                                         crc_len);
+    if (!configured)
+    {
+        ESP_LOGE(kTag,
+                 "SX1262 LoRa configuration failed: freq=%.3f bw=%.1f sf=%u cr=4/%u sync=0x%02X err=%s",
+                 freq_mhz,
+                 bw_khz,
+                 static_cast<unsigned>(sf),
+                 static_cast<unsigned>(cr_denom),
+                 static_cast<unsigned>(sync_word),
+                 radio().lastError());
+    }
+    return configured ? 0 : -1;
 }
 
 bool TDisplayP4Board::initializeI2cBuses()

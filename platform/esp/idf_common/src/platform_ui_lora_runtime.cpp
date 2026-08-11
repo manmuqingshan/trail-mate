@@ -3,12 +3,33 @@
 #include <cmath>
 #include <limits>
 
+#include "app/app_facade_access.h"
 #include "boards/t_display_p4/board_profile.h"
 #include "boards/tab5/tab5_board.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "platform/esp/arduino_common/app_tasks.h"
 #include "platform/esp/idf_common/sx126x_radio.h"
+#include "sys/clock.h"
 
 namespace
 {
+
+constexpr uint32_t kIrqRxDone = 0x0002u;
+constexpr uint32_t kIrqPreambleDetected = 0x0004u;
+constexpr uint32_t kIrqSyncWordValid = 0x0008u;
+constexpr uint32_t kIrqHeaderValid = 0x0010u;
+constexpr uint32_t kIrqHeaderError = 0x0020u;
+constexpr uint32_t kIrqCrcError = 0x0040u;
+constexpr uint32_t kIrqTimeout = 0x0200u;
+constexpr uint32_t kIrqReceiveTerminal =
+    kIrqRxDone | kIrqHeaderError | kIrqCrcError | kIrqTimeout;
+
+bool s_radio_tasks_paused_by_probe = false;
+
+static_assert((kIrqReceiveTerminal &
+               (kIrqPreambleDetected | kIrqSyncWordValid | kIrqHeaderValid)) == 0u,
+              "SX126x receive progress IRQs must not restart the radio");
 
 bool board_has_lora_capability()
 {
@@ -39,7 +60,31 @@ bool is_supported()
 
 bool acquire()
 {
-    return is_supported() && radio().acquire();
+    if (!is_supported())
+    {
+        return false;
+    }
+
+    if (!::app::AppTasks::areRadioTasksPaused())
+    {
+        if (!::app::AppTasks::pauseRadioTasks())
+        {
+            return false;
+        }
+        s_radio_tasks_paused_by_probe = true;
+    }
+
+    if (radio().acquire())
+    {
+        return true;
+    }
+
+    if (s_radio_tasks_paused_by_probe)
+    {
+        ::app::AppTasks::resumeRadioTasks();
+        s_radio_tasks_paused_by_probe = false;
+    }
+    return false;
 }
 
 bool is_online()
@@ -59,6 +104,34 @@ bool configure_receive(float freq_mhz, const ReceiveConfig& config)
                                         config.crc_len);
 }
 
+bool transmit_packet(const uint8_t* data, std::size_t size)
+{
+    constexpr uint32_t kIrqTxDone = 0x0001u;
+    constexpr uint32_t kTxTimeoutMs = 5000;
+    if (!data || size == 0 || !radio().isOnline() || radio().startTransmit(data, size) != 0)
+    {
+        return false;
+    }
+
+    const uint32_t started_ms = sys::millis_now();
+    while ((sys::millis_now() - started_ms) < kTxTimeoutMs)
+    {
+        const uint32_t irq = radio().getIrqFlags();
+        if ((irq & (kIrqTxDone | kIrqTimeout)) != 0u)
+        {
+            radio().clearIrqFlags(irq);
+            const bool complete = (irq & kIrqTxDone) != 0u;
+            (void)radio().startReceive();
+            return complete;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    radio().clearIrqFlags(kIrqTxDone | kIrqTimeout);
+    (void)radio().startReceive();
+    return false;
+}
+
 float read_instant_rssi()
 {
     const float rssi = radio().readRssi();
@@ -67,7 +140,6 @@ float read_instant_rssi()
 
 bool poll_received_packet(uint8_t* buffer, std::size_t capacity, ReceivedPacket* out_packet)
 {
-    constexpr uint32_t kIrqRxDone = 0x0002u;
     if (!buffer || capacity == 0 || !out_packet || !radio().isOnline())
     {
         return false;
@@ -79,7 +151,12 @@ bool poll_received_packet(uint8_t* buffer, std::size_t capacity, ReceivedPacket*
         if (irq != 0u)
         {
             radio().clearIrqFlags(irq);
-            (void)radio().startReceive();
+            // Do not abort an in-progress LoRa frame when the chip reports a
+            // preamble, sync word, or valid header before RX_DONE.
+            if ((irq & kIrqReceiveTerminal) != 0u)
+            {
+                (void)radio().startReceive();
+            }
         }
         return false;
     }
@@ -108,7 +185,15 @@ bool poll_received_packet(uint8_t* buffer, std::size_t capacity, ReceivedPacket*
 
 void release()
 {
+    // Restore the configured protocol PHY before the background adapter owns
+    // the SX126x again. The probe may have left it on any candidate profile.
+    ::app::configFacade().applyMeshConfig();
     radio().release();
+    if (s_radio_tasks_paused_by_probe)
+    {
+        ::app::AppTasks::resumeRadioTasks();
+        s_radio_tasks_paused_by_probe = false;
+    }
 }
 
 } // namespace platform::ui::lora

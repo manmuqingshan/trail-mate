@@ -1,8 +1,19 @@
-# Packet Probe Pager UI
+# Protocol Probe Pager UI
+
+## Product State
+
+This is the target UI for Protocol Probe (Chinese: 协议包探测). It replaces the
+former Energy Sweep / Spectrum dashboard. The internal route remains
+`energy_sweep`; the visible name is `PROTOCOL PROBE` and the menu icon is
+`radar.c`.
+
+The page answers whether a complete protocol air profile has been observed or
+confirmed. It never presents RSSI as proof, recommends a quiet channel, or
+names a received business payload.
 
 ## Visual Language
 
-Packet Probe follows the current Map page language rather than the former
+Protocol Probe follows the current Map page language rather than the former
 Energy Sweep dashboard language.
 
 | Token | Value | Use |
@@ -17,19 +28,20 @@ Energy Sweep dashboard language.
 | Green | `#397046` | Evidence count and applied confirmation |
 
 No page-level floating cards are used. Result rows are interactive repeated
-items; the rest of the screen remains a continuous work surface.
+items; the rest of the screen remains a continuous work surface. There is no
+selected-profile detail panel, so Pager and T-Deck use the same layout.
 
 ## 480x222 Layout
 
 ```
 0,0     +------------------------------------------------+
-        | <  PACKET PROBE                           battery |
+        | <  PROTOCOL PROBE                         battery |
 30      +------------------------------------------------+
-        | OBSERVED PARAMETERS                                 |
-        | LISTENING  12/70 PASS 1                             |
-        | [433.550 MHz      BW250 SF11 CR4/5            x12] |
-        | [433.775 MHz      BW250 SF11 CR4/5            x03] |
-        | 12/70 PROFILES  2 OBSERVED                         |
+        | MT 433.775 B125 S11 3/12                        |
+        | [MT 433.775  125K SF11 C4/8       OBSERVED x04] |
+        | [RT 433.775  125K SF09 C4/5       OBSERVED x18] |
+        | [MC 433.550  250K SF07 C4/5      CONFIRMED x01] |
+        | 3 FOUND   TX only during protocol verification   |
 198     +------------------------------------------------+
         | UP/DN SELECT | ENTER SET | S STOP | ESC BACK   |
 222     +------------------------------------------------+
@@ -37,36 +49,55 @@ items; the rest of the screen remains a continuous work surface.
 
 - Top bar: 30 px, supplied by the shared top-bar component.
 - Work area: `y=30..198`, 10 px outer margin, one full-width list surface.
-  There is no selected-profile detail column, so the same layout remains
-  readable on T-Deck-class narrow displays.
 - Bottom bar: 24 px, using the Map control-bar keycap treatment.
 - Pager result rows: 24 px high, 3 px gap, up to four visible rows. `UP/DN`
   automatically moves the four-row window when the selection crosses a page
   boundary, so every observed profile remains visible and selectable.
 
+The live phase line names the action actually in progress:
+
+| Phase | Label | Meaning |
+| --- | --- | --- |
+| Passive candidate RX | `MT 433.775 B125 S11 3/12` | The radio listens on this complete candidate profile. |
+| MeshCore request | `MC TX 433.775` | Discover was sent and the response window is open. |
+| Meshtastic check | `MT ACK 433.775` | A targeted `want_ack` check is running. |
+| Reticulum traffic | `RT TRAFFIC 18` | Valid Reticulum frames were seen on the profile. |
+
 ## Content Rules
 
-The full-width result list shows only real observations:
+Each row uses fixed-width content:
 
-- The main line is the center frequency.
-- The secondary line is bandwidth, SF, and CR.
-- The right-aligned `xN` value is the number of evidence packets.
+```text
+PROTOCOL  FREQUENCY  BW/SF/CR  STATE  xEVIDENCE
+```
+
+`OBSERVED` means protocol-level evidence. `CONFIRMED` means a correlated
+MeshCore Discover response or Meshtastic routing ACK. Reticulum remains
+`OBSERVED` in Protocol Probe; a later normal-network Ping after applying its
+profile is separate from probing. The evidence count totals protocol
+frames/responses and never lists business payload types.
+
+Rows with RF activity or only a generic LoRa frame are diagnostics, not
+selectable result rows. A timeout never removes an existing observation.
 
 The selected row is the only selection-state presentation. It is amber and
-keeps the same frequency, air parameters, and right-aligned evidence count as
-every other row. The page does not repeat selected details, RSSI metadata, or
-business-packet labels elsewhere. After an apply, the status line changes to
-`APPLIED TO MESH`.
+keeps the same fixed fields as every other row. Confirmed state uses green
+treatment without changing layout. The page never repeats selected details,
+RSSI metadata, or business-packet labels elsewhere.
 
-Empty state text is factual: `NO OBSERVED PROFILES` before scanning and `NO
-VALIDATED PACKETS` while a pass is in progress. It does not claim the candidate
-space is empty.
+Empty state text is factual:
+
+- `READY TO PROBE KNOWN PROFILES` before scanning
+- `NO PROTOCOL EVIDENCE YET` while a pass is running
+- `NO EVIDENCE IN THIS PASS` after a quiet pass
+
+None claims that a band, profile, or network is absent.
 
 ## Keyboard And Touch Interaction
 
 | Input | Action |
 | --- | --- |
-| `UP` / `DOWN` | Select an observed profile |
+| `UP` / `DOWN` | Select an observed or confirmed profile |
 | `ENTER` | Open the apply confirmation for the selected profile |
 | `S` | Start or stop the probe |
 | `ESC` / Back | Close the dialog or leave the page |
@@ -74,7 +105,9 @@ space is empty.
 | Tap/click bottom `SET` or `START/STOP` | Same action as the matching key |
 
 The bottom bar reflects the active state by displaying `S START` before a
-probe starts and `S STOP` while it owns the radio.
+probe starts and `S STOP` while it owns the radio. Protocol-specific TX is an
+automatic scheduler step; there is no generic Transmit, Ping all, or Broadcast
+all action.
 
 ## Confirmation Overlay
 
@@ -82,12 +115,18 @@ Applying a result is intentionally not a one-key operation.
 
 ```
                   +----------------------------+
-                  | APPLY OBSERVED PROFILE?    |
-                  | 433.550 MHz                |
-                  | BW 250k  SF11  CR4/5       |
+                  | APPLY PROTOCOL PROFILE?    |
+                  | MT 433.775 MHz             |
+                  | 125K  SF11  C4/8            |
+                  | CONFIRMED VIA ROUTING ACK   |
                   | [ESC CANCEL] [ENTER APPLY] |
                   +----------------------------+
 ```
+
+Only observed/confirmed profiles with a faithful persistent mapping expose
+`SET`. The dialog states the evidence class, never the business packet type.
+It does not restart probing, transmit a new probe packet, or rewrite
+configuration until Apply is explicitly confirmed.
 
 The full-screen scrim is warm dark brown at 50 percent opacity. The modal is
 warm white with a 2 px amber border and 8 px radius, matching the existing

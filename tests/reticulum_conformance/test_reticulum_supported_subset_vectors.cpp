@@ -39,6 +39,12 @@ constexpr const char* kPlainDestinationHashDelivery =
     "9497d16c52ac5faec04c36db5c301e8e";
 constexpr const char* kPathRequestDestinationHash =
     "6b9f66014d9853faab220fba47d02761";
+constexpr const char* kProtocolProbeAnnounce =
+    "0100f083a7f4b00d799808c44a4634bba7d7006afd960bf3b01801a2e88b2ce1f7040817dc1b6bffa"
+    "366b103468f3988e0db7f00dc1fdc15fa7fd31a34a02207cfb4d26e11e57504e43686ec7fad84774bec"
+    "88fd68805f2ea383c8d6f6c39824652e00698fd5fd1088b38832f247a9daebf017d8bfe641882d9fe9b3"
+    "7cf49a97402b7e3d8bec61b4950d39c0996588dd0288bf6a7a0a4390bb331bd82704b618f107cf8bf223"
+    "0f";
 constexpr const char* kOfferPathHash =
     "94fd9fd7b04a5caae5882616446bb9ef";
 constexpr const char* kGetPathHash =
@@ -1152,6 +1158,58 @@ void expectLxstCallStateMachine()
     assert(lxst_call::phaseTimedOut(timeout, 15001));
 }
 
+void expectProtocolProbeDiscoveryEvidence()
+{
+    const std::vector<uint8_t> announce_wire = fromHex(kProtocolProbeAnnounce);
+    reticulum::ParsedPacket packet{};
+    assert(reticulum::parsePacket(announce_wire.data(), announce_wire.size(), &packet));
+    assert(reticulum::isPlausibleDiscoveryPacket(packet));
+
+    std::vector<uint8_t> altered_announce = announce_wire;
+    altered_announce[2] ^= 0x01U;
+    assert(reticulum::parsePacket(altered_announce.data(), altered_announce.size(), &packet));
+    assert(!reticulum::isPlausibleDiscoveryPacket(packet));
+
+    std::vector<uint8_t> ifac_announce = announce_wire;
+    ifac_announce[0] |= 0x80U;
+    assert(reticulum::parsePacket(ifac_announce.data(), ifac_announce.size(), &packet));
+    assert(!reticulum::isPlausibleDiscoveryPacket(packet));
+
+    std::array<uint8_t, reticulum::kTruncatedHashSize> path_request_destination = {};
+    std::array<uint8_t, reticulum::kTruncatedHashSize> path_request_payload = {};
+    reticulum::computePathRequestDestinationHash(path_request_destination.data());
+    path_request_payload[0] = 0x42;
+
+    std::array<uint8_t, 64> wire = {};
+    std::size_t wire_len = wire.size();
+    assert(reticulum::buildHeader1Packet(reticulum::PacketType::Data,
+                                         reticulum::DestinationType::Plain,
+                                         reticulum::PacketContext::None,
+                                         false,
+                                         path_request_destination.data(),
+                                         path_request_payload.data(),
+                                         path_request_payload.size(),
+                                         wire.data(),
+                                         &wire_len));
+    assert(reticulum::parsePacket(wire.data(), wire_len, &packet));
+    assert(reticulum::isPlausibleDiscoveryPacket(packet));
+
+    const auto unrelated_destination = filled<reticulum::kTruncatedHashSize>(0x10);
+    const auto unrelated_payload = filled<reticulum::kTruncatedHashSize>(0x20);
+    wire_len = wire.size();
+    assert(reticulum::buildHeader1Packet(reticulum::PacketType::Data,
+                                         reticulum::DestinationType::Single,
+                                         reticulum::PacketContext::None,
+                                         false,
+                                         unrelated_destination.data(),
+                                         unrelated_payload.data(),
+                                         unrelated_payload.size(),
+                                         wire.data(),
+                                         &wire_len));
+    assert(reticulum::parsePacket(wire.data(), wire_len, &packet));
+    assert(!reticulum::isPlausibleDiscoveryPacket(packet));
+}
+
 } // namespace
 
 int main()
@@ -1163,5 +1221,6 @@ int main()
     expectResourceVectors();
     expectPropagationVectors();
     expectLxstCallStateMachine();
+    expectProtocolProbeDiscoveryEvidence();
     return 0;
 }

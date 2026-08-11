@@ -113,7 +113,7 @@ ui::CallbackAppScreen s_contacts_app("contacts", "Contacts", &contact,
                                      contacts::ui::shell::enter,
                                      contacts::ui::shell::exit,
                                      &s_menu_host);
-ui::CallbackAppScreen s_energy_sweep_app("energy_sweep", "Packet Probe", &radar,
+ui::CallbackAppScreen s_energy_sweep_app("energy_sweep", "Protocol Probe", &radar,
                                          energy_sweep::ui::shell::enter,
                                          energy_sweep::ui::shell::exit,
                                          &s_menu_host);

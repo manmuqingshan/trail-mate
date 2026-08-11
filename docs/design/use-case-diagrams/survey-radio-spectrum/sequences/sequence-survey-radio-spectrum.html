@@ -1,12 +1,14 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Sequence：Sweep</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed"><h1>Sweep 与 Radio Owner</h1><pre class="mermaid">sequenceDiagram
-participant UI as Sweep
-participant P as Band Plan
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Sequence：Protocol Probe</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed"><h1>Protocol Probe 与 Radio Owner</h1><pre class="mermaid">sequenceDiagram
+participant UI as Protocol Probe
+participant P as Candidate Queue
 participant R as Radio
-UI->>P: bins
-loop each bin
-UI->>R: configure + sample
-R-->>UI: RSSI
+participant A as Protocol Adapter
+UI->>P: build known profiles
+loop each profile
+UI->>R: configure + receive
+R-->>UI: frame or timeout
+UI->>A: parse and record evidence
+A-->>UI: observed / confirmed
 end
-UI->>UI: choose best
-UI->>R: apply selected
-UI->>R: release</pre></main></body></html>
+UI->>UI: user confirms selected profile
+UI->>R: release before config apply</pre></main></body></html>

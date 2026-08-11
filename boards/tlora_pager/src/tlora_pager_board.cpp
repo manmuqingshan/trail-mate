@@ -2006,14 +2006,14 @@ int TLoRaPagerBoard::restoreLoRaRadio()
 
         if (cached.valid)
         {
-            configureLoraRadio(cached.freq_mhz,
-                               cached.bw_khz,
-                               cached.sf,
-                               cached.cr_denom,
-                               cached.tx_power,
-                               cached.preamble_len,
-                               cached.sync_word,
-                               cached.crc_len);
+            return configureLoraRadio(cached.freq_mhz,
+                                      cached.bw_khz,
+                                      cached.sf,
+                                      cached.cr_denom,
+                                      cached.tx_power,
+                                      cached.preamble_len,
+                                      cached.sync_word,
+                                      cached.crc_len);
         }
         return rc;
     }
@@ -2041,20 +2041,22 @@ static void apply_tx_power(SX1262Access& radio, int8_t tx_power)
 }
 #endif
 
-void TLoRaPagerBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
-                                         int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
-                                         uint8_t crc_len)
+int TLoRaPagerBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
+                                        int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
+                                        uint8_t crc_len)
 {
-    lora_config_.valid = true;
-    lora_config_.freq_mhz = freq_mhz;
-    lora_config_.bw_khz = bw_khz;
-    lora_config_.sf = sf;
-    lora_config_.cr_denom = cr_denom;
-    lora_config_.tx_power = tx_power;
-    lora_config_.preamble_len = preamble_len;
-    lora_config_.sync_word = sync_word;
-    lora_config_.crc_len = crc_len;
+    CachedLoRaConfig requested{};
+    requested.valid = true;
+    requested.freq_mhz = freq_mhz;
+    requested.bw_khz = bw_khz;
+    requested.sf = sf;
+    requested.cr_denom = cr_denom;
+    requested.tx_power = tx_power;
+    requested.preamble_len = preamble_len;
+    requested.sync_word = sync_word;
+    requested.crc_len = crc_len;
 
+    int config_rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
     auto configure = [&]()
     {
         int first_error = RADIOLIB_ERR_NONE;
@@ -2086,8 +2088,17 @@ void TLoRaPagerBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t s
                   failed_step ? failed_step : "unknown",
                   first_error);
         }
+        config_rc = first_error;
     };
-    (void)withSharedSpiRadioAccess("radio_cfg", pdMS_TO_TICKS(100), configure);
+    if (!withSharedSpiRadioAccess("radio_cfg", pdMS_TO_TICKS(100), configure))
+    {
+        return RADIOLIB_ERR_SPI_WRITE_FAILED;
+    }
+    if (config_rc == RADIOLIB_ERR_NONE)
+    {
+        lora_config_ = requested;
+    }
+    return config_rc;
 }
 
 bool TLoRaPagerBoard::hasEncoder()

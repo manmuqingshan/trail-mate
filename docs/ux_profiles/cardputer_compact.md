@@ -24,8 +24,8 @@ tracking, walkie-talkie, extensions, and settings.
 Dashboard, Chat, Contacts, Compact Map, Sky Plot, Team, Tracker, Walkie Talkie,
 Extensions, Settings.
 
-The Cardputer Zero product menu intentionally excludes PC Link, SSTV, Energy
-Sweep / Spectrum, and SD Storage / USB Disk. SD Storage is the card-access/USB
+The Cardputer Zero product menu intentionally excludes PC Link, SSTV, Protocol
+Probe, and SD Storage / USB Disk. SD Storage is the card-access/USB
 mass-storage entry, not Extensions.
 
 This screen set must stay aligned with both:
