@@ -1367,33 +1367,47 @@ void codec2_decode_1300(struct CODEC2 *c2, short speech[], const unsigned char *
 
     for(i=0, weight=0.25; i<3; i++, weight += 0.25) {
 	interpolate_lsp_ver2(&lsps[i][0], c2->prev_lsps_dec, &lsps[3][0], weight, LPC_ORD);
-        interp_Wo2(&model[i], &c2->prev_model_dec, &model[3], weight, c2->c2const.Wo_min);
-        e[i] = interp_energy2(c2->prev_e_dec, e[3],weight);
+    interp_Wo2(&model[i], &c2->prev_model_dec, &model[3], weight, c2->c2const.Wo_min);
+    e[i] = interp_energy2(c2->prev_e_dec, e[3], weight);
     }
 
     /* then recover spectral amplitudes */
 
-    for(i=0; i<4; i++) {
-	lsp_to_lpc(&lsps[i][0], &ak[i][0], LPC_ORD);
-	aks_to_M2(c2->fftr_fwd_cfg, &ak[i][0], LPC_ORD, &model[i], e[i], &snr, 0, 0,
-                  c2->lpc_pf, c2->bass_boost, c2->beta, c2->gamma, Aw);
-	apply_lpc_correction(&model[i]);
-	synthesise_one_frame(c2, &speech[c2->n_samp*i], &model[i], Aw, 1.0);
+    for (i = 0; i < 4; i++)
+    {
+        lsp_to_lpc(&lsps[i][0], &ak[i][0], LPC_ORD);
+        aks_to_M2_with_scratch(c2->fftr_fwd_cfg,
+                               &ak[i][0],
+                               LPC_ORD,
+                               &model[i],
+                               e[i],
+                               &snr,
+                               0,
+                               0,
+                               c2->lpc_pf,
+                               c2->bass_boost,
+                               c2->beta,
+                               c2->gamma,
+                               Aw,
+                               &scratch->decoder_lpc_scratch);
+        apply_lpc_correction(&model[i]);
+        synthesise_one_frame(c2, &speech[c2->n_samp * i], &model[i], Aw, 1.0);
 
-	/* dump parameters for deep learning experiments */
-	
-	if (c2->fmlfeat != NULL) {
-	    /* 10 LSPs - energy - Wo - voicing flag - 10 LPCs */                
-	    fwrite(&lsps[i][0], LPC_ORD, sizeof(float), c2->fmlfeat);
-	    fwrite(&e[i], 1, sizeof(float), c2->fmlfeat);
-	    fwrite(&model[i].Wo, 1, sizeof(float), c2->fmlfeat); 
-	    float voiced_float = model[i].voiced;
-	    fwrite(&voiced_float, 1, sizeof(float), c2->fmlfeat);
-	    fwrite(&ak[i][1], LPC_ORD, sizeof(float), c2->fmlfeat);
-	}
+        /* dump parameters for deep learning experiments */
+
+        if (c2->fmlfeat != NULL)
+        {
+            /* 10 LSPs - energy - Wo - voicing flag - 10 LPCs */
+            fwrite(&lsps[i][0], LPC_ORD, sizeof(float), c2->fmlfeat);
+            fwrite(&e[i], 1, sizeof(float), c2->fmlfeat);
+            fwrite(&model[i].Wo, 1, sizeof(float), c2->fmlfeat);
+            float voiced_float = model[i].voiced;
+            fwrite(&voiced_float, 1, sizeof(float), c2->fmlfeat);
+            fwrite(&ak[i][1], LPC_ORD, sizeof(float), c2->fmlfeat);
+        }
     }
- 
-    #ifdef DUMP
+
+#ifdef DUMP
     dump_lsp_(&lsps[3][0]);
     dump_ak_(&ak[3][0], LPC_ORD);
     #endif

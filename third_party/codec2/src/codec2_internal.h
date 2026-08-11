@@ -33,6 +33,7 @@
 #include "codec2_fft.h"
 #include "newamp1.h"
 #include "newamp2.h"
+#include "quantise.h"
 
 /*
  * Codec2-1300's decoder has roughly 10 KiB of automatic arrays. That is a
@@ -40,22 +41,25 @@
  * must own an audio driver. Keep that per-instance, non-DMA workspace out of
  * the call stack. The embedding platform owns the allocation placement.
  */
-typedef struct {
+typedef struct
+{
     MODEL decoder_model[4];
     int decoder_lsp_indexes[LPC_ORD];
     float decoder_lsps[4][LPC_ORD];
     float decoder_e[4];
     float decoder_ak[4][LPC_ORD + 1];
     COMP decoder_aw[FFT_ENC];
+    CODEC2_LPC_SCRATCH decoder_lpc_scratch;
 } CODEC2_1300_SCRATCH;
 
-struct CODEC2 {
-    int           mode;
-    C2CONST       c2const;
-    int           Fs;
-    int           n_samp;
-    int           m_pitch;
-    codec2_fft_cfg  fft_fwd_cfg;           /* forward FFT config                        */
+struct CODEC2
+{
+    int mode;
+    C2CONST c2const;
+    int Fs;
+    int n_samp;
+    int m_pitch;
+    codec2_fft_cfg fft_fwd_cfg;            /* forward FFT config                        */
     codec2_fftr_cfg fftr_fwd_cfg;          /* forward real FFT config                   */
     float        *w;	                   /* [m_pitch] time domain hamming window      */
     float         W[FFT_ENC];	           /* DFT of w[]                                */

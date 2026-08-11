@@ -357,13 +357,21 @@ void force_min_lsp_dist(float lsp[], int order)
 
 \*---------------------------------------------------------------------------*/
 
-void lpc_post_filter(codec2_fftr_cfg fftr_fwd_cfg, float Pw[], float ak[],
-                     int order, int dump, float beta, float gamma, int bass_boost, float E)
+static void lpc_post_filter_with_scratch(codec2_fftr_cfg fftr_fwd_cfg,
+                                         float Pw[],
+                                         float ak[],
+                                         int order,
+                                         int dump,
+                                         float beta,
+                                         float gamma,
+                                         int bass_boost,
+                                         float E,
+                                         CODEC2_LPC_SCRATCH* scratch)
 {
-    int   i;
-    float x[FFT_ENC];   /* input to FFTs                */
-    COMP  Ww[FFT_ENC/2+1];  /* weighting spectrum           */
-    float Rw[FFT_ENC/2+1];  /* R = WA                       */
+    int i;
+    float* x = scratch->fft_input;             /* input to FFTs                */
+    COMP* Ww = scratch->post_filter_weight;    /* weighting spectrum    */
+    float* Rw = scratch->post_filter_response; /* R = WA               */
     float e_before, e_after, gain;
     float Pfw;
     float max_Rw, min_Rw;
@@ -374,87 +382,93 @@ void lpc_post_filter(codec2_fftr_cfg fftr_fwd_cfg, float Pw[], float ak[],
 
     /* Determine weighting filter spectrum W(exp(jw)) ---------------*/
 
-    for(i=0; i<FFT_ENC; i++) {
-	x[i] = 0.0;
+    for (i = 0; i < FFT_ENC; i++)
+    {
+        x[i] = 0.0;
     }
 
-    x[0]  = ak[0];
+    x[0] = ak[0];
     coeff = gamma;
-    for(i=1; i<=order; i++) {
-	x[i] = ak[i] * coeff;
+    for (i = 1; i <= order; i++)
+    {
+        x[i] = ak[i] * coeff;
         coeff *= gamma;
     }
     codec2_fftr(fftr_fwd_cfg, x, Ww);
 
     PROFILE_SAMPLE_AND_LOG(tfft2, taw, "        fft2");
 
-    for(i=0; i<FFT_ENC/2; i++) {
-	Ww[i].real = Ww[i].real*Ww[i].real + Ww[i].imag*Ww[i].imag;
+    for (i = 0; i < FFT_ENC / 2; i++)
+    {
+        Ww[i].real = Ww[i].real * Ww[i].real + Ww[i].imag * Ww[i].imag;
     }
 
     PROFILE_SAMPLE_AND_LOG(tww, tfft2, "        Ww");
 
     /* Determined combined filter R = WA ---------------------------*/
 
-    max_Rw = 0.0; min_Rw = 1E32;
-    for(i=0; i<FFT_ENC/2; i++) {
-	Rw[i] = sqrtf(Ww[i].real * Pw[i]);
-	if (Rw[i] > max_Rw)
-	    max_Rw = Rw[i];
-	if (Rw[i] < min_Rw)
-	    min_Rw = Rw[i];
-
+    max_Rw = 0.0;
+    min_Rw = 1E32;
+    for (i = 0; i < FFT_ENC / 2; i++)
+    {
+        Rw[i] = sqrtf(Ww[i].real * Pw[i]);
+        if (Rw[i] > max_Rw)
+            max_Rw = Rw[i];
+        if (Rw[i] < min_Rw)
+            min_Rw = Rw[i];
     }
 
     PROFILE_SAMPLE_AND_LOG(tr, tww, "        R");
 
-    #ifdef DUMP
+#ifdef DUMP
     if (dump)
-      dump_Rw(Rw);
-    #endif
+        dump_Rw(Rw);
+#endif
 
     /* create post filter mag spectrum and apply ------------------*/
 
     /* measure energy before post filtering */
 
     e_before = 1E-4;
-    for(i=0; i<FFT_ENC/2; i++)
-	e_before += Pw[i];
+    for (i = 0; i < FFT_ENC / 2; i++)
+        e_before += Pw[i];
 
-    /* apply post filter and measure energy  */
+        /* apply post filter and measure energy  */
 
-    #ifdef DUMP
+#ifdef DUMP
     if (dump)
-	dump_Pwb(Pw);
-    #endif
-
+        dump_Pwb(Pw);
+#endif
 
     e_after = 1E-4;
-    for(i=0; i<FFT_ENC/2; i++) {
+    for (i = 0; i < FFT_ENC / 2; i++)
+    {
         Pfw = powf(Rw[i], beta);
         Pw[i] *= Pfw * Pfw;
         e_after += Pw[i];
     }
-    gain = e_before/e_after;
+    gain = e_before / e_after;
 
     /* apply gain factor to normalise energy, and LPC Energy */
 
     gain *= E;
-    for(i=0; i<FFT_ENC/2; i++) {
-	Pw[i] *= gain;
+    for (i = 0; i < FFT_ENC / 2; i++)
+    {
+        Pw[i] *= gain;
     }
 
-    if (bass_boost) {
+    if (bass_boost)
+    {
         /* add 3dB to first 1 kHz to account for LP effect of PF */
 
-        for(i=0; i<FFT_ENC/8; i++) {
-            Pw[i] *= 1.4*1.4;
+        for (i = 0; i < FFT_ENC / 8; i++)
+        {
+            Pw[i] *= 1.4 * 1.4;
         }
     }
 
     PROFILE_SAMPLE_AND_LOG2(tr, "        filt");
 }
-
 
 /*---------------------------------------------------------------------------*\
 
@@ -466,136 +480,185 @@ void lpc_post_filter(codec2_fftr_cfg fftr_fwd_cfg, float Pw[], float ak[],
 
 \*---------------------------------------------------------------------------*/
 
-void aks_to_M2(
-  codec2_fftr_cfg  fftr_fwd_cfg,
-  float         ak[],	     /* LPC's */
-  int           order,
-  MODEL        *model,	     /* sinusoidal model parameters for this frame */
-  float         E,	     /* energy term */
-  float        *snr,	     /* signal to noise ratio for this frame in dB */
-  int           dump,        /* true to dump sample to dump file */
-  int           sim_pf,      /* true to simulate a post filter */
-  int           pf,          /* true to enable actual LPC post filter */
-  int           bass_boost,  /* enable LPC filter 0-1kHz 3dB boost */
-  float         beta,
-  float         gamma,       /* LPC post filter parameters */
-  COMP          Aw[]         /* output power spectrum */
-)
+void aks_to_M2_with_scratch(
+    codec2_fftr_cfg fftr_fwd_cfg,
+    float ak[], /* LPC's */
+    int order,
+    MODEL* model,   /* sinusoidal model parameters for this frame */
+    float E,        /* energy term */
+    float* snr,     /* signal to noise ratio for this frame in dB */
+    int dump,       /* true to dump sample to dump file */
+    int sim_pf,     /* true to simulate a post filter */
+    int pf,         /* true to enable actual LPC post filter */
+    int bass_boost, /* enable LPC filter 0-1kHz 3dB boost */
+    float beta,
+    float gamma, /* LPC post filter parameters */
+    COMP Aw[],   /* output power spectrum */
+    CODEC2_LPC_SCRATCH* scratch)
 {
-  int i,m;		/* loop variables */
-  int am,bm;		/* limits of current band */
-  float r;		/* no. rads/bin */
-  float Em;		/* energy in band */
-  float Am;		/* spectral amplitude sample */
-  float signal, noise;
-  PROFILE_VAR(tstart, tfft, tpw, tpf);
+    int i, m;   /* loop variables */
+    int am, bm; /* limits of current band */
+    float r;    /* no. rads/bin */
+    float Em;   /* energy in band */
+    float Am;   /* spectral amplitude sample */
+    float signal, noise;
+    PROFILE_VAR(tstart, tfft, tpw, tpf);
 
-  PROFILE_SAMPLE(tstart);
+    PROFILE_SAMPLE(tstart);
 
-  r = TWO_PI/(FFT_ENC);
+    r = TWO_PI / (FFT_ENC);
 
-  /* Determine DFT of A(exp(jw)) --------------------------------------------*/
-  {
-      float a[FFT_ENC];  /* input to FFT for power spectrum */
+    /* Determine DFT of A(exp(jw)) --------------------------------------------*/
+    {
+        float* a = scratch->fft_input; /* input to FFT for power spectrum */
 
-      for(i=0; i<FFT_ENC; i++) {
-          a[i] = 0.0;
-      }
+        for (i = 0; i < FFT_ENC; i++)
+        {
+            a[i] = 0.0;
+        }
 
-      for(i=0; i<=order; i++)
-          a[i] = ak[i];
-      codec2_fftr(fftr_fwd_cfg, a, Aw);
-  }
-  PROFILE_SAMPLE_AND_LOG(tfft, tstart, "      fft");
+        for (i = 0; i <= order; i++)
+            a[i] = ak[i];
+        codec2_fftr(fftr_fwd_cfg, a, Aw);
+    }
+    PROFILE_SAMPLE_AND_LOG(tfft, tstart, "      fft");
 
-  /* Determine power spectrum P(w) = E/(A(exp(jw))^2 ------------------------*/
+    /* Determine power spectrum P(w) = E/(A(exp(jw))^2 ------------------------*/
 
-  float Pw[FFT_ENC/2];
+    float* Pw = scratch->power_spectrum;
 
 #ifndef FDV_ARM_MATH
-  for(i=0; i<FFT_ENC/2; i++) {
-    Pw[i] = 1.0/(Aw[i].real*Aw[i].real + Aw[i].imag*Aw[i].imag + 1E-6);
-  }
+    for (i = 0; i < FFT_ENC / 2; i++)
+    {
+        Pw[i] = 1.0 / (Aw[i].real * Aw[i].real + Aw[i].imag * Aw[i].imag + 1E-6);
+    }
 #else
-  // this difference may seem strange, but the gcc for STM32F4 generates almost 5 times
-  // faster code with the two loops: 1120 ms -> 242 ms
-  // so please leave it as is or improve further
-  // since this code is called 4 times it results in almost 4ms gain (21ms -> 17ms per audio frame decode @ 1300 )
+    // this difference may seem strange, but the gcc for STM32F4 generates almost 5 times
+    // faster code with the two loops: 1120 ms -> 242 ms
+    // so please leave it as is or improve further
+    // since this code is called 4 times it results in almost 4ms gain (21ms -> 17ms per audio frame decode @ 1300 )
 
-  for(i=0; i<FFT_ENC/2; i++)
-  {
-      Pw[i] = Aw[i].real * Aw[i].real + Aw[i].imag * Aw[i].imag  + 1E-6;
-  }
-  for(i=0; i<FFT_ENC/2; i++) {
-      Pw[i] = 1.0/(Pw[i]);
-  }
+    for (i = 0; i < FFT_ENC / 2; i++)
+    {
+        Pw[i] = Aw[i].real * Aw[i].real + Aw[i].imag * Aw[i].imag + 1E-6;
+    }
+    for (i = 0; i < FFT_ENC / 2; i++)
+    {
+        Pw[i] = 1.0 / (Pw[i]);
+    }
 #endif
 
-  PROFILE_SAMPLE_AND_LOG(tpw, tfft, "      Pw");
+    PROFILE_SAMPLE_AND_LOG(tpw, tfft, "      Pw");
 
-  if (pf)
-      lpc_post_filter(fftr_fwd_cfg, Pw, ak, order, dump, beta, gamma, bass_boost, E);
-  else {
-      for(i=0; i<FFT_ENC/2; i++) {
-          Pw[i] *= E;
-      }
-  }
+    if (pf)
+        lpc_post_filter_with_scratch(fftr_fwd_cfg,
+                                     Pw,
+                                     ak,
+                                     order,
+                                     dump,
+                                     beta,
+                                     gamma,
+                                     bass_boost,
+                                     E,
+                                     scratch);
+    else
+    {
+        for (i = 0; i < FFT_ENC / 2; i++)
+        {
+            Pw[i] *= E;
+        }
+    }
 
-  PROFILE_SAMPLE_AND_LOG(tpf, tpw, "      LPC post filter");
+    PROFILE_SAMPLE_AND_LOG(tpf, tpw, "      LPC post filter");
 
-  #ifdef DUMP
-  if (dump)
-      dump_Pw(Pw);
-  #endif
+#ifdef DUMP
+    if (dump)
+        dump_Pw(Pw);
+#endif
 
-  /* Determine magnitudes from P(w) ----------------------------------------*/
+    /* Determine magnitudes from P(w) ----------------------------------------*/
 
-  /* when used just by decoder {A} might be all zeroes so init signal
-     and noise to prevent log(0) errors */
+    /* when used just by decoder {A} might be all zeroes so init signal
+       and noise to prevent log(0) errors */
 
-  signal = 1E-30; noise = 1E-32;
+    signal = 1E-30;
+    noise = 1E-32;
 
-  for(m=1; m<=model->L; m++) {
-      am = (int)((m - 0.5)*model->Wo/r + 0.5);
-      bm = (int)((m + 0.5)*model->Wo/r + 0.5);
+    for (m = 1; m <= model->L; m++)
+    {
+        am = (int)((m - 0.5) * model->Wo / r + 0.5);
+        bm = (int)((m + 0.5) * model->Wo / r + 0.5);
 
-      // FIXME: With arm_rfft_fast_f32 we have to use this
-      // otherwise sometimes a to high bm is calculated
-      // which causes trouble later in the calculation
-      // chain
-      // it seems for some reason model->Wo is calculated somewhat too high
-      if (bm>FFT_ENC/2)
-      {
-          bm = FFT_ENC/2;
-      }
-      Em = 0.0;
+        // FIXME: With arm_rfft_fast_f32 we have to use this
+        // otherwise sometimes a to high bm is calculated
+        // which causes trouble later in the calculation
+        // chain
+        // it seems for some reason model->Wo is calculated somewhat too high
+        if (bm > FFT_ENC / 2)
+        {
+            bm = FFT_ENC / 2;
+        }
+        Em = 0.0;
 
-      for(i=am; i<bm; i++)
-          Em += Pw[i];
-      Am = sqrtf(Em);
+        for (i = am; i < bm; i++)
+            Em += Pw[i];
+        Am = sqrtf(Em);
 
-      signal += model->A[m]*model->A[m];
-      noise  += (model->A[m] - Am)*(model->A[m] - Am);
+        signal += model->A[m] * model->A[m];
+        noise += (model->A[m] - Am) * (model->A[m] - Am);
 
-      /* This code significantly improves perf of LPC model, in
-         particular when combined with phase0.  The LPC spectrum tends
-         to track just under the peaks of the spectral envelope, and
-         just above nulls.  This algorithm does the reverse to
-         compensate - raising the amplitudes of spectral peaks, while
-         attenuating the null.  This enhances the formants, and
-         suppresses the energy between formants. */
+        /* This code significantly improves perf of LPC model, in
+           particular when combined with phase0.  The LPC spectrum tends
+           to track just under the peaks of the spectral envelope, and
+           just above nulls.  This algorithm does the reverse to
+           compensate - raising the amplitudes of spectral peaks, while
+           attenuating the null.  This enhances the formants, and
+           suppresses the energy between formants. */
 
-      if (sim_pf) {
-          if (Am > model->A[m])
-              Am *= 0.7;
-          if (Am < model->A[m])
-              Am *= 1.4;
-      }
-      model->A[m] = Am;
-  }
-  *snr = 10.0*log10f(signal/noise);
+        if (sim_pf)
+        {
+            if (Am > model->A[m])
+                Am *= 0.7;
+            if (Am < model->A[m])
+                Am *= 1.4;
+        }
+        model->A[m] = Am;
+    }
+    *snr = 10.0 * log10f(signal / noise);
 
-  PROFILE_SAMPLE_AND_LOG2(tpf, "      rec");
+    PROFILE_SAMPLE_AND_LOG2(tpf, "      rec");
+}
+
+void aks_to_M2(
+    codec2_fftr_cfg fftr_fwd_cfg,
+    float ak[],
+    int order,
+    MODEL* model,
+    float E,
+    float* snr,
+    int dump,
+    int sim_pf,
+    int pf,
+    int bass_boost,
+    float beta,
+    float gamma,
+    COMP Aw[])
+{
+    CODEC2_LPC_SCRATCH scratch;
+    aks_to_M2_with_scratch(fftr_fwd_cfg,
+                           ak,
+                           order,
+                           model,
+                           E,
+                           snr,
+                           dump,
+                           sim_pf,
+                           pf,
+                           bass_boost,
+                           beta,
+                           gamma,
+                           Aw,
+                           &scratch);
 }
 
 /*---------------------------------------------------------------------------*\
@@ -1235,4 +1298,3 @@ void decode_WoE(C2CONST *c2const, MODEL *model, float *e, float xq[], int n1)
 
   *e = POW10F(xq[1]/10.0);
 }
-

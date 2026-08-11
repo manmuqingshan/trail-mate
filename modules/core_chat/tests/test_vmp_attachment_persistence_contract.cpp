@@ -72,6 +72,10 @@ int main(int argc, char** argv)
     const std::string codec2_sine = readFile(root / "third_party/codec2/src/sine.c");
     const std::string codec2_sine_header =
         readFile(root / "third_party/codec2/src/sine.h");
+    const std::string codec2_quantise =
+        readFile(root / "third_party/codec2/src/quantise.c");
+    const std::string codec2_quantise_header =
+        readFile(root / "third_party/codec2/src/quantise.h");
     const std::string chat_controller = readFile(
         root / "modules/ui_shared/src/ui/screens/chat/chat_ui_controller.cpp");
     const std::string chat_compose = readFile(
@@ -329,7 +333,10 @@ int main(int argc, char** argv)
     assert(codec2.find("c2->fft_inplace_scratch = (COMP*)MALLOC") !=
            std::string::npos);
     assert(codec2.find("FREE(c2->fft_inplace_scratch);") != std::string::npos);
-    const std::size_t decoder_1300 = positionOf(codec2, "void codec2_decode_1300(");
+    const std::size_t decoder_1300_declaration =
+        positionOf(codec2, "\nvoid codec2_decode_1300(");
+    const std::size_t decoder_1300 = positionOfAfter(
+        codec2, "\nvoid codec2_decode_1300(", decoder_1300_declaration + 1);
     const std::size_t encoder_1200 =
         positionOfAfter(codec2, "void codec2_encode_1200(", decoder_1300);
     const std::string decoder_1300_body =
@@ -342,6 +349,45 @@ int main(int argc, char** argv)
         codec2.substr(analyse_frame, ear_protection - analyse_frame);
     assert(analyse_frame_body.find("COMP    Sw[FFT_ENC]") == std::string::npos);
     assert(decoder_1300_body.find("COMP    Aw[FFT_ENC]") == std::string::npos);
+    assert(codec2_internal.find("CODEC2_LPC_SCRATCH decoder_lpc_scratch") !=
+           std::string::npos);
+    assert(decoder_1300_body.find("aks_to_M2_with_scratch") !=
+           std::string::npos);
+    assert(decoder_1300_body.find("&scratch->decoder_lpc_scratch") !=
+           std::string::npos);
+
+    // Codec2-1300 decode reaches aks_to_M2() and lpc_post_filter() beneath
+    // the bounded vmp_play task. Their combined 6 KiB FFT/spectral arrays
+    // must stay in the decoder's PSRAM scratch, not reappear as automatic
+    // arrays in the nested call chain.
+    const std::size_t lpc_post_filter = positionOf(
+        codec2_quantise, "static void lpc_post_filter_with_scratch(");
+    const std::size_t aks_with_scratch = positionOfAfter(
+        codec2_quantise, "void aks_to_M2_with_scratch(", lpc_post_filter);
+    const std::size_t legacy_aks = positionOfAfter(
+        codec2_quantise, "void aks_to_M2(", aks_with_scratch);
+    const std::string lpc_post_filter_body =
+        codec2_quantise.substr(lpc_post_filter, aks_with_scratch - lpc_post_filter);
+    const std::string aks_with_scratch_body =
+        codec2_quantise.substr(aks_with_scratch, legacy_aks - aks_with_scratch);
+    assert(lpc_post_filter_body.find("float x[FFT_ENC]") == std::string::npos);
+    assert(lpc_post_filter_body.find("COMP  Ww[FFT_ENC/2+1]") ==
+           std::string::npos);
+    assert(lpc_post_filter_body.find("float Rw[FFT_ENC/2+1]") ==
+           std::string::npos);
+    assert(lpc_post_filter_body.find("scratch->fft_input") != std::string::npos);
+    assert(lpc_post_filter_body.find("scratch->post_filter_weight") !=
+           std::string::npos);
+    assert(lpc_post_filter_body.find("scratch->post_filter_response") !=
+           std::string::npos);
+    assert(aks_with_scratch_body.find("float a[FFT_ENC]") ==
+           std::string::npos);
+    assert(aks_with_scratch_body.find("float Pw[FFT_ENC/2]") ==
+           std::string::npos);
+    assert(aks_with_scratch_body.find("scratch->power_spectrum") !=
+           std::string::npos);
+    assert(codec2_quantise_header.find("CODEC2_LPC_SCRATCH") !=
+           std::string::npos);
     assert(codec2_nlp.find("COMP   Fw[PE_FFT_SIZE]") == std::string::npos);
     assert(codec2_nlp.find("nlp->Fw = (COMP*)MALLOC") != std::string::npos);
     assert(codec2_nlp.find(
