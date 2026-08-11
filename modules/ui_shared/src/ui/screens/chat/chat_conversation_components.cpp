@@ -537,7 +537,7 @@ void format_voice_text(char* out,
         std::snprintf(out,
                       out_size,
                       "%s",
-                      playing ? "Playing voice..." : "Voice message - tap to play");
+                      playing ? "Playing voice..." : "Voice message - Enter plays");
         return;
     }
     std::snprintf(out,
@@ -545,7 +545,7 @@ void format_voice_text(char* out,
                   "Voice %lu.%lus%s",
                   static_cast<unsigned long>(tenths / 10U),
                   static_cast<unsigned long>(tenths % 10U),
-                  playing ? " - playing" : " - tap to play");
+                  playing ? " - playing" : " - Enter plays");
 }
 } // namespace
 
@@ -818,6 +818,14 @@ void ChatConversationScreen::addMessage(const ::ui::chat::MessageRow& row)
     }
     if (messages_.size() >= MAX_DISPLAY_MESSAGES)
     {
+        if (selected_message_index_ == 0)
+        {
+            setSelectedMessageIndex(-1);
+        }
+        else if (selected_message_index_ > 0)
+        {
+            --selected_message_index_;
+        }
         MessageItem& oldest = messages_[0];
         if (oldest.container)
         {
@@ -845,6 +853,14 @@ void ChatConversationScreen::addVoiceMessage(
     }
     if (messages_.size() >= MAX_DISPLAY_MESSAGES)
     {
+        if (selected_message_index_ == 0)
+        {
+            setSelectedMessageIndex(-1);
+        }
+        else if (selected_message_index_ > 0)
+        {
+            --selected_message_index_;
+        }
         MessageItem& oldest = messages_[0];
         if (oldest.container)
         {
@@ -951,6 +967,7 @@ void ChatConversationScreen::clearMessages()
         return;
     }
     clear_timers(TimerDomain::VoicePlayback);
+    setSelectedMessageIndex(-1);
     size_t index = 0;
     for (auto& item : messages_)
     {
@@ -966,6 +983,92 @@ void ChatConversationScreen::clearMessages()
     messages_.clear();
     CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=conversation_clear end elapsed_ms=%lu\n",
                           static_cast<unsigned long>(lv_tick_elaps(started_ms)));
+}
+
+bool ChatConversationScreen::selectPreviousMessage()
+{
+    return selectMessageRelative(-1);
+}
+
+bool ChatConversationScreen::selectNextMessage()
+{
+    return selectMessageRelative(1);
+}
+
+bool ChatConversationScreen::activateSelectedMessage()
+{
+    if (selected_message_index_ < 0 ||
+        selected_message_index_ >= static_cast<int>(messages_.size()))
+    {
+        return false;
+    }
+
+    MessageItem& item = messages_[static_cast<size_t>(selected_message_index_)];
+    if (item.voice_playback_ctx && item.bubble && lv_obj_is_valid(item.bubble))
+    {
+        lv_obj_send_event(item.bubble, LV_EVENT_CLICKED, nullptr);
+    }
+
+    // A selected text, image, or location bubble deliberately consumes Enter.
+    // This reserves the key for an eventual type-specific bubble action and
+    // prevents the message-list's edit mode from changing unexpectedly.
+    return true;
+}
+
+bool ChatConversationScreen::selectMessageRelative(int direction)
+{
+    if (direction == 0 || messages_.empty())
+    {
+        return false;
+    }
+
+    const int newest = static_cast<int>(messages_.size()) - 1;
+    int next = selected_message_index_;
+    if (next < 0 || next > newest)
+    {
+        next = newest;
+    }
+    else
+    {
+        next += direction;
+        if (next < 0 || next > newest)
+        {
+            return false;
+        }
+    }
+
+    setSelectedMessageIndex(next);
+    return true;
+}
+
+void ChatConversationScreen::setSelectedMessageIndex(int index)
+{
+    if (selected_message_index_ >= 0 &&
+        selected_message_index_ < static_cast<int>(messages_.size()))
+    {
+        MessageItem& previous = messages_[static_cast<size_t>(selected_message_index_)];
+        if (previous.bubble && lv_obj_is_valid(previous.bubble))
+        {
+            lv_obj_clear_state(previous.bubble, LV_STATE_USER_1);
+        }
+    }
+
+    if (index < 0 || index >= static_cast<int>(messages_.size()))
+    {
+        selected_message_index_ = -1;
+        return;
+    }
+
+    selected_message_index_ = index;
+    MessageItem& selected = messages_[static_cast<size_t>(selected_message_index_)];
+    if (selected.bubble && lv_obj_is_valid(selected.bubble))
+    {
+        lv_obj_add_state(selected.bubble, LV_STATE_USER_1);
+    }
+    if (selected.container && lv_obj_is_valid(selected.container))
+    {
+        lv_obj_scroll_to_view(selected.container, LV_ANIM_OFF);
+    }
 }
 
 void ChatConversationScreen::voice_message_event_cb(lv_event_t* e)
@@ -1230,7 +1333,9 @@ void ChatConversationScreen::toggleShortcutHelp()
     }
 
     static constexpr ::ui::components::shortcut_help_modal::Row rows[] = {
-        {"S", nullptr, "Compose message"},
+        {"R", nullptr, "Compose message"},
+        {"W/S", nullptr, "Select message"},
+        {"Enter", nullptr, "Play selected voice"},
         {"Up/Down", nullptr, "Scroll messages"},
         {"Prev/Next", nullptr, "Load older/newer"},
         {"Home/End", nullptr, "Top/bottom"},
@@ -1252,7 +1357,7 @@ void ChatConversationScreen::toggleShortcutHelp()
     config.rows = rows;
     config.row_count = sizeof(rows) / sizeof(rows[0]);
     config.width = ::ui::page_profile::is_dense() ? 288 : 304;
-    config.height = ::ui::page_profile::is_dense() ? 170 : 186;
+    config.height = ::ui::page_profile::is_dense() ? 192 : 208;
     config.restore_group = lv_group_get_default();
     (void)::ui::components::shortcut_help_modal::open(
         shortcut_help_modal_,

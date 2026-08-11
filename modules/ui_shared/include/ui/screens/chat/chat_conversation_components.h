@@ -52,9 +52,14 @@ class ChatConversationScreen
     ~ChatConversationScreen();
 
     void addMessage(const ::ui::chat::MessageRow& row);
-    /** @brief Adds one local-only, click-to-play VMP voice bubble. */
+    /** @brief Adds one local-only, selectable VMP voice bubble. */
     void addVoiceMessage(const ::ui::chat_voice::MessageSummary& summary);
     void clearMessages();
+    /** Moves the non-touch timeline selection without changing rotary scroll. */
+    bool selectPreviousMessage();
+    bool selectNextMessage();
+    /** Plays the selected voice bubble; selected non-voice bubbles consume Enter. */
+    bool activateSelectedMessage();
     void scrollToTop();
     void scrollToBottom();
     bool updateMessageStatus(
@@ -224,8 +229,11 @@ class ChatConversationScreen
     bool history_newer_boundary_notified_ = false;
     bool location_map_visible_ = false;
     bool location_map_created_ = false;
+    int selected_message_index_ = -1;
 
     void createMessageItem(const ::ui::chat::MessageRow& row);
+    bool selectMessageRelative(int direction);
+    void setSelectedMessageIndex(int index);
     void handleScroll();
     void enableRetryAction(MessageItem& item);
     void disableRetryAction(MessageItem& item);

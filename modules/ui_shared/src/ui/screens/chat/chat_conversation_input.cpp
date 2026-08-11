@@ -143,9 +143,30 @@ static bool handle_conversation_shortcut(ChatConversationScreen* screen,
         consume(e);
         return true;
     }
-    if (key == 's' || key == 'S')
+    if (key == 'r' || key == 'R')
     {
         return send_reply(screen, e);
+    }
+    if (key == 'w' || key == 'W')
+    {
+        if (screen->selectPreviousMessage())
+        {
+            consume(e);
+        }
+        return true;
+    }
+    if (key == 's' || key == 'S')
+    {
+        if (screen->selectNextMessage())
+        {
+            consume(e);
+        }
+        return true;
+    }
+    if (key == LV_KEY_ENTER && screen->activateSelectedMessage())
+    {
+        consume(e);
+        return true;
     }
     if (handle_map_key(screen, e, key))
     {

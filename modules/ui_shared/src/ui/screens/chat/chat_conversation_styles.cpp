@@ -22,6 +22,7 @@ static lv_style_t s_bubble_base;
 static lv_style_t s_bubble_self;
 static lv_style_t s_bubble_other;
 static lv_style_t s_bubble_unverified;
+static lv_style_t s_bubble_selected;
 static lv_style_t s_bubble_text;
 static lv_style_t s_bubble_time;
 
@@ -128,6 +129,15 @@ void init_once()
     lv_style_set_bg_color(&s_bubble_unverified, lv_color_hex(0xF4E1DE));
     lv_style_set_border_color(&s_bubble_unverified, lv_color_hex(0xC47D70));
 
+    // This style is shared by every bubble.  W/S selection only toggles the
+    // LV_STATE_USER_1 bit; it does not add bubbles to an LVGL group or create
+    // any per-message focus bookkeeping/allocation.
+    lv_style_init(&s_bubble_selected);
+    lv_style_set_outline_width(&s_bubble_selected, dense ? 1 : 2);
+    lv_style_set_outline_pad(&s_bubble_selected, dense ? 1 : 2);
+    lv_style_set_outline_color(&s_bubble_selected, lv_color_hex(0xE57B1F));
+    lv_style_set_outline_opa(&s_bubble_selected, LV_OPA_COVER);
+
     lv_style_init(&s_bubble_text);
     lv_style_set_text_color(&s_bubble_text, kTextColor);
     lv_style_set_text_align(&s_bubble_text, LV_TEXT_ALIGN_LEFT);
@@ -184,6 +194,7 @@ void apply_bubble(lv_obj_t* bubble, bool is_self, bool source_unverified)
         is_self ? &s_bubble_self
                 : (source_unverified ? &s_bubble_unverified : &s_bubble_other);
     lv_obj_add_style(bubble, message_style, LV_PART_MAIN);
+    lv_obj_add_style(bubble, &s_bubble_selected, LV_PART_MAIN | LV_STATE_USER_1);
 }
 
 void apply_bubble_text(lv_obj_t* label)

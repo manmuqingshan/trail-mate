@@ -304,6 +304,8 @@ void ChatComposeScreen::setVoiceButton(const char* label, bool visible)
 {
     if (!impl_ || !impl_->w.position_btn) return;
     impl_->auxiliary_ctx.intent = ActionIntent::VoiceStart;
+    const bool visibility_changed =
+        lv_obj_has_flag(impl_->w.position_btn, LV_OBJ_FLAG_HIDDEN) == visible;
     if (label)
     {
         set_btn_label_text(impl_->w.position_btn, label);
@@ -318,7 +320,16 @@ void ChatComposeScreen::setVoiceButton(const char* label, bool visible)
         lv_obj_add_flag(impl_->w.position_btn, LV_OBJ_FLAG_HIDDEN);
     }
 
-    syncFocusOrder();
+    // Recording begins on LV_EVENT_PRESSED and ends on LV_EVENT_RELEASED.
+    // Rebuilding the LVGL group just to refresh "Voice" -> "Release" removes
+    // the currently pressed object from the group, which transfers encoder
+    // focus before the release reaches it. Only a visibility transition
+    // changes the group membership; a label/timer refresh must preserve the
+    // focused Voice button for the entire press-and-hold sequence.
+    if (visibility_changed)
+    {
+        syncFocusOrder();
+    }
 }
 
 std::string ChatComposeScreen::getText() const
