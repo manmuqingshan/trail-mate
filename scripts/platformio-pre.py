@@ -581,6 +581,82 @@ def configure_nrf52_framework_libraries():
     )
 
 
+def disable_arduino_tinyusb_dfu_for_release_esp32():
+    # Arduino-ESP32 ships both TinyUSB DFU device classes precompiled for every
+    # ESP32-S3 memory profile. Release Pager and T-Deck builds do not expose an
+    # application USB maintenance interface: flashing remains available through
+    # the ESP32-S3 ROM downloader after the physical BOOT + RESET sequence.
+    #
+    # Remove both Arduino DFU drivers from a build-private archive. In addition
+    # to the full DFU driver's permanent 4 KiB transfer buffer, this keeps DFU
+    # Runtime out of a release image entirely. Debug environments deliberately
+    # retain the original archive so they can expose CDC + full DFU together.
+    #
+    # Keep this list deliberately ESP32-only: nRF52 targets have their own
+    # TinyUSB source/configuration and retain their DFU support unchanged.
+    dfu_disabled_envs = {
+        "tlora_pager_sx1262",
+        "tlora_pager_lr1121",
+        "tdeck",
+    }
+    if not is_esp32_env or pio_env not in dfu_disabled_envs:
+        return
+
+    platform = env.PioPlatform()
+    framework_dir = platform.get_package_dir("framework-arduinoespressif32")
+    if not framework_dir:
+        raise RuntimeError("Arduino-ESP32 framework package is required for TinyUSB DFU trimming")
+
+    board_config = env.BoardConfig()
+    mcu = board_config.get("build.mcu")
+    source_archive = os.path.join(
+        framework_dir,
+        "tools",
+        "sdk",
+        mcu,
+        "lib",
+        "libarduino_tinyusb.a",
+    )
+    if not os.path.isfile(source_archive):
+        raise RuntimeError(f"Arduino TinyUSB archive not found: {source_archive}")
+
+    # The directory name is part of the transformation version. It prevents an
+    # archive created by an earlier full-DFU-only optimization from being reused
+    # after DFU Runtime was also removed.
+    archive_dir = os.path.join(env.subst("$BUILD_DIR"), "trail_mate_tinyusb_no_dfu")
+    os.makedirs(archive_dir, exist_ok=True)
+    trimmed_archive = os.path.join(archive_dir, "libarduino_tinyusb.a")
+    archive_needs_refresh = (
+        not os.path.isfile(trimmed_archive)
+        or os.path.getmtime(trimmed_archive) < os.path.getmtime(source_archive)
+    )
+    if archive_needs_refresh:
+        ar_path = env.subst("$AR")
+        with open(source_archive, "rb") as source_fp, open(trimmed_archive, "wb") as target_fp:
+            target_fp.write(source_fp.read())
+        subprocess.check_call(
+            [
+                ar_path,
+                "d",
+                trimmed_archive,
+                "dfu_device.c.obj",
+                "dfu_rt_device.c.obj",
+            ]
+        )
+
+    # PlatformIO selects this SDK archive through -larduino_tinyusb. Search
+    # this build-private directory first so the original package remains
+    # untouched and every CI/local build gets the same trimmed copy.
+    env.Prepend(LIBPATH=[archive_dir])
+
+    env.AppendUnique(
+        CPPDEFINES=[
+            ("TRAIL_MATE_DISABLE_ARDUINO_TINYUSB_DFU", 1),
+        ]
+    )
+    print(f"[pio] pre: Disabled Arduino TinyUSB DFU classes for release {pio_env}")
+
+
 def inject_project_version_define():
     version = resolve_project_version()
     escaped_version = version.replace("\\", "\\\\").replace('"', '\\"')
@@ -597,6 +673,7 @@ configure_lvgl_for_esp32_ui()
 configure_crypto_for_sx1262_esp32()
 configure_sensorlib_for_sx1262_esp32()
 configure_sdfat_for_sx1262_esp32()
+disable_arduino_tinyusb_dfu_for_release_esp32()
 configure_nrf52_framework_libraries()
 inject_project_version_define()
 

@@ -10,6 +10,10 @@
 #include "sys/ringbuf.h"
 
 #include <cstring>
+#if defined(ESP_PLATFORM)
+#include <esp_heap_caps.h>
+#include <new>
+#endif
 #if !defined(ARDUINO_ARCH_NRF52) && !defined(NRF52840_XXAA)
 #include <mutex>
 #endif
@@ -20,6 +24,12 @@ namespace
 {
 
 constexpr std::size_t kQueueDepth = 8;
+
+struct AudioQueues
+{
+    sys::RingBuffer<AudioPacket, kQueueDepth> inbound;
+    sys::RingBuffer<AudioPacket, kQueueDepth> outbound;
+};
 
 #if defined(ARDUINO_ARCH_NRF52) || defined(NRF52840_XXAA)
 // nRF52 targets compile this shared translation unit but do not wire the
@@ -55,8 +65,17 @@ struct RuntimeState
     bool duplex_mode_request_pending = false;
     bool sleep_wake_lease = false;
     bool sleep_wake_lease_applied = false;
-    sys::RingBuffer<AudioPacket, kQueueDepth> inbound;
-    sys::RingBuffer<AudioPacket, kQueueDepth> outbound;
+    // Call audio is inactive for the normal device lifetime. Keep its 16 fixed
+    // packet slots out of the always-resident control state and, on ESP, prefer
+    // PSRAM once media actually starts. The fixed depth and drop-oldest policy
+    // remain unchanged after the queues are provisioned.
+#if defined(ESP_PLATFORM)
+    AudioQueues* audio_queues = nullptr;
+#else
+    // Reticulum Call is currently unsupported on nRF, but this shared runtime
+    // is compiled there. Preserve its fixed static storage model unchanged.
+    AudioQueues audio_queues;
+#endif
 };
 
 RuntimeState s_state;
@@ -115,10 +134,45 @@ uint8_t clamp_volume(uint8_t volume_percent)
     return volume_percent > 100U ? 100U : volume_percent;
 }
 
+bool ensure_audio_queues_locked()
+{
+#if defined(ESP_PLATFORM)
+    if (s_state.audio_queues)
+    {
+        return true;
+    }
+
+    void* storage = heap_caps_calloc_prefer(
+        1,
+        sizeof(AudioQueues),
+        2,
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    s_state.audio_queues = storage ? new (storage) AudioQueues{} : nullptr;
+    return s_state.audio_queues != nullptr;
+#else
+    return true;
+#endif
+}
+
+AudioQueues* audio_queues_locked()
+{
+#if defined(ESP_PLATFORM)
+    return s_state.audio_queues;
+#else
+    return &s_state.audio_queues;
+#endif
+}
+
 void clear_queues_locked()
 {
-    s_state.inbound.clear();
-    s_state.outbound.clear();
+    AudioQueues* const queues = audio_queues_locked();
+    if (!queues)
+    {
+        return;
+    }
+    queues->inbound.clear();
+    queues->outbound.clear();
 }
 
 void apply_peer_locked(const Peer& peer)
@@ -214,6 +268,7 @@ bool start_media_if_needed()
 {
     MediaHooks hooks{};
     bool should_start = false;
+    bool queue_provision_failed = false;
     {
         RuntimeLock lock(s_state.mutex);
         hooks = s_state.hooks;
@@ -228,11 +283,25 @@ bool start_media_if_needed()
                             RealtimePhase::ActiveCall);
         if (should_start)
         {
-            // Reserve media ownership before the task starts so a newly scheduled
-            // task cannot observe a transient inactive state and exit immediately.
-            s_state.snapshot.media_active = true;
-            s_state.snapshot.updated_ms = now_ms();
+            if (!ensure_audio_queues_locked())
+            {
+                should_start = false;
+                queue_provision_failed = true;
+            }
+            else
+            {
+                // Reserve media ownership before the task starts so a newly
+                // scheduled task cannot observe a transient inactive state and
+                // exit immediately.
+                s_state.snapshot.media_active = true;
+                s_state.snapshot.updated_ms = now_ms();
+            }
         }
+    }
+    if (queue_provision_failed)
+    {
+        close_call(State::Failed, true);
+        return false;
     }
     if (!should_start)
     {
@@ -304,8 +373,7 @@ void close_call(State final_state, bool request_remote_close)
     }
 }
 
-bool enqueue_packet(sys::RingBuffer<AudioPacket, kQueueDepth>& queue,
-                    const uint8_t link_id[kHashSize],
+bool enqueue_packet(const uint8_t link_id[kHashSize],
                     const uint8_t* data,
                     std::size_t len,
                     bool inbound)
@@ -319,6 +387,12 @@ bool enqueue_packet(sys::RingBuffer<AudioPacket, kQueueDepth>& queue,
         !s_state.snapshot.accepted ||
         !s_state.snapshot.link_active ||
         !s_state.snapshot.media_active)
+    {
+        return false;
+    }
+
+    AudioQueues* const queues = audio_queues_locked();
+    if (!queues)
     {
         return false;
     }
@@ -348,6 +422,8 @@ bool enqueue_packet(sys::RingBuffer<AudioPacket, kQueueDepth>& queue,
     std::memcpy(packet.data, data, len);
     packet.len = len;
     bool dropped = false;
+    sys::RingBuffer<AudioPacket, kQueueDepth>& queue =
+        inbound ? queues->inbound : queues->outbound;
     queue.pushDropOldest(packet, &dropped);
     if (inbound)
     {
@@ -930,7 +1006,7 @@ bool enqueue_inbound_audio(const uint8_t link_id[kHashSize],
                            const uint8_t* data,
                            std::size_t len)
 {
-    return enqueue_packet(s_state.inbound, link_id, data, len, true);
+    return enqueue_packet(link_id, data, len, true);
 }
 
 bool dequeue_inbound_audio(AudioPacket* out)
@@ -940,14 +1016,15 @@ bool dequeue_inbound_audio(AudioPacket* out)
         return false;
     }
     RuntimeLock lock(s_state.mutex);
-    return s_state.inbound.popOldest(out);
+    AudioQueues* const queues = audio_queues_locked();
+    return queues && queues->inbound.popOldest(out);
 }
 
 bool enqueue_outbound_audio(const uint8_t link_id[kHashSize],
                             const uint8_t* data,
                             std::size_t len)
 {
-    return enqueue_packet(s_state.outbound, link_id, data, len, false);
+    return enqueue_packet(link_id, data, len, false);
 }
 
 bool dequeue_outbound_audio(AudioPacket* out)
@@ -957,7 +1034,8 @@ bool dequeue_outbound_audio(AudioPacket* out)
         return false;
     }
     RuntimeLock lock(s_state.mutex);
-    return s_state.outbound.popOldest(out);
+    AudioQueues* const queues = audio_queues_locked();
+    return queues && queues->outbound.popOldest(out);
 }
 
 void note_tx_sent(std::size_t bytes)

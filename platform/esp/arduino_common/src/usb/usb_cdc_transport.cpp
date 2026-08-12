@@ -13,7 +13,7 @@ namespace
 {
 Status s_status{};
 
-#if CONFIG_TINYUSB_CDC_ENABLED
+#if CONFIG_TINYUSB_CDC_ENABLED && defined(TRAIL_MATE_ENABLE_USB_CDC_TRANSPORT)
 USBCDC s_cdc;
 
 void cdc_event_cb(void* /*arg*/, esp_event_base_t /*event_base*/, int32_t event_id, void* event_data)
@@ -43,7 +43,7 @@ void cdc_event_cb(void* /*arg*/, esp_event_base_t /*event_base*/, int32_t event_
 
 bool start()
 {
-#if CONFIG_TINYUSB_CDC_ENABLED
+#if CONFIG_TINYUSB_CDC_ENABLED && defined(TRAIL_MATE_ENABLE_USB_CDC_TRANSPORT)
     if (s_status.started)
     {
         return true;
@@ -67,7 +67,7 @@ bool start()
 
 void stop()
 {
-#if CONFIG_TINYUSB_CDC_ENABLED
+#if CONFIG_TINYUSB_CDC_ENABLED && defined(TRAIL_MATE_ENABLE_USB_CDC_TRANSPORT)
     if (!s_status.started)
     {
         return;
@@ -81,7 +81,7 @@ void stop()
 
 size_t read(uint8_t* buffer, size_t max_len)
 {
-#if CONFIG_TINYUSB_CDC_ENABLED
+#if CONFIG_TINYUSB_CDC_ENABLED && defined(TRAIL_MATE_ENABLE_USB_CDC_TRANSPORT)
     if (!s_status.started || !buffer || max_len == 0)
     {
         return 0;
@@ -96,7 +96,7 @@ size_t read(uint8_t* buffer, size_t max_len)
 
 size_t write(const uint8_t* data, size_t len)
 {
-#if CONFIG_TINYUSB_CDC_ENABLED
+#if CONFIG_TINYUSB_CDC_ENABLED && defined(TRAIL_MATE_ENABLE_USB_CDC_TRANSPORT)
     if (!s_status.started || !data || len == 0)
     {
         return 0;
@@ -111,7 +111,7 @@ size_t write(const uint8_t* data, size_t len)
 
 bool is_connected()
 {
-#if CONFIG_TINYUSB_CDC_ENABLED
+#if CONFIG_TINYUSB_CDC_ENABLED && defined(TRAIL_MATE_ENABLE_USB_CDC_TRANSPORT)
     return s_status.started && s_status.connected && s_status.dtr;
 #else
     return false;
