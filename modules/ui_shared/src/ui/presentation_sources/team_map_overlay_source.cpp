@@ -3,7 +3,13 @@
 #include "sys/clock.h"
 #include "ui/team_presentation/team_member_label.h"
 
+#if defined(ESP_PLATFORM)
+#include <esp_heap_caps.h>
+#endif
+
 #include <cstdio>
+#include <cstring>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -13,6 +19,9 @@ namespace
 {
 
 constexpr uint32_t kPositionCacheTtlMs = 1000;
+constexpr std::size_t kLabelBytesPerMember = 32U;
+constexpr std::size_t kLabelStorageBytes =
+    ::ui::map::MapOverlaySnapshot::kMaxItems * kLabelBytesPerMember;
 
 bool sampleHasCoordinate(const ::team::ui::TeamPosSample& sample)
 {
@@ -25,6 +34,16 @@ TeamMapOverlaySource::TeamMapOverlaySource(
     ::team::ui::ITeamUiSnapshotStore& snapshot_store)
     : snapshot_store_(snapshot_store)
 {
+}
+
+TeamMapOverlaySource::~TeamMapOverlaySource()
+{
+#if defined(ESP_PLATFORM)
+    heap_caps_free(label_storage_);
+#else
+    delete[] label_storage_;
+#endif
+    label_storage_ = nullptr;
 }
 
 bool TeamMapOverlaySource::loadSnapshot(
@@ -202,13 +221,43 @@ uint32_t TeamMapOverlaySource::colorForMember(
         ::team::ui::team_color_index_from_node_id(member_id));
 }
 
+bool TeamMapOverlaySource::ensureLabelStorage() const
+{
+    if (label_storage_)
+    {
+        return true;
+    }
+
+#if defined(ESP_PLATFORM)
+    void* const raw = heap_caps_malloc(kLabelStorageBytes,
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    label_storage_ = static_cast<char*>(raw);
+#else
+    label_storage_ = new (std::nothrow) char[kLabelStorageBytes];
+#endif
+    if (!label_storage_)
+    {
+        if (!label_storage_allocation_failed_logged_)
+        {
+            label_storage_allocation_failed_logged_ = true;
+            std::printf(
+                "[UI][TeamMap] labels unavailable reason=psram_alloc bytes=%u\n",
+                static_cast<unsigned>(kLabelStorageBytes));
+        }
+        return false;
+    }
+
+    std::memset(label_storage_, 0, kLabelStorageBytes);
+    return true;
+}
+
 const char* TeamMapOverlaySource::labelForMember(
     const ::team::ui::TeamUiSnapshot& snapshot,
     uint32_t member_id,
-    std::size_t index)
+    std::size_t index) const
 {
-    static char labels[::ui::map::MapOverlaySnapshot::kMaxItems][32]{};
-    if (index >= ::ui::map::MapOverlaySnapshot::kMaxItems)
+    if (index >= ::ui::map::MapOverlaySnapshot::kMaxItems ||
+        !ensureLabelStorage())
     {
         return nullptr;
     }
@@ -219,11 +268,12 @@ const char* TeamMapOverlaySource::labelForMember(
         {
             const std::string label =
                 ::ui::team_presentation::shortTeamMemberLabel(member_id);
-            std::snprintf(labels[index],
-                          sizeof(labels[index]),
+            char* const slot = label_storage_ + index * kLabelBytesPerMember;
+            std::snprintf(slot,
+                          kLabelBytesPerMember,
                           "%s",
                           label.c_str());
-            return labels[index];
+            return slot;
         }
     }
     return nullptr;

@@ -221,8 +221,6 @@ constexpr uint32_t kMapTileMissingCacheTtlMs = 5U * 60U * 1000U;
 constexpr uint32_t kMapTileGenerationInitial = 1;
 constexpr uint32_t kMapTileDiagnosticLogIntervalMs = 1000;
 constexpr TickType_t kMapTileWorkerPostCommandYieldTicks = pdMS_TO_TICKS(32);
-StaticTask_t s_map_tile_worker_task_tcb{};
-StackType_t s_map_tile_worker_task_stack[(kMapTileWorkerTaskStackBytes + sizeof(StackType_t) - 1U) / sizeof(StackType_t)]{};
 
 uint32_t g_map_tile_decode_log_ms = 0;
 uint32_t g_map_tile_event_log_ms = 0;
@@ -1272,20 +1270,18 @@ class MapTileAsyncHost final
             }
         }
 
-        task_ = xTaskCreateStatic(taskThunk,
-                                  "map_tile_worker",
-                                  kMapTileWorkerTaskStackBytes,
-                                  this,
-                                  1,
-                                  s_map_tile_worker_task_stack,
-                                  &s_map_tile_worker_task_tcb);
-        const BaseType_t ok = task_ != nullptr ? pdPASS : errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY;
+        const BaseType_t ok = xTaskCreate(taskThunk,
+                                          "map_tile_worker",
+                                          kMapTileWorkerTaskStackBytes,
+                                          this,
+                                          1,
+                                          &task_);
         if (ok != pdPASS)
         {
             if (!task_start_failed_logged_)
             {
                 std::printf("[GPS][MAP][worker] task_start_failed rc=%ld "
-                            "stack=static_internal bytes=%u internal_free=%u "
+                            "stack=dynamic_internal bytes=%u internal_free=%u "
                             "internal_largest=%u\n",
                             static_cast<long>(ok),
                             static_cast<unsigned>(kMapTileWorkerTaskStackBytes),

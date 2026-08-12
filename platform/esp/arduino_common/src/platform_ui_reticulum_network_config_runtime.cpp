@@ -12,10 +12,16 @@
 #include "platform/esp/idf_common/bsp_runtime.h"
 #endif
 
+#if defined(ESP_PLATFORM)
+#include "esp_heap_caps.h"
+#endif
+
 #include "cJSON.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <new>
 
 namespace platform::ui::reticulum_network_config
 {
@@ -30,15 +36,18 @@ constexpr const char* kSchema = "trail-mate.reticulum";
 constexpr const char* kPreferencesNamespace = "rt_net_cfg";
 constexpr const char* kLastKnownGoodKey = "last_good";
 constexpr std::size_t kMaxConfigBytes = 2U * 1024U;
+constexpr std::size_t kConfigBufferBytes = kMaxConfigBytes + 1U;
 constexpr std::size_t kMaxJsonDepth = 5U;
 constexpr std::size_t kMaxJsonStructuralTokens = 128U;
 constexpr std::size_t kMaxJsonStringBytes = 128U;
 constexpr uint32_t kSdProbeIntervalMs = 5000;
 
 chat::reticulum::ReticulumNetworkConfig g_active{};
-chat::reticulum::ReticulumNetworkConfig g_parse_scratch{};
+chat::reticulum::ReticulumNetworkConfig* g_parse_scratch_storage = nullptr;
 Status g_status{};
-char g_file_buffer[kMaxConfigBytes + 1U] = {};
+char* g_file_buffer = nullptr;
+bool g_file_buffer_allocation_failed_logged = false;
+bool g_parse_scratch_allocation_failed_logged = false;
 bool g_initialized = false;
 bool g_sd_checked = false;
 bool g_reload_deferred = false;
@@ -52,6 +61,72 @@ uint32_t uptime_ms()
     return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
 #endif
 }
+
+bool ensure_file_buffer()
+{
+    if (g_file_buffer)
+    {
+        return true;
+    }
+
+#if defined(ESP_PLATFORM)
+    g_file_buffer = static_cast<char*>(
+        heap_caps_malloc(kConfigBufferBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+#else
+    g_file_buffer = static_cast<char*>(std::malloc(kConfigBufferBytes));
+#endif
+    if (!g_file_buffer)
+    {
+        if (!g_file_buffer_allocation_failed_logged)
+        {
+            std::printf("[Reticulum][Config] file_buffer allocation_failed "
+                        "memory=psram bytes=%u\n",
+                        static_cast<unsigned>(kConfigBufferBytes));
+            g_file_buffer_allocation_failed_logged = true;
+        }
+        return false;
+    }
+
+    g_file_buffer[0] = '\0';
+    std::printf("[Reticulum][Config] file_buffer allocated "
+                "memory=psram bytes=%u\n",
+                static_cast<unsigned>(kConfigBufferBytes));
+    return true;
+}
+
+bool ensure_parse_scratch()
+{
+    if (g_parse_scratch_storage)
+    {
+        return true;
+    }
+
+#if defined(ESP_PLATFORM)
+    void* const raw = heap_caps_malloc(
+        sizeof(chat::reticulum::ReticulumNetworkConfig),
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+    void* const raw = std::malloc(sizeof(chat::reticulum::ReticulumNetworkConfig));
+#endif
+    g_parse_scratch_storage = raw
+                                  ? new (raw) chat::reticulum::ReticulumNetworkConfig{}
+                                  : nullptr;
+    if (g_parse_scratch_storage)
+    {
+        return true;
+    }
+
+    if (!g_parse_scratch_allocation_failed_logged)
+    {
+        g_parse_scratch_allocation_failed_logged = true;
+        std::printf("[Reticulum][Config] parse_scratch allocation_failed bytes=%u\n",
+                    static_cast<unsigned>(
+                        sizeof(chat::reticulum::ReticulumNetworkConfig)));
+    }
+    return false;
+}
+
+#define g_parse_scratch (*g_parse_scratch_storage)
 
 void copy_bounded(char* out, std::size_t out_len, const char* value)
 {
@@ -334,8 +409,13 @@ bool append_default_interface(chat::reticulum::NetworkInterfaceType type,
     return true;
 }
 
-void build_defaults(const chat::MeshConfig& legacy_config)
+bool build_defaults(const chat::MeshConfig& legacy_config)
 {
+    if (!ensure_parse_scratch())
+    {
+        return false;
+    }
+
     reset_network_config(g_parse_scratch);
     g_parse_scratch.version =
         chat::reticulum::ReticulumNetworkConfig::kSchemaVersion;
@@ -384,6 +464,7 @@ void build_defaults(const chat::MeshConfig& legacy_config)
     g_parse_scratch.propagation.sync_on_start = true;
     g_parse_scratch.propagation.sync_interval_s = 15U * 60U;
     g_parse_scratch.propagation.max_messages_per_sync = 32;
+    return true;
 }
 
 bool id_is_unique(const chat::reticulum::ReticulumNetworkConfig& config,
@@ -585,13 +666,12 @@ bool parse_propagation(cJSON* object,
 
 bool parse_document(const char* data,
                     std::size_t len,
-                    chat::reticulum::ReticulumNetworkConfig* out,
                     char* error,
                     std::size_t error_len)
 {
-    if (!out)
+    if (!ensure_parse_scratch())
     {
-        copy_bounded(error, error_len, "Configuration is empty");
+        copy_bounded(error, error_len, "Reticulum configuration memory unavailable");
         return false;
     }
     if (!validate_json_budget(data, len, error, error_len))
@@ -694,7 +774,6 @@ bool parse_document(const char* data,
     }
 
     cJSON_Delete(root);
-    *out = g_parse_scratch;
     return true;
 }
 
@@ -883,7 +962,7 @@ bool ensure_directory()
 
 bool read_sd_file(const char* path, std::size_t* out_len)
 {
-    if (!out_len)
+    if (!out_len || !ensure_file_buffer())
     {
         return false;
     }
@@ -990,7 +1069,7 @@ bool write_sd_file_atomic(const char* text, std::size_t len)
 
 bool read_last_known_good(std::size_t* out_len)
 {
-    if (!out_len)
+    if (!out_len || !ensure_file_buffer())
     {
         return false;
     }
@@ -1065,12 +1144,17 @@ bool write_last_known_good(const char* text, std::size_t len)
 
 bool persist_last_known_good(const chat::reticulum::ReticulumNetworkConfig& config)
 {
+    if (!ensure_file_buffer())
+    {
+        return false;
+    }
+
     cJSON* root = create_document(config);
     g_file_buffer[0] = '\0';
     const bool printed = root &&
                          cJSON_PrintPreallocated(root,
                                                  g_file_buffer,
-                                                 sizeof(g_file_buffer),
+                                                 kConfigBufferBytes,
                                                  false);
     cJSON_Delete(root);
     return printed &&
@@ -1134,7 +1218,11 @@ bool same_network_config(const chat::reticulum::ReticulumNetworkConfig& lhs,
 void refresh_default_projection(const chat::MeshConfig& legacy_config,
                                 bool force)
 {
-    build_defaults(legacy_config);
+    if (!build_defaults(legacy_config))
+    {
+        set_status("Reticulum config memory unavailable", kConfigPath);
+        return;
+    }
     if (!force && g_status.source == Source::Defaults &&
         same_network_config(g_active, g_parse_scratch))
     {
@@ -1167,11 +1255,7 @@ bool load_sd_config()
         return false;
     }
     char error[96] = {};
-    if (!parse_document(g_file_buffer,
-                        len,
-                        &g_parse_scratch,
-                        error,
-                        sizeof(error)))
+    if (!parse_document(g_file_buffer, len, error, sizeof(error)))
     {
         set_status("Invalid Reticulum config", error);
         return false;
@@ -1193,18 +1277,21 @@ void initialize(const chat::MeshConfig& legacy_config)
     }
     g_status = {};
     g_status.supported = true;
-    build_defaults(legacy_config);
+    if (!build_defaults(legacy_config))
+    {
+        g_status.supported = false;
+        set_status("Reticulum config memory unavailable", kConfigPath);
+        g_initialized = true;
+        return;
+    }
     activate(g_parse_scratch, Source::Defaults);
     set_status("Using Reticulum defaults", kConfigPath);
 
+    const bool file_buffer_ready = ensure_file_buffer();
     std::size_t len = 0;
     char error[96] = {};
-    if (read_last_known_good(&len) &&
-        parse_document(g_file_buffer,
-                       len,
-                       &g_parse_scratch,
-                       error,
-                       sizeof(error)))
+    if (file_buffer_ready && read_last_known_good(&len) &&
+        parse_document(g_file_buffer, len, error, sizeof(error)))
     {
         activate(g_parse_scratch, Source::LastKnownGood);
         set_status("Using cached Reticulum config", kConfigPath);
@@ -1279,7 +1366,7 @@ bool export_template(const chat::MeshConfig& legacy_config)
 {
     initialize(legacy_config);
     if (::platform::ui::reticulum_call::resource_preempt_active() ||
-        !sd_available())
+        !sd_available() || !ensure_file_buffer())
     {
         return false;
     }
@@ -1288,7 +1375,7 @@ bool export_template(const chat::MeshConfig& legacy_config)
     const bool printed = root &&
                          cJSON_PrintPreallocated(root,
                                                  g_file_buffer,
-                                                 sizeof(g_file_buffer),
+                                                 kConfigBufferBytes,
                                                  true);
     const bool wrote = printed &&
                        write_sd_file_atomic(g_file_buffer,

@@ -1503,6 +1503,16 @@ bool lvgl_has_psram()
 #endif
 }
 
+bool lvgl_external_font_load_uses_strict_psram()
+{
+    // Binfont loading creates many small cmap and glyph-metadata objects.  A
+    // size-only routing policy would put those fragments in internal RAM even
+    // when the much larger glyph bitmap is in PSRAM.  The existing external
+    // font FS scope serializes this exact operation on its owner task, so it
+    // is also a safe, narrowly-scoped allocator ownership boundary.
+    return lvgl_has_psram() && external_font_load_fs_scope_active();
+}
+
 uint32_t lvgl_primary_caps(size_t size)
 {
     if (lvgl_has_psram() && size >= kLvglLargeAllocThresholdBytes)
@@ -1555,6 +1565,12 @@ extern "C" void* lv_malloc_core(size_t size)
     {
         return nullptr;
     }
+    if (lvgl_external_font_load_uses_strict_psram())
+    {
+        // Font load must fail cleanly rather than silently consume the Wi-Fi,
+        // task-stack, and DMA reserve in internal RAM.
+        return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
     return heap_caps_malloc_prefer(size, 2, lvgl_primary_caps(size), lvgl_secondary_caps(size));
 #else
     return malloc(size);
@@ -1568,6 +1584,10 @@ extern "C" void* lv_realloc_core(void* p, size_t new_size)
     {
         heap_caps_free(p);
         return nullptr;
+    }
+    if (lvgl_external_font_load_uses_strict_psram())
+    {
+        return heap_caps_realloc(p, new_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     }
     return heap_caps_realloc_prefer(
         p, new_size, 2, lvgl_primary_caps(new_size), lvgl_secondary_caps(new_size));

@@ -52,6 +52,44 @@ int main(int argc, char** argv)
     const std::string registry = read_file(
         repo_root / "modules/ui_shared/src/ui/i18n/resource_pack_registry.cpp");
 
+    assert(contains(registry, "std::string translations_path;"));
+    assert(contains(registry, "bool translations_loaded = false;"));
+    const std::size_t lazy_translation_loader =
+        position_of(registry, "bool ensure_locale_translations_loaded(LocalePackRecord& locale)");
+    const std::size_t lazy_translation_release =
+        position_of(registry, "void release_inactive_locale_translations()");
+    const std::size_t locale_catalog =
+        position_of(registry, "bool catalog_external_locale_pack(const std::string& pack_dir)");
+    const std::size_t locale_activation =
+        position_of(registry, "bool activate_locale_internal(LocalePackRecord* locale");
+    const std::size_t catalog_translation_release = position_of_after(
+        registry, "decltype(pack.translations){}.swap(pack.translations);", locale_catalog);
+    const std::size_t catalog_translation_path =
+        position_of_after(registry, "pack.translations_path = strings_path;", locale_catalog);
+    const std::size_t activation_previous_release = position_of_after(
+        registry, "release_locale_translations(*s_active_locale);", locale_activation);
+    const std::size_t activation_translation_load = position_of_after(
+        registry, "ensure_locale_translations_loaded(*locale)", locale_activation);
+    const std::size_t activation_inactive_release = position_of_after(
+        registry, "release_inactive_locale_translations();", locale_activation);
+    assert(lazy_translation_loader < lazy_translation_release);
+    assert(lazy_translation_release < locale_catalog);
+    assert(locale_catalog < catalog_translation_release);
+    assert(catalog_translation_release < catalog_translation_path);
+    assert(locale_activation < activation_translation_load);
+    assert(activation_previous_release < activation_translation_load);
+    assert(activation_translation_load < activation_inactive_release);
+    const std::size_t font_heap_log =
+        position_of(registry, "void log_external_font_load_heap(const FontPackRecord& pack");
+    const std::size_t font_load = position_of(registry, "bool load_font_pack(FontPackRecord& pack)");
+    const std::size_t font_heap_before =
+        position_of_after(registry, "log_external_font_load_heap(pack, \"before\");", font_load);
+    const std::size_t font_heap_after =
+        position_of_after(registry, "log_external_font_load_heap(pack, \"after\");", font_load);
+    assert(font_heap_log < font_load);
+    assert(font_load < font_heap_before);
+    assert(font_heap_before < font_heap_after);
+
     assert(contains(registry, "constexpr bool kAllowSynchronousContentSupplementFontLoad = false;"));
     assert(contains(registry, "constexpr bool kAllowDeferredContentSupplementFontLoad = true;"));
     assert(contains(registry, "font_load_overlay_policy()"));
@@ -145,9 +183,86 @@ int main(int argc, char** argv)
 
     const std::string network_page = read_file(
         repo_root / "modules/ui_shared/src/ui/screens/network/network_page_shell.cpp");
+    assert(contains(network_page, "NetworkPageState* s_page_state = nullptr;"));
+    assert(contains(network_page,
+                    "heap_caps_malloc(sizeof(NetworkPageState), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);"));
+    assert(contains(network_page, "bool ensure_network_page_state()"));
+    assert(contains(network_page, "if (!parent || !ensure_network_page_state()"));
+    assert(contains(network_page, "void release_network_page_state()"));
+    assert(contains(network_page, "release_network_page_state();"));
     assert(contains(network_page, "prepare_content_font_for_text(g_state.page_body.data(), true)"));
     assert(contains(network_page, "::ui::fonts::apply_content_font(label,"));
     assert(contains(network_page, "::ui::fonts::apply_content_font(text,"));
+
+    const std::string map_tiles = read_file(
+        repo_root / "platform/esp/arduino_common/src/ui/widgets/map/map_tiles.cpp");
+    assert(not_contains(map_tiles, "s_map_tile_worker_task_stack"));
+    assert(not_contains(map_tiles, "s_map_tile_worker_task_tcb"));
+    assert(contains(map_tiles, "const BaseType_t ok = xTaskCreate(taskThunk,"));
+    assert(contains(map_tiles, "stack=dynamic_internal bytes=%u internal_free=%u"));
+
+    const std::string reticulum_page = read_file(
+        repo_root / "platform/esp/arduino_common/src/platform_ui_reticulum_directory_runtime.cpp");
+    assert(not_contains(reticulum_page, "s_page_cache_task_stack"));
+    assert(not_contains(reticulum_page, "s_page_cache_task_tcb"));
+    assert(contains(reticulum_page,
+                    "const BaseType_t task_ok = xTaskCreate(page_cache_load_task_entry,"));
+    assert(contains(reticulum_page, "stack=dynamic_internal bytes=%u"));
+
+    const std::string gps_page = read_file(
+        repo_root / "modules/ui_shared/src/ui/screens/gps/gps_page_runtime.cpp");
+    assert(not_contains(gps_page, "UI_GPS_PAGE_STATE_RAM_ATTR"));
+    assert(contains(gps_page, "::ui::map::MapOverlaySnapshot* s_overlay_snapshot = nullptr;"));
+    assert(contains(gps_page,
+                    "heap_caps_malloc(sizeof(::ui::map::MapOverlaySnapshot),"));
+    assert(contains(gps_page, "bool ensure_overlay_snapshot()"));
+    assert(contains(gps_page, "projection == Projection::Map && !ensure_overlay_snapshot()"));
+    assert(contains(gps_page, "void release_overlay_snapshot()"));
+    assert(contains(gps_page, "release_overlay_snapshot();"));
+
+    const std::string feedback = read_file(
+        repo_root / "modules/ui_shared/src/ui/runtime/ui_feedback.cpp");
+    assert(not_contains(feedback, "UI_FEEDBACK_STATE_RAM_ATTR"));
+    assert(contains(feedback, "struct FeedbackRuntimeState"));
+    assert(contains(feedback, "FeedbackRuntimeState* s_feedback_state = nullptr;"));
+    assert(contains(feedback,
+                    "heap_caps_malloc(sizeof(FeedbackRuntimeState),"));
+    assert(contains(feedback, "FeedbackRuntimeState* ensure_feedback_state()"));
+    assert(contains(feedback, "FeedbackRuntimeState* state = ensure_feedback_state();"));
+
+    const std::string font_utils = read_file(
+        repo_root / "modules/ui_shared/src/ui/assets/fonts/font_utils.cpp");
+    assert(not_contains(font_utils, "UI_FONT_STATE_RAM_ATTR"));
+    assert(contains(font_utils,
+                    "LocalizedFontBinding* s_localized_font_bindings = nullptr;"));
+    assert(contains(font_utils,
+                    "LocalizedFontBinding* ensure_localized_font_binding_storage()"));
+    assert(contains(font_utils, "heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)"));
+    assert(contains(font_utils, "return localized_font_binding_storage() ? kMaxLocalizedFontBindings : 0;"));
+
+    const std::string energy_sweep = read_file(
+        repo_root / "modules/ui_shared/src/ui/screens/energy_sweep/energy_sweep_page_runtime.cpp");
+    assert(not_contains(energy_sweep, "UI_PACKET_PROBE_STATE_RAM_ATTR"));
+    assert(contains(energy_sweep, "struct PacketProbePageState"));
+    assert(contains(energy_sweep, "PacketProbePageState* s_page_state = nullptr;"));
+    assert(contains(energy_sweep,
+                    "heap_caps_malloc(sizeof(PacketProbePageState),"));
+    assert(contains(energy_sweep, "bool ensure_page_state()"));
+    assert(contains(energy_sweep, "if (!parent || !ensure_page_state())"));
+    assert(contains(energy_sweep, "void release_page_state()"));
+    assert(contains(energy_sweep, "release_page_state();"));
+
+    const std::string gnss_skyplot = read_file(
+        repo_root / "modules/ui_shared/src/ui/screens/gnss/gnss_skyplot_page_runtime.cpp");
+    assert(not_contains(gnss_skyplot, "UI_GNSS_STATE_RAM_ATTR"));
+    assert(contains(gnss_skyplot, "struct SkyPlotPageState final"));
+    assert(contains(gnss_skyplot, "SkyPlotPageState* s_page_state = nullptr;"));
+    assert(contains(gnss_skyplot,
+                    "heap_caps_malloc(sizeof(SkyPlotPageState),"));
+    assert(contains(gnss_skyplot, "bool ensure_page_state()"));
+    assert(contains(gnss_skyplot, "if (!parent || !ensure_page_state())"));
+    assert(contains(gnss_skyplot, "void release_page_state()"));
+    assert(contains(gnss_skyplot, "release_page_state();"));
 
     const std::string display_runtime = read_file(
         repo_root / "platform/esp/arduino_common/src/display_runtime.cpp");
@@ -157,6 +272,22 @@ int main(int argc, char** argv)
         "::ui::i18n::on_lvgl_frame_completed();",
         root_handler);
     assert(root_handler < post_frame);
+
+    const std::string lv_helper = read_file(
+        repo_root / "platform/esp/arduino_common/src/LV_Helper_v9.cpp");
+    assert(contains(lv_helper, "bool lvgl_external_font_load_uses_strict_psram()"));
+    const std::size_t strict_psram_scope = position_of(
+        lv_helper, "if (lvgl_external_font_load_uses_strict_psram())");
+    const std::size_t strict_psram_malloc = position_of_after(
+        lv_helper,
+        "heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);",
+        strict_psram_scope);
+    const std::size_t strict_psram_realloc = position_of_after(
+        lv_helper,
+        "heap_caps_realloc(p, new_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);",
+        strict_psram_scope);
+    assert(strict_psram_scope < strict_psram_malloc);
+    assert(strict_psram_malloc < strict_psram_realloc);
 
     const std::string presenter = read_file(
         repo_root / "modules/ui_shared/src/ui/widgets/progress_overlay_presenter.cpp");

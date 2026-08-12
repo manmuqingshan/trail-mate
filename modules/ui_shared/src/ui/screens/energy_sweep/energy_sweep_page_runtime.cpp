@@ -32,8 +32,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <new>
 
 #if !defined(LV_FONT_MONTSERRAT_12) || !LV_FONT_MONTSERRAT_12
 #define lv_font_montserrat_12 lv_font_montserrat_14
@@ -46,10 +48,7 @@
 #endif
 
 #if defined(ESP_PLATFORM)
-#include "esp_attr.h"
-#define UI_PACKET_PROBE_STATE_RAM_ATTR EXT_RAM_ATTR
-#else
-#define UI_PACKET_PROBE_STATE_RAM_ATTR
+#include "esp_heap_caps.h"
 #endif
 
 using Host = energy_sweep::ui::shell::Host;
@@ -239,11 +238,70 @@ struct PacketProbeUi
     lv_obj_t* confirm_apply = nullptr;
 };
 
-UI_PACKET_PROBE_STATE_RAM_ATTR PacketProbeUi s_ui;
-UI_PACKET_PROBE_STATE_RAM_ATTR ProbeState s_state;
-UI_PACKET_PROBE_STATE_RAM_ATTR RadioContext s_radio;
-UI_PACKET_PROBE_STATE_RAM_ATTR PacketProbeLayout s_layout;
+struct PacketProbePageState
+{
+    PacketProbeUi ui{};
+    ProbeState state{};
+    RadioContext radio{};
+    PacketProbeLayout layout{};
+};
+
+PacketProbePageState* s_page_state = nullptr;
+
+#define s_ui (s_page_state->ui)
+#define s_state (s_page_state->state)
+#define s_radio (s_page_state->radio)
+#define s_layout (s_page_state->layout)
+
 lv_timer_t* s_refresh_timer = nullptr;
+
+PacketProbePageState* allocate_page_state()
+{
+#if defined(ESP_PLATFORM)
+    void* storage = heap_caps_malloc(sizeof(PacketProbePageState),
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+    void* storage = std::malloc(sizeof(PacketProbePageState));
+#endif
+    if (!storage)
+    {
+        return nullptr;
+    }
+    return new (storage) PacketProbePageState{};
+}
+
+bool ensure_page_state()
+{
+    if (s_page_state)
+    {
+        return true;
+    }
+
+    s_page_state = allocate_page_state();
+    if (!s_page_state)
+    {
+        std::printf("[UI][EnergySweep] enter denied reason=psram_state_alloc bytes=%u\n",
+                    static_cast<unsigned>(sizeof(PacketProbePageState)));
+        return false;
+    }
+    return true;
+}
+
+void release_page_state()
+{
+    if (!s_page_state)
+    {
+        return;
+    }
+
+    s_page_state->~PacketProbePageState();
+#if defined(ESP_PLATFORM)
+    heap_caps_free(s_page_state);
+#else
+    std::free(s_page_state);
+#endif
+    s_page_state = nullptr;
+}
 
 void request_exit()
 {
@@ -2021,7 +2079,7 @@ void reset_ui_state()
 
 lv_obj_t* ui_energy_sweep_create(lv_obj_t* parent)
 {
-    if (!parent)
+    if (!parent || !ensure_page_state())
     {
         return nullptr;
     }
@@ -2051,6 +2109,11 @@ lv_obj_t* ui_energy_sweep_create(lv_obj_t* parent)
 
 void ui_energy_sweep_enter(lv_obj_t* parent)
 {
+    if (!ensure_page_state())
+    {
+        return;
+    }
+
     lv_group_t* previous_group = lv_group_get_default();
     set_default_group(nullptr);
 
@@ -2074,6 +2137,12 @@ void ui_energy_sweep_enter(lv_obj_t* parent)
 void ui_energy_sweep_exit(lv_obj_t* parent)
 {
     (void)parent;
+    if (!s_page_state)
+    {
+        s_host = nullptr;
+        return;
+    }
+
     if (s_refresh_timer)
     {
         lv_timer_del(s_refresh_timer);
@@ -2091,6 +2160,7 @@ void ui_energy_sweep_exit(lv_obj_t* parent)
     s_state = {};
     s_radio = {};
     s_host = nullptr;
+    release_page_state();
 }
 
 namespace energy_sweep::ui::runtime

@@ -18,6 +18,13 @@
 #include "ui/widgets/foreground_operation_overlay.h"
 #include "ui/widgets/text_candidate_data.h"
 
+#if (defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)) && __has_include("esp_heap_caps.h")
+#include "esp_heap_caps.h"
+#define UI_I18N_HAVE_HEAP_CAPS 1
+#else
+#define UI_I18N_HAVE_HEAP_CAPS 0
+#endif
+
 #if (defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)) && __has_include("ui/LV_Helper.h")
 #include "ui/LV_Helper.h"
 #define UI_I18N_HAVE_EXTERNAL_FONT_LOAD_FS_SCOPE 1
@@ -149,6 +156,12 @@ struct LocalePackRecord
     std::string ime_pack_id;
     std::string direction; // "ltr" (default) or "rtl"
     bool builtin = false;
+    // The potentially large table remains on storage until this locale is
+    // selected.  This prevents every installed language pack from consuming
+    // fragmented internal heap while another locale (normally English) is
+    // active.
+    std::string translations_path;
+    bool translations_loaded = false;
     std::vector<std::pair<std::string, std::string>> translations;
 };
 
@@ -1495,6 +1508,25 @@ void release_runtime_fonts()
     release_runtime_fonts_except({});
 }
 
+void log_external_font_load_heap(const FontPackRecord& pack, const char* stage)
+{
+#if UI_I18N_HAVE_HEAP_CAPS
+    std::printf("%s font heap stage=%s id=%s ram_free=%lu ram_largest=%lu dma_free=%lu dma_largest=%lu psram_free=%lu psram_largest=%lu\n",
+                kLogTag,
+                stage ? stage : "<none>",
+                pack.id.c_str(),
+                static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+                static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),
+                static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_DMA)),
+                static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_DMA)),
+                static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
+                static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
+#else
+    (void)pack;
+    (void)stage;
+#endif
+}
+
 bool load_font_pack(FontPackRecord& pack)
 {
     if (pack.builtin)
@@ -1530,6 +1562,7 @@ bool load_font_pack(FontPackRecord& pack)
                 static_cast<unsigned long>(pack.estimated_ram_bytes));
 #endif
     ScopedFontLoadOverlay overlay(pack);
+    log_external_font_load_heap(pack, "before");
     bool font_fs_busy = false;
     {
         ScopedExternalFontLoadFs fs_scope;
@@ -1563,6 +1596,7 @@ bool load_font_pack(FontPackRecord& pack)
         font_fs_busy = lv_external_font_load_fs_was_busy();
 #endif
     }
+    log_external_font_load_heap(pack, "after");
     if (pack.owned_font == nullptr)
     {
         const FontLoadFailureKind failure_kind =
@@ -2490,6 +2524,59 @@ bool parse_locale_strings(const std::string& path,
     return read_ok && !out.empty();
 }
 
+bool ensure_locale_translations_loaded(LocalePackRecord& locale)
+{
+    if (locale.builtin || locale.translations_loaded)
+    {
+        return true;
+    }
+
+    if (locale.translations_path.empty() ||
+        !parse_locale_strings(locale.translations_path, locale.translations))
+    {
+        decltype(locale.translations){}.swap(locale.translations);
+        std::printf("%s locale translation load failed id=%s path=%s\n",
+                    kLogTag,
+                    locale.id.c_str(),
+                    locale.translations_path.empty() ? "<none>" : locale.translations_path.c_str());
+        return false;
+    }
+
+    locale.translations_loaded = true;
+    std::printf("%s locale translations loaded id=%s strings=%lu\n",
+                kLogTag,
+                locale.id.c_str(),
+                static_cast<unsigned long>(locale.translations.size()));
+    return true;
+}
+
+void release_locale_translations(LocalePackRecord& locale)
+{
+    if (locale.builtin || !locale.translations_loaded)
+    {
+        return;
+    }
+
+    const std::size_t released_count = locale.translations.size();
+    decltype(locale.translations){}.swap(locale.translations);
+    locale.translations_loaded = false;
+    std::printf("%s locale translations released id=%s strings=%lu\n",
+                kLogTag,
+                locale.id.c_str(),
+                static_cast<unsigned long>(released_count));
+}
+
+void release_inactive_locale_translations()
+{
+    for (LocalePackRecord& locale : s_locale_packs)
+    {
+        if (&locale != s_active_locale)
+        {
+            release_locale_translations(locale);
+        }
+    }
+}
+
 bool catalog_external_locale_pack(const std::string& pack_dir)
 {
     const std::string manifest_path = join_path(pack_dir, "manifest.ini");
@@ -2592,13 +2679,20 @@ bool catalog_external_locale_pack(const std::string& pack_dir)
         return false;
     }
 
+    // Keep cataloguing strict: a malformed pack is rejected before it can be
+    // selected.  The just-validated table is then released and reloaded only
+    // when the user activates this locale.
+    const std::size_t translation_count = pack.translations.size();
+    decltype(pack.translations){}.swap(pack.translations);
+    pack.translations_path = strings_path;
+
     std::printf("%s locale pack catalog id=%s ui_font=%s content_font=%s ime=%s strings=%lu\n",
                 kLogTag,
                 pack.id.c_str(),
                 pack.ui_font_pack_id.c_str(),
                 pack.content_font_pack_id.c_str(),
                 pack.ime_pack_id.empty() ? "<none>" : pack.ime_pack_id.c_str(),
-                static_cast<unsigned long>(pack.translations.size()));
+                static_cast<unsigned long>(translation_count));
     s_locale_packs.push_back(std::move(pack));
     return true;
 }
@@ -3006,6 +3100,32 @@ void clear_registry()
 
 bool activate_locale_internal(LocalePackRecord* locale, FontPackRecord* preserved_content_pack)
 {
+    // Free the previous table before parsing the next one.  Language changes
+    // are allowed to fall back to English, so retaining the old table during
+    // the attempt would only create an avoidable two-table peak in internal
+    // RAM.
+    if (locale != s_active_locale && s_active_locale != nullptr)
+    {
+        release_locale_translations(*s_active_locale);
+    }
+
+    if (locale != nullptr && !ensure_locale_translations_loaded(*locale))
+    {
+        if (locale->id != kDefaultLocaleId)
+        {
+            LocalePackRecord* fallback = resolve_active_locale(kDefaultLocaleId);
+            if (fallback != nullptr && fallback != locale)
+            {
+                std::printf("%s active locale fallback requested=%s result=%s reason=translations\n",
+                            kLogTag,
+                            locale->id.c_str(),
+                            fallback->id.c_str());
+                return activate_locale_internal(fallback, preserved_content_pack);
+            }
+        }
+        return false;
+    }
+
     FontPackRecord* next_ui_font_pack =
         locale ? find_pack_by_id(s_font_packs, locale->ui_font_pack_id.c_str()) : nullptr;
     FontPackRecord* next_content_font_pack =
@@ -3023,6 +3143,8 @@ bool activate_locale_internal(LocalePackRecord* locale, FontPackRecord* preserve
     release_runtime_fonts_except(retained_packs);
 
     s_active_locale = locale;
+    // Drop any inactive cache before external fonts are considered.
+    release_inactive_locale_translations();
     s_active_ui_font_pack = next_ui_font_pack;
     s_active_content_font_pack = next_content_font_pack;
     s_active_ime_pack = (locale && !locale->ime_pack_id.empty())
@@ -3264,27 +3386,29 @@ bool set_locale(const char* locale_id, bool persist)
     }
 
     const LocalePackRecord* previous_locale = s_active_locale;
+    bool activation_succeeded = false;
     {
         ScopedExternalFontActivation activation(true);
-        (void)activate_locale(next_locale);
+        activation_succeeded = activate_locale(next_locale);
     }
 
-    if (persist && s_active_locale != nullptr)
+    if (activation_succeeded && persist && s_active_locale != nullptr)
     {
         (void)::platform::ui::settings_store::put_string(
             kSettingsNamespace, kDisplayLocaleKey, s_active_locale->id.c_str());
         remove_legacy_locale_key();
     }
 
-    std::printf("%s set_locale requested=%s active=%s changed=%d persist=%d ui_chain=%s content_chain=%s\n",
+    std::printf("%s set_locale requested=%s active=%s changed=%d activated=%d persist=%d ui_chain=%s content_chain=%s\n",
                 kLogTag,
                 safe_text(locale_id),
                 s_active_locale ? s_active_locale->id.c_str() : "<none>",
-                previous_locale != s_active_locale ? 1 : 0,
+                activation_succeeded && previous_locale != s_active_locale ? 1 : 0,
+                activation_succeeded ? 1 : 0,
                 persist ? 1 : 0,
                 s_ui_font_chain.desc.empty() ? "<none>" : s_ui_font_chain.desc.c_str(),
                 s_content_font_chain.desc.empty() ? "<none>" : s_content_font_chain.desc.c_str());
-    return previous_locale != s_active_locale;
+    return activation_succeeded && previous_locale != s_active_locale;
 }
 
 bool set_locale_by_index(std::size_t index, bool persist)

@@ -26,6 +26,10 @@ class TeamMapOverlaySource final : public ::ui::map_overlay::IMapOverlayTeamSour
   public:
     explicit TeamMapOverlaySource(
         ::team::ui::ITeamUiSnapshotStore& snapshot_store);
+    ~TeamMapOverlaySource();
+
+    TeamMapOverlaySource(const TeamMapOverlaySource&) = delete;
+    TeamMapOverlaySource& operator=(const TeamMapOverlaySource&) = delete;
 
     std::size_t latestTeamPoints(TeamPoint* out,
                                  std::size_t capacity) const override;
@@ -43,6 +47,8 @@ class TeamMapOverlaySource final : public ::ui::map_overlay::IMapOverlayTeamSour
     mutable ::team::TeamId cached_team_id_{};
     mutable ::team::ui::TeamUiSnapshot cached_snapshot_{};
     mutable std::vector<::team::ui::TeamPosSample> cached_samples_;
+    mutable char* label_storage_ = nullptr;
+    mutable bool label_storage_allocation_failed_logged_ = false;
 
     bool loadSnapshot(::team::ui::TeamUiSnapshot& out) const;
     bool loadCachedPositions(::team::ui::TeamUiSnapshot& snapshot,
@@ -52,10 +58,11 @@ class TeamMapOverlaySource final : public ::ui::map_overlay::IMapOverlayTeamSour
         const ::team::ui::TeamPosSample& sample);
     static uint32_t colorForMember(const ::team::ui::TeamUiSnapshot& snapshot,
                                    uint32_t member_id);
-    static const char* labelForMember(
+    bool ensureLabelStorage() const;
+    const char* labelForMember(
         const ::team::ui::TeamUiSnapshot& snapshot,
         uint32_t member_id,
-        std::size_t index);
+        std::size_t index) const;
 };
 
 } // namespace ui::presentation_sources
