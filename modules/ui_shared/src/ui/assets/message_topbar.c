@@ -1,3 +1,6 @@
+#if defined(ARDUINO_T_DECK_PRO)
+#include "tdeckpro_epd/message_topbar.inc"
+#else
 #ifdef __has_include
     #if __has_include("lvgl.h")
         #ifndef LV_LVGL_H_INCLUDE_SIMPLE
@@ -83,3 +86,4 @@ const lv_image_dsc_t message_topbar = {
   .data_size = sizeof(message_topbar_map),
   .data = message_topbar_map,
 };
+#endif // defined(ARDUINO_T_DECK_PRO)

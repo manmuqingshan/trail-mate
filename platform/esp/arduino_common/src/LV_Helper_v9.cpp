@@ -1396,6 +1396,20 @@ void beginLvglHelper(LilyGo_Display& board, bool debug)
     lv_set_default_group(default_group);
 }
 
+void serviceLvglDisplay(uint32_t now_ms)
+{
+    if (disp_drv == nullptr)
+    {
+        return;
+    }
+
+    auto* plane = static_cast<LilyGo_Display*>(lv_display_get_user_data(disp_drv));
+    if (plane != nullptr)
+    {
+        plane->serviceDisplay(now_ms);
+    }
+}
+
 void lv_set_default_group(lv_group_t* group)
 {
     lv_indev_t* cur_drv = NULL;

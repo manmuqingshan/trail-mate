@@ -187,15 +187,16 @@ void apply_icon(lv_obj_t* icon, const lv_image_dsc_t* src, bool visible)
     {
         return;
     }
-    if (src)
+    if (src && lv_image_get_src(icon) != src)
     {
         lv_image_set_src(icon, src);
     }
-    if (visible)
+    const bool hidden = lv_obj_has_flag(icon, LV_OBJ_FLAG_HIDDEN);
+    if (visible && hidden)
     {
         lv_obj_clear_flag(icon, LV_OBJ_FLAG_HIDDEN);
     }
-    else
+    else if (!visible && !hidden)
     {
         lv_obj_add_flag(icon, LV_OBJ_FLAG_HIDDEN);
     }
@@ -234,11 +235,12 @@ void apply_menu_icons(const StatusSnapshot& snap)
                      snap.ble_enabled ||
 #endif
                      snap.radio_mod_visible || snap.walkie_monitor || (snap.unread > 0);
-    if (any)
+    const bool row_hidden = lv_obj_has_flag(s_menu_status_row, LV_OBJ_FLAG_HIDDEN);
+    if (any && row_hidden)
     {
         lv_obj_clear_flag(s_menu_status_row, LV_OBJ_FLAG_HIDDEN);
     }
-    else
+    else if (!any && !row_hidden)
     {
         lv_obj_add_flag(s_menu_status_row, LV_OBJ_FLAG_HIDDEN);
     }
@@ -252,7 +254,10 @@ void apply_menu_badge(const StatusSnapshot& snap)
     }
     if (snap.unread <= 0)
     {
-        lv_obj_add_flag(s_chat_badge, LV_OBJ_FLAG_HIDDEN);
+        if (!lv_obj_has_flag(s_chat_badge, LV_OBJ_FLAG_HIDDEN))
+        {
+            lv_obj_add_flag(s_chat_badge, LV_OBJ_FLAG_HIDDEN);
+        }
         return;
     }
 
@@ -265,8 +270,15 @@ void apply_menu_badge(const StatusSnapshot& snap)
     {
         snprintf(buf, sizeof(buf), "%d", snap.unread);
     }
-    lv_label_set_text(s_chat_badge_label, buf);
-    lv_obj_clear_flag(s_chat_badge, LV_OBJ_FLAG_HIDDEN);
+    const char* current = lv_label_get_text(s_chat_badge_label);
+    if (current == nullptr || std::strcmp(current, buf) != 0)
+    {
+        lv_label_set_text(s_chat_badge_label, buf);
+    }
+    if (lv_obj_has_flag(s_chat_badge, LV_OBJ_FLAG_HIDDEN))
+    {
+        lv_obj_clear_flag(s_chat_badge, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 void status_timer_cb(lv_timer_t* /*timer*/)

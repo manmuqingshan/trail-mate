@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 #include <lvgl.h>
 
 class LilyGo_Display;
@@ -10,6 +12,7 @@ class LilyGo_Display;
 #endif
 
 void beginLvglHelper(LilyGo_Display& display, bool debug = false);
+void serviceLvglDisplay(uint32_t now_ms);
 void lv_set_default_group(lv_group_t* group);
 lv_indev_t* lv_get_touch_indev();
 lv_indev_t* lv_get_keyboard_indev();

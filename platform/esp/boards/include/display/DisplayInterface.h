@@ -121,6 +121,10 @@ class LilyGo_Display
     virtual void feedback(void* args = nullptr) { (void)args; }
     bool needFullRefresh() { return _full_refresh; }
     virtual bool useDMA() { return false; }
+    // Board-specific display work that has been safely copied out of the LVGL
+    // draw buffer can be completed here. Most displays transfer synchronously,
+    // so their default implementation intentionally does nothing.
+    virtual void serviceDisplay(uint32_t now_ms) { (void)now_ms; }
 
   protected:
     uint16_t _offset_x;

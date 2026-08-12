@@ -4,6 +4,7 @@
 
 #include "lvgl.h"
 #include "platform/esp/boards/board_runtime.h"
+#include "ui/LV_Helper.h"
 #include "ui/localization.h"
 
 #ifndef MAIN_TIMING_DEBUG
@@ -49,6 +50,11 @@ void tickIfDue(uint32_t now_ms)
         // overlay that requested the work had a normal chance to present.
         ::ui::i18n::on_lvgl_frame_completed();
     }
+
+    // This runs after LVGL has copied all invalidated pixels for the current
+    // frame. Boards with a slow physical display can merge those regions and
+    // commit one hardware refresh without retaining an LVGL-owned buffer.
+    serviceLvglDisplay(now_ms);
 
 #if MAIN_TIMING_DEBUG
     if (run_lvgl)

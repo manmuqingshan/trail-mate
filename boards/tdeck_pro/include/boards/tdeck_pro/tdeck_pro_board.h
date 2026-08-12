@@ -84,6 +84,7 @@ class TDeckProBoard : public BoardBase,
                                          uint16_t x2,
                                          uint16_t y2,
                                          uint16_t* color) override;
+    void serviceDisplay(uint32_t now_ms) override;
     uint16_t width() override;
     uint16_t height() override;
     bool hasTouch() override { return touch_ready_; }
@@ -130,8 +131,14 @@ class TDeckProBoard : public BoardBase,
     bool initStorage();
     bool installSD() override;
     void uninstallSD() override;
-    DisplayTransferResult renderEpd();
-    void setBit(int16_t x, int16_t y, bool black);
+    DisplayTransferResult servicePendingEpd(uint32_t now_ms, bool force_now);
+    DisplayTransferResult renderEpd(bool full_refresh);
+    void mergeDirtyRegion(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint32_t now_ms);
+    void clearDirtyRegion();
+    // Returns true only when the desired EPD pixel differs from the retained
+    // monochrome framebuffer. LVGL may flush unchanged regions repeatedly;
+    // those must not turn into physical E-paper updates.
+    bool setBit(int16_t x, int16_t y, bool black);
     bool keyEventToChar(uint8_t event, char* c, bool* pressed);
 
     using EpdPanel = GxEPD2_BW<GxEPD2_310_GDEQ031T10, GxEPD2_310_GDEQ031T10::HEIGHT>;
@@ -167,6 +174,16 @@ class TDeckProBoard : public BoardBase,
     PowersBQ25896 pmu_;
     GaugeBQ27220 gauge_;
     std::vector<uint8_t> mono_buffer_;
+    uint16_t dirty_x1_ = 0;
+    uint16_t dirty_y1_ = 0;
+    uint16_t dirty_x2_ = 0;
+    uint16_t dirty_y2_ = 0;
+    uint32_t dirty_since_ms_ = 0;
+    uint32_t last_epd_refresh_ms_ = 0;
+    uint8_t partial_refresh_count_ = 0;
+    bool dirty_region_pending_ = false;
+    bool epd_first_frame_pending_ = true;
+    bool epd_force_full_refresh_ = true;
 };
 
 extern TDeckProBoard& instance;

@@ -123,6 +123,24 @@ PageLayoutProfile make_tdeck_profile()
     return profile;
 }
 
+PageLayoutProfile make_tdeck_pro_profile()
+{
+#if defined(ARDUINO_T_DECK_PRO)
+    PageLayoutProfile profile = make_tdeck_profile();
+    profile.name = "tdeck_pro";
+    profile.top_bar_height = 28;
+    profile.top_content_gap = 2;
+    profile.title_font = &lv_font_unscii_16;
+    profile.body_font = &lv_font_unscii_16;
+    profile.caption_font = &lv_font_unscii_16;
+    profile.tiny_font = &lv_font_unscii_16;
+    return profile;
+#else
+    // Keep the factory available in builds that do not include the EPD font.
+    return make_tdeck_profile();
+#endif
+}
+
 PageLayoutProfile make_tab5_profile()
 {
     PageLayoutProfile profile{};
@@ -272,7 +290,9 @@ const PageLayoutProfile& current()
         return make_cardputer_zero_profile();
 #elif defined(ARDUINO_T_LORA_PAGER)
         return make_pager_profile();
-#elif defined(ARDUINO_T_DECK) || defined(ARDUINO_T_DECK_PRO)
+#elif defined(ARDUINO_T_DECK_PRO)
+        return make_tdeck_pro_profile();
+#elif defined(ARDUINO_T_DECK)
         return make_tdeck_profile();
 #else
         lv_coord_t width = lv_display_get_physical_horizontal_resolution(nullptr);

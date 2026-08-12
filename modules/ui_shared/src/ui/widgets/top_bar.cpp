@@ -50,6 +50,10 @@ static lv_coord_t resolve_top_bar_height(const TopBarConfig& config)
 
 static const lv_font_t* resolve_top_bar_font(lv_coord_t height)
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    (void)height;
+    return ::ui::page_profile::resolve_title_font();
+#else
     if (height >= 60)
     {
         return &lv_font_montserrat_20;
@@ -67,6 +71,7 @@ static const lv_font_t* resolve_top_bar_font(lv_coord_t height)
         return ::ui::page_profile::resolve_title_font();
     }
     return &lv_font_montserrat_14;
+#endif
 }
 
 void top_bar_init(TopBar& bar, lv_obj_t* parent, const TopBarConfig& config)

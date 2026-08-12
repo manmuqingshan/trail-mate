@@ -33,6 +33,12 @@ constexpr uint8_t kKeyboardCols = 10;
 constexpr uint32_t kEpdSpiHz = 2000000;
 constexpr uint32_t kSdSpiHz = 4000000;
 constexpr uint8_t kFlushLogLimit = 8;
+constexpr uint8_t kEpdRefreshLogLimit = 12;
+constexpr uint8_t kEpdPartialRefreshLimit = 5;
+constexpr uint16_t kEpdPartialAlignment = 8;
+constexpr uint32_t kEpdCoalesceDelayMs = 40;
+constexpr uint32_t kEpdMinimumRefreshIntervalMs = 750;
+constexpr uint8_t kEpdFullRefreshDirtyAreaPercent = 60;
 constexpr uint32_t kRadioTxMaxTimeoutMs = 120000;
 sys::runtime::BusAccessToken g_shared_spi_token{};
 TaskHandle_t g_shared_spi_task = nullptr;
@@ -240,7 +246,7 @@ void applyTxPower(SX1262Access& radio, int8_t tx_power)
 } // namespace
 
 TDeckProBoard::TDeckProBoard()
-    : LilyGo_Display(SPI_DRIVER, true)
+    : LilyGo_Display(SPI_DRIVER, false)
 {
     mono_buffer_.resize(static_cast<size_t>(profile().screen_width * profile().screen_height) / 8U, 0xFF);
 }
@@ -639,7 +645,14 @@ uint8_t TDeckProBoard::getMessageToneVolume() const
 
 void TDeckProBoard::setRotation(uint8_t rotation)
 {
-    rotation_ = rotation & 0x3;
+    const uint8_t next_rotation = rotation & 0x3;
+    if (rotation_ != next_rotation)
+    {
+        // A controller window is expressed in the active rotation. The next
+        // copied LVGL frame must therefore establish a new full-screen base.
+        epd_force_full_refresh_ = true;
+    }
+    rotation_ = next_rotation;
     epd_.setRotation(rotation_);
 }
 
@@ -655,15 +668,22 @@ uint16_t TDeckProBoard::height()
                               : static_cast<uint16_t>(profile().screen_width);
 }
 
-void TDeckProBoard::setBit(int16_t x, int16_t y, bool black)
+bool TDeckProBoard::setBit(int16_t x, int16_t y, bool black)
 {
     if (x < 0 || y < 0 || x >= profile().screen_width || y >= profile().screen_height)
     {
-        return;
+        return false;
     }
     const size_t idx = static_cast<size_t>(y) * static_cast<size_t>(profile().screen_width) + static_cast<size_t>(x);
     const size_t byte_idx = idx / 8U;
     const uint8_t bit_mask = static_cast<uint8_t>(0x80U >> (idx % 8U));
+    // The retained GxEPD2 bitmap uses a cleared bit for black because it is
+    // drawn through drawInvertedBitmap().
+    const bool current_black = (mono_buffer_[byte_idx] & bit_mask) == 0U;
+    if (current_black == black)
+    {
+        return false;
+    }
     if (black)
     {
         mono_buffer_[byte_idx] &= static_cast<uint8_t>(~bit_mask);
@@ -672,9 +692,65 @@ void TDeckProBoard::setBit(int16_t x, int16_t y, bool black)
     {
         mono_buffer_[byte_idx] |= bit_mask;
     }
+    return true;
 }
 
-DisplayTransferResult TDeckProBoard::renderEpd()
+void TDeckProBoard::mergeDirtyRegion(uint16_t x,
+                                     uint16_t y,
+                                     uint16_t region_width,
+                                     uint16_t region_height,
+                                     uint32_t now_ms)
+{
+    const uint16_t screen_width = static_cast<uint16_t>(profile().screen_width);
+    const uint16_t screen_height = static_cast<uint16_t>(profile().screen_height);
+    if (region_width == 0U || region_height == 0U || x >= screen_width || y >= screen_height)
+    {
+        return;
+    }
+
+    const uint32_t requested_x2 = static_cast<uint32_t>(x) + region_width - 1U;
+    const uint32_t requested_y2 = static_cast<uint32_t>(y) + region_height - 1U;
+    const uint16_t x2 = static_cast<uint16_t>(
+        requested_x2 < screen_width ? requested_x2 : static_cast<uint32_t>(screen_width - 1U));
+    const uint16_t y2 = static_cast<uint16_t>(
+        requested_y2 < screen_height ? requested_y2 : static_cast<uint32_t>(screen_height - 1U));
+
+    if (!dirty_region_pending_)
+    {
+        dirty_x1_ = x;
+        dirty_y1_ = y;
+        dirty_x2_ = x2;
+        dirty_y2_ = y2;
+        dirty_since_ms_ = now_ms;
+        dirty_region_pending_ = true;
+        return;
+    }
+
+    if (x < dirty_x1_)
+    {
+        dirty_x1_ = x;
+    }
+    if (y < dirty_y1_)
+    {
+        dirty_y1_ = y;
+    }
+    if (x2 > dirty_x2_)
+    {
+        dirty_x2_ = x2;
+    }
+    if (y2 > dirty_y2_)
+    {
+        dirty_y2_ = y2;
+    }
+}
+
+void TDeckProBoard::clearDirtyRegion()
+{
+    dirty_region_pending_ = false;
+    dirty_since_ms_ = 0;
+}
+
+DisplayTransferResult TDeckProBoard::renderEpd(bool full_refresh)
 {
     if (!display_ready_)
     {
@@ -682,7 +758,47 @@ DisplayTransferResult TDeckProBoard::renderEpd()
     }
 
     epd_.setRotation(rotation_);
-    epd_.setFullWindow();
+    if (full_refresh)
+    {
+        epd_.setFullWindow();
+    }
+    else
+    {
+        uint16_t x1 = dirty_x1_;
+        uint16_t y1 = dirty_y1_;
+        uint16_t x2 = dirty_x2_;
+        uint16_t y2 = dirty_y2_;
+        const uint16_t screen_width = static_cast<uint16_t>(profile().screen_width);
+        const uint16_t screen_height = static_cast<uint16_t>(profile().screen_height);
+
+        if ((rotation_ & 0x1U) == 0U)
+        {
+            x1 = static_cast<uint16_t>(x1 - (x1 % kEpdPartialAlignment));
+            const uint16_t end = static_cast<uint16_t>(x2 + 1U);
+            x2 = static_cast<uint16_t>(
+                ((end + kEpdPartialAlignment - 1U) / kEpdPartialAlignment) * kEpdPartialAlignment - 1U);
+            if (x2 >= screen_width)
+            {
+                x2 = static_cast<uint16_t>(screen_width - 1U);
+            }
+        }
+        else
+        {
+            y1 = static_cast<uint16_t>(y1 - (y1 % kEpdPartialAlignment));
+            const uint16_t end = static_cast<uint16_t>(y2 + 1U);
+            y2 = static_cast<uint16_t>(
+                ((end + kEpdPartialAlignment - 1U) / kEpdPartialAlignment) * kEpdPartialAlignment - 1U);
+            if (y2 >= screen_height)
+            {
+                y2 = static_cast<uint16_t>(screen_height - 1U);
+            }
+        }
+
+        epd_.setPartialWindow(x1,
+                              y1,
+                              static_cast<uint16_t>(x2 - x1 + 1U),
+                              static_cast<uint16_t>(y2 - y1 + 1U));
+    }
     epd_.firstPage();
     bool next_page = true;
     do
@@ -705,6 +821,76 @@ DisplayTransferResult TDeckProBoard::renderEpd()
     return DisplayTransferResult::Completed;
 }
 
+DisplayTransferResult TDeckProBoard::servicePendingEpd(uint32_t now_ms, bool force_now)
+{
+    if (!dirty_region_pending_)
+    {
+        return DisplayTransferResult::Completed;
+    }
+
+    if (!force_now)
+    {
+        if (now_ms - dirty_since_ms_ < kEpdCoalesceDelayMs)
+        {
+            return DisplayTransferResult::Busy;
+        }
+        if (!epd_first_frame_pending_ && now_ms - last_epd_refresh_ms_ < kEpdMinimumRefreshIntervalMs)
+        {
+            return DisplayTransferResult::Busy;
+        }
+    }
+
+    const uint32_t dirty_width = static_cast<uint32_t>(dirty_x2_ - dirty_x1_ + 1U);
+    const uint32_t dirty_height = static_cast<uint32_t>(dirty_y2_ - dirty_y1_ + 1U);
+    const uint32_t dirty_area = dirty_width * dirty_height;
+    const uint32_t full_area = static_cast<uint32_t>(profile().screen_width) * profile().screen_height;
+    const bool dirty_region_is_large =
+        dirty_area * 100U >= full_area * kEpdFullRefreshDirtyAreaPercent;
+    const bool full_refresh = epd_force_full_refresh_ ||
+                              partial_refresh_count_ >= kEpdPartialRefreshLimit ||
+                              dirty_region_is_large;
+
+    const DisplayTransferResult result = renderEpd(full_refresh);
+    if (result != DisplayTransferResult::Completed)
+    {
+        return result;
+    }
+
+    last_epd_refresh_ms_ = sys::millis_now();
+    epd_first_frame_pending_ = false;
+    if (full_refresh)
+    {
+        partial_refresh_count_ = 0;
+        epd_force_full_refresh_ = false;
+    }
+    else
+    {
+        ++partial_refresh_count_;
+    }
+
+    static uint8_t s_epd_refresh_log_count = 0;
+    if (s_epd_refresh_log_count < kEpdRefreshLogLimit)
+    {
+        Serial.printf("[%s] epd refresh #%u mode=%s merged=(%u,%u %lux%lu) partial_count=%u\n",
+                      kTag,
+                      static_cast<unsigned>(s_epd_refresh_log_count + 1U),
+                      full_refresh ? "full" : "partial",
+                      static_cast<unsigned>(dirty_x1_),
+                      static_cast<unsigned>(dirty_y1_),
+                      static_cast<unsigned long>(dirty_width),
+                      static_cast<unsigned long>(dirty_height),
+                      static_cast<unsigned>(partial_refresh_count_));
+        ++s_epd_refresh_log_count;
+    }
+    clearDirtyRegion();
+    return DisplayTransferResult::Completed;
+}
+
+void TDeckProBoard::serviceDisplay(uint32_t now_ms)
+{
+    (void)servicePendingEpd(now_ms, false);
+}
+
 void TDeckProBoard::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color)
 {
     (void)transferPixels(x1, y1, x2, y2, color);
@@ -721,12 +907,29 @@ DisplayTransferResult TDeckProBoard::transferPixels(uint16_t x1,
         return DisplayTransferResult::Failed;
     }
 
+    const uint16_t screen_width = static_cast<uint16_t>(profile().screen_width);
+    const uint16_t screen_height = static_cast<uint16_t>(profile().screen_height);
+    if (x1 >= screen_width || y1 >= screen_height || x2 == 0U || y2 == 0U)
+    {
+        return DisplayTransferResult::Failed;
+    }
+
+    const uint16_t copy_width = static_cast<uint16_t>(
+        static_cast<uint32_t>(x1) + x2 <= screen_width ? x2 : screen_width - x1);
+    const uint16_t copy_height = static_cast<uint16_t>(
+        static_cast<uint32_t>(y1) + y2 <= screen_height ? y2 : screen_height - y1);
+
     static uint8_t s_flush_log_count = 0;
     uint32_t dark_pixels = 0;
+    bool has_changed_pixels = false;
+    uint16_t changed_x1 = copy_width;
+    uint16_t changed_y1 = copy_height;
+    uint16_t changed_x2 = 0;
+    uint16_t changed_y2 = 0;
 
-    for (uint16_t row = 0; row < y2; ++row)
+    for (uint16_t row = 0; row < copy_height; ++row)
     {
-        for (uint16_t col = 0; col < x2; ++col)
+        for (uint16_t col = 0; col < copy_width; ++col)
         {
             const uint16_t pixel = color[static_cast<size_t>(row) * x2 + col];
             const uint8_t r = static_cast<uint8_t>((pixel >> 11) & 0x1F);
@@ -738,7 +941,26 @@ DisplayTransferResult TDeckProBoard::transferPixels(uint16_t x1,
             {
                 dark_pixels++;
             }
-            setBit(static_cast<int16_t>(x1 + col), static_cast<int16_t>(y1 + row), black);
+            if (setBit(static_cast<int16_t>(x1 + col), static_cast<int16_t>(y1 + row), black))
+            {
+                has_changed_pixels = true;
+                if (col < changed_x1)
+                {
+                    changed_x1 = col;
+                }
+                if (row < changed_y1)
+                {
+                    changed_y1 = row;
+                }
+                if (col > changed_x2)
+                {
+                    changed_x2 = col;
+                }
+                if (row > changed_y2)
+                {
+                    changed_y2 = row;
+                }
+            }
         }
     }
     if (s_flush_log_count < kFlushLogLimit)
@@ -748,13 +970,41 @@ DisplayTransferResult TDeckProBoard::transferPixels(uint16_t x1,
                       static_cast<unsigned>(s_flush_log_count + 1),
                       static_cast<unsigned>(x1),
                       static_cast<unsigned>(y1),
-                      static_cast<unsigned>(x2),
-                      static_cast<unsigned>(y2),
+                      static_cast<unsigned>(copy_width),
+                      static_cast<unsigned>(copy_height),
                       static_cast<unsigned long>(dark_pixels),
-                      static_cast<unsigned long>(static_cast<uint32_t>(x2) * static_cast<uint32_t>(y2)));
+                      static_cast<unsigned long>(static_cast<uint32_t>(copy_width) * copy_height));
         s_flush_log_count++;
     }
-    return renderEpd();
+
+    if (has_changed_pixels)
+    {
+        mergeDirtyRegion(static_cast<uint16_t>(x1 + changed_x1),
+                         static_cast<uint16_t>(y1 + changed_y1),
+                         static_cast<uint16_t>(changed_x2 - changed_x1 + 1U),
+                         static_cast<uint16_t>(changed_y2 - changed_y1 + 1U),
+                         sys::millis_now());
+    }
+    else if (epd_first_frame_pending_)
+    {
+        // A white first LVGL frame still needs a physical full refresh to
+        // establish the panel/controller baseline and release storage startup.
+        mergeDirtyRegion(x1, y1, copy_width, copy_height, sys::millis_now());
+    }
+    else
+    {
+        return DisplayTransferResult::Completed;
+    }
+
+    // LVGL owns its RGB565 buffer only until this method returns. The first
+    // frame remains synchronous so the shared-SPI storage startup gate still
+    // observes a real EPD transaction. Later frames are already copied into
+    // mono_buffer_ and may be coalesced by serviceDisplay().
+    if (epd_first_frame_pending_)
+    {
+        return servicePendingEpd(sys::millis_now(), true);
+    }
+    return DisplayTransferResult::Completed;
 }
 
 uint8_t TDeckProBoard::getPoint(int16_t* x, int16_t* y, uint8_t get_point)

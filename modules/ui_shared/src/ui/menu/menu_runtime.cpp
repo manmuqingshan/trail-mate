@@ -442,7 +442,12 @@ void refreshTimeLabel()
     }
     else
     {
-        lv_label_set_text(s_runtime.time_label, "--:--");
+        static constexpr const char* kUnknownTime = "--:--";
+        const char* current = lv_label_get_text(s_runtime.time_label);
+        if (current == nullptr || std::strcmp(current, kUnknownTime) != 0)
+        {
+            lv_label_set_text(s_runtime.time_label, kUnknownTime);
+        }
     }
 
     updateWatchFaceTime();
@@ -462,7 +467,12 @@ void refreshBatteryLabel()
     if (level < 0)
     {
         s_runtime.watch_face_battery = -1;
-        lv_label_set_text(s_runtime.battery_label, charging ? "USB" : "--");
+        const char* unknown = charging ? "USB" : "--";
+        const char* current = lv_label_get_text(s_runtime.battery_label);
+        if (current == nullptr || std::strcmp(current, unknown) != 0)
+        {
+            lv_label_set_text(s_runtime.battery_label, unknown);
+        }
         updateWatchFaceTime();
         return;
     }
@@ -539,10 +549,10 @@ void ensureWalkieRecordOverlay()
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_IGNORE_LAYOUT);
     lv_obj_clear_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(overlay, lv_color_hex(0xFFF1D5), 0);
+    lv_obj_set_style_bg_color(overlay, ui::theme::surface(), 0);
     lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(overlay, 1, 0);
-    lv_obj_set_style_border_color(overlay, lv_color_hex(0xD28B2E), 0);
+    lv_obj_set_style_border_color(overlay, ui::theme::border(), 0);
     lv_obj_set_style_radius(overlay, 8, 0);
     lv_obj_set_style_shadow_width(overlay, 0, 0);
     lv_obj_set_style_pad_left(overlay, 10, 0);
@@ -558,7 +568,7 @@ void ensureWalkieRecordOverlay()
         lv_obj_t* bar = lv_obj_create(overlay);
         s_runtime.walkie_record_bars[i] = bar;
         lv_obj_set_size(bar, 7, 6);
-        lv_obj_set_style_bg_color(bar, lv_color_hex(0xE55F2A), 0);
+        lv_obj_set_style_bg_color(bar, ui::theme::accent(), 0);
         lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(bar, 0, 0);
         lv_obj_set_style_radius(bar, 3, 0);

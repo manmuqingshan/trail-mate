@@ -42,8 +42,13 @@ constexpr const char* kTag = "ui-menu-layout";
 #endif
 
 constexpr size_t kMaxMenuApps = 16;
+#if defined(ARDUINO_T_DECK_PRO)
+constexpr const char* kBottomHelpPlainPrefix = "H Help";
+constexpr const char* kBottomHelpRichPrefix = "H Help";
+#else
 constexpr const char* kBottomHelpPlainPrefix = "H Help";
 constexpr const char* kBottomHelpRichPrefix = "#D6403A H#elp";
+#endif
 
 struct MenuAppUi
 {
@@ -636,10 +641,21 @@ void createAppButton(lv_obj_t* parent, AppScreen* app, size_t idx)
     lv_obj_set_style_radius(btn, profile.card_radius, 0);
     lv_obj_set_style_shadow_width(btn, 0, 0);
     lv_obj_set_style_outline_width(btn, 0, 0);
+#if defined(ARDUINO_T_DECK_PRO)
+    // Preserve black one-bit artwork when keyboard focus moves. A black
+    // filled focus state would hide the icon and text against its own card.
+    lv_obj_set_style_bg_color(btn, ui::theme::surface(), LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(btn, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_border_color(btn, ui::theme::border(), LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(btn, ui::theme::surface(), LV_STATE_FOCUS_KEY);
+    lv_obj_set_style_border_width(btn, 2, LV_STATE_FOCUS_KEY);
+    lv_obj_set_style_border_color(btn, ui::theme::border(), LV_STATE_FOCUS_KEY);
+#else
     lv_obj_set_style_bg_color(btn, ui::theme::accent(), LV_STATE_FOCUSED);
     lv_obj_set_style_border_color(btn, ui::theme::border(), LV_STATE_FOCUSED);
     lv_obj_set_style_bg_color(btn, ui::theme::accent(), LV_STATE_FOCUS_KEY);
     lv_obj_set_style_border_color(btn, ui::theme::border(), LV_STATE_FOCUS_KEY);
+#endif
 
     if (profile.transparent_cards)
     {
@@ -679,6 +695,11 @@ void createAppButton(lv_obj_t* parent, AppScreen* app, size_t idx)
                          static_cast<int>(lv_image_get_src_width(icon)),
                          static_cast<int>(lv_image_get_src_height(icon)));
 
+#if defined(ARDUINO_T_DECK_PRO)
+        // All Pro EPD assets are generated at their displayed dimensions.
+        // Do not ever run their individual one-bit pixels through LVGL's
+        // transform sampler, even if a future profile accidentally requests it.
+#else
         if (profile.icon_scale != 256)
         {
             const lv_coord_t icon_width = lv_image_get_src_width(icon);
@@ -687,6 +708,7 @@ void createAppButton(lv_obj_t* parent, AppScreen* app, size_t idx)
             lv_obj_set_style_transform_pivot_y(icon, icon_height / 2, 0);
             lv_obj_set_style_transform_scale(icon, profile.icon_scale, 0);
         }
+#endif
 
         if (profile.show_card_label)
         {
@@ -722,8 +744,8 @@ void createAppButton(lv_obj_t* parent, AppScreen* app, size_t idx)
         lv_obj_set_style_max_height(label, line_height, 0);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_font(label, profile.card_label_font, 0);
-        lv_obj_set_style_text_color(label, lv_color_hex(0x6B4A1E), 0);
-        lv_obj_set_style_text_color(label, lv_color_hex(0x6B4A1E), LV_STATE_FOCUSED);
+        lv_obj_set_style_text_color(label, ui::theme::text(), 0);
+        lv_obj_set_style_text_color(label, ui::theme::text(), LV_STATE_FOCUSED);
         lv_obj_set_style_pad_all(label, 0, 0);
         lv_label_set_long_mode(
             label,
@@ -746,7 +768,7 @@ void createAppButton(lv_obj_t* parent, AppScreen* app, size_t idx)
     {
         lv_obj_t* badge = lv_obj_create(btn);
         lv_obj_set_size(badge, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-        lv_obj_set_style_bg_color(badge, lv_color_hex(0xE53935), 0);
+        lv_obj_set_style_bg_color(badge, ui::theme::accent(), 0);
         lv_obj_set_style_bg_opa(badge, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(badge, 0, 0);
         lv_obj_set_style_radius(badge, LV_RADIUS_CIRCLE, 0);
@@ -1008,8 +1030,14 @@ void setBottomBarChipText(const BottomBarChipUi& chip, const char* text)
     {
         return;
     }
-    lv_label_set_text(chip.label, text ? text : "");
-    ::ui::i18n::log_direct_text_route("menu_bottom_chip_update", chip.label, text ? text : "");
+    const char* next = text ? text : "";
+    const char* current = lv_label_get_text(chip.label);
+    if (current != nullptr && std::strcmp(current, next) == 0)
+    {
+        return;
+    }
+    lv_label_set_text(chip.label, next);
+    ::ui::i18n::log_direct_text_route("menu_bottom_chip_update", chip.label, next);
 }
 
 std::string renderBottomHelpText(const char* text)
@@ -1198,18 +1226,31 @@ void createAppGrid()
     s_bottom_help_chip = {};
     s_bottom_ram_chip = {};
     s_bottom_psram_chip = {};
-    s_bottom_node_chip = createBottomBarChip(s_bottom_bar_left, profile, lv_color_hex(0xF1B75A), "-");
+#if defined(ARDUINO_T_DECK_PRO)
+    // The EPD menu is deliberately two-tone and has no coloured bottom chips.
+    const lv_color_t node_chip_color = ui::theme::surface_alt();
+    const lv_color_t help_chip_color = ui::theme::surface_alt();
+    const lv_color_t ram_chip_color = ui::theme::surface_alt();
+    const lv_color_t psram_chip_color = ui::theme::surface_alt();
+#else
+    // Keep T-Deck/TFT's existing three coloured information-chip backgrounds.
+    const lv_color_t node_chip_color = lv_color_hex(0xF1B75A);
+    const lv_color_t help_chip_color = lv_color_hex(0xFAF0D8);
+    const lv_color_t ram_chip_color = lv_color_hex(0xCFE4FF);
+    const lv_color_t psram_chip_color = lv_color_hex(0xD4F0D2);
+#endif
+    s_bottom_node_chip = createBottomBarChip(s_bottom_bar_left, profile, node_chip_color, "-");
     if (showBottomHelpShortcut())
     {
         s_bottom_help_chip =
-            createBottomBarChip(s_bottom_bar_left, profile, lv_color_hex(0xFAF0D8), kBottomHelpRichPrefix, true);
+            createBottomBarChip(s_bottom_bar_left, profile, help_chip_color, kBottomHelpRichPrefix, true);
     }
     if (profile.show_memory_stats)
     {
         createBottomBarSpacer(s_bottom_bar);
         s_bottom_bar_right = createBottomBarGroup(s_bottom_bar);
-        s_bottom_ram_chip = createBottomBarChip(s_bottom_bar_right, profile, lv_color_hex(0xCFE4FF), "--/--");
-        s_bottom_psram_chip = createBottomBarChip(s_bottom_bar_right, profile, lv_color_hex(0xD4F0D2), "--/--");
+        s_bottom_ram_chip = createBottomBarChip(s_bottom_bar_right, profile, ram_chip_color, "--/--");
+        s_bottom_psram_chip = createBottomBarChip(s_bottom_bar_right, profile, psram_chip_color, "--/--");
     }
 
     char node_id_buf[24];
