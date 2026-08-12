@@ -192,6 +192,11 @@ bool PagerCodec2Audio::isSupported() const
     return pagerBoard() != nullptr;
 }
 
+bool PagerCodec2Audio::canCapture() const
+{
+    return pagerBoard() != nullptr;
+}
+
 CaptureResult PagerCodec2Audio::capture(const volatile bool* stop_requested)
 {
     clearEncodedMedia();
@@ -451,12 +456,109 @@ void PagerCodec2Audio::duplicatePlaybackToStereo()
 
 } // namespace platform::esp::arduino_common::voice::vmp_audio
 
+#elif defined(ARDUINO_T_DECK)
+
+#include <Arduino.h>
+
+#include "boards/tdeck/tdeck_board.h"
+#include "platform/esp/boards/board_runtime.h"
+
+namespace platform::esp::arduino_common::voice::vmp_audio
+{
+namespace
+{
+
+using ::boards::tdeck::TDeckBoard;
+
+TDeckBoard* tdeckBoard()
+{
+    ::platform::esp::boards::AppContextInitHandles handles;
+    if (!::platform::esp::boards::tryResolveAppContextInitHandles(&handles) ||
+        !handles.board)
+    {
+        return nullptr;
+    }
+    return static_cast<TDeckBoard*>(handles.board);
+}
+
+} // namespace
+
+bool PagerCodec2Audio::isSupported() const
+{
+    TDeckBoard* const board = tdeckBoard();
+    return board && board->isVoicePlaybackReady();
+}
+
+bool PagerCodec2Audio::canCapture() const
+{
+    // T-Deck v1 has a bounded speaker path here; recording and outbound VMP
+    // remain unavailable until a separate microphone path is implemented.
+    return false;
+}
+
+CaptureResult PagerCodec2Audio::capture(const volatile bool*)
+{
+    clearEncodedMedia();
+    return CaptureResult::Unsupported;
+}
+
+const uint8_t* PagerCodec2Audio::encodedMedia() const
+{
+    return nullptr;
+}
+
+std::size_t PagerCodec2Audio::encodedMediaSize() const
+{
+    return 0U;
+}
+
+bool PagerCodec2Audio::hasEncodedMedia() const
+{
+    return false;
+}
+
+void PagerCodec2Audio::clearEncodedMedia()
+{
+    std::memset(encoded_media_, 0, sizeof(encoded_media_));
+    encoded_media_size_ = 0U;
+}
+
+PlaybackResult PagerCodec2Audio::play(const uint8_t* encoded_media,
+                                      std::size_t encoded_media_len,
+                                      chat::voice::vmp::Codec codec,
+                                      uint8_t volume_percent)
+{
+    if (!encoded_media || encoded_media_len == 0U ||
+        encoded_media_len > kMaximumEncodedBytes ||
+        encoded_media_len % kCodec2BytesPerFrame != 0U ||
+        codec != chat::voice::vmp::Codec::Codec2_1300)
+    {
+        return PlaybackResult::InvalidMedia;
+    }
+
+    TDeckBoard* const board = tdeckBoard();
+    if (!board || !board->isVoicePlaybackReady())
+    {
+        return PlaybackResult::Unsupported;
+    }
+    return board->playCodec2Voice(encoded_media, encoded_media_len, volume_percent)
+               ? PlaybackResult::Complete
+               : PlaybackResult::AudioBusy;
+}
+
+} // namespace platform::esp::arduino_common::voice::vmp_audio
+
 #else
 
 namespace platform::esp::arduino_common::voice::vmp_audio
 {
 
 bool PagerCodec2Audio::isSupported() const
+{
+    return false;
+}
+
+bool PagerCodec2Audio::canCapture() const
 {
     return false;
 }

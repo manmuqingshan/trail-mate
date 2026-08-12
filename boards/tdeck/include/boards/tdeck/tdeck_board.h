@@ -75,6 +75,14 @@ class TDeckBoard : public BoardBase,
     void setMessageToneVolume(uint8_t volume_percent) override;
     uint8_t getMessageToneVolume() const override;
 
+    /** @brief True after the board's I2S speaker runtime is available. */
+    bool isVoicePlaybackReady() const;
+
+    /** @brief Plays one Codec2-1300 voice-message object through the speaker. */
+    bool playCodec2Voice(const uint8_t* encoded_media,
+                         std::size_t encoded_media_len,
+                         uint8_t volume_percent);
+
     // LilyGo_Display
     void setRotation(uint8_t rotation) override;
     uint8_t getRotation() override;

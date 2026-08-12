@@ -5,7 +5,7 @@
 
 #include "platform/esp/arduino_common/voice/vmp_pager_session.h"
 
-#if defined(ARDUINO_T_LORA_PAGER)
+#if defined(ARDUINO_T_LORA_PAGER) || defined(ARDUINO_T_DECK)
 
 #include "platform/esp/arduino_common/storage/storage_runtime.h"
 #include "platform/esp/arduino_common/voice/vmp_control_runtime.h"
@@ -58,7 +58,15 @@ constexpr uint8_t kReadyProbeCount = 3U;
 // only for an active record/play operation and are released by vTaskDelete.
 constexpr uint32_t kOutboundTaskStackBytes = 8U * 1024U;
 constexpr UBaseType_t kOutboundTaskPriority = 4U;
+#if defined(ARDUINO_T_DECK)
+// T-Deck is playback-only: Codec2 state and PCM are PSRAM-backed and its I2S
+// output path has no Pager codec/I2C capture chain. Keep this transient worker
+// aligned with T-Deck's existing 4 KiB audio task rather than reserving the
+// Pager's capture-sized 8 KiB internal-RAM stack.
+constexpr uint32_t kPlaybackTaskStackBytes = 4U * 1024U;
+#else
 constexpr uint32_t kPlaybackTaskStackBytes = 8U * 1024U;
+#endif
 constexpr UBaseType_t kPlaybackTaskPriority = 3U;
 constexpr uint32_t kPersistentInboxRetryMs = 5000U;
 
@@ -228,7 +236,7 @@ class PagerReceiveSession final
     bool canRecordAndSend() const
     {
         if (!initialized_ || !media_ || !inbox_ready_ ||
-            !media_->audio.isSupported() || !lockState())
+            !media_->audio.canCapture() || !lockState())
         {
             return false;
         }

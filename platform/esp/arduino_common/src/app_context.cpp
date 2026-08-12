@@ -374,11 +374,11 @@ void AppContext::initChatRuntime(bool use_mock_adapter)
     applyNetworkLimits();
     applyPrivacyConfig();
     applyChatDefaults();
-#if defined(ARDUINO_T_LORA_PAGER)
+#if defined(ARDUINO_T_LORA_PAGER) || defined(ARDUINO_T_DECK)
     if (!::platform::esp::arduino_common::voice::vmp_session::initialize(
             getSelfNodeId(), deferred_storage_store_context_ != nullptr))
     {
-        Serial.printf("[VMP] Pager voice service unavailable\n");
+        Serial.printf("[VMP] voice service unavailable\n");
         ::ui::chat_voice::setRuntime(nullptr);
     }
     else
@@ -714,7 +714,7 @@ void AppContext::applyMeshConfig()
         chat::infra::isReticulumMeshProtocol(
             chat::infra::normalizeMeshProtocol(config_.mesh_protocol)));
 #endif
-#if defined(ARDUINO_T_LORA_PAGER)
+#if defined(ARDUINO_T_LORA_PAGER) || defined(ARDUINO_T_DECK)
     ::platform::esp::arduino_common::voice::vmp_session::setPresentationProtocol(
         static_cast<uint8_t>(chat::infra::normalizeMeshProtocol(config_.mesh_protocol)));
 #endif
@@ -918,7 +918,7 @@ bool AppContext::switchMeshProtocol(chat::MeshProtocol protocol, bool persist)
     {
         contact_service_->setActiveProtocol(normalized);
     }
-#if defined(ARDUINO_T_LORA_PAGER)
+#if defined(ARDUINO_T_LORA_PAGER) || defined(ARDUINO_T_DECK)
     ::platform::esp::arduino_common::voice::vmp_session::invalidateContactSecretCache();
     ::platform::esp::arduino_common::voice::vmp_session::setPresentationProtocol(
         static_cast<uint8_t>(normalized));
@@ -972,7 +972,7 @@ void AppContext::getEffectiveUserInfo(char* out_long, size_t long_len,
 void AppContext::updateCoreServices()
 {
     flushConfigPersistence(millis());
-#if defined(ARDUINO_T_LORA_PAGER)
+#if defined(ARDUINO_T_LORA_PAGER) || defined(ARDUINO_T_DECK)
     // Text and VMP attachments share the deferred-storage readiness boundary.
     // After that boundary, this is a rate-limited retry only when an SD I/O
     // failure prevented the local VMP attachment snapshot from restoring.

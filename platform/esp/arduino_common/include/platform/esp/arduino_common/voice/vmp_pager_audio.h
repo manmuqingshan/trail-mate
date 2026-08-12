@@ -62,6 +62,7 @@ class PagerCodec2Audio final
     PagerCodec2Audio& operator=(const PagerCodec2Audio&) = delete;
 
     [[nodiscard]] bool isSupported() const;
+    [[nodiscard]] bool canCapture() const;
 
     /**
      * @brief Records at most 125 Codec2 frames (exactly five seconds).

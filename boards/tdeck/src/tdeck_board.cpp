@@ -1430,6 +1430,18 @@ uint8_t TDeckBoard::getMessageToneVolume() const
     return message_tone_volume_;
 }
 
+bool TDeckBoard::isVoicePlaybackReady() const
+{
+    return audio_runtime_.isReady();
+}
+
+bool TDeckBoard::playCodec2Voice(const uint8_t* encoded_media,
+                                 std::size_t encoded_media_len,
+                                 uint8_t volume_percent)
+{
+    return audio_runtime_.playCodec2Voice(encoded_media, encoded_media_len, volume_percent);
+}
+
 namespace
 {
 TDeckBoard& getInstanceRef()

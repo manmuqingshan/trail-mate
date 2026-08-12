@@ -18,7 +18,14 @@
 namespace chat::voice::vmp
 {
 
+// T-Deck's VMP integration is playback-only and must leave most of its PSRAM
+// available for the display and map paths.  Retain only the newest two local
+// voice objects there; Pager keeps its eight-message history.
+#if defined(ARDUINO_T_DECK)
+inline constexpr std::size_t kVoiceInboxCapacity = 2U;
+#else
 inline constexpr std::size_t kVoiceInboxCapacity = 8U;
+#endif
 
 /**
  * Local presentation state for a voice object.
