@@ -59,6 +59,9 @@ int main(int argc, char** argv)
                "voice/vmp_pager_session.h");
     const std::string pager_audio = readFile(
         root / "platform/esp/arduino_common/src/voice/vmp_pager_audio.cpp");
+    const std::string pager_audio_header = readFile(
+        root / "platform/esp/arduino_common/include/platform/esp/arduino_common/"
+               "voice/vmp_pager_audio.h");
     const std::string codec2 = readFile(root / "third_party/codec2/src/codec2.c");
     const std::string codec2_internal =
         readFile(root / "third_party/codec2/src/codec2_internal.h");
@@ -324,6 +327,46 @@ int main(int argc, char** argv)
     assert(session.find("stack_budget_bytes=%u") != std::string::npos);
     assert(session.find("logTaskCreateFailure(\"vmp_tx\", kOutboundTaskStackBytes)") !=
            std::string::npos);
+    // Voice-message playback is speech, not a notification tone. Its former
+    // hard-coded 70% value maps to -15 dB in the ES8311 default volume curve.
+    // Keep it at full output gain unless a future dedicated voice-volume
+    // setting supplies an explicit user value.
+    assert(session.find("playback_codec_,\n                                        100U)") !=
+           std::string::npos);
+    assert(pager_header.find("volume_percent = 100U") != std::string::npos);
+    assert(pager_audio_header.find("volume_percent = 100U") !=
+           std::string::npos);
+    const std::size_t capture_audio =
+        positionOf(pager_audio, "bool beginCaptureAudio(");
+    const std::size_t playback_audio =
+        positionOfAfter(pager_audio, "bool beginPlaybackAudio(", capture_audio);
+    const std::size_t pcm_level =
+        positionOfAfter(pager_audio, "struct PcmLevel", playback_audio);
+    const std::string capture_audio_body =
+        pager_audio.substr(capture_audio, playback_audio - capture_audio);
+    const std::string playback_audio_body =
+        pager_audio.substr(playback_audio, pcm_level - playback_audio);
+    assert(capture_audio_body.find("audioSetGain(kOwner, kCaptureGainDb)") !=
+           std::string::npos);
+    assert(capture_audio_body.find("audioSetMute(kOwner, false)") !=
+           std::string::npos);
+    assert(capture_audio_body.find("audioSetOutMute") == std::string::npos);
+    assert(playback_audio_body.find("audioSetOutMute(kOwner, false)") !=
+           std::string::npos);
+    assert(playback_audio_body.find("audioSetGain") == std::string::npos);
+    assert(playback_audio_body.find("audioSetMute") == std::string::npos);
+    // Peak/RMS inspection must run on the existing PCM frame. It must not add
+    // a retained frame, queue, or other RAM-backed telemetry buffer.
+    assert(pager_audio.find("kAudioLevelLogIntervalFrames = 25U") !=
+           std::string::npos);
+    assert(pager_audio.find("[VMP][AUDIO] level capture") !=
+           std::string::npos);
+    assert(pager_audio.find("[VMP][AUDIO] level playback") !=
+           std::string::npos);
+    assert(pager_audio.find("struct PagerCodec2Audio::FrameScratch\n{\n    int16_t stereo[") !=
+           std::string::npos);
+    assert(pager_audio.find("PcmLevel stereo[") == std::string::npos);
+    assert(pager_audio.find("PcmLevel mono[") == std::string::npos);
     assert(codec2_internal.find("CODEC2_1300_SCRATCH") != std::string::npos);
     assert(codec2_internal.find("COMP         *fft_inplace_scratch") !=
            std::string::npos);

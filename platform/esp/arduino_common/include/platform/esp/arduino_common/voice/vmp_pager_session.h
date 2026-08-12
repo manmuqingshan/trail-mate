@@ -110,7 +110,7 @@ std::size_t listInboxMetadata(chat::voice::vmp::VoiceMessageMetadata* out_metada
                               std::size_t capacity);
 
 /** @brief Decodes one already-local VMP inbox object to the Pager speaker. */
-bool playInboxMessage(uint64_t local_id, uint8_t volume_percent = 70U);
+bool playInboxMessage(uint64_t local_id, uint8_t volume_percent = 100U);
 
 /**
  * @brief Starts local playback on a VMP worker so the UI task never blocks.

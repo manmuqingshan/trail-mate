@@ -80,7 +80,7 @@ class PagerCodec2Audio final
     PlaybackResult play(const uint8_t* encoded_media,
                         std::size_t encoded_media_len,
                         chat::voice::vmp::Codec codec,
-                        uint8_t volume_percent = 70U);
+                        uint8_t volume_percent = 100U);
 
   private:
     struct FrameScratch;

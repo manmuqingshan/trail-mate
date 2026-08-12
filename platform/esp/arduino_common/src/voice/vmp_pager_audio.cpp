@@ -5,6 +5,7 @@
 
 #include "platform/esp/arduino_common/voice/vmp_pager_audio.h"
 
+#include <cmath>
 #include <cstring>
 #include <new>
 
@@ -27,6 +28,7 @@ using ::boards::tlora_pager::TLoRaPagerBoard;
 
 constexpr PagerAudioOwner kOwner = PagerAudioOwner::VoiceMessage;
 constexpr float kCaptureGainDb = 24.0F;
+constexpr std::size_t kAudioLevelLogIntervalFrames = 25U;
 
 TLoRaPagerBoard* pagerBoard()
 {
@@ -61,14 +63,14 @@ int16_t clampToInt16(int32_t value)
     return static_cast<int16_t>(value);
 }
 
-bool beginAudio(TLoRaPagerBoard* board, bool speaker_enabled)
+bool beginCaptureAudio(TLoRaPagerBoard* board)
 {
     if (!board ||
         board->openAudioSession(kOwner,
                                 kBitsPerSample,
                                 kHardwareChannels,
                                 kSampleRateHz,
-                                speaker_enabled) != 0)
+                                false) != 0)
     {
         return false;
     }
@@ -78,12 +80,103 @@ bool beginAudio(TLoRaPagerBoard* board, bool speaker_enabled)
         board->closeAudioSession(kOwner);
         return false;
     }
-    if (speaker_enabled && !board->audioSetOutMute(kOwner, false))
+    return true;
+}
+
+bool beginPlaybackAudio(TLoRaPagerBoard* board)
+{
+    if (!board ||
+        board->openAudioSession(kOwner,
+                                kBitsPerSample,
+                                kHardwareChannels,
+                                kSampleRateHz,
+                                true) != 0)
+    {
+        return false;
+    }
+    if (!board->audioSetOutMute(kOwner, false))
     {
         board->closeAudioSession(kOwner);
         return false;
     }
     return true;
+}
+
+struct PcmLevel
+{
+    uint16_t peak = 0U;
+    uint16_t rms = 0U;
+};
+
+struct CapturePcmLevel
+{
+    PcmLevel left{};
+    PcmLevel right{};
+    PcmLevel mono{};
+};
+
+PcmLevel measurePcmLevel(const int16_t* samples,
+                         std::size_t sample_count,
+                         std::size_t stride = 1U,
+                         std::size_t offset = 0U)
+{
+    uint32_t peak = 0U;
+    uint64_t sum_of_squares = 0U;
+    for (std::size_t index = 0U; index < sample_count; ++index)
+    {
+        const int32_t sample = samples[index * stride + offset];
+        const uint32_t magnitude = sample < 0 ? static_cast<uint32_t>(-sample)
+                                              : static_cast<uint32_t>(sample);
+        if (magnitude > peak)
+        {
+            peak = magnitude;
+        }
+        sum_of_squares += static_cast<uint64_t>(sample * sample);
+    }
+    const float mean_square =
+        static_cast<float>(sum_of_squares) / static_cast<float>(sample_count);
+    return {static_cast<uint16_t>(peak),
+            static_cast<uint16_t>(sqrtf(mean_square) + 0.5F)};
+}
+
+CapturePcmLevel measureCapturePcmLevel(const int16_t* stereo, const int16_t* mono)
+{
+    return {measurePcmLevel(stereo, kCodec2SamplesPerFrame, kHardwareChannels, 0U),
+            measurePcmLevel(stereo, kCodec2SamplesPerFrame, kHardwareChannels, 1U),
+            measurePcmLevel(mono, kCodec2SamplesPerFrame)};
+}
+
+bool shouldLogPcmLevel(std::size_t frame_index, std::size_t frame_count)
+{
+    const std::size_t completed_frames = frame_index + 1U;
+    return frame_index == 0U ||
+           (completed_frames % kAudioLevelLogIntervalFrames) == 0U ||
+           completed_frames == frame_count;
+}
+
+void logCapturePcmLevel(std::size_t frame_index, const CapturePcmLevel& level)
+{
+    Serial.printf("[VMP][AUDIO] level capture frame=%u left_peak=%u left_rms=%u "
+                  "right_peak=%u right_rms=%u mono_peak=%u mono_rms=%u\n",
+                  static_cast<unsigned>(frame_index + 1U),
+                  static_cast<unsigned>(level.left.peak),
+                  static_cast<unsigned>(level.left.rms),
+                  static_cast<unsigned>(level.right.peak),
+                  static_cast<unsigned>(level.right.rms),
+                  static_cast<unsigned>(level.mono.peak),
+                  static_cast<unsigned>(level.mono.rms));
+}
+
+void logPlaybackPcmLevel(std::size_t frame_index,
+                         const PcmLevel& level,
+                         uint8_t output_volume)
+{
+    Serial.printf("[VMP][AUDIO] level playback frame=%u mono_peak=%u mono_rms=%u "
+                  "output_volume=%u\n",
+                  static_cast<unsigned>(frame_index + 1U),
+                  static_cast<unsigned>(level.peak),
+                  static_cast<unsigned>(level.rms),
+                  static_cast<unsigned>(output_volume));
 }
 
 } // namespace
@@ -111,7 +204,7 @@ CaptureResult PagerCodec2Audio::capture(const volatile bool* stop_requested)
         Serial.printf("[VMP][AUDIO] capture rejected reason=unsupported\n");
         return CaptureResult::Unsupported;
     }
-    if (!beginAudio(board, false))
+    if (!beginCaptureAudio(board))
     {
         releaseFrameScratch();
         Serial.printf("[VMP][AUDIO] capture rejected reason=audio_busy\n");
@@ -135,6 +228,8 @@ CaptureResult PagerCodec2Audio::capture(const volatile bool* stop_requested)
     }
 
     CaptureResult result = CaptureResult::Complete;
+    CapturePcmLevel last_capture_level{};
+    bool has_capture_level = false;
     bool stopped_by_release = false;
     for (std::size_t frame = 0; frame < kCodec2FramesPerMessage; ++frame)
     {
@@ -154,6 +249,13 @@ CaptureResult PagerCodec2Audio::capture(const volatile bool* stop_requested)
             break;
         }
         mixCaptureToMono();
+        last_capture_level = measureCapturePcmLevel(frame_scratch_->stereo,
+                                                    frame_scratch_->mono);
+        has_capture_level = true;
+        if (shouldLogPcmLevel(frame, kCodec2FramesPerMessage))
+        {
+            logCapturePcmLevel(frame, last_capture_level);
+        }
         codec2_encode(encoder,
                       encoded_media_ + encoded_media_size_,
                       frame_scratch_->mono);
@@ -169,6 +271,11 @@ CaptureResult PagerCodec2Audio::capture(const volatile bool* stop_requested)
 
     codec2_destroy(encoder);
     board->closeAudioSession(kOwner);
+    const std::size_t captured_frame_count = encoded_media_size_ / kCodec2BytesPerFrame;
+    if (has_capture_level && captured_frame_count % kAudioLevelLogIntervalFrames != 0U)
+    {
+        logCapturePcmLevel(captured_frame_count - 1U, last_capture_level);
+    }
     releaseFrameScratch();
     const std::size_t encoded_size = encoded_media_size_;
     if (result != CaptureResult::Complete)
@@ -223,13 +330,13 @@ PlaybackResult PagerCodec2Audio::play(const uint8_t* encoded_media,
     {
         return PlaybackResult::Unsupported;
     }
-    if (!beginAudio(board, true))
+    if (!beginPlaybackAudio(board))
     {
         releaseFrameScratch();
         return PlaybackResult::AudioBusy;
     }
-    (void)board->audioSetVolume(kOwner, volume_percent > 100U ? 100U
-                                                              : volume_percent);
+    const uint8_t output_volume = volume_percent > 100U ? 100U : volume_percent;
+    (void)board->audioSetVolume(kOwner, output_volume);
 
     CODEC2* const decoder = codec2_create(CODEC2_MODE_1300);
     const int sample_count = decoder ? codec2_samples_per_frame(decoder) : 0;
@@ -248,12 +355,19 @@ PlaybackResult PagerCodec2Audio::play(const uint8_t* encoded_media,
     codec2_set_lpc_post_filter(decoder, 1, 0, 0.8F, 0.2F);
 
     PlaybackResult result = PlaybackResult::Complete;
-    for (std::size_t offset = 0U; offset < encoded_media_len;
-         offset += kCodec2BytesPerFrame)
+    const std::size_t frame_count = encoded_media_len / kCodec2BytesPerFrame;
+    for (std::size_t frame_index = 0U, offset = 0U; offset < encoded_media_len;
+         ++frame_index, offset += kCodec2BytesPerFrame)
     {
         codec2_decode(decoder,
                       frame_scratch_->mono,
                       const_cast<uint8_t*>(encoded_media + offset));
+        const PcmLevel level =
+            measurePcmLevel(frame_scratch_->mono, kCodec2SamplesPerFrame);
+        if (shouldLogPcmLevel(frame_index, frame_count))
+        {
+            logPlaybackPcmLevel(frame_index, level, output_volume);
+        }
         duplicatePlaybackToStereo();
         if (!writePlaybackFrame())
         {

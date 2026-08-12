@@ -1038,7 +1038,7 @@ class PagerReceiveSession final
             result = media_->audio.play(media_->playback_media,
                                         playback_media_len_,
                                         playback_codec_,
-                                        70U);
+                                        100U);
         }
         logCurrentTaskStack("vmp_play", "after_playback");
         Serial.printf("[VMP][PLAY] end local_id=%llu result=%u\n",
