@@ -623,15 +623,48 @@ def disable_arduino_tinyusb_dfu_for_release_esp32():
     # The directory name is part of the transformation version. It prevents an
     # archive created by an earlier full-DFU-only optimization from being reused
     # after DFU Runtime was also removed.
-    archive_dir = os.path.join(env.subst("$BUILD_DIR"), "trail_mate_tinyusb_no_dfu")
+    archive_dir = os.path.join(env.subst("$BUILD_DIR"), "trail_mate_tinyusb_no_dfu_v2")
     os.makedirs(archive_dir, exist_ok=True)
     trimmed_archive = os.path.join(archive_dir, "libarduino_tinyusb.a")
+    toolchain_dir = platform.get_package_dir(f"toolchain-xtensa-{mcu}")
+    if not toolchain_dir:
+        raise RuntimeError(f"ESP32 toolchain package not found for {mcu}")
+    ar_name_candidates = (
+        f"xtensa-{mcu}-elf-ar",
+        f"xtensa-{mcu}-elf-gcc-ar",
+        env.subst("$AR"),
+    )
+    ar_candidates = []
+    for ar_name in ar_name_candidates:
+        candidate = os.path.join(toolchain_dir, "bin", ar_name)
+        ar_candidates.append(candidate)
+        if os.name == "nt":
+            ar_candidates.append(candidate + ".exe")
+    ar_path = next((candidate for candidate in ar_candidates if os.path.isfile(candidate)), None)
+    if not ar_path:
+        raise RuntimeError(
+            "ESP32 archive tool not found; checked: " + ", ".join(ar_candidates)
+        )
+    forbidden_members = ("dfu_device.c.obj", "dfu_rt_device.c.obj")
+
+    def archive_still_contains_dfu_members():
+        if not os.path.isfile(trimmed_archive):
+            return True
+        try:
+            archive_members = subprocess.check_output(
+                [ar_path, "t", trimmed_archive],
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError):
+            return True
+        return any(member in archive_members.splitlines() for member in forbidden_members)
+
     archive_needs_refresh = (
         not os.path.isfile(trimmed_archive)
         or os.path.getmtime(trimmed_archive) < os.path.getmtime(source_archive)
+        or archive_still_contains_dfu_members()
     )
     if archive_needs_refresh:
-        ar_path = env.subst("$AR")
         with open(source_archive, "rb") as source_fp, open(trimmed_archive, "wb") as target_fp:
             target_fp.write(source_fp.read())
         subprocess.check_call(
@@ -641,8 +674,20 @@ def disable_arduino_tinyusb_dfu_for_release_esp32():
                 trimmed_archive,
                 "dfu_device.c.obj",
                 "dfu_rt_device.c.obj",
-            ]
+            ],
         )
+        archive_members = subprocess.check_output(
+            [ar_path, "t", trimmed_archive],
+            text=True,
+        )
+        remaining_members = [
+            member for member in forbidden_members if member in archive_members.splitlines()
+        ]
+        if remaining_members:
+            raise RuntimeError(
+                "Failed to remove Arduino TinyUSB DFU archive members: "
+                f"{', '.join(remaining_members)}"
+            )
 
     # PlatformIO selects this SDK archive through -larduino_tinyusb. Search
     # this build-private directory first so the original package remains
