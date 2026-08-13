@@ -87,7 +87,6 @@ struct RuntimeState
     bool wifi_initialized = false;
     bool ble_paused_for_wifi = false;
     bool network_time_sync_in_progress = false;
-    bool network_time_sync_attempted = false;
     std::time_t network_time_sync_epoch = 0;
     bool config_cached = false;
     bool profiles_cached = false;
@@ -758,7 +757,6 @@ void clear_connection_details()
     cancel_network_time_sync();
     s_runtime.connected = false;
     s_runtime.connecting = false;
-    s_runtime.network_time_sync_attempted = false;
     s_runtime.rssi = -127;
     s_runtime.ssid[0] = '\0';
     s_runtime.ip[0] = '\0';
@@ -848,20 +846,28 @@ void stop_sntp_once()
     esp_sntp_set_time_sync_notification_cb(nullptr);
 }
 
-void cancel_network_time_sync()
+// A time sync is strictly bound to the current IP lease. Keep the timer
+// allocated with the Wi-Fi runtime so repeated DHCP events do not fragment
+// scarce internal memory, but make every terminal path stop it and unregister
+// the SNTP callback before another lease can start a new sync.
+void finish_network_time_sync()
 {
+    s_runtime.network_time_sync_in_progress = false;
     if (s_runtime.network_time_sync_timeout_timer != nullptr)
     {
         (void)esp_timer_stop(s_runtime.network_time_sync_timeout_timer);
     }
     stop_sntp_once();
-    s_runtime.network_time_sync_in_progress = false;
+}
+
+void cancel_network_time_sync()
+{
+    finish_network_time_sync();
 }
 
 void network_time_apply_task(void*)
 {
     const std::time_t epoch_seconds = s_runtime.network_time_sync_epoch;
-    stop_sntp_once();
 
     if (is_valid_network_epoch(epoch_seconds))
     {
@@ -877,7 +883,7 @@ void network_time_apply_task(void*)
                     static_cast<long long>(epoch_seconds));
     }
 
-    s_runtime.network_time_sync_in_progress = false;
+    finish_network_time_sync();
     s_runtime.network_time_apply_task = nullptr;
     vTaskDelete(nullptr);
 }
@@ -908,8 +914,7 @@ void network_time_sync_notification_cb(timeval* tv)
                                            &s_runtime.network_time_apply_task);
     if (created != pdPASS)
     {
-        stop_sntp_once();
-        s_runtime.network_time_sync_in_progress = false;
+        finish_network_time_sync();
         s_runtime.network_time_apply_task = nullptr;
         std::printf("[WiFi][Time] failed to start SNTP apply task\n");
     }
@@ -923,8 +928,7 @@ void network_time_sync_timeout_cb(void*)
     }
 
     std::printf("[WiFi][Time] SNTP sync timed out server=%s\n", kNetworkTimeSyncServer);
-    stop_sntp_once();
-    s_runtime.network_time_sync_in_progress = false;
+    finish_network_time_sync();
 }
 
 bool ensure_network_time_sync_timer()
@@ -971,12 +975,12 @@ void start_or_restart_sntp()
 
 void request_network_time_sync()
 {
-    if (s_runtime.network_time_sync_attempted || s_runtime.network_time_sync_in_progress)
+    if (s_runtime.network_time_sync_in_progress)
     {
+        std::printf("[WiFi][Time] duplicate GOT_IP ignored while SNTP is in progress\n");
         return;
     }
 
-    s_runtime.network_time_sync_attempted = true;
     if (!ensure_network_time_sync_timer())
     {
         return;
@@ -988,7 +992,7 @@ void request_network_time_sync()
                              static_cast<uint64_t>(kNetworkTimeSyncTimeoutMs) * 1000ULL);
     if (timer_err != ESP_OK)
     {
-        s_runtime.network_time_sync_in_progress = false;
+        finish_network_time_sync();
         std::printf("[WiFi][Time] failed to start SNTP timeout timer err=0x%x\n",
                     static_cast<unsigned>(timer_err));
         return;
@@ -1225,6 +1229,7 @@ void wifi_event_handler(void*,
                     s_runtime.ip[0] ? s_runtime.ip : "<none>",
                     s_runtime.ssid[0] ? s_runtime.ssid : current_config().ssid,
                     s_runtime.rssi);
+        std::printf("[WiFi][Time] GOT_IP triggers one-shot SNTP\n");
         request_network_time_sync();
         ensure_reconnect_memory_reserve();
     }

@@ -21,6 +21,24 @@ bool contains(const std::string& haystack, const char* needle)
     return haystack.find(needle) != std::string::npos;
 }
 
+std::size_t occurrences(const std::string& haystack, const char* needle)
+{
+    const std::string target = needle ? needle : "";
+    if (target.empty())
+    {
+        return 0;
+    }
+
+    std::size_t count = 0;
+    std::size_t offset = 0;
+    while ((offset = haystack.find(target, offset)) != std::string::npos)
+    {
+        ++count;
+        offset += target.size();
+    }
+    return count;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -36,6 +54,8 @@ int main(int argc, char** argv)
     const std::string wifi_runtime = readFile(
         repo_root /
         "platform/esp/common/include/platform/esp/common/wifi_runtime_impl.h");
+    const std::string c6_wifi_runtime =
+        readFile(repo_root / "firmware/c6_companion/components/tm_wifi/tm_wifi.c");
     const std::string team_pairing_transport = readFile(
         repo_root /
         "platform/esp/arduino_common/src/team/pairing/team_pairing_transport_espnow.cpp");
@@ -58,6 +78,17 @@ int main(int argc, char** argv)
     assert(contains(wifi_runtime, "void profile_retry_timer_cb(void*)"));
     assert(contains(wifi_runtime, "schedule_profile_retry();"));
     assert(contains(wifi_runtime, "(void)connect(nullptr);"));
+    assert(!contains(wifi_runtime, "network_time_sync_attempted"));
+    assert(contains(wifi_runtime, "void finish_network_time_sync()"));
+    assert(contains(wifi_runtime, "GOT_IP triggers one-shot SNTP"));
+    assert(contains(wifi_runtime, "duplicate GOT_IP ignored while SNTP is in progress"));
+    assert(occurrences(wifi_runtime, "finish_network_time_sync();") >= 5);
+
+    assert(!contains(c6_wifi_runtime, "s_time_sync_attempted"));
+    assert(contains(c6_wifi_runtime, "static void finish_network_time_sync(void)"));
+    assert(contains(c6_wifi_runtime, "GOT_IP triggers one-shot SNTP"));
+    assert(contains(c6_wifi_runtime, "Ignoring duplicate GOT_IP while SNTP is in progress"));
+    assert(occurrences(c6_wifi_runtime, "finish_network_time_sync();") >= 5);
     assert(contains(team_pairing_transport,
                     "set_non_preemptible_activity(true, \"team_pairing\")"));
     assert(contains(team_pairing_transport, "set_non_preemptible_activity(false)"));
