@@ -27,6 +27,7 @@
 #include "hi8561_driver.h"
 #include "lvgl.h"
 #include "platform/esp/idf_common/app_runtime_support.h"
+#include "p4_dsi_rotating_presenter.h"
 #include "rm69a10_driver.h"
 #include "sdkconfig.h"
 #include "soc/soc_caps.h"
@@ -76,18 +77,41 @@ constexpr uint32_t kKeyboardI2cDelayUs = 5;
 constexpr uint32_t kKeyboardResetDelayMs = 10;
 constexpr uint32_t kKeyboardPowerSettleDelayMs = 50;
 constexpr uint32_t kKeyboardMonitorIntervalMs = 2000;
+constexpr uint32_t kKeyboardProbeDiagnosticIntervalMs = 10000;
+constexpr uint32_t kKeyboardPollFallbackIntervalMs = 30;
+constexpr uint32_t kKeyboardAttachRecoveryCooldownMs = 30000;
+constexpr uint32_t kKeyboardAttachRecoveryRailOffMs = 200;
+constexpr uint32_t kKeyboardAttachRecoverySettleMs = 300;
+constexpr bool kKeyboardAttachRecoveryAutoEnabled = false;
 constexpr uint32_t kKeyboardMonitorUiIntervalMs = 200;
 constexpr uint32_t kKeyboardMonitorTaskStackSize = 4096;
 constexpr UBaseType_t kKeyboardMonitorTaskPriority = 3;
 constexpr uint32_t kAppLifecycleUiTimerIntervalMs = 10;
 constexpr std::size_t kAppLifecycleUiEventsPerTick = 4;
+constexpr std::size_t kKeyboardEventQueueCapacity = 16;
 constexpr uint8_t kKeyboardAttachDebounceCount = 2;
 constexpr uint8_t kKeyboardDetachDebounceCount = 3;
+constexpr uint8_t kKeyboardAttachRecoveryProbeCount = 3;
 constexpr uint8_t kKeyboardI2cScanFirstAddress = 0x03;
 constexpr uint8_t kKeyboardI2cScanLastAddress = 0x77;
 constexpr uint8_t kXl9555RegOutputPort0 = 0x02;
 constexpr uint8_t kXl9555RegConfigPort0 = 0x06;
+constexpr uint8_t kXl9555TMixRfEnableMask = 1U << 0;
+constexpr uint8_t kXl9555TMixRfSwitch0Mask = 1U << 1;
+constexpr uint8_t kXl9555TMixRfSwitch1Mask = 1U << 2;
+constexpr uint8_t kXl9555Led1Mask = 1U << 3;
+constexpr uint8_t kXl9555Led2Mask = 1U << 4;
+constexpr uint8_t kXl9555Led3Mask = 1U << 5;
 constexpr uint8_t kXl9555Tca8418ResetMask = 1U << 6;
+constexpr uint8_t kXl9555KeyboardOutputMask =
+    static_cast<uint8_t>(kXl9555TMixRfEnableMask | kXl9555TMixRfSwitch0Mask |
+                         kXl9555TMixRfSwitch1Mask | kXl9555Led1Mask |
+                         kXl9555Led2Mask | kXl9555Led3Mask |
+                         kXl9555Tca8418ResetMask);
+constexpr uint8_t kXl9555KeyboardIdleHighMask =
+    static_cast<uint8_t>(kXl9555TMixRfEnableMask | kXl9555TMixRfSwitch0Mask |
+                         kXl9555Led1Mask | kXl9555Led2Mask | kXl9555Led3Mask |
+                         kXl9555Tca8418ResetMask);
 constexpr uint8_t kTca8418RegCfg = 0x01;
 constexpr uint8_t kTca8418RegIntStat = 0x02;
 constexpr uint8_t kTca8418RegKeyLockEventCount = 0x03;
@@ -113,6 +137,12 @@ enum class KeyboardMonitorUiAction : uint8_t
     None = 0,
     Attach = 1,
     Detach = 2,
+};
+
+struct KeyboardBufferedEvent
+{
+    uint32_t key = 0;
+    bool pressed = false;
 };
 
 constexpr std::array<uint32_t, 68> kTca8418LvglKeyMap = {
@@ -142,6 +172,7 @@ esp_lcd_dsi_bus_handle_t s_dsi_bus = nullptr;
 esp_lcd_panel_io_handle_t s_panel_io = nullptr;
 esp_lcd_panel_handle_t s_panel = nullptr;
 lv_display_t* s_display = nullptr;
+boards::t_display_p4::P4DsiRotatingPresenter s_rotating_presenter;
 lv_indev_t* s_touch_indev = nullptr;
 lv_indev_t* s_keyboard_indev = nullptr;
 lv_timer_t* s_keyboard_monitor_ui_timer = nullptr;
@@ -157,9 +188,16 @@ bool s_keyboard_pressed = false;
 bool s_keyboard_caps_lock = false;
 bool s_keyboard_shift_active = false;
 bool s_keyboard_interrupt_registered = false;
+bool s_keyboard_i2c_pins_swapped = false;
 int s_brightness_percent = 0;
 uint32_t s_keyboard_last_key = 0;
 uint32_t s_keyboard_last_alt_press_ms = 0;
+TickType_t s_keyboard_last_poll_ticks = 0;
+std::array<KeyboardBufferedEvent, kKeyboardEventQueueCapacity> s_keyboard_event_queue{};
+std::size_t s_keyboard_event_queue_head = 0;
+std::size_t s_keyboard_event_queue_count = 0;
+uint32_t s_keyboard_textarea_suppressed_release_key = 0;
+bool s_keyboard_textarea_suppressed_release_pending = false;
 uint8_t s_keyboard_attach_probe_count = 0;
 uint8_t s_keyboard_detach_probe_count = 0;
 std::atomic<uint8_t> s_keyboard_monitor_ui_action{
@@ -555,12 +593,30 @@ const boards::t_display_p4::BoardProfile::KeyboardModule& keyboard_module()
     return boards::t_display_p4::TDisplayP4Board::keyboardModule();
 }
 
+int keyboard_sda_pin()
+{
+    const auto& kb = keyboard_module();
+    return s_keyboard_i2c_pins_swapped ? kb.scl : kb.sda;
+}
+
+int keyboard_scl_pin()
+{
+    const auto& kb = keyboard_module();
+    return s_keyboard_i2c_pins_swapped ? kb.sda : kb.scl;
+}
+
 struct KeyboardProbeResult
 {
     bool supported = false;
     bool power_ready = false;
     bool gpio_ready = false;
+    bool idle_sda = false;
+    bool idle_scl = false;
     bool xl9555_ack = false;
+    bool swapped_probe_attempted = false;
+    bool swapped_xl9555_ack = false;
+    bool swapped_tca8418_ack = false;
+    bool tca8418_reset_attempted = false;
     bool tca8418_reset_ok = false;
     bool tca8418_ack = false;
     bool tca8418_cfg_readable = false;
@@ -583,34 +639,36 @@ void keyboard_i2c_delay()
 
 void keyboard_sda(bool high)
 {
-    gpio_set_level(static_cast<gpio_num_t>(keyboard_module().sda), high ? 1 : 0);
+    gpio_set_level(static_cast<gpio_num_t>(keyboard_sda_pin()), high ? 1 : 0);
 }
 
 void keyboard_scl(bool high)
 {
-    gpio_set_level(static_cast<gpio_num_t>(keyboard_module().scl), high ? 1 : 0);
+    gpio_set_level(static_cast<gpio_num_t>(keyboard_scl_pin()), high ? 1 : 0);
 }
 
 bool keyboard_read_sda()
 {
-    return gpio_get_level(static_cast<gpio_num_t>(keyboard_module().sda)) != 0;
+    return gpio_get_level(static_cast<gpio_num_t>(keyboard_sda_pin())) != 0;
 }
 
 bool keyboard_read_scl()
 {
-    return gpio_get_level(static_cast<gpio_num_t>(keyboard_module().scl)) != 0;
+    return gpio_get_level(static_cast<gpio_num_t>(keyboard_scl_pin())) != 0;
 }
 
 bool configure_keyboard_i2c_pins()
 {
     const auto& kb = keyboard_module();
-    if (kb.sda < 0 || kb.scl < 0 || kb.tca8418 == 0)
+    const int sda_pin = keyboard_sda_pin();
+    const int scl_pin = keyboard_scl_pin();
+    if (kb.sda < 0 || kb.scl < 0 || sda_pin < 0 || scl_pin < 0 || kb.tca8418 == 0)
     {
         return false;
     }
 
     gpio_config_t sda_cfg{};
-    sda_cfg.pin_bit_mask = 1ULL << static_cast<uint32_t>(kb.sda);
+    sda_cfg.pin_bit_mask = 1ULL << static_cast<uint32_t>(sda_pin);
     sda_cfg.mode = GPIO_MODE_INPUT_OUTPUT_OD;
     sda_cfg.pull_up_en = GPIO_PULLUP_ENABLE;
     sda_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
@@ -620,12 +678,15 @@ bool configure_keyboard_i2c_pins()
 #endif
     if (gpio_config(&sda_cfg) != ESP_OK)
     {
-        ESP_LOGW(kTag, "Keyboard software I2C SDA GPIO config failed");
+        ESP_LOGW(kTag,
+                 "Keyboard software I2C SDA GPIO config failed pin=%d swap=%d",
+                 sda_pin,
+                 s_keyboard_i2c_pins_swapped);
         return false;
     }
 
     gpio_config_t scl_cfg{};
-    scl_cfg.pin_bit_mask = 1ULL << static_cast<uint32_t>(kb.scl);
+    scl_cfg.pin_bit_mask = 1ULL << static_cast<uint32_t>(scl_pin);
     scl_cfg.mode = GPIO_MODE_INPUT_OUTPUT_OD;
     scl_cfg.pull_up_en = GPIO_PULLUP_ENABLE;
     scl_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
@@ -635,7 +696,10 @@ bool configure_keyboard_i2c_pins()
 #endif
     if (gpio_config(&scl_cfg) != ESP_OK)
     {
-        ESP_LOGW(kTag, "Keyboard software I2C SCL GPIO config failed");
+        ESP_LOGW(kTag,
+                 "Keyboard software I2C SCL GPIO config failed pin=%d swap=%d",
+                 scl_pin,
+                 s_keyboard_i2c_pins_swapped);
         return false;
     }
 
@@ -687,16 +751,24 @@ void keyboard_recover_i2c_bus(const char* reason)
     }
 
     keyboard_i2c_stop();
-    ESP_LOGI(kTag,
-             "T-Display-P4 keyboard I2C bus ready reason=%s sda=%d scl=%d idle_before=%d/%d idle_after=%d/%d recover_pulses=%d",
-             reason ? reason : "unknown",
-             keyboard_module().sda,
-             keyboard_module().scl,
-             idle_sda_before,
-             idle_scl_before,
-             keyboard_read_sda(),
-             keyboard_read_scl(),
-             pulses);
+    static TickType_t last_log_tick = 0;
+    const TickType_t now = xTaskGetTickCount();
+    if (last_log_tick == 0 ||
+        static_cast<TickType_t>(now - last_log_tick) >= pdMS_TO_TICKS(5000))
+    {
+        ESP_LOGI(kTag,
+                 "T-Display-P4 keyboard I2C bus recovery reason=%s sda=%d scl=%d swap=%d idle_before=%d/%d idle_after=%d/%d recover_pulses=%d",
+                 reason ? reason : "unknown",
+                 keyboard_sda_pin(),
+                 keyboard_scl_pin(),
+                 s_keyboard_i2c_pins_swapped,
+                 idle_sda_before,
+                 idle_scl_before,
+                 keyboard_read_sda(),
+                 keyboard_read_scl(),
+                 pulses);
+        last_log_tick = now;
+    }
 }
 
 bool keyboard_i2c_write_byte_raw(uint8_t value)
@@ -926,14 +998,55 @@ KeyboardProbeResult probe_keyboard_module_bus(bool reset_tca_after_xl = true)
     keyboard_recover_i2c_bus("probe");
 
     const auto& kb = keyboard_module();
+    result.idle_sda = keyboard_read_sda();
+    result.idle_scl = keyboard_read_scl();
     result.xl9555_ack = kb.xl9555 != 0 && keyboard_probe_device_address(kb.xl9555);
     if (!result.xl9555_ack)
     {
-        return result;
+        result.tca8418_ack = kb.tca8418 != 0 && keyboard_probe_device_address(kb.tca8418);
     }
 
-    if (reset_tca_after_xl)
+    if (!result.xl9555_ack && !result.tca8418_ack && !s_keyboard_i2c_pins_swapped)
     {
+        result.swapped_probe_attempted = true;
+        s_keyboard_i2c_pins_swapped = true;
+        if (configure_keyboard_i2c_pins())
+        {
+            keyboard_recover_i2c_bus("probe_swapped");
+            result.idle_sda = keyboard_read_sda();
+            result.idle_scl = keyboard_read_scl();
+            result.swapped_xl9555_ack =
+                kb.xl9555 != 0 && keyboard_probe_device_address(kb.xl9555);
+            result.swapped_tca8418_ack =
+                kb.tca8418 != 0 && keyboard_probe_device_address(kb.tca8418);
+            if (result.swapped_xl9555_ack || result.swapped_tca8418_ack)
+            {
+                result.xl9555_ack = result.swapped_xl9555_ack;
+                result.tca8418_ack = result.swapped_tca8418_ack;
+                ESP_LOGW(kTag,
+                         "T-Display-P4 keyboard I2C responded only with swapped SDA/SCL; using sda=%d scl=%d",
+                         keyboard_sda_pin(),
+                         keyboard_scl_pin());
+            }
+            else
+            {
+                s_keyboard_i2c_pins_swapped = false;
+                (void)configure_keyboard_i2c_pins();
+                keyboard_recover_i2c_bus("probe_restore");
+                result.idle_sda = keyboard_read_sda();
+                result.idle_scl = keyboard_read_scl();
+            }
+        }
+        else
+        {
+            s_keyboard_i2c_pins_swapped = false;
+            (void)configure_keyboard_i2c_pins();
+        }
+    }
+
+    if (result.xl9555_ack && reset_tca_after_xl)
+    {
+        result.tca8418_reset_attempted = true;
         result.tca8418_reset_ok = reset_tca8418_via_keyboard_expander();
         if (!result.tca8418_reset_ok)
         {
@@ -960,13 +1073,20 @@ void log_keyboard_probe_result(const char* reason,
     if (warning)
     {
         ESP_LOGW(kTag,
-                 "T-Display-P4 keyboard probe reason=%s supported=%d power=%d gpio=%d xl9555=0x%02X:%d reset=%d tca8418=0x%02X:%d cfg=%d module_present=%d controller_ready=%d",
+                 "T-Display-P4 keyboard probe reason=%s supported=%d power_request=%d gpio=%d idle_sda/scl=%d/%d i2c_swap=%d swapped_probe=%d swapped_xl9555=%d swapped_tca8418=%d xl9555=0x%02X:ack=%d reset_attempted=%d reset_ok=%d tca8418=0x%02X:ack=%d cfg_read=%d module_present=%d controller_ready=%d",
                  tag_reason,
                  probe.supported,
                  probe.power_ready,
                  probe.gpio_ready,
+                 probe.idle_sda,
+                 probe.idle_scl,
+                 s_keyboard_i2c_pins_swapped,
+                 probe.swapped_probe_attempted,
+                 probe.swapped_xl9555_ack,
+                 probe.swapped_tca8418_ack,
                  static_cast<unsigned>(kb.xl9555),
                  probe.xl9555_ack,
+                 probe.tca8418_reset_attempted,
                  probe.tca8418_reset_ok,
                  static_cast<unsigned>(kb.tca8418),
                  probe.tca8418_ack,
@@ -977,29 +1097,26 @@ void log_keyboard_probe_result(const char* reason,
     }
 
     ESP_LOGI(kTag,
-             "T-Display-P4 keyboard probe reason=%s supported=%d power=%d gpio=%d xl9555=0x%02X:%d reset=%d tca8418=0x%02X:%d cfg=%d module_present=%d controller_ready=%d",
+             "T-Display-P4 keyboard probe reason=%s supported=%d power_request=%d gpio=%d idle_sda/scl=%d/%d i2c_swap=%d swapped_probe=%d swapped_xl9555=%d swapped_tca8418=%d xl9555=0x%02X:ack=%d reset_attempted=%d reset_ok=%d tca8418=0x%02X:ack=%d cfg_read=%d module_present=%d controller_ready=%d",
              tag_reason,
              probe.supported,
              probe.power_ready,
              probe.gpio_ready,
+             probe.idle_sda,
+             probe.idle_scl,
+             s_keyboard_i2c_pins_swapped,
+             probe.swapped_probe_attempted,
+             probe.swapped_xl9555_ack,
+             probe.swapped_tca8418_ack,
              static_cast<unsigned>(kb.xl9555),
              probe.xl9555_ack,
+             probe.tca8418_reset_attempted,
              probe.tca8418_reset_ok,
              static_cast<unsigned>(kb.tca8418),
              probe.tca8418_ack,
              probe.tca8418_cfg_readable,
              probe.module_present(),
              probe.keyboard_controller_ready());
-}
-
-bool probe_tca8418_presence()
-{
-    return probe_keyboard_module_bus(false).keyboard_controller_ready();
-}
-
-bool probe_keyboard_module_bus_presence()
-{
-    return probe_keyboard_module_bus().module_present();
 }
 
 void log_keyboard_i2c_scan(const char* reason)
@@ -1036,6 +1153,8 @@ void log_keyboard_i2c_scan(const char* reason)
     bool found_xl9555 = false;
     bool found_tca8418 = false;
     const auto& kb = keyboard_module();
+    const int sda_pin = keyboard_sda_pin();
+    const int scl_pin = keyboard_scl_pin();
     for (uint8_t address = kKeyboardI2cScanFirstAddress;
          address <= kKeyboardI2cScanLastAddress;
          ++address)
@@ -1063,20 +1182,22 @@ void log_keyboard_i2c_scan(const char* reason)
     if (count == 0)
     {
         ESP_LOGW(kTag,
-                 "T-Display-P4 keyboard I2C scan reason=%s sda=%d scl=%d found=none expected_xl9555=0x%02X expected_tca8418=0x%02X",
+                 "T-Display-P4 keyboard I2C scan reason=%s sda=%d scl=%d swap=%d found=none expected_xl9555=0x%02X expected_tca8418=0x%02X",
                  reason ? reason : "unknown",
-                 kb.sda,
-                 kb.scl,
+                 sda_pin,
+                 scl_pin,
+                 s_keyboard_i2c_pins_swapped,
                  static_cast<unsigned>(kb.xl9555),
                  static_cast<unsigned>(kb.tca8418));
         return;
     }
 
     ESP_LOGI(kTag,
-             "T-Display-P4 keyboard I2C scan reason=%s sda=%d scl=%d found_count=%d found=%s expected_xl9555=0x%02X:%d expected_tca8418=0x%02X:%d",
+             "T-Display-P4 keyboard I2C scan reason=%s sda=%d scl=%d swap=%d found_count=%d found=%s expected_xl9555=0x%02X:%d expected_tca8418=0x%02X:%d",
              reason ? reason : "unknown",
-             kb.sda,
-             kb.scl,
+             sda_pin,
+             scl_pin,
+             s_keyboard_i2c_pins_swapped,
              count,
              found,
              static_cast<unsigned>(kb.xl9555),
@@ -1091,110 +1212,23 @@ void log_keyboard_hardware_i2c_scan(const char* reason)
     {
         return;
     }
-    const auto& kb = keyboard_module();
-    if (kb.sda < 0 || kb.scl < 0)
-    {
-        return;
-    }
-    if (!ensure_keyboard_module_power())
-    {
-        ESP_LOGW(kTag,
-                 "T-Display-P4 keyboard HW I2C scan unavailable reason=%s power_failed",
-                 reason ? reason : "unknown");
-        return;
-    }
-
-    KeyboardI2cGuard lock(500);
-    if (!lock.locked())
-    {
-        ESP_LOGW(kTag,
-                 "T-Display-P4 keyboard HW I2C scan unavailable reason=%s mutex_timeout",
-                 reason ? reason : "unknown");
-        return;
-    }
-
-    i2c_master_bus_config_t bus_cfg{};
-    bus_cfg.i2c_port = -1;
-    bus_cfg.sda_io_num = static_cast<gpio_num_t>(kb.sda);
-    bus_cfg.scl_io_num = static_cast<gpio_num_t>(kb.scl);
-    bus_cfg.clk_source = I2C_CLK_SRC_DEFAULT;
-    bus_cfg.glitch_ignore_cnt = 7;
-    bus_cfg.flags.enable_internal_pullup = true;
-
-    i2c_master_bus_handle_t bus = nullptr;
-    esp_err_t bus_err = i2c_new_master_bus(&bus_cfg, &bus);
-#if SOC_LP_I2C_SUPPORTED
-    if (bus_err == ESP_ERR_NOT_FOUND)
-    {
-        bus_cfg.i2c_port = SOC_HP_I2C_NUM;
-        bus_cfg.lp_source_clk = LP_I2C_SCLK_DEFAULT;
-        bus_err = i2c_new_master_bus(&bus_cfg, &bus);
-    }
-#endif
-    if (bus_err != ESP_OK)
-    {
-        ESP_LOGW(kTag,
-                 "T-Display-P4 keyboard HW I2C scan unavailable reason=%s sda=%d scl=%d err=%s",
-                 reason ? reason : "unknown",
-                 kb.sda,
-                 kb.scl,
-                 esp_err_to_name(bus_err));
-        return;
-    }
-
-    char found[192] = {};
-    size_t used = 0;
-    int count = 0;
-    bool found_xl9555 = false;
-    bool found_tca8418 = false;
-    for (uint8_t address = kKeyboardI2cScanFirstAddress;
-         address <= kKeyboardI2cScanLastAddress;
-         ++address)
-    {
-        if (i2c_master_probe(bus, address, 20) != ESP_OK)
-        {
-            continue;
-        }
-
-        const int written = std::snprintf(found + used,
-                                          sizeof(found) - used,
-                                          "%s0x%02X",
-                                          count == 0 ? "" : " ",
-                                          static_cast<unsigned>(address));
-        if (written > 0)
-        {
-            used += std::min<size_t>(static_cast<size_t>(written),
-                                     used < sizeof(found) ? sizeof(found) - used - 1 : 0);
-        }
-        ++count;
-        found_xl9555 = found_xl9555 || address == kb.xl9555;
-        found_tca8418 = found_tca8418 || address == kb.tca8418;
-    }
-
-    (void)i2c_del_master_bus(bus);
-    if (count == 0)
-    {
-        ESP_LOGW(kTag,
-                 "T-Display-P4 keyboard HW I2C scan reason=%s sda=%d scl=%d found=none expected_xl9555=0x%02X expected_tca8418=0x%02X",
-                 reason ? reason : "unknown",
-                 kb.sda,
-                 kb.scl,
-                 static_cast<unsigned>(kb.xl9555),
-                 static_cast<unsigned>(kb.tca8418));
-        return;
-    }
-
     ESP_LOGI(kTag,
-             "T-Display-P4 keyboard HW I2C scan reason=%s sda=%d scl=%d found_count=%d found=%s expected_xl9555=0x%02X:%d expected_tca8418=0x%02X:%d",
-             reason ? reason : "unknown",
-             kb.sda,
-             kb.scl,
-             count,
-             found,
-             static_cast<unsigned>(kb.xl9555),
-             found_xl9555,
-             static_cast<unsigned>(kb.tca8418),
-             found_tca8418);
+             "T-Display-P4 keyboard native I2C scan skipped reason=%s: GPIO46/45 use the dedicated software-I2C driver; the managed hardware controllers are already allocated, so only the software-I2C probe is meaningful",
+             reason ? reason : "unknown");
+}
+
+bool keyboard_probe_needs_attach_power_recovery(const KeyboardProbeResult& probe)
+{
+    return probe.supported &&
+           probe.power_ready &&
+           probe.gpio_ready &&
+           probe.idle_sda &&
+           probe.idle_scl &&
+           probe.swapped_probe_attempted &&
+           !probe.xl9555_ack &&
+           !probe.tca8418_ack &&
+           !probe.swapped_xl9555_ack &&
+           !probe.swapped_tca8418_ack;
 }
 
 void IRAM_ATTR keyboard_irq_isr(void* arg)
@@ -1302,7 +1336,7 @@ bool set_keyboard_expander_reset_pin(bool high)
     return keyboard_write_device_register(kb.xl9555, kXl9555RegOutputPort0, output);
 }
 
-bool reset_tca8418_via_keyboard_expander()
+bool configure_keyboard_expander_outputs()
 {
     const auto& kb = keyboard_module();
     if (kb.xl9555 == 0)
@@ -1315,8 +1349,32 @@ bool reset_tca8418_via_keyboard_expander()
     {
         return false;
     }
-    config &= static_cast<uint8_t>(~kXl9555Tca8418ResetMask);
+    config &= static_cast<uint8_t>(~kXl9555KeyboardOutputMask);
     if (!keyboard_write_device_register(kb.xl9555, kXl9555RegConfigPort0, config))
+    {
+        return false;
+    }
+
+    uint8_t output = 0xFF;
+    if (!keyboard_read_device_register(kb.xl9555, kXl9555RegOutputPort0, &output))
+    {
+        return false;
+    }
+    const uint8_t preserved_output =
+        static_cast<uint8_t>(output & static_cast<uint8_t>(~kXl9555KeyboardOutputMask));
+    output = static_cast<uint8_t>(preserved_output | kXl9555KeyboardIdleHighMask);
+    return keyboard_write_device_register(kb.xl9555, kXl9555RegOutputPort0, output);
+}
+
+bool reset_tca8418_via_keyboard_expander()
+{
+    const auto& kb = keyboard_module();
+    if (kb.xl9555 == 0)
+    {
+        return false;
+    }
+
+    if (!configure_keyboard_expander_outputs())
     {
         return false;
     }
@@ -1408,18 +1466,24 @@ bool configure_tca8418_keypad()
         return false;
     }
 
-    if (!configure_keyboard_interrupt_pin())
+    const bool interrupt_ready = configure_keyboard_interrupt_pin();
+    if (!interrupt_ready)
     {
-        return false;
+        ESP_LOGW(kTag,
+                 "T-Display-P4 keyboard interrupt unavailable; using %lums poll fallback",
+                 static_cast<unsigned long>(kKeyboardPollFallbackIntervalMs));
     }
 
-    s_keyboard_irq_pending = keyboard_irq_line_active();
+    s_keyboard_irq_pending = interrupt_ready && keyboard_irq_line_active();
+    s_keyboard_last_poll_ticks = 0;
     ESP_LOGI(kTag,
-             "T-Display-P4 keyboard TCA8418 configured matrix=%dx%d irq_pin=%d pending=%d",
+             "T-Display-P4 keyboard TCA8418 configured matrix=%dx%d irq_pin=%d irq_ready=%d pending=%d poll_fallback_ms=%lu",
              kb.columns,
              kb.rows,
              kb.interrupt,
-             s_keyboard_irq_pending);
+             interrupt_ready,
+             s_keyboard_irq_pending,
+             static_cast<unsigned long>(kKeyboardPollFallbackIntervalMs));
     return true;
 }
 
@@ -1431,6 +1495,31 @@ bool is_keyboard_modifier(uint32_t key)
            key == kTca8418KeyCtrl ||
            key == kTca8418KeyCaps ||
            key == kTca8418KeyShift;
+}
+
+uint8_t next_keyboard_backlight_level(uint8_t current)
+{
+    constexpr uint8_t max_level = DEVICE_MAX_BRIGHTNESS_LEVEL;
+    const uint8_t low = max_level >= 4 ? static_cast<uint8_t>(max_level / 2U) : 1U;
+    if (current == 0)
+    {
+        return low;
+    }
+    if (current < max_level)
+    {
+        return max_level;
+    }
+    return 0;
+}
+
+void cycle_keyboard_backlight_from_key()
+{
+    auto& board = boards::t_display_p4::TDisplayP4Board::instance();
+    const uint8_t next = next_keyboard_backlight_level(board.keyboardGetBrightness());
+    board.keyboardSetBrightness(next);
+    ESP_LOGI(kTag,
+             "T-Display-P4 keyboard backlight key cycle level=%u",
+             static_cast<unsigned>(next));
 }
 
 uint32_t resolve_keyboard_key(uint8_t key_num, bool pressed)
@@ -1456,6 +1545,15 @@ uint32_t resolve_keyboard_key(uint8_t key_num, bool pressed)
     if (key == kTca8418KeyShift)
     {
         s_keyboard_shift_active = pressed;
+        return 0;
+    }
+
+    if (key == kTca8418KeyWin)
+    {
+        if (pressed)
+        {
+            cycle_keyboard_backlight_from_key();
+        }
         return 0;
     }
 
@@ -1488,36 +1586,172 @@ uint32_t resolve_keyboard_key(uint8_t key_num, bool pressed)
     return key;
 }
 
-bool poll_keyboard_event(uint32_t* out_key, bool* out_pressed)
+void clear_keyboard_event_queue()
 {
-    if (!out_key || !out_pressed)
-    {
-        return false;
-    }
-    if (!s_keyboard_irq_pending)
+    s_keyboard_event_queue_head = 0;
+    s_keyboard_event_queue_count = 0;
+}
+
+bool enqueue_keyboard_event(uint32_t key, bool pressed)
+{
+    if (key == 0)
     {
         return false;
     }
 
-    KeyboardI2cGuard lock(5);
-    if (!lock.locked())
+    if (s_keyboard_event_queue_count >= s_keyboard_event_queue.size())
+    {
+        s_keyboard_event_queue_head =
+            (s_keyboard_event_queue_head + 1U) % s_keyboard_event_queue.size();
+        --s_keyboard_event_queue_count;
+    }
+
+    const std::size_t write_index =
+        (s_keyboard_event_queue_head + s_keyboard_event_queue_count) %
+        s_keyboard_event_queue.size();
+    s_keyboard_event_queue[write_index] = KeyboardBufferedEvent{key, pressed};
+    ++s_keyboard_event_queue_count;
+    return true;
+}
+
+bool dequeue_keyboard_event(uint32_t* out_key, bool* out_pressed)
+{
+    if (!out_key || !out_pressed || s_keyboard_event_queue_count == 0)
     {
         return false;
     }
-    s_keyboard_irq_pending = false;
 
+    const KeyboardBufferedEvent event = s_keyboard_event_queue[s_keyboard_event_queue_head];
+    s_keyboard_event_queue_head =
+        (s_keyboard_event_queue_head + 1U) % s_keyboard_event_queue.size();
+    --s_keyboard_event_queue_count;
+    *out_key = event.key;
+    *out_pressed = event.pressed;
+    return true;
+}
+
+bool keyboard_key_is_textarea_fallback_candidate(uint32_t key)
+{
+    return (key >= 0x20U && key <= 0x7EU) ||
+           key == LV_KEY_BACKSPACE ||
+           key == LV_KEY_ENTER ||
+           key == LV_KEY_LEFT ||
+           key == LV_KEY_RIGHT ||
+           key == LV_KEY_UP ||
+           key == LV_KEY_DOWN ||
+           key == LV_KEY_HOME ||
+           key == LV_KEY_END ||
+           key == LV_KEY_ESC;
+}
+
+lv_obj_t* find_focused_keyboard_textarea_in(lv_obj_t* obj)
+{
+    if (obj == nullptr || !lv_obj_is_valid(obj))
+    {
+        return nullptr;
+    }
+
+    if (lv_obj_check_type(obj, &lv_textarea_class) &&
+        lv_obj_has_state(obj, LV_STATE_FOCUSED))
+    {
+        return obj;
+    }
+
+    const uint32_t child_count = lv_obj_get_child_count(obj);
+    for (uint32_t index = 0; index < child_count; ++index)
+    {
+        if (lv_obj_t* textarea = find_focused_keyboard_textarea_in(lv_obj_get_child(obj, index)))
+        {
+            return textarea;
+        }
+    }
+    return nullptr;
+}
+
+lv_obj_t* find_focused_keyboard_textarea()
+{
+    lv_group_t* const group = lv_group_get_default();
+    lv_obj_t* const focused = group != nullptr ? lv_group_get_focused(group) : nullptr;
+    if (focused != nullptr && lv_obj_is_valid(focused))
+    {
+        if (lv_obj_check_type(focused, &lv_textarea_class))
+        {
+            return focused;
+        }
+        if (lv_obj_t* textarea = find_focused_keyboard_textarea_in(focused))
+        {
+            return textarea;
+        }
+    }
+
+    return find_focused_keyboard_textarea_in(lv_screen_active());
+}
+
+bool dispatch_keyboard_event_to_focused_textarea(uint32_t key, bool pressed)
+{
+    if (!pressed)
+    {
+        if (s_keyboard_textarea_suppressed_release_pending &&
+            s_keyboard_textarea_suppressed_release_key == key)
+        {
+            s_keyboard_textarea_suppressed_release_pending = false;
+            s_keyboard_textarea_suppressed_release_key = 0;
+            return true;
+        }
+        return false;
+    }
+
+    if (!keyboard_key_is_textarea_fallback_candidate(key))
+    {
+        return false;
+    }
+
+    lv_obj_t* const textarea = find_focused_keyboard_textarea();
+    if (textarea == nullptr)
+    {
+        return false;
+    }
+
+    lv_result_t result = LV_RESULT_OK;
+    if (key == LV_KEY_ESC)
+    {
+        result = lv_obj_send_event(textarea, LV_EVENT_CANCEL, nullptr);
+    }
+    else
+    {
+        uint32_t key_param = key;
+        result = lv_obj_send_event(textarea, LV_EVENT_KEY, &key_param);
+    }
+
+    if (result != LV_RESULT_OK)
+    {
+        return false;
+    }
+
+    s_keyboard_textarea_suppressed_release_key = key;
+    s_keyboard_textarea_suppressed_release_pending = true;
+    return true;
+}
+
+void sync_keyboard_indev_group()
+{
+    if (s_keyboard_indev == nullptr)
+    {
+        return;
+    }
+
+    lv_group_t* const default_group = lv_group_get_default();
+    if (default_group != nullptr && lv_indev_get_group(s_keyboard_indev) != default_group)
+    {
+        lv_indev_set_group(s_keyboard_indev, default_group);
+    }
+}
+
+bool drain_keyboard_fifo_locked()
+{
     uint8_t irq_status = 0;
     if (!keyboard_read_register(kTca8418RegIntStat, &irq_status))
     {
-        s_keyboard_irq_pending = keyboard_irq_line_active();
-        return false;
-    }
-    if ((irq_status & kTca8418IntKeyEvents) == 0)
-    {
-        if (irq_status != 0)
-        {
-            (void)keyboard_write_register(kTca8418RegIntStat, irq_status);
-        }
         s_keyboard_irq_pending = keyboard_irq_line_active();
         return false;
     }
@@ -1532,7 +1766,10 @@ bool poll_keyboard_event(uint32_t* out_key, bool* out_pressed)
     const uint8_t event_count = std::min<uint8_t>(count_reg & 0x0F, kTca8418MaxKeyEvents);
     if (event_count == 0)
     {
-        (void)keyboard_write_register(kTca8418RegIntStat, kTca8418IntKeyEvents);
+        if (irq_status != 0)
+        {
+            (void)keyboard_write_register(kTca8418RegIntStat, irq_status);
+        }
         s_keyboard_irq_pending = keyboard_irq_line_active();
         return false;
     }
@@ -1544,7 +1781,7 @@ bool poll_keyboard_event(uint32_t* out_key, bool* out_pressed)
         return false;
     }
 
-    bool found = false;
+    bool queued = false;
     for (uint8_t index = 0; index < event_count; ++index)
     {
         const bool pressed = (events[index] & 0x80U) != 0;
@@ -1555,19 +1792,46 @@ bool poll_keyboard_event(uint32_t* out_key, bool* out_pressed)
         }
 
         const uint32_t key = resolve_keyboard_key(key_num, pressed);
-        if (key == 0)
-        {
-            continue;
-        }
-
-        *out_key = key;
-        *out_pressed = pressed;
-        found = true;
+        queued = enqueue_keyboard_event(key, pressed) || queued;
     }
 
-    (void)keyboard_write_register(kTca8418RegIntStat, kTca8418IntKeyEvents);
+    (void)keyboard_write_register(kTca8418RegIntStat,
+                                  static_cast<uint8_t>(irq_status | kTca8418IntKeyEvents));
     s_keyboard_irq_pending = keyboard_irq_line_active();
-    return found;
+    return queued;
+}
+
+bool poll_keyboard_event(uint32_t* out_key, bool* out_pressed)
+{
+    if (!out_key || !out_pressed)
+    {
+        return false;
+    }
+    if (dequeue_keyboard_event(out_key, out_pressed))
+    {
+        return true;
+    }
+    if (!s_keyboard_irq_pending)
+    {
+        const TickType_t now = xTaskGetTickCount();
+        const TickType_t interval_ticks =
+            std::max<TickType_t>(1, pdMS_TO_TICKS(kKeyboardPollFallbackIntervalMs));
+        if (s_keyboard_last_poll_ticks != 0 &&
+            static_cast<TickType_t>(now - s_keyboard_last_poll_ticks) < interval_ticks)
+        {
+            return false;
+        }
+        s_keyboard_last_poll_ticks = now;
+    }
+
+    KeyboardI2cGuard lock(5);
+    if (!lock.locked())
+    {
+        return false;
+    }
+    s_keyboard_irq_pending = false;
+    (void)drain_keyboard_fifo_locked();
+    return dequeue_keyboard_event(out_key, out_pressed);
 }
 
 bool init_keyboard_backend(bool log_missing = true)
@@ -1639,6 +1903,7 @@ bool init_keyboard_backend(bool log_missing = true)
 void keyboard_read_cb(lv_indev_t* indev, lv_indev_data_t* data)
 {
     (void)indev;
+    sync_keyboard_indev_group();
     if (!s_keyboard_ready.load(std::memory_order_acquire))
     {
         data->state = LV_INDEV_STATE_RELEASED;
@@ -1649,6 +1914,18 @@ void keyboard_read_cb(lv_indev_t* indev, lv_indev_data_t* data)
     bool pressed = false;
     if (poll_keyboard_event(&key, &pressed))
     {
+        if (dispatch_keyboard_event_to_focused_textarea(key, pressed))
+        {
+            if (pressed)
+            {
+                trail_mate_idf_note_user_activity();
+            }
+            s_keyboard_pressed = false;
+            data->state = LV_INDEV_STATE_RELEASED;
+            data->key = 0;
+            return;
+        }
+
         if (key <= 0x7FU && ui_get_active_app() == nullptr)
         {
             const char key_char = static_cast<char>(key);
@@ -1758,7 +2035,12 @@ bool register_keyboard_indev()
     lv_indev_set_type(s_keyboard_indev, LV_INDEV_TYPE_KEYPAD);
     lv_indev_set_read_cb(s_keyboard_indev, keyboard_read_cb);
     lv_indev_set_display(s_keyboard_indev, s_display);
-    ESP_LOGI(kTag, "LVGL keyboard input registered");
+    lv_group_t* const default_group = lv_group_get_default();
+    if (default_group != nullptr)
+    {
+        lv_indev_set_group(s_keyboard_indev, default_group);
+    }
+    ESP_LOGI(kTag, "LVGL keyboard input registered group=%p", default_group);
     return true;
 }
 
@@ -1779,6 +2061,10 @@ void clear_keyboard_runtime_state()
     s_keyboard_caps_lock = false;
     s_keyboard_shift_active = false;
     s_keyboard_last_key = 0;
+    s_keyboard_last_poll_ticks = 0;
+    s_keyboard_textarea_suppressed_release_key = 0;
+    s_keyboard_textarea_suppressed_release_pending = false;
+    clear_keyboard_event_queue();
     boards::t_display_p4::TDisplayP4Board::instance().setKeyboardReady(false);
 }
 
@@ -1905,6 +2191,10 @@ bool start_app_lifecycle_ui_timer()
 void keyboard_module_monitor_task(void* arg)
 {
     (void)arg;
+    TickType_t last_probe_diagnostic_tick = 0;
+    TickType_t last_attach_recovery_tick = 0;
+    uint8_t attach_recovery_probe_count = 0;
+    uint32_t attach_recovery_attempts = 0;
     ESP_LOGI(kTag,
              "T-Display-P4 keyboard monitor task started interval=%lums attach=%u detach=%u",
              static_cast<unsigned long>(kKeyboardMonitorIntervalMs),
@@ -1920,8 +2210,71 @@ void keyboard_module_monitor_task(void* arg)
         }
 
         const bool ready = s_keyboard_ready.load(std::memory_order_acquire);
-        const bool present = ready ? probe_tca8418_presence()
-                                   : probe_keyboard_module_bus_presence();
+        // Keep the full probe result here.  The short recovery line only says
+        // that SDA/SCL are idle; it cannot distinguish a missing XL9555 from
+        // an unresponsive TCA8418.  Preserve the old readiness semantics while
+        // emitting a bounded diagnostic for an absent or degraded module.
+        KeyboardProbeResult probe = probe_keyboard_module_bus(!ready);
+        bool present = ready ? probe.keyboard_controller_ready() : probe.module_present();
+        const TickType_t now = xTaskGetTickCount();
+        if ((!ready || !present) &&
+            (last_probe_diagnostic_tick == 0 ||
+             static_cast<TickType_t>(now - last_probe_diagnostic_tick) >=
+                 pdMS_TO_TICKS(kKeyboardProbeDiagnosticIntervalMs)))
+        {
+            log_keyboard_probe_result("monitor", probe, true);
+            last_probe_diagnostic_tick = now;
+        }
+
+        if (kKeyboardAttachRecoveryAutoEnabled &&
+            !ready &&
+            !present &&
+            keyboard_probe_needs_attach_power_recovery(probe))
+        {
+            attach_recovery_probe_count =
+                std::min<uint8_t>(kKeyboardAttachRecoveryProbeCount,
+                                  static_cast<uint8_t>(attach_recovery_probe_count + 1));
+            const bool cooldown_ready =
+                last_attach_recovery_tick == 0 ||
+                static_cast<TickType_t>(now - last_attach_recovery_tick) >=
+                    pdMS_TO_TICKS(kKeyboardAttachRecoveryCooldownMs);
+            if (attach_recovery_probe_count >= kKeyboardAttachRecoveryProbeCount &&
+                cooldown_ready)
+            {
+                ++attach_recovery_attempts;
+                last_attach_recovery_tick = now;
+                attach_recovery_probe_count = 0;
+                ESP_LOGW(kTag,
+                         "T-Display-P4 keyboard attach recovery attempt=%lu reason=no_i2c_ack off_ms=%lu settle_ms=%lu cooldown_ms=%lu",
+                         static_cast<unsigned long>(attach_recovery_attempts),
+                         static_cast<unsigned long>(kKeyboardAttachRecoveryRailOffMs),
+                         static_cast<unsigned long>(kKeyboardAttachRecoverySettleMs),
+                         static_cast<unsigned long>(kKeyboardAttachRecoveryCooldownMs));
+                const bool recovered =
+                    boards::t_display_p4::TDisplayP4Board::instance()
+                        .recoverExternal3v3ForKeyboardAttach(kKeyboardAttachRecoveryRailOffMs,
+                                                             kKeyboardAttachRecoverySettleMs);
+                if (recovered)
+                {
+                    probe = probe_keyboard_module_bus(true);
+                    present = probe.module_present();
+                    log_keyboard_probe_result("monitor_power_recovery",
+                                              probe,
+                                              !probe.keyboard_controller_ready());
+                    last_probe_diagnostic_tick = xTaskGetTickCount();
+                }
+                else
+                {
+                    ESP_LOGW(kTag,
+                             "T-Display-P4 keyboard attach recovery failed before reprobe");
+                }
+            }
+        }
+        else if (present)
+        {
+            attach_recovery_probe_count = 0;
+        }
+
         if (present)
         {
             s_keyboard_attach_probe_count =
@@ -2047,7 +2400,10 @@ bool create_panel()
     dpi_cfg.dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT;
     dpi_cfg.dpi_clock_freq_mhz = static_cast<uint32_t>(panel.dpi_clock_mhz);
     dpi_cfg.pixel_format = panel_pixel_format();
-    dpi_cfg.num_fbs = 1;
+    // Rotation requires a display-owned front/back pair plus one logical LVGL
+    // surface. The presenter assigns those three existing full-frame surfaces
+    // explicit ownership and never writes the DSI front frame in place.
+    dpi_cfg.num_fbs = 3;
     dpi_cfg.video_timing.h_size = static_cast<uint32_t>(panel.width);
     dpi_cfg.video_timing.v_size = static_cast<uint32_t>(panel.height);
     dpi_cfg.video_timing.hsync_pulse_width = static_cast<uint32_t>(panel.hsync);
@@ -2140,48 +2496,22 @@ bool create_display()
     }
 
     const auto& panel = active_panel();
-    const uint32_t full_frame_buffer_pixels =
-        static_cast<uint32_t>(panel.width) * static_cast<uint32_t>(panel.height);
-    lvgl_port_display_cfg_t disp_cfg{};
-    disp_cfg.io_handle = s_panel_io;
-    disp_cfg.panel_handle = s_panel;
-    disp_cfg.control_handle = nullptr;
-    disp_cfg.buffer_size = full_frame_buffer_pixels;
-    disp_cfg.double_buffer = false;
-    disp_cfg.trans_size = 0;
-    disp_cfg.hres = static_cast<uint32_t>(panel.width);
-    disp_cfg.vres = static_cast<uint32_t>(panel.height);
-    disp_cfg.monochrome = false;
-    disp_cfg.rotation.swap_xy = false;
-    disp_cfg.rotation.mirror_x = false;
-    disp_cfg.rotation.mirror_y = false;
-#if LVGL_VERSION_MAJOR >= 9
-    disp_cfg.color_format = lvgl_color_format();
-#endif
-#if CONFIG_TRAIL_MATE_T_DISPLAY_P4_PIXEL_FORMAT_RGB565
-    disp_cfg.flags.buff_dma = true;
-#else
-    disp_cfg.flags.buff_dma = false;
-#endif
-    disp_cfg.flags.buff_spiram = true;
-    disp_cfg.flags.sw_rotate = true;
-#if LVGL_VERSION_MAJOR >= 9
-    disp_cfg.flags.swap_bytes = false;
-#endif
-    disp_cfg.flags.full_refresh = 0;
-    disp_cfg.flags.direct_mode = 0;
-
-    lvgl_port_display_dsi_cfg_t dsi_cfg{};
-    dsi_cfg.flags.avoid_tearing = false;
-
-    s_display = lvgl_port_add_disp_dsi(&disp_cfg, &dsi_cfg);
-    if (s_display == nullptr)
+    if (!s_rotating_presenter.init(s_panel,
+                                   static_cast<uint32_t>(panel.width),
+                                   static_cast<uint32_t>(panel.height),
+                                   static_cast<uint8_t>(bits_per_pixel()),
+                                   lvgl_color_format(),
+                                   LV_DISPLAY_ROTATION_90))
     {
-        ESP_LOGE(kTag, "Failed to add DSI display to LVGL");
+        ESP_LOGE(kTag, "Failed to create P4 DSI rotating presenter");
         return false;
     }
-
-    lv_display_set_rotation(s_display, LV_DISPLAY_ROTATION_90);
+    s_display = s_rotating_presenter.display();
+    if (s_display == nullptr)
+    {
+        ESP_LOGE(kTag, "P4 DSI rotating presenter returned no LVGL display");
+        return false;
+    }
     return true;
 }
 
@@ -2342,7 +2672,7 @@ extern "C" bool trail_mate_t_display_p4_display_runtime_init(void)
 
     s_ready = true;
     ESP_LOGI(kTag,
-             "Display runtime ready buffer_pixels=%lu buffer_mode=single-full-frame brightness=%d",
+             "Display runtime ready buffer_pixels=%lu buffer_mode=three-surface-vsync brightness=%d",
              static_cast<unsigned long>(static_cast<uint32_t>(active_panel().width) *
                                         static_cast<uint32_t>(active_panel().height)),
              s_brightness_percent);

@@ -1005,6 +1005,31 @@ std::unique_ptr<chat::IChatStore> createIdfChatStore(
     return std::unique_ptr<chat::IChatStore>(new chat::RamStore());
 }
 
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) || \
+    defined(TRAIL_MATE_ESP_BOARD_TAB5)
+constexpr std::size_t kDeferredRadioApplySlotCount = 3U;
+constexpr uint8_t kDeferredRadioApplyMesh = 1U << 0;
+constexpr uint8_t kDeferredRadioApplyUserInfo = 1U << 1;
+constexpr uint8_t kDeferredRadioApplyNetworkLimits = 1U << 2;
+constexpr uint8_t kDeferredRadioApplyPrivacy = 1U << 3;
+
+// This object is embedded in IdfAppFacadeRuntime, which is allocated in PSRAM
+// by createRuntime().  Keeping three fixed slots avoids a heap-backed queue,
+// avoids a large task-stack copy, and lets the UI writer, pending request, and
+// app-loop consumer remain disjoint while a radio apply is in progress.
+struct DeferredRadioApplySnapshot
+{
+    chat::MeshProtocol protocol{};
+    chat::MeshConfig mesh_config{};
+    char long_name[32] = {};
+    char short_name[16] = {};
+    uint8_t net_duty_cycle = 0;
+    uint8_t net_channel_util = 0;
+    uint8_t privacy_encrypt_mode = 0;
+    uint8_t flags = 0;
+};
+#endif
+
 class IdfAppFacadeRuntime final : public app::IAppFacade
 {
   public:
@@ -1183,6 +1208,15 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     void applyMeshConfig() override
     {
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) || \
+    defined(TRAIL_MATE_ESP_BOARD_TAB5)
+        if (initialized_)
+        {
+            queueDeferredRadioApply(kDeferredRadioApplyMesh);
+            return;
+        }
+        applyMeshConfigNow(config_.mesh_protocol, config_.activeMeshConfig());
+#else
         normalizeIdfAppConfig(config_);
         syncReticulumGroupConfig(config_);
         if (!mesh_router_.hasBackend() ||
@@ -1204,10 +1238,19 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         {
             board_->applyRadioConfig(config_.mesh_protocol, config_.activeMeshConfig());
         }
+#endif
     }
 
     void applyUserInfo() override
     {
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) || \
+    defined(TRAIL_MATE_ESP_BOARD_TAB5)
+        if (initialized_)
+        {
+            queueDeferredRadioApply(kDeferredRadioApplyUserInfo);
+            return;
+        }
+#endif
         char long_name[sizeof(config_.node_name)] = {};
         char short_name[sizeof(config_.short_name)] = {};
         getEffectiveUserInfo(long_name, sizeof(long_name), short_name, sizeof(short_name));
@@ -1218,11 +1261,27 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     void applyNetworkLimits() override
     {
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) || \
+    defined(TRAIL_MATE_ESP_BOARD_TAB5)
+        if (initialized_)
+        {
+            queueDeferredRadioApply(kDeferredRadioApplyNetworkLimits);
+            return;
+        }
+#endif
         meshAdapter().setNetworkLimits(config_.net_duty_cycle, config_.net_channel_util);
     }
 
     void applyPrivacyConfig() override
     {
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) || \
+    defined(TRAIL_MATE_ESP_BOARD_TAB5)
+        if (initialized_)
+        {
+            queueDeferredRadioApply(kDeferredRadioApplyPrivacy);
+            return;
+        }
+#endif
         meshAdapter().setPrivacyConfig(config_.privacy_encrypt_mode);
     }
 
@@ -1266,6 +1325,25 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
                      static_cast<unsigned>(protocol));
             return false;
         }
+
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) || \
+    defined(TRAIL_MATE_ESP_BOARD_TAB5)
+        if (initialized_)
+        {
+            if (lora_board_ == nullptr)
+            {
+                return false;
+            }
+            config_.mesh_protocol = normalized;
+            syncReticulumGroupConfig(config_);
+            queueDeferredRadioApply(kDeferredRadioApplyMesh);
+            if (persist)
+            {
+                saveConfig();
+            }
+            return true;
+        }
+#endif
 
         std::unique_ptr<chat::IMeshAdapter> backend =
             createMeshBackend(normalized);
@@ -1380,6 +1458,10 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
     void updateCoreServices() override
     {
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) || \
+    defined(TRAIL_MATE_ESP_BOARD_TAB5)
+        flushDeferredRadioApplies();
+#endif
         flushConfigPersistence(persistenceNowMs());
         if (!mesh_peer_directory_hydrated_ &&
             platform::esp::idf_common::storage::consume_hydration_ready())
@@ -1465,6 +1547,284 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     {
         return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
     }
+
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) || \
+    defined(TRAIL_MATE_ESP_BOARD_TAB5)
+    void captureDeferredRadioApply(DeferredRadioApplySnapshot& snapshot,
+                                   uint8_t flags)
+    {
+        normalizeIdfAppConfig(config_);
+        syncReticulumGroupConfig(config_);
+        snapshot.protocol = config_.mesh_protocol;
+        snapshot.mesh_config = config_.activeMeshConfig();
+        snapshot.net_duty_cycle = config_.net_duty_cycle ? 1U : 0U;
+        snapshot.net_channel_util = config_.net_channel_util;
+        snapshot.privacy_encrypt_mode = config_.privacy_encrypt_mode;
+        getEffectiveUserInfo(snapshot.long_name,
+                             sizeof(snapshot.long_name),
+                             snapshot.short_name,
+                             sizeof(snapshot.short_name));
+        snapshot.flags = flags;
+    }
+
+    void queueDeferredRadioApply(uint8_t flags)
+    {
+        int8_t write_slot = -1;
+        uint8_t coalesced_flags = flags;
+
+        portENTER_CRITICAL(&deferred_radio_apply_mux_);
+        if (deferred_radio_pending_slot_ >= 0)
+        {
+            coalesced_flags = static_cast<uint8_t>(
+                coalesced_flags |
+                deferred_radio_apply_slots_[deferred_radio_pending_slot_].flags);
+        }
+        for (std::size_t index = 0; index < kDeferredRadioApplySlotCount; ++index)
+        {
+            const int8_t candidate = static_cast<int8_t>(index);
+            if (candidate != deferred_radio_active_slot_ &&
+                candidate != deferred_radio_pending_slot_ &&
+                candidate != deferred_radio_writing_slot_)
+            {
+                deferred_radio_writing_slot_ = candidate;
+                write_slot = candidate;
+                break;
+            }
+        }
+        portEXIT_CRITICAL(&deferred_radio_apply_mux_);
+
+        if (write_slot < 0)
+        {
+            ESP_LOGE(kIdfConfigTag,
+                     "radio apply request dropped flags=0x%02x slots exhausted",
+                     static_cast<unsigned>(flags));
+            return;
+        }
+
+        DeferredRadioApplySnapshot& snapshot =
+            deferred_radio_apply_slots_[write_slot];
+        captureDeferredRadioApply(snapshot, coalesced_flags);
+
+        portENTER_CRITICAL(&deferred_radio_apply_mux_);
+        if (deferred_radio_pending_slot_ >= 0)
+        {
+            snapshot.flags = static_cast<uint8_t>(
+                snapshot.flags |
+                deferred_radio_apply_slots_[deferred_radio_pending_slot_].flags);
+        }
+        deferred_radio_pending_slot_ = write_slot;
+        deferred_radio_writing_slot_ = -1;
+        portEXIT_CRITICAL(&deferred_radio_apply_mux_);
+
+        ESP_LOGI(kIdfConfigTag,
+                 "radio apply queued flags=0x%02x proto=%u slot=%d",
+                 static_cast<unsigned>(snapshot.flags),
+                 static_cast<unsigned>(snapshot.protocol),
+                 static_cast<int>(write_slot));
+    }
+
+    int8_t takeDeferredRadioApply()
+    {
+        portENTER_CRITICAL(&deferred_radio_apply_mux_);
+        if (deferred_radio_active_slot_ >= 0 ||
+            deferred_radio_pending_slot_ < 0)
+        {
+            portEXIT_CRITICAL(&deferred_radio_apply_mux_);
+            return -1;
+        }
+
+        const int8_t slot = deferred_radio_pending_slot_;
+        deferred_radio_pending_slot_ = -1;
+        deferred_radio_active_slot_ = slot;
+        portEXIT_CRITICAL(&deferred_radio_apply_mux_);
+        return slot;
+    }
+
+    void releaseDeferredRadioApply(int8_t slot)
+    {
+        portENTER_CRITICAL(&deferred_radio_apply_mux_);
+        if (deferred_radio_active_slot_ == slot)
+        {
+            deferred_radio_active_slot_ = -1;
+        }
+        portEXIT_CRITICAL(&deferred_radio_apply_mux_);
+    }
+
+    void retryDeferredRadioApply(int8_t slot)
+    {
+        portENTER_CRITICAL(&deferred_radio_apply_mux_);
+        if (deferred_radio_active_slot_ == slot)
+        {
+            if (deferred_radio_pending_slot_ >= 0)
+            {
+                deferred_radio_apply_slots_[deferred_radio_pending_slot_].flags =
+                    static_cast<uint8_t>(
+                        deferred_radio_apply_slots_[deferred_radio_pending_slot_].flags |
+                        deferred_radio_apply_slots_[slot].flags);
+                deferred_radio_active_slot_ = -1;
+            }
+            else
+            {
+                deferred_radio_pending_slot_ = slot;
+                deferred_radio_active_slot_ = -1;
+            }
+        }
+        portEXIT_CRITICAL(&deferred_radio_apply_mux_);
+    }
+
+    bool switchMeshBackendNow(const DeferredRadioApplySnapshot& snapshot)
+    {
+        const chat::MeshProtocol normalized =
+            chat::infra::normalizeMeshProtocol(snapshot.protocol);
+        if (!chat::infra::isValidMeshProtocol(normalized) ||
+            !idfSupportsMeshProtocol(normalized))
+        {
+            ESP_LOGE(kIdfConfigTag,
+                     "deferred mesh backend rejected proto=%u",
+                     static_cast<unsigned>(snapshot.protocol));
+            return false;
+        }
+
+        std::unique_ptr<chat::IMeshAdapter> backend =
+            createMeshBackend(normalized);
+        if (!backend)
+        {
+            ESP_LOGE(kIdfConfigTag,
+                     "deferred mesh backend unavailable proto=%u",
+                     static_cast<unsigned>(normalized));
+            return false;
+        }
+
+        backend->applyConfig(snapshot.mesh_config);
+        backend->setUserInfo(snapshot.long_name, snapshot.short_name);
+        backend->setNetworkLimits(snapshot.net_duty_cycle != 0,
+                                  snapshot.net_channel_util);
+        backend->setPrivacyConfig(snapshot.privacy_encrypt_mode);
+
+        if (!mesh_router_.installBackend(normalized, std::move(backend)))
+        {
+            ESP_LOGE(kIdfConfigTag,
+                     "deferred mesh backend install failed proto=%u",
+                     static_cast<unsigned>(normalized));
+            return false;
+        }
+
+        mesh_adapter_ = &mesh_router_;
+        if (chat_service_)
+        {
+            chat_service_->setActiveProtocol(normalized);
+        }
+        return true;
+    }
+
+    void applyDeferredRadioApply(const DeferredRadioApplySnapshot& snapshot)
+    {
+        const bool backend_switch_needed =
+            !mesh_router_.hasBackend() ||
+            mesh_router_.backendProtocol() != snapshot.protocol;
+        bool backend_switched = false;
+        if (backend_switch_needed)
+        {
+            if (!switchMeshBackendNow(snapshot))
+            {
+                return;
+            }
+            backend_switched = true;
+        }
+
+        if ((snapshot.flags & kDeferredRadioApplyMesh) != 0U &&
+            !backend_switched)
+        {
+            meshAdapter().applyConfig(snapshot.mesh_config);
+        }
+        if (board_ &&
+            (backend_switched ||
+             (snapshot.flags & kDeferredRadioApplyMesh) != 0U))
+        {
+            board_->applyRadioConfig(snapshot.protocol, snapshot.mesh_config);
+        }
+        if ((snapshot.flags & kDeferredRadioApplyUserInfo) != 0U &&
+            !backend_switched)
+        {
+            meshAdapter().setUserInfo(snapshot.long_name, snapshot.short_name);
+        }
+        if ((snapshot.flags & kDeferredRadioApplyNetworkLimits) != 0U &&
+            !backend_switched)
+        {
+            meshAdapter().setNetworkLimits(snapshot.net_duty_cycle != 0,
+                                           snapshot.net_channel_util);
+        }
+        if ((snapshot.flags & kDeferredRadioApplyPrivacy) != 0U &&
+            !backend_switched)
+        {
+            meshAdapter().setPrivacyConfig(snapshot.privacy_encrypt_mode);
+        }
+    }
+
+    void flushDeferredRadioApplies()
+    {
+        const int8_t slot = takeDeferredRadioApply();
+        if (slot < 0)
+        {
+            return;
+        }
+
+        DeferredRadioApplySnapshot& snapshot =
+            deferred_radio_apply_slots_[slot];
+        const bool must_pause_radio_tasks = background_tasks_started_;
+        const bool radio_tasks_paused =
+            !must_pause_radio_tasks || app::AppTasks::pauseRadioTasks();
+        if (!radio_tasks_paused)
+        {
+            ESP_LOGW(kIdfConfigTag,
+                     "radio apply deferred again flags=0x%02x proto=%u reason=task_quiesce",
+                     static_cast<unsigned>(snapshot.flags),
+                     static_cast<unsigned>(snapshot.protocol));
+            retryDeferredRadioApply(slot);
+            return;
+        }
+
+        ESP_LOGI(kIdfConfigTag,
+                 "radio apply begin flags=0x%02x proto=%u paused=%u",
+                 static_cast<unsigned>(snapshot.flags),
+                 static_cast<unsigned>(snapshot.protocol),
+                 must_pause_radio_tasks ? 1U : 0U);
+        applyDeferredRadioApply(snapshot);
+        if (must_pause_radio_tasks)
+        {
+            app::AppTasks::resumeRadioTasks();
+        }
+        ESP_LOGI(kIdfConfigTag,
+                 "radio apply complete flags=0x%02x proto=%u",
+                 static_cast<unsigned>(snapshot.flags),
+                 static_cast<unsigned>(snapshot.protocol));
+        releaseDeferredRadioApply(slot);
+    }
+
+    void applyMeshConfigNow(chat::MeshProtocol protocol,
+                            const chat::MeshConfig& mesh_config)
+    {
+        normalizeIdfAppConfig(config_);
+        syncReticulumGroupConfig(config_);
+        if (!mesh_router_.hasBackend() ||
+            mesh_router_.backendProtocol() != protocol)
+        {
+            if (!switchMeshProtocol(protocol, false))
+            {
+                ESP_LOGE(kIdfConfigTag,
+                         "mesh backend switch failed proto=%u",
+                         static_cast<unsigned>(protocol));
+                return;
+            }
+            return;
+        }
+        meshAdapter().applyConfig(mesh_config);
+        if (board_)
+        {
+            board_->applyRadioConfig(protocol, mesh_config);
+        }
+    }
+#endif
 
     void flushConfigPersistence(uint32_t now_ms)
     {
@@ -1827,6 +2187,15 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     chat::ui::IChatUiRuntime* chat_ui_runtime_ = nullptr;
     bool mesh_peer_directory_ready_ = false;
     bool background_tasks_started_ = false;
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) || \
+    defined(TRAIL_MATE_ESP_BOARD_TAB5)
+    portMUX_TYPE deferred_radio_apply_mux_ = portMUX_INITIALIZER_UNLOCKED;
+    DeferredRadioApplySnapshot
+        deferred_radio_apply_slots_[kDeferredRadioApplySlotCount]{};
+    int8_t deferred_radio_active_slot_ = -1;
+    int8_t deferred_radio_pending_slot_ = -1;
+    int8_t deferred_radio_writing_slot_ = -1;
+#endif
 };
 
 IdfAppFacadeRuntime* s_runtime = nullptr;
@@ -1880,17 +2249,16 @@ bool initialize(const platform::esp::boards::AppContextInitHandles& handles,
 
     app::bindAppFacade(*s_runtime);
     s_runtime->startDeferredStorage();
-    if (!s_runtime->waitForInitialStorageHydration())
-    {
-        ESP_LOGE(config.log_tag,
-                 "initial storage hydration did not reach a ready state for %s",
-                 config.target_name);
-        return false;
-    }
     if (!s_runtime->startBackgroundTasks())
     {
         ESP_LOGE(config.log_tag,
                  "IDF shared ESP background tasks unavailable for %s; radio TX/RX remains disabled",
+                 config.target_name);
+    }
+    if (!s_runtime->waitForInitialStorageHydration())
+    {
+        ESP_LOGE(config.log_tag,
+                 "initial storage hydration did not reach a ready state for %s; keeping AppFacade and radio tasks active while storage-backed data remains unavailable",
                  config.target_name);
     }
     ESP_LOGI(config.log_tag,

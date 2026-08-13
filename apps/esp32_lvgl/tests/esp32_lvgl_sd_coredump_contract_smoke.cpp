@@ -303,6 +303,149 @@ int main(int argc, char** argv)
     assert(!contains(t_display_p4_runtime,
                      "const uint8_t finger_count = response[0];"));
     assert(contains(t_display_p4_runtime, "ESP_LOGI(kTag, \"touch press x=%ld y=%ld\""));
+    assert(contains(t_display_p4_runtime, "dpi_cfg.num_fbs = 3;"));
+    assert(contains(t_display_p4_runtime, "P4DsiRotatingPresenter s_rotating_presenter;"));
+    assert(contains(t_display_p4_runtime, "s_rotating_presenter.init(s_panel,"));
+    assert(!contains(t_display_p4_runtime, "lvgl_port_add_disp_dsi"));
+    assert(!contains(t_display_p4_runtime, "avoid_tearing = false"));
+    assert(!contains(t_display_p4_runtime, "driver/ppa.h"));
+    assert(!contains(t_display_p4_runtime, "partial_ppa_display_flush_cb"));
+
+    const std::string p4_dsi_presenter = read_file(
+        repo_root /
+        "platform/esp/idf_components/t_display_p4/p4_dsi_rotating_presenter.cpp");
+    assert(contains(p4_dsi_presenter, "esp_lcd_dpi_panel_get_frame_buffer(panel_,"));
+    assert(contains(p4_dsi_presenter, "LV_DISPLAY_RENDER_MODE_FULL"));
+    assert(contains(p4_dsi_presenter, "front_buffer_.store(first_scanout"));
+    assert(contains(p4_dsi_presenter, "esp_lcd_panel_draw_bitmap(panel_,"));
+    assert(contains(p4_dsi_presenter, "awaiting_refresh_.store(true"));
+    assert(contains(p4_dsi_presenter, "lv_display_flush_ready(presenter->display_)"));
+    assert(contains(p4_dsi_presenter, "lv_draw_sw_rotate("));
+    assert(!contains(p4_dsi_presenter, "driver/ppa.h"));
+    assert(!contains(p4_dsi_presenter, "ppa_do_scale_rotate_mirror"));
+    assert(contains(t_display_p4_tft_defaults,
+                    "# CONFIG_LVGL_PORT_ENABLE_PPA is not set"));
+    assert(contains(t_display_p4_amoled_defaults,
+                    "# CONFIG_LVGL_PORT_ENABLE_PPA is not set"));
+
+    const std::string idf_sd_runtime = read_file(
+        repo_root / "platform/esp/idf_common/src/sd_card_runtime_sdfat_adapter.cpp");
+    assert(contains(idf_sd_runtime,
+                    "defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) ||"));
+    assert(contains(idf_sd_runtime, "bool canUseMultiSectorDma"));
+    assert(contains(idf_sd_runtime,
+                    "sdmmc_read_sectors(card_, dst, sector, ns)"));
+    assert(contains(idf_sd_runtime,
+                    "sdmmc_write_sectors(card_, src, sector, ns)"));
+    assert(contains(idf_sd_runtime,
+                    "card_->host.check_buffer_alignment("));
+    assert(contains(idf_sd_runtime, "sector_count > (SIZE_MAX / kSdSectorSize)"));
+
+    assert(contains(idf_app_facade,
+                    "constexpr std::size_t kDeferredRadioApplySlotCount = 3U;"));
+    assert(contains(idf_app_facade,
+                    "TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) ||"));
+    assert(contains(idf_app_facade,
+                    "void queueDeferredRadioApply(uint8_t flags)"));
+    assert(contains(idf_app_facade,
+                    "void flushDeferredRadioApplies()"));
+    assert(contains(idf_app_facade,
+                    "app::AppTasks::pauseRadioTasks()"));
+    assert(contains(idf_app_facade,
+                    "app::AppTasks::resumeRadioTasks();"));
+    assert(contains(idf_app_facade,
+                    "deferred_radio_apply_slots_[kDeferredRadioApplySlotCount]{};"));
+    assert(contains(t_display_p4_runtime, "constexpr uint8_t kXl9555TMixRfEnableMask"));
+    assert(contains(t_display_p4_runtime, "constexpr uint8_t kXl9555TMixRfSwitch0Mask"));
+    assert(contains(t_display_p4_runtime, "constexpr uint8_t kXl9555TMixRfSwitch1Mask"));
+    assert(contains(t_display_p4_runtime, "constexpr uint8_t kXl9555Led1Mask"));
+    assert(contains(t_display_p4_runtime, "constexpr uint8_t kXl9555Led2Mask"));
+    assert(contains(t_display_p4_runtime, "constexpr uint8_t kXl9555Led3Mask"));
+    assert(contains(t_display_p4_runtime, "kXl9555KeyboardOutputMask"));
+    assert(contains(t_display_p4_runtime, "kXl9555KeyboardIdleHighMask"));
+    assert(contains(t_display_p4_runtime, "bool configure_keyboard_expander_outputs()"));
+    assert(contains(t_display_p4_runtime,
+                    "config &= static_cast<uint8_t>(~kXl9555KeyboardOutputMask);"));
+    assert(contains(t_display_p4_runtime,
+                    "output = static_cast<uint8_t>(preserved_output | "
+                    "kXl9555KeyboardIdleHighMask);"));
+    assert(contains(t_display_p4_runtime,
+                    "lv_indev_set_group(s_keyboard_indev, default_group);"));
+    assert(contains(t_display_p4_runtime,
+                    "constexpr uint32_t kKeyboardPollFallbackIntervalMs = 30;"));
+    assert(contains(t_display_p4_runtime,
+                    "constexpr uint32_t kKeyboardAttachRecoveryCooldownMs = 30000;"));
+    assert(contains(t_display_p4_runtime,
+                    "constexpr bool kKeyboardAttachRecoveryAutoEnabled = false;"));
+    assert(contains(t_display_p4_runtime,
+                    "constexpr uint8_t kKeyboardAttachRecoveryProbeCount = 3;"));
+    assert(contains(t_display_p4_runtime, "s_keyboard_last_poll_ticks = 0;"));
+    assert(contains(t_display_p4_runtime,
+                    "T-Display-P4 keyboard interrupt unavailable; using %lums poll fallback"));
+    assert(contains(t_display_p4_runtime, "bool s_keyboard_i2c_pins_swapped = false;"));
+    assert(contains(t_display_p4_runtime, "int keyboard_sda_pin()"));
+    assert(contains(t_display_p4_runtime, "int keyboard_scl_pin()"));
+    assert(contains(t_display_p4_runtime, "keyboard_recover_i2c_bus(\"probe_swapped\")"));
+    assert(contains(t_display_p4_runtime, "keyboard_recover_i2c_bus(\"probe_restore\")"));
+    assert(contains(t_display_p4_runtime,
+                    "T-Display-P4 keyboard I2C responded only with swapped SDA/SCL"));
+    assert(contains(t_display_p4_runtime, "i2c_swap=%d swapped_probe=%d"));
+    assert(contains(t_display_p4_runtime,
+                    "bool keyboard_probe_needs_attach_power_recovery"));
+    assert(contains(t_display_p4_runtime,
+                    "T-Display-P4 keyboard attach recovery attempt=%lu"));
+    assert(contains(t_display_p4_runtime,
+                    "recoverExternal3v3ForKeyboardAttach(kKeyboardAttachRecoveryRailOffMs"));
+    assert(contains(t_display_p4_runtime,
+                    "monitor_power_recovery"));
+    assert(contains(t_display_p4_runtime,
+                    "std::max<TickType_t>(1, pdMS_TO_TICKS(kKeyboardPollFallbackIntervalMs))"));
+    assert(contains(t_display_p4_runtime,
+                    "poll_fallback_ms=%lu"));
+    assert(contains(t_display_p4_runtime,
+                    "constexpr std::size_t kKeyboardEventQueueCapacity = 16;"));
+    assert(contains(t_display_p4_runtime,
+                    "std::array<KeyboardBufferedEvent, kKeyboardEventQueueCapacity> "
+                    "s_keyboard_event_queue"));
+    assert(contains(t_display_p4_runtime, "bool drain_keyboard_fifo_locked()"));
+    assert(contains(t_display_p4_runtime,
+                    "const uint8_t event_count = std::min<uint8_t>(count_reg & 0x0F, "
+                    "kTca8418MaxKeyEvents);"));
+    assert(contains(t_display_p4_runtime,
+                    "return dequeue_keyboard_event(out_key, out_pressed);"));
+    assert(contains(t_display_p4_runtime,
+                    "bool dispatch_keyboard_event_to_focused_textarea(uint32_t key, bool pressed)"));
+    assert(contains(t_display_p4_runtime,
+                    "lv_obj_send_event(textarea, LV_EVENT_KEY, &key_param)"));
+    assert(contains(t_display_p4_runtime,
+                    "lv_obj_send_event(textarea, LV_EVENT_CANCEL, nullptr)"));
+    assert(contains(t_display_p4_runtime, "sync_keyboard_indev_group();"));
+    assert(contains(t_display_p4_runtime, "cycle_keyboard_backlight_from_key();"));
+
+    const std::string lvgl_fs_utils = read_file(
+        repo_root / "modules/ui_shared/include/ui/support/lvgl_fs_utils.h");
+    assert(contains(lvgl_fs_utils, "UI_FS_HAS_IDF_FLASH_PACK_STORAGE"));
+    assert(contains(lvgl_fs_utils,
+                    "flash_storage_runtime::ensure_ready"));
+    assert(contains(lvgl_fs_utils,
+                    "UI_FS_HAS_ARDUINO_FLASH_PACK_STORAGE || UI_FS_HAS_IDF_FLASH_PACK_STORAGE"));
+
+    const std::string settings_components = read_file(
+        repo_root / "modules/ui_shared/src/ui/screens/settings/settings_page_components.cpp");
+    assert(contains(settings_components, "create_staged_list_content"));
+    assert(contains(settings_components, "visible_item_layout_matches_current"));
+    assert(contains(settings_components,
+                    "settings kind=value visible_clean=0 staging_commit=0"));
+    assert(contains(settings_components,
+                    "settings kind=structure visible_clean=0 staging_commit=1"));
+    assert(!contains(settings_components, "lv_obj_clean(g_state.list_panel);"));
+
+    const std::string extensions_runtime = read_file(
+        repo_root / "modules/ui_shared/src/ui/screens/extensions/extensions_page_runtime.cpp");
+    assert(contains(extensions_runtime, "create_staged_body_panel"));
+    assert(contains(extensions_runtime,
+                    "extensions install_complete package=%s full_app_rebuild=0"));
+    assert(!contains(extensions_runtime, "render_current_view();\n            ui_request_rebuild_active_app();"));
 
     const std::string app_runtime = read_file(
         repo_root / "modules/ui_shared/src/ui/app_runtime.cpp");
@@ -383,6 +526,12 @@ int main(int argc, char** argv)
                     "SYS I2C lock timeout requester=%s request_owner=%s at=%s:%d"));
     assert(contains(t_display_p4_board,
                     "owner=%s owner_task=%s held_ms=%lu waiter=%s waiter_task=%s"));
+    assert(contains(t_display_p4_board,
+                    "bool TDisplayP4Board::recoverExternal3v3ForKeyboardAttach"));
+    assert(contains(t_display_p4_board,
+                    "Keyboard attach recovery cycling external 3.3V rail"));
+    assert(contains(t_display_p4_board,
+                    "Keyboard attach recovery completed external 3.3V rail cycle"));
     const std::size_t managed_i2c_device = position_of(
         t_display_p4_board,
         "i2c_master_dev_handle_t TDisplayP4Board::getManagedSystemI2cDevice");

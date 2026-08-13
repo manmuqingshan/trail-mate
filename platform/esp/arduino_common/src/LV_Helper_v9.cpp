@@ -1417,6 +1417,7 @@ void beginLvglHelper(LilyGo_Display& board, bool debug)
     lv_set_default_group(default_group);
 }
 
+#if defined(ARDUINO_T_DECK_PRO)
 void serviceLvglDisplay(uint32_t now_ms)
 {
     if (disp_drv == nullptr)
@@ -1430,6 +1431,7 @@ void serviceLvglDisplay(uint32_t now_ms)
         plane->serviceDisplay(now_ms);
     }
 }
+#endif
 
 void requestLvglFullRefresh()
 {

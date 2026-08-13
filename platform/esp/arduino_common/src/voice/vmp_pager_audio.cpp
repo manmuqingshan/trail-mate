@@ -27,7 +27,16 @@ using ::boards::tlora_pager::PagerAudioOwner;
 using ::boards::tlora_pager::TLoRaPagerBoard;
 
 constexpr PagerAudioOwner kOwner = PagerAudioOwner::VoiceMessage;
-constexpr float kCaptureGainDb = 24.0F;
+// The Pager microphone is wired to the left I2S slot.  VMP records that one
+// physical source for the entire clip; it never averages a silent right slot
+// or switches sources between Codec2 frames.  This removes the 6 dB loss of
+// the former average while keeping the analogue preamp 6 dB below its prior
+// value, so ADC headroom is restored without frame-to-frame gain pumping.
+constexpr float kCaptureGainDb = 30.0F;
+constexpr uint16_t kPcmUnityGainQ8 = 256U;
+constexpr uint16_t kPlaybackPcmGainQ8 = 512U; // 2.00x, matching Walkie RX.
+constexpr uint16_t kPcmTargetPeak = 30000U;
+constexpr uint16_t kPcmClipThreshold = 32760U;
 constexpr std::size_t kAudioLevelLogIntervalFrames = 25U;
 
 TLoRaPagerBoard* pagerBoard()
@@ -106,14 +115,90 @@ struct PcmLevel
 {
     uint16_t peak = 0U;
     uint16_t rms = 0U;
+    uint16_t clipped_samples = 0U;
 };
 
 struct CapturePcmLevel
 {
-    PcmLevel left{};
-    PcmLevel right{};
+    PcmLevel input{};
     PcmLevel mono{};
 };
+
+struct PcmGainFrameStats
+{
+    uint16_t applied_gain_q8 = kPcmUnityGainQ8;
+    uint16_t input_peak = 0U;
+    uint16_t output_peak = 0U;
+    uint16_t input_clipped_samples = 0U;
+    uint16_t output_clipped_samples = 0U;
+};
+
+uint16_t sampleMagnitude(int16_t sample)
+{
+    const int32_t value = sample;
+    return static_cast<uint16_t>(value < 0 ? -value : value);
+}
+
+uint16_t boundedPcmGainQ8(uint16_t input_peak, uint16_t requested_gain_q8)
+{
+    if (input_peak == 0U)
+    {
+        return requested_gain_q8;
+    }
+
+    const uint32_t safe_gain_q8 =
+        (static_cast<uint32_t>(kPcmTargetPeak) * kPcmUnityGainQ8) / input_peak;
+    if (safe_gain_q8 < kPcmUnityGainQ8)
+    {
+        return kPcmUnityGainQ8;
+    }
+    return safe_gain_q8 < requested_gain_q8
+               ? static_cast<uint16_t>(safe_gain_q8)
+               : requested_gain_q8;
+}
+
+PcmGainFrameStats applyBoundedPcmGain(int16_t* samples,
+                                      std::size_t sample_count,
+                                      uint16_t requested_gain_q8)
+{
+    PcmGainFrameStats stats{};
+    if (!samples || sample_count == 0U)
+    {
+        return stats;
+    }
+
+    for (std::size_t index = 0U; index < sample_count; ++index)
+    {
+        const uint16_t magnitude = sampleMagnitude(samples[index]);
+        if (magnitude > stats.input_peak)
+        {
+            stats.input_peak = magnitude;
+        }
+        if (magnitude >= kPcmClipThreshold)
+        {
+            ++stats.input_clipped_samples;
+        }
+    }
+
+    stats.applied_gain_q8 = boundedPcmGainQ8(stats.input_peak, requested_gain_q8);
+    for (std::size_t index = 0U; index < sample_count; ++index)
+    {
+        const int32_t scaled =
+            (static_cast<int32_t>(samples[index]) * stats.applied_gain_q8) /
+            static_cast<int32_t>(kPcmUnityGainQ8);
+        if (scaled > 32767 || scaled < -32768)
+        {
+            ++stats.output_clipped_samples;
+        }
+        samples[index] = clampToInt16(scaled);
+        const uint16_t magnitude = sampleMagnitude(samples[index]);
+        if (magnitude > stats.output_peak)
+        {
+            stats.output_peak = magnitude;
+        }
+    }
+    return stats;
+}
 
 PcmLevel measurePcmLevel(const int16_t* samples,
                          std::size_t sample_count,
@@ -122,6 +207,7 @@ PcmLevel measurePcmLevel(const int16_t* samples,
 {
     uint32_t peak = 0U;
     uint64_t sum_of_squares = 0U;
+    uint16_t clipped_samples = 0U;
     for (std::size_t index = 0U; index < sample_count; ++index)
     {
         const int32_t sample = samples[index * stride + offset];
@@ -131,19 +217,17 @@ PcmLevel measurePcmLevel(const int16_t* samples,
         {
             peak = magnitude;
         }
+        if (magnitude >= kPcmClipThreshold)
+        {
+            ++clipped_samples;
+        }
         sum_of_squares += static_cast<uint64_t>(sample * sample);
     }
     const float mean_square =
         static_cast<float>(sum_of_squares) / static_cast<float>(sample_count);
     return {static_cast<uint16_t>(peak),
-            static_cast<uint16_t>(sqrtf(mean_square) + 0.5F)};
-}
-
-CapturePcmLevel measureCapturePcmLevel(const int16_t* stereo, const int16_t* mono)
-{
-    return {measurePcmLevel(stereo, kCodec2SamplesPerFrame, kHardwareChannels, 0U),
-            measurePcmLevel(stereo, kCodec2SamplesPerFrame, kHardwareChannels, 1U),
-            measurePcmLevel(mono, kCodec2SamplesPerFrame)};
+            static_cast<uint16_t>(sqrtf(mean_square) + 0.5F),
+            clipped_samples};
 }
 
 bool shouldLogPcmLevel(std::size_t frame_index, std::size_t frame_count)
@@ -154,29 +238,27 @@ bool shouldLogPcmLevel(std::size_t frame_index, std::size_t frame_count)
            completed_frames == frame_count;
 }
 
-void logCapturePcmLevel(std::size_t frame_index, const CapturePcmLevel& level)
+void logCapturePcmLevel(std::size_t frame_index,
+                        const CapturePcmLevel& level,
+                        const PcmGainFrameStats& gain)
 {
-    Serial.printf("[VMP][AUDIO] level capture frame=%u left_peak=%u left_rms=%u "
-                  "right_peak=%u right_rms=%u mono_peak=%u mono_rms=%u\n",
+    Serial.printf("[VMP][AUDIO] level capture frame=%u source=left_mono "
+                  "input_peak=%u input_rms=%u input_raw_clip=%u "
+                  "mono_peak=%u mono_rms=%u "
+                  "encode_gain_x100=%u mono_input_peak=%u mono_output_peak=%u "
+                  "mono_input_clip=%u mono_output_clip=%u\n",
                   static_cast<unsigned>(frame_index + 1U),
-                  static_cast<unsigned>(level.left.peak),
-                  static_cast<unsigned>(level.left.rms),
-                  static_cast<unsigned>(level.right.peak),
-                  static_cast<unsigned>(level.right.rms),
+                  static_cast<unsigned>(level.input.peak),
+                  static_cast<unsigned>(level.input.rms),
+                  static_cast<unsigned>(level.input.clipped_samples),
                   static_cast<unsigned>(level.mono.peak),
-                  static_cast<unsigned>(level.mono.rms));
-}
-
-void logPlaybackPcmLevel(std::size_t frame_index,
-                         const PcmLevel& level,
-                         uint8_t output_volume)
-{
-    Serial.printf("[VMP][AUDIO] level playback frame=%u mono_peak=%u mono_rms=%u "
-                  "output_volume=%u\n",
-                  static_cast<unsigned>(frame_index + 1U),
-                  static_cast<unsigned>(level.peak),
-                  static_cast<unsigned>(level.rms),
-                  static_cast<unsigned>(output_volume));
+                  static_cast<unsigned>(level.mono.rms),
+                  static_cast<unsigned>((gain.applied_gain_q8 * 100U) /
+                                        kPcmUnityGainQ8),
+                  static_cast<unsigned>(gain.input_peak),
+                  static_cast<unsigned>(gain.output_peak),
+                  static_cast<unsigned>(gain.input_clipped_samples),
+                  static_cast<unsigned>(gain.output_clipped_samples));
 }
 
 } // namespace
@@ -185,7 +267,103 @@ struct PagerCodec2Audio::FrameScratch
 {
     int16_t stereo[kCodec2SamplesPerFrame * kHardwareChannels] = {};
     int16_t mono[kCodec2SamplesPerFrame] = {};
+
+    struct PcmGainSummary
+    {
+        uint32_t frames = 0U;
+        uint32_t samples = 0U;
+        uint32_t gain_q8_sum = 0U;
+        uint32_t input_clipped_samples = 0U;
+        uint32_t output_clipped_samples = 0U;
+
+        void observe(const PcmGainFrameStats& frame, std::size_t sample_count)
+        {
+            ++frames;
+            samples += static_cast<uint32_t>(sample_count);
+            gain_q8_sum += frame.applied_gain_q8;
+            input_clipped_samples += frame.input_clipped_samples;
+            output_clipped_samples += frame.output_clipped_samples;
+        }
+
+        uint16_t averageGainX100() const
+        {
+            if (frames == 0U)
+            {
+                return 0U;
+            }
+            return static_cast<uint16_t>((gain_q8_sum * 100U) /
+                                         (frames * kPcmUnityGainQ8));
+        }
+    };
+
+    PcmGainSummary capture_gain{};
+    PcmGainSummary playback_gain{};
+    CapturePcmLevel capture_level{};
+    PcmGainFrameStats frame_gain{};
+    uint32_t capture_input_clipped_samples = 0U;
+
+    void clearTelemetry()
+    {
+        capture_gain = {};
+        playback_gain = {};
+        capture_level = {};
+        frame_gain = {};
+        capture_input_clipped_samples = 0U;
+    }
 };
+
+namespace
+{
+
+template <typename Scratch>
+void logPlaybackPcmLevel(std::size_t frame_index,
+                         uint8_t output_volume,
+                         const Scratch* scratch)
+{
+    const PcmLevel& level = scratch->capture_level.mono;
+    const PcmGainFrameStats& gain = scratch->frame_gain;
+    Serial.printf("[VMP][AUDIO] level playback frame=%u mono_peak=%u mono_rms=%u "
+                  "output_volume=%u decode_gain_x100=%u mono_input_peak=%u "
+                  "mono_output_peak=%u mono_input_clip=%u mono_output_clip=%u\n",
+                  static_cast<unsigned>(frame_index + 1U),
+                  static_cast<unsigned>(level.peak),
+                  static_cast<unsigned>(level.rms),
+                  static_cast<unsigned>(output_volume),
+                  static_cast<unsigned>((gain.applied_gain_q8 * 100U) /
+                                        kPcmUnityGainQ8),
+                  static_cast<unsigned>(gain.input_peak),
+                  static_cast<unsigned>(gain.output_peak),
+                  static_cast<unsigned>(gain.input_clipped_samples),
+                  static_cast<unsigned>(gain.output_clipped_samples));
+}
+
+template <typename GainSummary>
+void logCaptureGainSummary(const GainSummary& gain, uint32_t input_clipped_samples)
+{
+    Serial.printf("[VMP][AUDIO] capture summary analog_gain_db=30 source=left_mono "
+                  "encode_gain_avg_x100=%u samples=%lu mono_input_clip=%lu "
+                  "mono_output_clip=%lu input_raw_clip=%lu\n",
+                  static_cast<unsigned>(gain.averageGainX100()),
+                  static_cast<unsigned long>(gain.samples),
+                  static_cast<unsigned long>(gain.input_clipped_samples),
+                  static_cast<unsigned long>(gain.output_clipped_samples),
+                  static_cast<unsigned long>(input_clipped_samples));
+}
+
+template <typename GainSummary>
+void logPlaybackGainSummary(const GainSummary& gain, uint8_t output_volume)
+{
+    Serial.printf("[VMP][AUDIO] playback summary output_volume=%u "
+                  "decode_gain_avg_x100=%u samples=%lu mono_input_clip=%lu "
+                  "mono_output_clip=%lu\n",
+                  static_cast<unsigned>(output_volume),
+                  static_cast<unsigned>(gain.averageGainX100()),
+                  static_cast<unsigned long>(gain.samples),
+                  static_cast<unsigned long>(gain.input_clipped_samples),
+                  static_cast<unsigned long>(gain.output_clipped_samples));
+}
+
+} // namespace
 
 bool PagerCodec2Audio::isSupported() const
 {
@@ -201,7 +379,8 @@ CaptureResult PagerCodec2Audio::capture(const volatile bool* stop_requested)
 {
     clearEncodedMedia();
     const uint32_t started_ms = millis();
-    Serial.printf("[VMP][AUDIO] capture begin max_ms=5000 stop_hook=%u\n",
+    Serial.printf("[VMP][AUDIO] capture begin max_ms=5000 stop_hook=%u "
+                  "analog_gain_db=30 source=left_mono encode_gain_x100=100\n",
                   stop_requested ? 1U : 0U);
     TLoRaPagerBoard* const board = pagerBoard();
     if (!board || !acquireFrameScratch())
@@ -215,6 +394,7 @@ CaptureResult PagerCodec2Audio::capture(const volatile bool* stop_requested)
         Serial.printf("[VMP][AUDIO] capture rejected reason=audio_busy\n");
         return CaptureResult::AudioBusy;
     }
+    frame_scratch_->clearTelemetry();
 
     CODEC2* const encoder = codec2_create(CODEC2_MODE_1300);
     const int sample_count = encoder ? codec2_samples_per_frame(encoder) : 0;
@@ -233,7 +413,6 @@ CaptureResult PagerCodec2Audio::capture(const volatile bool* stop_requested)
     }
 
     CaptureResult result = CaptureResult::Complete;
-    CapturePcmLevel last_capture_level{};
     bool has_capture_level = false;
     bool stopped_by_release = false;
     for (std::size_t frame = 0; frame < kCodec2FramesPerMessage; ++frame)
@@ -254,12 +433,26 @@ CaptureResult PagerCodec2Audio::capture(const volatile bool* stop_requested)
             break;
         }
         mixCaptureToMono();
-        last_capture_level = measureCapturePcmLevel(frame_scratch_->stereo,
-                                                    frame_scratch_->mono);
+        frame_scratch_->capture_input_clipped_samples +=
+            frame_scratch_->capture_level.input.clipped_samples;
+        // Keep recorded speech at one fixed gain.  Peak-dependent gain per
+        // Codec2 frame causes audible pumping and raises quiet-frame noise.
+        // These statistics are telemetry only; they do not alter the PCM.
+        frame_scratch_->frame_gain = {};
+        frame_scratch_->frame_gain.input_peak = frame_scratch_->capture_level.mono.peak;
+        frame_scratch_->frame_gain.output_peak = frame_scratch_->capture_level.mono.peak;
+        frame_scratch_->frame_gain.input_clipped_samples =
+            frame_scratch_->capture_level.mono.clipped_samples;
+        frame_scratch_->frame_gain.output_clipped_samples =
+            frame_scratch_->capture_level.mono.clipped_samples;
+        frame_scratch_->capture_gain.observe(frame_scratch_->frame_gain,
+                                             kCodec2SamplesPerFrame);
         has_capture_level = true;
         if (shouldLogPcmLevel(frame, kCodec2FramesPerMessage))
         {
-            logCapturePcmLevel(frame, last_capture_level);
+            logCapturePcmLevel(frame,
+                               frame_scratch_->capture_level,
+                               frame_scratch_->frame_gain);
         }
         codec2_encode(encoder,
                       encoded_media_ + encoded_media_size_,
@@ -279,7 +472,14 @@ CaptureResult PagerCodec2Audio::capture(const volatile bool* stop_requested)
     const std::size_t captured_frame_count = encoded_media_size_ / kCodec2BytesPerFrame;
     if (has_capture_level && captured_frame_count % kAudioLevelLogIntervalFrames != 0U)
     {
-        logCapturePcmLevel(captured_frame_count - 1U, last_capture_level);
+        logCapturePcmLevel(captured_frame_count - 1U,
+                           frame_scratch_->capture_level,
+                           frame_scratch_->frame_gain);
+    }
+    if (frame_scratch_->capture_gain.frames != 0U)
+    {
+        logCaptureGainSummary(frame_scratch_->capture_gain,
+                              frame_scratch_->capture_input_clipped_samples);
     }
     releaseFrameScratch();
     const std::size_t encoded_size = encoded_media_size_;
@@ -342,6 +542,7 @@ PlaybackResult PagerCodec2Audio::play(const uint8_t* encoded_media,
     }
     const uint8_t output_volume = volume_percent > 100U ? 100U : volume_percent;
     (void)board->audioSetVolume(kOwner, output_volume);
+    frame_scratch_->clearTelemetry();
 
     CODEC2* const decoder = codec2_create(CODEC2_MODE_1300);
     const int sample_count = decoder ? codec2_samples_per_frame(decoder) : 0;
@@ -367,11 +568,16 @@ PlaybackResult PagerCodec2Audio::play(const uint8_t* encoded_media,
         codec2_decode(decoder,
                       frame_scratch_->mono,
                       const_cast<uint8_t*>(encoded_media + offset));
-        const PcmLevel level =
+        frame_scratch_->frame_gain = applyBoundedPcmGain(frame_scratch_->mono,
+                                                         kCodec2SamplesPerFrame,
+                                                         kPlaybackPcmGainQ8);
+        frame_scratch_->playback_gain.observe(frame_scratch_->frame_gain,
+                                              kCodec2SamplesPerFrame);
+        frame_scratch_->capture_level.mono =
             measurePcmLevel(frame_scratch_->mono, kCodec2SamplesPerFrame);
         if (shouldLogPcmLevel(frame_index, frame_count))
         {
-            logPlaybackPcmLevel(frame_index, level, output_volume);
+            logPlaybackPcmLevel(frame_index, output_volume, frame_scratch_);
         }
         duplicatePlaybackToStereo();
         if (!writePlaybackFrame())
@@ -383,6 +589,10 @@ PlaybackResult PagerCodec2Audio::play(const uint8_t* encoded_media,
 
     codec2_destroy(decoder);
     board->closeAudioSession(kOwner);
+    if (frame_scratch_->playback_gain.frames != 0U)
+    {
+        logPlaybackGainSummary(frame_scratch_->playback_gain, output_volume);
+    }
     releaseFrameScratch();
     return result;
 }
@@ -437,12 +647,17 @@ bool PagerCodec2Audio::writePlaybackFrame()
 
 void PagerCodec2Audio::mixCaptureToMono()
 {
+    CapturePcmLevel& level = frame_scratch_->capture_level;
+    level.input = measurePcmLevel(frame_scratch_->stereo,
+                                  kCodec2SamplesPerFrame,
+                                  kHardwareChannels,
+                                  0U);
     for (std::size_t index = 0U; index < kCodec2SamplesPerFrame; ++index)
     {
-        const int32_t left = frame_scratch_->stereo[index * kHardwareChannels];
-        const int32_t right = frame_scratch_->stereo[index * kHardwareChannels + 1U];
-        frame_scratch_->mono[index] = clampToInt16((left + right) / 2);
+        frame_scratch_->mono[index] =
+            frame_scratch_->stereo[index * kHardwareChannels];
     }
+    level.mono = measurePcmLevel(frame_scratch_->mono, kCodec2SamplesPerFrame);
 }
 
 void PagerCodec2Audio::duplicatePlaybackToStereo()

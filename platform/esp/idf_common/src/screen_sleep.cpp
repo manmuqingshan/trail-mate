@@ -302,11 +302,11 @@ uint16_t timeout_secs()
 
 bool supports_app_timeout_setting()
 {
-#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
-    return false;
-#else
+    // Every ESP target that links this runtime has a functional screen-sleep
+    // path.  Keep the user-selectable timeout available on P4 as it is on
+    // Pager and T-Deck instead of silently falling back to the persisted
+    // default.
     return true;
-#endif
 }
 
 void set_timeout_ms(uint32_t timeout_ms)

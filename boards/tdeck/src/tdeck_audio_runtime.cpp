@@ -3,6 +3,7 @@
 #include "boards/tdeck/tdeck_audio_runtime.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 
@@ -50,6 +51,63 @@ constexpr std::size_t kCodec2DmaReservation = 0U;
 constexpr std::size_t kCodec2InternalFloor = 48U * 1024U;
 constexpr std::size_t kCodec2DmaFloor = 16U * 1024U;
 constexpr std::size_t kCodec2PsramFloor = 256U * 1024U;
+constexpr std::size_t kVoiceLevelLogIntervalFrames = 25U;
+
+struct PcmLevel
+{
+    uint16_t peak = 0U;
+    uint16_t rms = 0U;
+};
+
+PcmLevel measurePcmLevel(const int16_t* samples,
+                         std::size_t sample_count,
+                         std::size_t stride = 1U)
+{
+    if (!samples || sample_count == 0U)
+    {
+        return {};
+    }
+
+    uint32_t peak = 0U;
+    uint64_t sum_of_squares = 0U;
+    for (std::size_t index = 0U; index < sample_count; ++index)
+    {
+        const int32_t sample = samples[index * stride];
+        const uint32_t magnitude =
+            sample < 0 ? static_cast<uint32_t>(-sample) : static_cast<uint32_t>(sample);
+        peak = std::max(peak, magnitude);
+        sum_of_squares += static_cast<uint64_t>(sample * sample);
+    }
+
+    const float mean_square =
+        static_cast<float>(sum_of_squares) / static_cast<float>(sample_count);
+    return {static_cast<uint16_t>(peak),
+            static_cast<uint16_t>(std::sqrt(mean_square) + 0.5F)};
+}
+
+bool shouldLogVoiceLevel(std::size_t frame_index, std::size_t frame_count)
+{
+    const std::size_t completed_frames = frame_index + 1U;
+    return frame_index == 0U || (completed_frames % kVoiceLevelLogIntervalFrames) == 0U ||
+           completed_frames == frame_count;
+}
+
+void logVoicePcmLevel(std::size_t frame_index,
+                      std::size_t frame_count,
+                      const PcmLevel& decoded,
+                      const PcmLevel& output,
+                      uint8_t volume_percent)
+{
+    std::printf("[TDeck][Audio] voice level frame=%u/%u decoded_peak=%u decoded_rms=%u "
+                "output_peak=%u output_rms=%u volume=%u\n",
+                static_cast<unsigned>(frame_index + 1U),
+                static_cast<unsigned>(frame_count),
+                static_cast<unsigned>(decoded.peak),
+                static_cast<unsigned>(decoded.rms),
+                static_cast<unsigned>(output.peak),
+                static_cast<unsigned>(output.rms),
+                static_cast<unsigned>(volume_percent));
+}
 
 void secureClear(int16_t* samples, std::size_t sample_count)
 {
@@ -249,12 +307,16 @@ bool TDeckAudioRuntime::playCodec2Voice(const uint8_t* encoded_media,
         {
             codec2_set_lpc_post_filter(decoder, 1, 0, 0.8F, 0.2F);
             complete = true;
-            for (std::size_t offset = 0U; offset < encoded_media_len;
-                 offset += kCodec2BytesPerFrame)
+            const std::size_t frame_count = encoded_media_len / kCodec2BytesPerFrame;
+            for (std::size_t frame_index = 0U, offset = 0U; offset < encoded_media_len;
+                 ++frame_index, offset += kCodec2BytesPerFrame)
             {
                 codec2_decode(decoder,
                               playback_pcm,
                               const_cast<uint8_t*>(encoded_media + offset));
+                const bool log_level = shouldLogVoiceLevel(frame_index, frame_count);
+                const PcmLevel decoded_level =
+                    log_level ? measurePcmLevel(playback_pcm, kCodec2SamplesPerFrame) : PcmLevel{};
                 // Expand backwards so mono samples are never overwritten before
                 // each sample reaches both output channels.
                 for (std::size_t sample = kCodec2SamplesPerFrame; sample != 0U;
@@ -267,6 +329,16 @@ bool TDeckAudioRuntime::playCodec2Voice(const uint8_t* encoded_media,
                         static_cast<int16_t>(output_sample);
                     playback_pcm[mono_index * kCodec2OutputChannels + 1U] =
                         static_cast<int16_t>(output_sample);
+                }
+
+                if (log_level)
+                {
+                    logVoicePcmLevel(
+                        frame_index,
+                        frame_count,
+                        decoded_level,
+                        measurePcmLevel(playback_pcm, kCodec2SamplesPerFrame, kCodec2OutputChannels),
+                        output_volume);
                 }
 
                 size_t bytes_written = 0U;

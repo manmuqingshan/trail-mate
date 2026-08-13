@@ -5539,11 +5539,132 @@ static void list_item_focused_cb(lv_event_t* e)
     }
 }
 
+static lv_obj_t* create_staged_list_content(lv_obj_t* parent)
+{
+    if (parent == nullptr)
+    {
+        return nullptr;
+    }
+
+    lv_obj_t* content = lv_obj_create(parent);
+    if (content == nullptr)
+    {
+        return nullptr;
+    }
+    lv_obj_set_width(content, LV_PCT(100));
+    lv_obj_set_height(content, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(content,
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START);
+    lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(content, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(content, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(content,
+                             ::ui::page_profile::current().list_panel_pad_row,
+                             LV_PART_MAIN);
+    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    return content;
+}
+
+static bool visible_item_layout_matches_current()
+{
+    if (g_state.visible_list_content == nullptr ||
+        g_state.current_category < 0 ||
+        g_state.current_category >= static_cast<int>(sizeof(kCategories) / sizeof(kCategories[0])))
+    {
+        return false;
+    }
+
+    const CategoryDef& category = kCategories[g_state.current_category];
+    std::size_t expected_index = 0;
+    for (std::size_t index = 0; index < category.item_count; ++index)
+    {
+        if (!should_show_item(category.items[index]))
+        {
+            continue;
+        }
+        if (expected_index >= g_state.item_count ||
+            g_state.item_widgets[expected_index].def != &category.items[index])
+        {
+            return false;
+        }
+        ++expected_index;
+    }
+    return expected_index == g_state.item_count;
+}
+
+static bool begin_list_transaction()
+{
+    if (g_state.list_panel == nullptr)
+    {
+        return false;
+    }
+
+    if (g_state.list_content != nullptr &&
+        g_state.list_content != g_state.visible_list_content)
+    {
+        // A nested refresh supersedes a not-yet-visible staging tree. The
+        // previous visible tree remains untouched until a complete successor
+        // has been built.
+        lv_obj_del(g_state.list_content);
+    }
+
+    g_state.list_content = create_staged_list_content(g_state.list_panel);
+    if (g_state.list_content == nullptr)
+    {
+        return false;
+    }
+    lv_obj_add_flag(g_state.list_content, LV_OBJ_FLAG_HIDDEN);
+    return true;
+}
+
+static void commit_list_transaction()
+{
+    if (g_state.list_content == nullptr ||
+        g_state.list_content == g_state.visible_list_content)
+    {
+        return;
+    }
+
+    lv_obj_clear_flag(g_state.list_content, LV_OBJ_FLAG_HIDDEN);
+    if (g_state.visible_list_content != nullptr)
+    {
+        lv_obj_del(g_state.visible_list_content);
+    }
+    g_state.visible_list_content = g_state.list_content;
+#if defined(ESP_PLATFORM)
+    ESP_LOGI(kLogTag,
+             "[UI][Txn] settings kind=structure visible_clean=0 staging_commit=1 items=%u",
+             static_cast<unsigned>(g_state.item_count));
+#endif
+}
+
 static void build_item_list()
 {
     if (!g_state.list_panel) return;
     if (s_building_list)
     {
+        return;
+    }
+
+    if (visible_item_layout_matches_current())
+    {
+        refresh_visible_item_values();
+#if defined(ESP_PLATFORM)
+        ESP_LOGI(kLogTag,
+                 "[UI][Txn] settings kind=value visible_clean=0 staging_commit=0 items=%u",
+                 static_cast<unsigned>(g_state.item_count));
+#endif
+        return;
+    }
+
+    if (!begin_list_transaction())
+    {
+#if defined(ESP_PLATFORM)
+        ESP_LOGE(kLogTag, "[UI][Txn] settings kind=structure staging_begin_failed");
+#endif
         return;
     }
     s_building_list = true;
@@ -5553,7 +5674,6 @@ static void build_item_list()
              g_state.current_category);
 #endif
     g_state.list_back_btn = nullptr;
-    lv_obj_clean(g_state.list_panel);
     g_state.item_count = 0;
     lv_obj_clear_flag(g_state.list_panel, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -5615,7 +5735,7 @@ static void build_item_list()
                  widget.def->pref_key ? widget.def->pref_key : "<none>",
                  static_cast<int>(widget.def->type));
 #endif
-        lv_obj_t* btn = lv_btn_create(g_state.list_panel);
+        lv_obj_t* btn = lv_btn_create(g_state.list_content);
         configure_list_item_button(btn);
         style::apply_list_item(btn);
 
@@ -5631,7 +5751,7 @@ static void build_item_list()
     }
     if (should_show_settings_list_back_button())
     {
-        g_state.list_back_btn = lv_btn_create(g_state.list_panel);
+        g_state.list_back_btn = lv_btn_create(g_state.list_content);
         lv_obj_set_size(g_state.list_back_btn, LV_PCT(100), ::ui::page_profile::resolve_control_button_height());
         lv_obj_set_style_pad_left(g_state.list_back_btn, 10, LV_PART_MAIN);
         lv_obj_set_style_pad_right(g_state.list_back_btn, 10, LV_PART_MAIN);
@@ -5645,6 +5765,7 @@ static void build_item_list()
         lv_obj_add_event_cb(g_state.list_back_btn, on_list_back_clicked, LV_EVENT_CLICKED, nullptr);
         lv_obj_add_event_cb(g_state.list_back_btn, list_item_focused_cb, LV_EVENT_FOCUSED, nullptr);
     }
+    commit_list_transaction();
     settings::ui::input::on_ui_refreshed();
     lv_obj_scroll_to_y(g_state.list_panel, 0, LV_ANIM_OFF);
     lv_obj_invalidate(g_state.list_panel);

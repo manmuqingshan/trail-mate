@@ -4086,11 +4086,13 @@ void set_label_text(lv_obj_t* label, const char* english)
     const char* localized = tr(english);
     if (label)
     {
+#if defined(ARDUINO_T_DECK_PRO)
         const char* current = lv_label_get_text(label);
         if (current != nullptr && std::strcmp(current, localized) == 0)
         {
             return;
         }
+#endif
         lv_label_set_text(label, localized);
         ::ui::fonts::apply_localized_font(label, localized, lv_obj_get_style_text_font(label, LV_PART_MAIN));
     }
@@ -4101,11 +4103,13 @@ void set_label_text_raw(lv_obj_t* label, const char* text)
     if (label)
     {
         const char* value = text ? text : "";
+#if defined(ARDUINO_T_DECK_PRO)
         const char* current = lv_label_get_text(label);
         if (current != nullptr && std::strcmp(current, value) == 0)
         {
             return;
         }
+#endif
 #if UI_I18N_ROUTE_LOG_ENABLE
         if (route_text_is_interesting(value))
         {
@@ -4134,11 +4138,13 @@ void set_content_label_text(lv_obj_t* label, const char* english)
     const char* localized = tr(english);
     if (label)
     {
+#if defined(ARDUINO_T_DECK_PRO)
         const char* current = lv_label_get_text(label);
         if (current != nullptr && std::strcmp(current, localized) == 0)
         {
             return;
         }
+#endif
         lv_label_set_text(label, localized);
         ::ui::fonts::apply_content_font(label, localized, lv_obj_get_style_text_font(label, LV_PART_MAIN));
     }
@@ -4149,11 +4155,13 @@ void set_content_label_text_raw(lv_obj_t* label, const char* text)
     if (label)
     {
         const char* value = text ? text : "";
+#if defined(ARDUINO_T_DECK_PRO)
         const char* current = lv_label_get_text(label);
         if (current != nullptr && std::strcmp(current, value) == 0)
         {
             return;
         }
+#endif
 #if UI_I18N_ROUTE_LOG_ENABLE
         if (route_text_is_interesting(value))
         {

@@ -62,6 +62,12 @@ int main(int argc, char** argv)
     const std::string pager_audio_header = readFile(
         root / "platform/esp/arduino_common/include/platform/esp/arduino_common/"
                "voice/vmp_pager_audio.h");
+    const std::string event_bus = readFile(
+        root / "platform/esp/arduino_common/include/sys/event_bus.h");
+    const std::string event_runtime = readFile(
+        root / "platform/esp/arduino_common/src/app_event_runtime_support.cpp");
+    const std::string chat_event_pump = readFile(
+        root / "modules/ui_chat_runtime/src/chat_page_runtime_event_pump.cpp");
     const std::string codec2 = readFile(root / "third_party/codec2/src/codec2.c");
     const std::string codec2_internal =
         readFile(root / "third_party/codec2/src/codec2_internal.h");
@@ -306,6 +312,24 @@ int main(int argc, char** argv)
     assert(session.find("[VMP][RX] shard quorum reached unique_shards=") !=
            std::string::npos);
     assert(session.find("[VMP][RX] inbox durable_commit") != std::string::npos);
+    // A received clip becomes visible only after its inbox transaction has
+    // committed.  Its event transports the local ID, not a copied PCM/Codec2
+    // frame, and is queued non-blocking after the receive mutex is released.
+    assert(event_bus.find("ChatVoiceMessageEvent") != std::string::npos);
+    assert(event_bus.find("ChatMessageContentKind") != std::string::npos);
+    assert(event_bus.find("uint64_t local_id") != std::string::npos);
+    assert(session.find("publishIncomingVoiceMessage(completed_conversation_channel,") !=
+           std::string::npos);
+    assert(session.find("const uint8_t completed_conversation_channel = incoming_control_.conversation_channel") !=
+           std::string::npos);
+    assert(session.find("sys::EventBus::publish(event, 0U)") !=
+           std::string::npos);
+    assert(event_runtime.find("ChatMessageContentKind::Voice") !=
+           std::string::npos);
+    assert(event_runtime.find("show_notice(notice, 3000)") !=
+           std::string::npos);
+    assert(chat_event_pump.find("ChatMessageContentKind::Voice") !=
+           std::string::npos);
 
     // Codec2 and the Pager I2S/codec/I2C call chain execute on the short-lived
     // VMP worker, not the UI task. ESP-IDF interprets xTaskCreatePinnedToCore
@@ -363,6 +387,33 @@ int main(int argc, char** argv)
            std::string::npos);
     assert(pager_audio.find("[VMP][AUDIO] level playback") !=
            std::string::npos);
+    // VMP keeps its calibrated gain policy local to the voice adapter.  Do not
+    // alter the shared codec volume curve, and do not add a second PCM buffer
+    // merely to meter it: the gain/clip telemetry operates in FrameScratch.
+    assert(pager_audio.find("kCaptureGainDb = 30.0F") != std::string::npos);
+    assert(pager_audio.find("kPlaybackPcmGainQ8 = 512U") != std::string::npos);
+    assert(pager_audio.find("kCapturePcmGainQ8") == std::string::npos);
+    assert(pager_audio.find("applyBoundedPcmGain(frame_scratch_->mono") !=
+           std::string::npos);
+    assert(pager_audio.find("[VMP][AUDIO] capture summary") !=
+           std::string::npos);
+    assert(pager_audio.find("[VMP][AUDIO] playback summary") !=
+           std::string::npos);
+    assert(pager_audio.find("source=left_mono") != std::string::npos);
+    assert(pager_audio.find("input_raw_clip=") != std::string::npos);
+    const std::size_t mix_capture =
+        positionOf(pager_audio, "void PagerCodec2Audio::mixCaptureToMono()");
+    const std::size_t duplicate_playback =
+        positionOfAfter(pager_audio, "void PagerCodec2Audio::duplicatePlaybackToStereo()",
+                        mix_capture);
+    const std::string mix_capture_body =
+        pager_audio.substr(mix_capture, duplicate_playback - mix_capture);
+    assert(mix_capture_body.find("level.input = measurePcmLevel") !=
+           std::string::npos);
+    assert(mix_capture_body.find("frame_scratch_->stereo[index * kHardwareChannels]") !=
+           std::string::npos);
+    assert(mix_capture_body.find("use_left") == std::string::npos);
+    assert(mix_capture_body.find("use_right") == std::string::npos);
     assert(pager_audio.find("struct PagerCodec2Audio::FrameScratch\n{\n    int16_t stereo[") !=
            std::string::npos);
     assert(pager_audio.find("PcmLevel stereo[") == std::string::npos);

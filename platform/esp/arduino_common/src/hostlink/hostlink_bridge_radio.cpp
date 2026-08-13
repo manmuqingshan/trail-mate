@@ -193,6 +193,13 @@ void on_event(const sys::Event& event)
     case sys::EventType::ChatNewMessage:
     {
         const auto& msg_evt = static_cast<const sys::ChatNewMessageEvent&>(event);
+        // HostLink's EvRxMsg has a text-ledger payload only.  Do not serialize
+        // a voice inbox identifier as a synthetic text message; the UI still
+        // receives the shared ChatNewMessage event locally.
+        if (msg_evt.content_kind != sys::ChatMessageContentKind::Text)
+        {
+            break;
+        }
         const chat::ChatMessage* msg =
             app::messagingFacade().getChatService().getMessage(msg_evt.msg_id);
 

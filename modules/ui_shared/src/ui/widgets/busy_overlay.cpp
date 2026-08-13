@@ -263,8 +263,6 @@ void update(const char* title, const char* detail)
     }
 
     update_content(title, detail);
-    lv_obj_move_foreground(s_root);
-    request_refresh();
 }
 
 void set_progress(int progress_percent)
@@ -275,7 +273,6 @@ void set_progress(int progress_percent)
     }
 
     apply_progress(progress_percent);
-    request_refresh();
 }
 
 void hide()

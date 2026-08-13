@@ -17,7 +17,9 @@
 #include "chat/infra/voice/vmp_mqtt_transport.h"
 #include "chat/infra/voice/vmp_receive_block.h"
 #include "platform/esp/arduino_common/chat/infra/store/message_attachment_store.h"
+#include "platform/esp/common/memory_budget.h"
 #include "sys/clock.h"
+#include "sys/event_bus.h"
 
 #include <Arduino.h>
 
@@ -58,14 +60,17 @@ constexpr uint8_t kReadyProbeCount = 3U;
 // only for an active record/play operation and are released by vTaskDelete.
 constexpr uint32_t kOutboundTaskStackBytes = 8U * 1024U;
 constexpr UBaseType_t kOutboundTaskPriority = 4U;
-#if defined(ARDUINO_T_DECK)
-// T-Deck is playback-only: Codec2 state and PCM are PSRAM-backed and its I2S
-// output path has no Pager codec/I2C capture chain. Keep this transient worker
-// aligned with T-Deck's existing 4 KiB audio task rather than reserving the
-// Pager's capture-sized 8 KiB internal-RAM stack.
-constexpr uint32_t kPlaybackTaskStackBytes = 4U * 1024U;
-#else
 constexpr uint32_t kPlaybackTaskStackBytes = 8U * 1024U;
+#if defined(ARDUINO_T_DECK)
+// Codec2's transient state and PCM live in PSRAM, but the decoder's nested
+// call frames remain on this FreeRTOS stack. The 4 KiB T-Deck variant trips
+// its canary on the first Codec2-1300 decode; use the Pager-proven 8 KiB
+// budget only for the short-lived playback worker. Reserve an extra KiB in
+// admission for the task control block and heap-allocation overhead, while
+// preserving the existing 48 KiB internal-RAM floor for the rest of the UI.
+constexpr std::size_t kTDeckPlaybackTaskInternalReservation =
+    kPlaybackTaskStackBytes + 1024U;
+constexpr std::size_t kTDeckPlaybackTaskInternalFloor = 48U * 1024U;
 #endif
 constexpr UBaseType_t kPlaybackTaskPriority = 3U;
 constexpr uint32_t kPersistentInboxRetryMs = 5000U;
@@ -110,6 +115,22 @@ uint32_t voiceTimestampSeconds()
     // clock deliberately remains zero instead of fabricating an uptime value
     // that would sort a voice attachment ahead of dated text history.
     return ::sys::epoch_seconds_now();
+}
+
+void publishIncomingVoiceMessage(uint8_t conversation_channel, uint64_t local_id)
+{
+    // The inbox owns the metadata and media.  Send the standard incoming-chat
+    // event only after releasing its mutex, and never wait on the UI from an
+    // RF/MQTT receive path.  The voice variant carries just an identifier;
+    // it never duplicates Codec2 media or a UI projection buffer.
+    sys::Event* const event =
+        new (std::nothrow) sys::ChatVoiceMessageEvent(conversation_channel, local_id);
+    const bool queued = event && sys::EventBus::publish(event, 0U);
+    Serial.printf("[VMP][RX] chat_new_voice local_id=%llu channel=%u queued=%u pending=%u\n",
+                  static_cast<unsigned long long>(local_id),
+                  static_cast<unsigned>(conversation_channel),
+                  queued ? 1U : 0U,
+                  static_cast<unsigned>(sys::EventBus::pendingCount()));
 }
 
 bool profileFor(const vmp::ControlFrame& control, radio::PhyProfile* out_profile)
@@ -436,6 +457,27 @@ class PagerReceiveSession final
             return false;
         }
 
+#if defined(ARDUINO_T_DECK)
+        // The task stack is allocated by xTaskCreatePinnedToCore below. Check
+        // its full internal-RAM budget before copying media or creating the
+        // task, so playback is skipped rather than putting UI allocations
+        // under pressure.
+        if (!::platform::esp::common::memory::admit(
+                "vmp_play_task",
+                kTDeckPlaybackTaskInternalReservation,
+                0U,
+                0U,
+                kTDeckPlaybackTaskInternalFloor,
+                0U))
+        {
+            Serial.printf("[VMP][PLAY] rejected local_id=%llu reason=memory_budget "
+                          "stack_bytes=%u\n",
+                          static_cast<unsigned long long>(local_id),
+                          static_cast<unsigned>(kPlaybackTaskStackBytes));
+            return false;
+        }
+#endif
+
         if (!lockState())
         {
             return false;
@@ -652,22 +694,32 @@ class PagerReceiveSession final
             envelope, envelope_len, self_node_id_, contacts_);
         bool stored = accepted == vmp::MqttTransferResult::Accepted ||
                       accepted == vmp::MqttTransferResult::Duplicate;
+        uint64_t completed_local_id = 0U;
+        uint8_t completed_conversation_channel = 0U;
         if (accepted == vmp::MqttTransferResult::Complete)
         {
             std::size_t media_len = 0U;
+            const vmp::ControlFrame& completed_control = media_->mqtt_receive.control();
+            completed_conversation_channel = completed_control.conversation_channel;
             const bool recovered = media_->mqtt_receive.recover(media_->mqtt_received_media,
                                                                 sizeof(media_->mqtt_received_media),
                                                                 &media_len);
             const bool stored_voice =
-                recovered && storeCompletedVoice(media_->mqtt_receive.control(),
+                recovered && storeCompletedVoice(completed_control,
                                                  media_->mqtt_received_media,
                                                  media_len,
-                                                 voiceTimestampSeconds());
+                                                 voiceTimestampSeconds(),
+                                                 &completed_local_id);
             secureClear(media_->mqtt_received_media, sizeof(media_->mqtt_received_media));
             media_->mqtt_receive.clear();
             stored = stored_voice;
         }
         unlockState();
+        if (stored && completed_local_id != 0U)
+        {
+            publishIncomingVoiceMessage(completed_conversation_channel,
+                                        completed_local_id);
+        }
         return stored;
     }
 
@@ -1793,12 +1845,20 @@ class PagerReceiveSession final
         {
             return false;
         }
+        const uint8_t completed_conversation_channel = incoming_control_.conversation_channel;
+        uint64_t completed_local_id = 0U;
         const bool stored = storeCompletedVoice(incoming_control_,
                                                 media_->received_media,
                                                 media_len,
-                                                voiceTimestampSeconds());
+                                                voiceTimestampSeconds(),
+                                                &completed_local_id);
         secureClear(media_->received_media, sizeof(media_->received_media));
         unlockState();
+        if (stored && completed_local_id != 0U)
+        {
+            publishIncomingVoiceMessage(completed_conversation_channel,
+                                        completed_local_id);
+        }
         return stored;
     }
 
@@ -1954,8 +2014,13 @@ class PagerReceiveSession final
     bool storeCompletedVoice(const vmp::ControlFrame& control,
                              const uint8_t* encoded_media,
                              std::size_t encoded_media_len,
-                             uint32_t received_at_seconds)
+                             uint32_t received_at_seconds,
+                             uint64_t* out_local_id)
     {
+        if (out_local_id)
+        {
+            *out_local_id = 0U;
+        }
         if (!media_ || !inbox_ready_)
         {
             return false;
@@ -1986,6 +2051,10 @@ class PagerReceiveSession final
 
         if (!requires_durable_attachment_store_)
         {
+            if (out_local_id)
+            {
+                *out_local_id = local_id;
+            }
             Serial.printf("[VMP][RX] inbox stored volatile bytes=%u\n",
                           static_cast<unsigned>(encoded_media_len));
             return true;
@@ -2005,6 +2074,10 @@ class PagerReceiveSession final
         }
         else
         {
+            if (out_local_id)
+            {
+                *out_local_id = local_id;
+            }
             Serial.printf("[VMP][RX] inbox durable_commit local_id=%llu bytes=%u\n",
                           static_cast<unsigned long long>(local_id),
                           static_cast<unsigned>(encoded_media_len));
