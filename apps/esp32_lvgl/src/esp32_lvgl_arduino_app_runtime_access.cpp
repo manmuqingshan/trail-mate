@@ -7,6 +7,9 @@
 #include "platform/esp/arduino_common/app_runtime_support.h"
 #include "platform/esp/arduino_common/storage/storage_runtime.h"
 #include "platform/esp/boards/board_runtime.h"
+#if defined(ARDUINO_T_DECK_PRO) && defined(TRAIL_MATE_TDECK_PRO_A7682E)
+#include "platform/ui/a7682e_cellular_runtime.h"
+#endif
 #include "platform/ui/screen_runtime.h"
 
 namespace trailmate::apps::esp32_lvgl::arduino_app_runtime_access
@@ -84,6 +87,10 @@ void startDeferredStorage()
 void tick()
 {
     platform::esp::arduino_common::storage::tick_deferred_storage();
+#if defined(ARDUINO_T_DECK_PRO) && defined(TRAIL_MATE_TDECK_PRO_A7682E)
+    // Receive call/SMS URCs even while the EPD saver owns the foreground UI.
+    ::platform::ui::a7682e::tick();
+#endif
     const uint32_t now_ms = millis();
     const bool saver_active = platform::ui::screen::is_saver_active();
     if (saver_active)

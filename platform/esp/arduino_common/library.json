@@ -32,7 +32,8 @@
                                 "-I../../../modules/core_team/include",
                                 "-I../../../modules/core_chat/generated",
                                 "-I../../../modules/core_chat/third_party/nanopb",
-                                "-I../../../platform/esp/common/include"
+                                "-I../../../platform/esp/common/include",
+                                "-I../../../boards/tdeck_pro/include"
                             ]
               },
     "dependencies":  [

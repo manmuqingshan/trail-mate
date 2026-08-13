@@ -36,6 +36,10 @@ class BoardBase
     // Turn off peripheral power when screen sleeps, and restore on wake; default no-op.
     virtual void enterScreenSleep() {}
     virtual void exitScreenSleep() {}
+    // Colour displays normally become dark during sleep. E-paper boards keep
+    // a rendered saver page visible instead, without changing the underlying
+    // active UI page or focus.
+    virtual bool keepsScreenSaverVisibleDuringSleep() const { return false; }
 
     // Low-battery tiers: 0=Normal, 1=Low (<=20%), 2=Critical (<=10%); used for brightness/GPS policies.
     virtual void setPowerTier(int tier)

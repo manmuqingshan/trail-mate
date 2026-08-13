@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **trail-mate** (70097 symbols, 150978 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **trail-mate** (72849 symbols, 157680 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -44,6 +44,12 @@ This project is indexed by GitNexus as **trail-mate** (70097 symbols, 150978 rel
 
 # Trail Mate Agent Rules
 
+## Shared Versus Local Rules
+
+- This file contains repository-wide rules that are valid for every contributor and CI environment.
+- Keep machine-specific paths, usernames, installed-tool locations, and personal workflow preferences in `AGENTS.local.md`. That file is intentionally ignored by Git.
+- If `AGENTS.local.md` is present, read it after this file. Local rules may add environment guidance, but must not weaken the shared rules in this file.
+
 ## PlatformIO Builds, Uploads, And Monitors
 
 - When a PlatformIO build/upload is started, let it run until it explicitly completes with success or failure. Do not impose an arbitrary time limit such as 120s or 300s.
@@ -75,6 +81,5 @@ This project is indexed by GitNexus as **trail-mate** (70097 symbols, 150978 rel
 
 ## Formatting
 
-- Use clang-format 14 only. On this machine the stable executable is `C:\Users\vicliu\AppData\Roaming\Python\Python313\Scripts\clang-format.exe` and it reports `clang-format version 14.0.6`.
-- Do not use Visual Studio's bundled clang-format at `C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\bin\clang-format.exe`; it is version 19.1.5 and will not match CI.
-- If `clang-format` is not on `PATH`, call the stable executable above directly instead of searching the whole disk.
+- Use clang-format 14 only; use a version that matches CI.
+- If clang-format is not on `PATH`, use the machine-specific location documented in `AGENTS.local.md`, if available.

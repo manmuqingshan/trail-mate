@@ -138,6 +138,14 @@ void hide()
         return;
     }
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
+
+    // Hiding an overlay does not necessarily dirty the pixels underneath it.
+    // An EPD would otherwise retain the "Press SPACE" frame instead of
+    // presenting the page that remained active below the saver.
+    if (lv_obj_t* active_screen = lv_screen_active())
+    {
+        lv_obj_invalidate(active_screen);
+    }
 }
 
 bool is_visible()

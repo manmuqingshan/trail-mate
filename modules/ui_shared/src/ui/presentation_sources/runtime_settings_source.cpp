@@ -3,6 +3,9 @@
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
 #include "platform/ui/gps_runtime.h"
+#if defined(ARDUINO_T_DECK_PRO) && defined(TRAIL_MATE_TDECK_PRO_A7682E)
+#include "platform/ui/a7682e_cellular_runtime.h"
+#endif
 #include "sys/clock.h"
 
 #include <cstring>
@@ -59,6 +62,24 @@ bool RuntimeSettingsSource::buildSettingsSnapshot(
                  app::configFacade().readConfig().gps_enabled ? "ON" : "OFF");
     out.sections[0].options[0].control =
         ui::settings::SettingControlKind::Toggle;
+#if defined(ARDUINO_T_DECK_PRO) && defined(TRAIL_MATE_TDECK_PRO_A7682E)
+    const auto& cellular = ::platform::ui::a7682e::status();
+    out.section_count = 2;
+    ui::copyText(out.sections[1].title, "4G Cellular");
+    out.sections[1].option_count = 2;
+    ui::copyText(out.sections[1].options[0].key, "cellular_enabled");
+    ui::copyText(out.sections[1].options[0].label, "4G Enabled");
+    ui::copyText(out.sections[1].options[0].value_label,
+                 cellular.enabled ? "ON" : "OFF");
+    out.sections[1].options[0].control = ui::settings::SettingControlKind::Toggle;
+    ui::copyText(out.sections[1].options[1].key, "cellular_status");
+    ui::copyText(out.sections[1].options[1].label, "4G Status");
+    ui::copyText(out.sections[1].options[1].value_label,
+                 ::platform::ui::a7682e::service_state_label(
+                     ::platform::ui::a7682e::service_state()));
+    out.sections[1].options[1].control = ui::settings::SettingControlKind::Action;
+    out.sections[1].options[1].enabled = false;
+#endif
     return true;
 }
 
@@ -84,6 +105,20 @@ ui::UiActionResult RuntimeSettingsActionSink::applySetting(
         ::platform::ui::gps::set_enabled(enabled);
         return ui::UiActionResult::success();
     }
+
+#if defined(ARDUINO_T_DECK_PRO) && defined(TRAIL_MATE_TDECK_PRO_A7682E)
+    if (keyEquals(patch, "cellular_enabled") || keyEquals(patch, "cellular.enabled"))
+    {
+        bool enabled = false;
+        if (!parseBool(patch.value.c_str(), enabled))
+        {
+            return ui::UiActionResult::fail(ui::UiActionFailure::InvalidInput);
+        }
+        return ::platform::ui::a7682e::set_enabled(enabled)
+                   ? ui::UiActionResult::success()
+                   : ui::UiActionResult::fail(ui::UiActionFailure::NotReady);
+    }
+#endif
 
     return ui::UiActionResult::fail(ui::UiActionFailure::Unsupported);
 }

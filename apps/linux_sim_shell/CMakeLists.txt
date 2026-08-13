@@ -1242,6 +1242,16 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_screen_power_state_machine_smoke
              COMMAND trailmate_screen_power_state_machine_smoke)
 
+    add_executable(trailmate_tdeck_pro_keyboard_decoder_smoke
+        "${TRAIL_MATE_REPO_ROOT}/boards/tdeck_pro/tests/test_tdeck_pro_keyboard_decoder.cpp")
+    target_include_directories(trailmate_tdeck_pro_keyboard_decoder_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/boards/tdeck_pro/include")
+    target_compile_features(trailmate_tdeck_pro_keyboard_decoder_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_tdeck_pro_keyboard_decoder_smoke
+             COMMAND trailmate_tdeck_pro_keyboard_decoder_smoke)
+
     add_executable(trailmate_network_micron_markup_contract_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_network_micron_markup_contract.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/screens/network/micron_markup_contract.cpp")

@@ -12,6 +12,7 @@ test/
 .gitnexus/
 
 CLAUDE.md
+AGENTS.local.md
 
 # Compiled Object files
 *.o

@@ -995,8 +995,7 @@ static void lv_encoder_read(lv_indev_t* drv, lv_indev_data_t* data)
 #endif
 
     // Screen power transitions consume the input event before normal UI
-    // navigation. The state machine decides whether this is a wake preview
-    // or confirmation into the main menu.
+    // navigation. Keyboard Space is the explicit resume action.
     if (::platform::ui::screen::is_sleeping() ||
         ::platform::ui::screen::is_saver_active())
     {
@@ -1089,19 +1088,25 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
         state = plane->getKeyChar(&c);
         if (state >= 0)
         {
-            key = static_cast<uint8_t>(c);
+            key = c == '\n' || c == '\r' ? LV_KEY_ENTER : static_cast<uint8_t>(c);
         }
     }
 
     // Screen power transitions consume the input event before normal keyboard
-    // dispatch. The state machine applies the same two-step policy to every
-    // physical input device.
+    // dispatch. Space resumes the page and focus preserved at sleep time.
     if (::platform::ui::screen::is_sleeping() ||
         ::platform::ui::screen::is_saver_active())
     {
         if (state == KEYBOARD_PRESSED)
         {
-            ::platform::ui::screen::handle_input();
+            if (!from_nav && key == ' ')
+            {
+                ::platform::ui::screen::handle_confirm_input();
+            }
+            else
+            {
+                ::platform::ui::screen::handle_input();
+            }
         }
         else if (state == KEYBOARD_RELEASED)
         {
@@ -1119,6 +1124,22 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
         const bool on_walkie_page =
             active_app != nullptr && active_app->stable_id() != nullptr &&
             std::strcmp(active_app->stable_id(), "walkie_talkie") == 0;
+
+#if defined(ARDUINO_T_DECK_PRO)
+        // The Pro keyboard has no dedicated cursor keys.  Translate its
+        // physical W/S keys only while the text-shell menu owns focus; text
+        // fields on adapted pages must continue to accept literal w and s.
+        if (on_menu && (c == 'w' || c == 'W'))
+        {
+            key = LV_KEY_PREV;
+            from_nav = true;
+        }
+        else if (on_menu && (c == 's' || c == 'S'))
+        {
+            key = LV_KEY_NEXT;
+            from_nav = true;
+        }
+#endif
 
         if (on_menu && ui::menu_runtime::handleWalkieKey(c, state))
         {
@@ -1407,6 +1428,20 @@ void serviceLvglDisplay(uint32_t now_ms)
     if (plane != nullptr)
     {
         plane->serviceDisplay(now_ms);
+    }
+}
+
+void requestLvglFullRefresh()
+{
+    if (disp_drv == nullptr)
+    {
+        return;
+    }
+
+    auto* plane = static_cast<LilyGo_Display*>(lv_display_get_user_data(disp_drv));
+    if (plane != nullptr)
+    {
+        plane->requestFullRefresh();
     }
 }
 

@@ -42,7 +42,6 @@ struct Snapshot
     std::uint32_t sleep_disable_depth = 0;
     std::uint32_t last_activity_ms = 0;
     std::uint32_t preview_started_ms = 0;
-    bool input_armed = true;
 };
 
 class StateMachine
@@ -52,7 +51,6 @@ class StateMachine
     static constexpr std::uint32_t kMinTimeoutMs = 10000;
     static constexpr std::uint32_t kMaxTimeoutMs = 300000;
     static constexpr std::uint32_t kPreviewDurationMs = 3000;
-    static constexpr std::uint32_t kConfirmGuardMs = 350;
 
     explicit StateMachine(std::uint32_t timeout_ms = kDefaultTimeoutMs);
 
@@ -73,8 +71,6 @@ class StateMachine
     std::uint32_t sleep_disable_depth_ = 0;
     std::uint32_t last_activity_ms_ = 0;
     std::uint32_t preview_started_ms_ = 0;
-    std::uint32_t last_input_release_ms_ = 0;
-    bool input_armed_ = true;
 };
 
 } // namespace platform::ui::screen_power

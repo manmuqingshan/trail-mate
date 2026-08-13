@@ -20,6 +20,7 @@
 #include "board/SdBoard.h"
 #include "board/TLoRaPagerTypes.h"
 #include "boards/tdeck_pro/board_profile.h"
+#include "boards/tdeck_pro/tdeck_pro_keyboard.h"
 #include "display/DisplayInterface.h"
 #include "platform/esp/arduino_common/gps/GPS.h"
 
@@ -56,6 +57,7 @@ class TDeckProBoard : public BoardBase,
 
     void setBrightness(uint8_t level) override;
     uint8_t getBrightness() override { return brightness_; }
+    bool keepsScreenSaverVisibleDuringSleep() const override { return true; }
 
     bool hasKeyboard() override { return keyboard_ready_; }
     void keyboardSetBrightness(uint8_t level) override;
@@ -85,6 +87,7 @@ class TDeckProBoard : public BoardBase,
                                          uint16_t y2,
                                          uint16_t* color) override;
     void serviceDisplay(uint32_t now_ms) override;
+    void requestFullRefresh() override;
     uint16_t width() override;
     uint16_t height() override;
     bool hasTouch() override { return touch_ready_; }
@@ -169,6 +172,7 @@ class TDeckProBoard : public BoardBase,
     EpdPanel epd_{GxEPD2_310_GDEQ031T10(profile().epd.cs, profile().epd.dc, profile().epd.rst, profile().epd.busy)};
     TouchDrvCSTXXX touch_;
     Adafruit_TCA8418 keyboard_;
+    keyboard::Decoder keyboard_decoder_;
     GPS gps_;
     SensorBHI260AP motion_;
     PowersBQ25896 pmu_;
@@ -180,7 +184,6 @@ class TDeckProBoard : public BoardBase,
     uint16_t dirty_y2_ = 0;
     uint32_t dirty_since_ms_ = 0;
     uint32_t last_epd_refresh_ms_ = 0;
-    uint8_t partial_refresh_count_ = 0;
     bool dirty_region_pending_ = false;
     bool epd_first_frame_pending_ = true;
     bool epd_force_full_refresh_ = true;

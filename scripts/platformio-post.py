@@ -14,6 +14,8 @@ def verify_release_esp32_tinyusb_dfu_disabled(target, source, env):
         "tlora_pager_sx1262",
         "tlora_pager_lr1121",
         "tdeck",
+        "tdeck_pro_a7682e",
+        "tdeck_pro_pcm512a",
     }
     if env.get("PIOENV") not in dfu_trimmed_envs:
         return

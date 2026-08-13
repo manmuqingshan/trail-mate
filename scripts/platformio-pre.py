@@ -598,6 +598,8 @@ def disable_arduino_tinyusb_dfu_for_release_esp32():
         "tlora_pager_sx1262",
         "tlora_pager_lr1121",
         "tdeck",
+        "tdeck_pro_a7682e",
+        "tdeck_pro_pcm512a",
     }
     if not is_esp32_env or pio_env not in dfu_disabled_envs:
         return

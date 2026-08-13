@@ -347,6 +347,11 @@ void handle_input()
     (void)post_event(Event::Input);
 }
 
+void handle_confirm_input()
+{
+    (void)post_event(Event::ConfirmInput);
+}
+
 void handle_input_release()
 {
     (void)post_event(Event::InputRelease);

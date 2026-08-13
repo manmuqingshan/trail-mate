@@ -28,17 +28,13 @@ namespace
 {
 constexpr const char* kTag = "TDeckProBoard";
 constexpr time_t kMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
-constexpr uint8_t kKeyboardRows = 4;
-constexpr uint8_t kKeyboardCols = 10;
 constexpr uint32_t kEpdSpiHz = 2000000;
 constexpr uint32_t kSdSpiHz = 4000000;
 constexpr uint8_t kFlushLogLimit = 8;
 constexpr uint8_t kEpdRefreshLogLimit = 12;
-constexpr uint8_t kEpdPartialRefreshLimit = 5;
 constexpr uint16_t kEpdPartialAlignment = 8;
 constexpr uint32_t kEpdCoalesceDelayMs = 40;
 constexpr uint32_t kEpdMinimumRefreshIntervalMs = 750;
-constexpr uint8_t kEpdFullRefreshDirtyAreaPercent = 60;
 constexpr uint32_t kRadioTxMaxTimeoutMs = 120000;
 sys::runtime::BusAccessToken g_shared_spi_token{};
 TaskHandle_t g_shared_spi_task = nullptr;
@@ -214,23 +210,6 @@ time_t gpsDatetimeToEpochUtc(int year, uint8_t month, uint8_t day, uint8_t hour,
         return static_cast<time_t>(-1);
     }
     return static_cast<time_t>(epoch64);
-}
-
-char translateKey(uint8_t idx)
-{
-    static constexpr char kMap[kKeyboardRows][kKeyboardCols] = {
-        {'1', '2', '3', '4', '5', '6', '7', '8', '9', '0'},
-        {'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'},
-        {'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', '\n'},
-        {'z', 'x', 'c', 'v', 'b', 'n', 'm', ' ', '\b', '.'},
-    };
-    const uint8_t row = idx / 10;
-    const uint8_t col = idx % 10;
-    if (row >= kKeyboardRows || col >= kKeyboardCols)
-    {
-        return '\0';
-    }
-    return kMap[row][col];
 }
 
 void applyTxPower(SX1262Access& radio, int8_t tx_power)
@@ -842,13 +821,11 @@ DisplayTransferResult TDeckProBoard::servicePendingEpd(uint32_t now_ms, bool for
 
     const uint32_t dirty_width = static_cast<uint32_t>(dirty_x2_ - dirty_x1_ + 1U);
     const uint32_t dirty_height = static_cast<uint32_t>(dirty_y2_ - dirty_y1_ + 1U);
-    const uint32_t dirty_area = dirty_width * dirty_height;
-    const uint32_t full_area = static_cast<uint32_t>(profile().screen_width) * profile().screen_height;
-    const bool dirty_region_is_large =
-        dirty_area * 100U >= full_area * kEpdFullRefreshDirtyAreaPercent;
-    const bool full_refresh = epd_force_full_refresh_ ||
-                              partial_refresh_count_ >= kEpdPartialRefreshLimit ||
-                              dirty_region_is_large;
+    // A full waveform is a visual lifecycle decision, not a heuristic based
+    // on changed area or a count of cursor moves.  Startup/rotation establish
+    // a panel baseline and the text UI explicitly requests one on page entry
+    // and exit; ordinary selection and content updates remain partial.
+    const bool full_refresh = epd_force_full_refresh_;
 
     const DisplayTransferResult result = renderEpd(full_refresh);
     if (result != DisplayTransferResult::Completed)
@@ -860,26 +837,20 @@ DisplayTransferResult TDeckProBoard::servicePendingEpd(uint32_t now_ms, bool for
     epd_first_frame_pending_ = false;
     if (full_refresh)
     {
-        partial_refresh_count_ = 0;
         epd_force_full_refresh_ = false;
-    }
-    else
-    {
-        ++partial_refresh_count_;
     }
 
     static uint8_t s_epd_refresh_log_count = 0;
     if (s_epd_refresh_log_count < kEpdRefreshLogLimit)
     {
-        Serial.printf("[%s] epd refresh #%u mode=%s merged=(%u,%u %lux%lu) partial_count=%u\n",
+        Serial.printf("[%s] epd refresh #%u mode=%s merged=(%u,%u %lux%lu)\n",
                       kTag,
                       static_cast<unsigned>(s_epd_refresh_log_count + 1U),
                       full_refresh ? "full" : "partial",
                       static_cast<unsigned>(dirty_x1_),
                       static_cast<unsigned>(dirty_y1_),
                       static_cast<unsigned long>(dirty_width),
-                      static_cast<unsigned long>(dirty_height),
-                      static_cast<unsigned>(partial_refresh_count_));
+                      static_cast<unsigned long>(dirty_height));
         ++s_epd_refresh_log_count;
     }
     clearDirtyRegion();
@@ -889,6 +860,11 @@ DisplayTransferResult TDeckProBoard::servicePendingEpd(uint32_t now_ms, bool for
 void TDeckProBoard::serviceDisplay(uint32_t now_ms)
 {
     (void)servicePendingEpd(now_ms, false);
+}
+
+void TDeckProBoard::requestFullRefresh()
+{
+    epd_force_full_refresh_ = true;
 }
 
 void TDeckProBoard::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color)
@@ -1045,19 +1021,7 @@ uint8_t TDeckProBoard::getPoint(int16_t* x, int16_t* y, uint8_t get_point)
 
 bool TDeckProBoard::keyEventToChar(uint8_t event, char* c, bool* pressed)
 {
-    if (!c || !pressed)
-    {
-        return false;
-    }
-    *pressed = (event & 0x80U) != 0;
-    uint8_t key = static_cast<uint8_t>(event & 0x7FU);
-    if (key == 0)
-    {
-        return false;
-    }
-    key -= 1;
-    *c = translateKey(key);
-    return *c != '\0';
+    return keyboard_decoder_.decode(event, c, pressed);
 }
 
 int TDeckProBoard::getKeyChar(char* c)

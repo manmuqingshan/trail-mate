@@ -97,7 +97,7 @@ lv_obj_t* create_flex_label(lv_obj_t* parent, bool flex_grow, lv_text_align_t al
 
 bool use_tdeck_layout()
 {
-#if defined(ARDUINO_T_DECK)
+#if defined(ARDUINO_T_DECK) || defined(ARDUINO_T_DECK_PRO)
     return true;
 #else
     return false;

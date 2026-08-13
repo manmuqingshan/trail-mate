@@ -13,6 +13,9 @@ class LilyGo_Display;
 
 void beginLvglHelper(LilyGo_Display& display, bool debug = false);
 void serviceLvglDisplay(uint32_t now_ms);
+// Marks the next physical frame as a full refresh when the active display
+// supports one.  Callers use this only for visual lifecycle boundaries.
+void requestLvglFullRefresh();
 void lv_set_default_group(lv_group_t* group);
 lv_indev_t* lv_get_touch_indev();
 lv_indev_t* lv_get_keyboard_indev();

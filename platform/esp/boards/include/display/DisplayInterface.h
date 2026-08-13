@@ -119,6 +119,10 @@ class LilyGo_Display
     virtual bool hasEncoder() { return false; }
     virtual bool hasKeyboard() { return false; }
     virtual void feedback(void* args = nullptr) { (void)args; }
+    // Displays that distinguish partial and full physical updates may defer a
+    // full waveform until the next submitted LVGL frame.  Most displays have
+    // no separate full-refresh mode, so the default is intentionally a no-op.
+    virtual void requestFullRefresh() {}
     bool needFullRefresh() { return _full_refresh; }
     virtual bool useDMA() { return false; }
     // Board-specific display work that has been safely copied out of the LVGL
