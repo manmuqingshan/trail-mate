@@ -43,6 +43,7 @@ def verify_debug_esp32_tinyusb_dfu_enabled(target, source, env):
         "tlora_pager_sx1262_debug",
         "tlora_pager_lr1121_debug",
         "tdeck_debug",
+        "tdeck_pro_a7682e_debug",
     }
     if env.get("PIOENV") not in dfu_debug_envs:
         return
