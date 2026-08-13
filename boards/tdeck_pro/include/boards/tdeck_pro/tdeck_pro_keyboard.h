@@ -21,7 +21,9 @@ class Decoder
             return false;
         }
 
-        *pressed = (event & 0x80U) != 0U;
+        // TCA8418 FIFO events use bit 7 as the release flag: 0x01..0x50
+        // are key presses and 0x81..0xD0 are the matching releases.
+        *pressed = (event & 0x80U) == 0U;
         const std::uint8_t key_code = static_cast<std::uint8_t>(event & 0x7FU);
         if (key_code == 0U || key_code > kKeyCount)
         {
