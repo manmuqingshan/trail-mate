@@ -1,10 +1,15 @@
-# T-Deck Pro Text UI Contract
+# T-Deck Pro Text Host Contract
 
 ## Scope
 
-This document defines the product presentation for the LilyGo T-Deck Pro
-(`240x320`, portrait, monochrome e-paper).  It intentionally replaces the
+This document defines the T-Deck Pro host integration for the reusable
+`240x320`, portrait, monochrome screen profile. It intentionally replaces the
 previous T-Deck Pro icon-grid presentation.
+
+The application-page contract lives in
+`docs/ux_profiles/screen_240x320_mono_ui.md`. T-Deck Pro contributes the
+menu/saver shell, font and e-paper host; it does not own application-page
+implementation.
 
 The UI is a presentation adapter for the existing app catalogue and screen
 lifecycle.  It must not create a second catalogue, protocol state, message
@@ -27,7 +32,7 @@ state, location state, or settings store.
 | --- | --- | --- |
 | App catalogue and capability `AppScreen` | Available capabilities and the active-app lifecycle | T-Deck Pro layout |
 | T-Deck Pro text shell | 240x320 menu layout, selection, focus, text labels, input hints | Application data or page actions |
-| T-Deck Pro `TextAppAdapter` | Transient page widgets and keyboard focus for an adapted capability | Protocol, message, location, or configuration state |
+| Generic `screen_240x320` pages | Transient page widgets and keyboard focus for an adapted capability | Protocol, message, location, configuration state, or board services |
 | Existing presentation source/action sink | Typed state projection and domain operation | Board-specific visual identity |
 | Legacy shared page | Domain-specific content and controls for targets that select it | T-Deck Pro visual identity |
 | T-Deck Pro board/display | EPD frame transfer, dirty-region coalescing, refresh policy | Navigation or UI data |
@@ -57,7 +62,8 @@ All coordinates are in physical 240x320 pixels.
   the shared lifecycle.
 - `H` toggles the fixed text-shell keyboard-help overlay while the main menu
   is active.
-- Escape/Back returns via the shared `ui_request_exit_to_menu` lifecycle.
+- Backspace returns via the shared `ui_request_exit_to_menu` lifecycle;
+  Escape is retained only as a desktop compatibility alias.
 - The shared ESP screen-power state preserves the active page and focus while
   sleeping. Unlike backlit boards, which become dark, the e-paper board shows
   the saver page for the duration of sleep. Space hides that page and resumes
@@ -73,11 +79,13 @@ All coordinates are in physical 240x320 pixels.
   action updates, dirty-area size, and a count of partial refreshes must never
   promote an update to a full waveform.
 
-## Adapted capability pages
+## Generic adapted capability pages
 
-The catalogue selects `TextAppAdapter` only for T-Deck Pro. It preserves the
-capability's stable id and localized name while selecting a different visual
-projection; it does not enter the old colour page and then restyle it.
+The catalogue selects generic `screen_240x320` pages for the compatible
+screen profile. It preserves the capability's stable id and localized name
+while selecting a different visual projection; it does not enter the old
+colour page and then restyle it. See the generic contract for full page
+coverage and ports.
 
 - **Map:** `RuntimeGpsStatusSource` and `RuntimeMapWorkspaceSource`; Center,
   Zoom, and Terrain call `RuntimeMapActionSink`.
@@ -96,12 +104,11 @@ projection; it does not enter the old colour page and then restyle it.
 - **Sky Plot:** `RuntimeGpsStatusSource`; GPS enable/disable calls the
   settings action sink.
 - **Network:** `RuntimeDeviceStatusSource` and `RuntimeMeshStatusSource`.
-- **Settings:** `RuntimeSettingsSource`; the exposed GPS toggle calls
-  `RuntimeSettingsActionSink`. On the `tdeck_pro_a7682e` variant it also
-  projects the persisted 4G enabled state and exposes **4G SETTINGS**, which
-  routes to the dedicated A7682E phone page. That page owns only its text
-  form and invokes the separate cellular runtime for modem lifecycle, calls,
-  SMS, and SMTPS email; it does not share the Meshtastic chat transport.
+- **Settings / Cellular:** `RuntimeSettingsSource` and the generic
+  `CellularPort` provide the visual projection. A compatible target may
+  expose **CELLULAR** settings; its target adapter owns modem lifecycle,
+  calls, SMS and SMTPS email, and the generic page does not share the
+  Meshtastic chat transport.
 - **Extensions:** `ui::runtime::packs` owns both the installed-index and the
   asynchronous package worker. The text page shows installed packs offline,
   fetches the catalog only after an explicit `RELOAD`, and begins compatible

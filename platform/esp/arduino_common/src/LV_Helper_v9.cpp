@@ -952,10 +952,20 @@ static void touchpad_read(lv_indev_t* drv, lv_indev_data_t* data)
 {
     static int16_t x, y;
     static bool was_touched = false;
+#if defined(ARDUINO_T_DECK_PRO)
+    static bool debug_touch_active = false;
+#endif
     auto* plane = (LilyGo_Display*)lv_indev_get_user_data(drv);
     uint8_t touched = plane->getPoint(&x, &y, 1);
     if (touched)
     {
+#if defined(ARDUINO_T_DECK_PRO)
+        if (!debug_touch_active)
+        {
+            Serial.printf("[DEBUG-touch-a7682e] down lvgl=%d,%d\n", x, y);
+            debug_touch_active = true;
+        }
+#endif
         was_touched = true;
         input::MorseEngine::notifyTouch();
         if (::platform::ui::screen::is_sleeping() ||
@@ -976,6 +986,13 @@ static void touchpad_read(lv_indev_t* drv, lv_indev_data_t* data)
         was_touched = false;
         ::platform::ui::screen::handle_input_release();
     }
+#if defined(ARDUINO_T_DECK_PRO)
+    if (debug_touch_active)
+    {
+        Serial.printf("[DEBUG-touch-a7682e] up lvgl=%d,%d\n", x, y);
+        debug_touch_active = false;
+    }
+#endif
     data->state = LV_INDEV_STATE_REL;
 }
 #endif

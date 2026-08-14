@@ -8,10 +8,12 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <ctime>
+#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <limits>
+#include <new>
 #include <sys/time.h>
 
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
@@ -36,9 +38,77 @@ constexpr uint16_t kEpdPartialAlignment = 8;
 constexpr uint32_t kEpdCoalesceDelayMs = 40;
 constexpr uint32_t kEpdMinimumRefreshIntervalMs = 750;
 constexpr uint32_t kRadioTxMaxTimeoutMs = 120000;
+constexpr uint16_t kCst328InfoCommand = 0xD101;
+constexpr uint16_t kCst328InfoOffset = 0xD1F4;
+constexpr uint16_t kCst328ReportCommand = 0xD000;
+constexpr uint32_t kCst328ReportAcknowledgement = 0xD000AB;
+constexpr uint8_t kCst328ReportAcknowledgementByte = 0xAB;
 sys::runtime::BusAccessToken g_shared_spi_token{};
 TaskHandle_t g_shared_spi_task = nullptr;
 uint32_t g_shared_spi_depth = 0;
+
+bool cst328Write(TwoWire& wire, uint8_t address, uint32_t value, uint8_t length)
+{
+    uint8_t buffer[3]{};
+    for (uint8_t index = 0; index < length; ++index)
+    {
+        const uint8_t shift = static_cast<uint8_t>((length - 1U - index) * 8U);
+        buffer[index] = static_cast<uint8_t>(value >> shift);
+    }
+
+    wire.beginTransmission(address);
+    if (wire.write(buffer, length) != length)
+    {
+        (void)wire.endTransmission(true);
+        return false;
+    }
+    return wire.endTransmission(true) == 0;
+}
+
+bool cst328Read(TwoWire& wire, uint8_t address, uint16_t command, uint8_t* output, uint8_t length)
+{
+    if (output == nullptr || length == 0U || !cst328Write(wire, address, command, 2U))
+    {
+        return false;
+    }
+
+    const size_t received = wire.requestFrom(static_cast<int>(address), static_cast<int>(length), 1);
+    if (received != length)
+    {
+        while (wire.available() > 0)
+        {
+            (void)wire.read();
+        }
+        return false;
+    }
+
+    for (uint8_t index = 0; index < length; ++index)
+    {
+        const int value = wire.read();
+        if (value < 0)
+        {
+            return false;
+        }
+        output[index] = static_cast<uint8_t>(value);
+    }
+    return true;
+}
+
+uint16_t cst328ScaleCoordinate(uint16_t raw, uint16_t raw_extent, uint16_t logical_extent)
+{
+    if (logical_extent <= 1U)
+    {
+        return 0U;
+    }
+    if (raw_extent <= 1U)
+    {
+        return raw >= logical_extent ? static_cast<uint16_t>(logical_extent - 1U) : raw;
+    }
+
+    const uint16_t raw_last = static_cast<uint16_t>(raw_extent - 1U);
+    const uint16_t bounded = raw > raw_last ? raw_last : raw;
+    return static_cast<uint16_t>((static_cast<uint32_t>(bounded) * (logical_extent - 1U)) / raw_last);
+}
 
 uint32_t radioTxTimeoutMs(SX1262Access& radio, size_t len)
 {
@@ -227,13 +297,28 @@ void applyTxPower(SX1262Access& radio, int8_t tx_power)
 TDeckProBoard::TDeckProBoard()
     : LilyGo_Display(SPI_DRIVER, false)
 {
-    mono_buffer_.resize(static_cast<size_t>(profile().screen_width * profile().screen_height) / 8U, 0xFF);
 }
 
 TDeckProBoard* TDeckProBoard::getInstance()
 {
-    static TDeckProBoard singleton;
-    return &singleton;
+    // T-Deck and T-LoRa Pager keep their board objects out of scarce internal
+    // DRAM. The Pro has the same 8 MiB PSRAM contract, and this object
+    // contains several driver instances, so keep the policy aligned with
+    // those sibling targets. Its retained EPD surface is separately strict
+    // PSRAM-backed below.
+    static TDeckProBoard* instance = []() -> TDeckProBoard*
+    {
+        void* storage = heap_caps_malloc_prefer(sizeof(TDeckProBoard),
+                                                2,
+                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (storage == nullptr)
+        {
+            storage = ::operator new(sizeof(TDeckProBoard));
+        }
+        return new (storage) TDeckProBoard();
+    }();
+    return instance;
 }
 
 void TDeckProBoard::initSharedPins()
@@ -327,11 +412,39 @@ bool TDeckProBoard::initDisplay()
 
 bool TDeckProBoard::initTouch()
 {
-    touch_.setPins(profile().touch.rst, profile().touch.int_pin);
-    touch_ready_ = touch_.begin(Wire, profile().touch.i2c_addr, profile().i2c.sda, profile().i2c.scl);
+    // The T-Deck Pro uses Hynitron's CST328 at 0x1A. SensorLib's
+    // TouchDrvCSTXXX does not include a CST328 transport, so probing it as a
+    // CST226/CST816/CST92xx leaves touch_ready_ false and suppresses LVGL's
+    // pointer input device. This follows the CST3xx sequence supplied in the
+    // board vendor's Hynitron example: hardware reset, D101/D1F4 info probe,
+    // then D109 normal mode.
+    pinMode(profile().touch.rst, OUTPUT);
+    digitalWrite(profile().touch.rst, LOW);
+    delay(10);
+    digitalWrite(profile().touch.rst, HIGH);
+    delay(50);
+
+    uint8_t info[28]{};
+    touch_ready_ = cst328Write(Wire, profile().touch.i2c_addr, kCst328InfoCommand, 2U);
     if (touch_ready_)
     {
-        touch_.setMaxCoordinates(profile().screen_width, profile().screen_height);
+        delay(1);
+        touch_ready_ = cst328Read(Wire, profile().touch.i2c_addr, kCst328InfoOffset, info, sizeof(info));
+    }
+    if (touch_ready_)
+    {
+        touch_raw_width_ = static_cast<uint16_t>(static_cast<uint16_t>(info[5]) << 8U | info[4]);
+        touch_raw_height_ = static_cast<uint16_t>(static_cast<uint16_t>(info[7]) << 8U | info[6]);
+        touch_ready_ = touch_raw_width_ > 1U && touch_raw_height_ > 1U &&
+                       cst328Write(Wire, profile().touch.i2c_addr, 0xD109, 2U);
+    }
+    if (touch_ready_)
+    {
+        Serial.printf("[DEBUG-touch-a7682e] init model=CST328 raw=%ux%u logical=%dx%d\n",
+                      static_cast<unsigned>(touch_raw_width_),
+                      static_cast<unsigned>(touch_raw_height_),
+                      profile().screen_width,
+                      profile().screen_height);
     }
     Serial.printf("[%s] touch init %s\n", kTag, touch_ready_ ? "ok" : "fail");
     return touch_ready_;
@@ -448,6 +561,14 @@ uint32_t TDeckProBoard::begin(uint32_t disable_hw_init)
                   "pcm512a"
 #endif
     );
+
+    // The board singleton is constructed before setup(), when strict PSRAM
+    // allocations are not yet available. Allocate this retained EPD surface
+    // only after the Arduino/ESP runtime has initialized external RAM.
+    if (mono_buffer_.empty())
+    {
+        mono_buffer_.resize(static_cast<size_t>(profile().screen_width * profile().screen_height) / 8U, 0xFF);
+    }
 
     initSharedPins();
     (void)initPower();
@@ -989,13 +1110,34 @@ uint8_t TDeckProBoard::getPoint(int16_t* x, int16_t* y, uint8_t get_point)
     {
         return 0;
     }
-    int16_t tx = 0;
-    int16_t ty = 0;
-    const uint8_t touched = touch_.getPoint(&tx, &ty, get_point);
-    if (!touched || !x || !y)
+    if (!x || !y || get_point == 0U)
     {
-        return touched;
+        return 0;
     }
+
+    uint8_t report[7]{};
+    const bool report_read = cst328Read(Wire, profile().touch.i2c_addr, kCst328ReportCommand, report, sizeof(report));
+    // Each normal-mode CST328 report must be acknowledged, including an
+    // empty or malformed one, otherwise the controller stops producing new
+    // touch frames.
+    (void)cst328Write(Wire, profile().touch.i2c_addr, kCst328ReportAcknowledgement, 3U);
+    if (!report_read || report[6] != kCst328ReportAcknowledgementByte ||
+        report[0] == kCst328ReportAcknowledgementByte || (report[5] & 0x80U) != 0U ||
+        (report[5] & 0x7FU) == 0U)
+    {
+        return 0;
+    }
+
+    const uint16_t raw_x = static_cast<uint16_t>((static_cast<uint16_t>(report[1]) << 4U) |
+                                                 ((report[3] >> 4U) & 0x0FU));
+    const uint16_t raw_y = static_cast<uint16_t>((static_cast<uint16_t>(report[2]) << 4U) |
+                                                 (report[3] & 0x0FU));
+    const int16_t tx = static_cast<int16_t>(cst328ScaleCoordinate(raw_x,
+                                                                  touch_raw_width_,
+                                                                  static_cast<uint16_t>(profile().screen_width)));
+    const int16_t ty = static_cast<int16_t>(cst328ScaleCoordinate(raw_y,
+                                                                  touch_raw_height_,
+                                                                  static_cast<uint16_t>(profile().screen_height)));
 
     switch (rotation_ & 0x3)
     {
@@ -1016,7 +1158,7 @@ uint8_t TDeckProBoard::getPoint(int16_t* x, int16_t* y, uint8_t get_point)
         *y = ty;
         break;
     }
-    return touched;
+    return 1;
 }
 
 bool TDeckProBoard::keyEventToChar(uint8_t event, char* c, bool* pressed)

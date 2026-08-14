@@ -23,6 +23,7 @@
                                 "-I../../../modules/ui_gps_runtime/include",
                                 "-I../../../modules/ui_lvgl_core/include",
                                 "-I../../../modules/ui_lvgl_ux_packs/include",
+                                "-I../../../modules/ui_mono/include",
                                 "-I../../../modules/core_device/include",
                                 "-I../../../modules/core_mesh/include",
                                 "-I../../../modules/core_phone/include",

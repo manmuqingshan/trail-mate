@@ -10,10 +10,15 @@
 #include "ui/assets/images.h"
 #include "ui/callback_app_screen.h"
 #include "ui/page/page_host.h"
-#if defined(ARDUINO_T_DECK_PRO)
-#include "ui/tdeck_pro/text_app_adapter.h"
-#if defined(TRAIL_MATE_TDECK_PRO_A7682E)
-#include "ui/tdeck_pro/a7682e_phone_page.h"
+#if defined(ARDUINO_T_DECK_PRO) || defined(TRAIL_MATE_MONO_SCREEN_240X320)
+#define TRAIL_MATE_USE_MONO_SCREEN_240X320 1
+#else
+#define TRAIL_MATE_USE_MONO_SCREEN_240X320 0
+#endif
+#if TRAIL_MATE_USE_MONO_SCREEN_240X320
+#include "ui/mono/screens/screen_240x320/screen_app.h"
+#if defined(TRAIL_MATE_TDECK_PRO_A7682E) || +defined(TRAIL_MATE_MONO_SCREEN_240X320_CELLULAR)
+#include "ui/mono/screens/screen_240x320/cellular_page.h"
 #endif
 #endif
 #if defined(ESP_PLATFORM)
@@ -65,7 +70,7 @@ constexpr bool kTab5SkipSkyPlot = true;
 constexpr bool kTab5SkipSkyPlot = false;
 #endif
 
-#if !defined(ARDUINO_T_DECK_PRO)
+#if !TRAIL_MATE_USE_MONO_SCREEN_240X320
 extern "C"
 {
     extern const lv_image_dsc_t Chat;
@@ -111,34 +116,46 @@ ui::page::Host make_menu_host()
 
 ui::page::Host s_menu_host = make_menu_host();
 
-#if defined(ARDUINO_T_DECK_PRO)
-// These descriptors use the same catalogue identities as other targets, but
-// never hold legacy shell callbacks. The text adapter calls typed sources and
-// action ports directly, so the retired visual page has no Pro link root.
-ui::tdeck_pro::TextAppAdapter s_pro_map_app("map", "Map", ui::tdeck_pro::TextAppPageKind::Map);
-ui::tdeck_pro::TextAppAdapter s_pro_chat_app("chat", "Chat", ui::tdeck_pro::TextAppPageKind::Chat);
-ui::tdeck_pro::TextAppAdapter s_pro_team_app("team", "Team", ui::tdeck_pro::TextAppPageKind::Team);
-ui::tdeck_pro::TextAppAdapter s_pro_contacts_app("contacts", "Contacts", ui::tdeck_pro::TextAppPageKind::Contacts);
-ui::tdeck_pro::TextAppAdapter s_pro_sky_plot_app("sky_plot", "Sky Plot", ui::tdeck_pro::TextAppPageKind::SkyPlot);
-ui::tdeck_pro::TextAppAdapter s_pro_network_app("network", "Network", ui::tdeck_pro::TextAppPageKind::Network);
-ui::tdeck_pro::TextAppAdapter s_pro_settings_app("settings", "Setting", ui::tdeck_pro::TextAppPageKind::Settings);
-ui::tdeck_pro::TextAppAdapter s_pro_tracker_app("tracker", "Tracker", ui::tdeck_pro::TextAppPageKind::Tracker);
-ui::tdeck_pro::TextAppAdapter s_pro_walkie_app("walkie_talkie", "Walkie Talkie", ui::tdeck_pro::TextAppPageKind::Walkie);
-ui::tdeck_pro::TextAppAdapter s_pro_extensions_app("extensions", "Extensions", ui::tdeck_pro::TextAppPageKind::Extensions);
-ui::tdeck_pro::TextAppAdapter s_pro_protocol_probe_app(
-    "energy_sweep", "Protocol Probe", ui::tdeck_pro::TextAppPageKind::ProtocolProbe);
-#if defined(TRAIL_MATE_TDECK_PRO_A7682E)
-ui::CallbackAppScreen s_pro_a7682e_phone_app("a7682e_phone",
-                                             "4G Phone",
-                                             nullptr,
-                                             ui::tdeck_pro::a7682e_phone_page::enter,
-                                             ui::tdeck_pro::a7682e_phone_page::exit);
+#if TRAIL_MATE_USE_MONO_SCREEN_240X320
+// These descriptors preserve catalogue identities while selecting the generic
+// 240x320 monochrome projection. They never retain legacy visual-page
+// callbacks; every page calls typed sources and action ports directly.
+ui::mono::screens::screen_240x320::ScreenApp s_pro_map_app(
+    "map", "Map", ui::mono::screens::screen_240x320::PageKind::Map);
+ui::mono::screens::screen_240x320::ScreenApp s_pro_chat_app(
+    "chat", "Chat", ui::mono::screens::screen_240x320::PageKind::Chat);
+ui::mono::screens::screen_240x320::ScreenApp s_pro_team_app(
+    "team", "Team", ui::mono::screens::screen_240x320::PageKind::Team);
+ui::mono::screens::screen_240x320::ScreenApp s_pro_contacts_app(
+    "contacts", "Contacts", ui::mono::screens::screen_240x320::PageKind::Contacts);
+ui::mono::screens::screen_240x320::ScreenApp s_pro_sky_plot_app(
+    "sky_plot", "Sky Plot", ui::mono::screens::screen_240x320::PageKind::SkyPlot);
+ui::mono::screens::screen_240x320::ScreenApp s_pro_network_app(
+    "network", "Network", ui::mono::screens::screen_240x320::PageKind::Network);
+ui::mono::screens::screen_240x320::ScreenApp s_pro_settings_app(
+    "settings", "Setting", ui::mono::screens::screen_240x320::PageKind::Settings);
+ui::mono::screens::screen_240x320::ScreenApp s_pro_tracker_app(
+    "tracker", "Tracker", ui::mono::screens::screen_240x320::PageKind::Tracker);
+ui::mono::screens::screen_240x320::ScreenApp s_pro_walkie_app(
+    "walkie_talkie", "Walkie Talkie", ui::mono::screens::screen_240x320::PageKind::Walkie);
+ui::mono::screens::screen_240x320::ScreenApp s_pro_extensions_app(
+    "extensions", "Extensions", ui::mono::screens::screen_240x320::PageKind::Extensions);
+ui::mono::screens::screen_240x320::ScreenApp s_pro_protocol_probe_app(
+    "energy_sweep", "Protocol Probe", ui::mono::screens::screen_240x320::PageKind::ProtocolProbe);
+#if defined(TRAIL_MATE_TDECK_PRO_A7682E) || +defined(TRAIL_MATE_MONO_SCREEN_240X320_CELLULAR)
+ui::CallbackAppScreen s_pro_cellular_app("cellular",
+                                         "Cellular",
+                                         nullptr,
+                                         ui::mono::screens::screen_240x320::cellular_page::enter,
+                                         ui::mono::screens::screen_240x320::cellular_page::exit);
 #endif
 #if !defined(TRAIL_MATE_ENABLE_SSTV) || TRAIL_MATE_ENABLE_SSTV
-ui::tdeck_pro::TextAppAdapter s_pro_sstv_app("sstv", "SSTV", ui::tdeck_pro::TextAppPageKind::Sstv);
+ui::mono::screens::screen_240x320::ScreenApp s_pro_sstv_app(
+    "sstv", "SSTV", ui::mono::screens::screen_240x320::PageKind::Sstv);
 #endif
 #if !defined(GAT562_NO_HOSTLINK) || !GAT562_NO_HOSTLINK
-ui::tdeck_pro::TextAppAdapter s_pro_usb_app("usb_mass_storage", "USB Disk", ui::tdeck_pro::TextAppPageKind::UsbStorage);
+ui::mono::screens::screen_240x320::ScreenApp s_pro_usb_app(
+    "usb_mass_storage", "USB Disk", ui::mono::screens::screen_240x320::PageKind::UsbStorage);
 #endif
 // Preserve the shared catalogue assembly order without keeping a callback to
 // any legacy page. These aliases deliberately name the Pro descriptors.
@@ -218,7 +235,7 @@ ui::CallbackAppScreen s_walkie_app("walkie_talkie", "Walkie Talkie", CATALOG_ICO
                                    walkie_page::ui::shell::exit,
                                    &s_menu_host);
 #endif
-#if defined(ESP_PLATFORM) && !defined(ARDUINO_T_DECK_PRO)
+#if defined(ESP_PLATFORM) && !TRAIL_MATE_USE_MONO_SCREEN_240X320
 constexpr uint32_t kPowerOffAmber = 0xEBA341;
 constexpr uint32_t kPowerOffAmberDark = 0xC98118;
 constexpr uint32_t kPowerOffWarmBg = 0xF6E6C6;
@@ -449,7 +466,7 @@ AppCatalog build(const FeatureFlags& flags)
         }
         if (flags.include_energy_sweep)
         {
-#if defined(ARDUINO_T_DECK_PRO)
+#if TRAIL_MATE_USE_MONO_SCREEN_240X320
             add(&s_pro_protocol_probe_app);
 #else
             add(&s_energy_sweep_app);
@@ -479,12 +496,12 @@ AppCatalog build(const FeatureFlags& flags)
         {
             add(&s_network_app);
         }
-#if defined(ARDUINO_T_DECK_PRO) && defined(TRAIL_MATE_TDECK_PRO_A7682E)
-        add(&s_pro_a7682e_phone_app);
+#if TRAIL_MATE_USE_MONO_SCREEN_240X320 && +(defined(TRAIL_MATE_TDECK_PRO_A7682E) || +defined(TRAIL_MATE_MONO_SCREEN_240X320_CELLULAR))
+        add(&s_pro_cellular_app);
 #endif
         if (flags.include_power_off)
         {
-#if defined(ESP_PLATFORM) && !defined(ARDUINO_T_DECK_PRO)
+#if defined(ESP_PLATFORM) && !TRAIL_MATE_USE_MONO_SCREEN_240X320
             add(&s_power_off_app);
 #endif
         }

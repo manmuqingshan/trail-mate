@@ -8,7 +8,6 @@
 #include <RadioLib.h>
 #include <SPI.h>
 #include <SensorBHI260AP.hpp>
-#include <TouchDrvCSTXXX.hpp>
 #include <XPowersLib.h>
 #include <memory>
 #include <vector>
@@ -23,6 +22,7 @@
 #include "boards/tdeck_pro/tdeck_pro_keyboard.h"
 #include "display/DisplayInterface.h"
 #include "platform/esp/arduino_common/gps/GPS.h"
+#include "platform/esp/arduino_common/memory/psram_allocator.h"
 
 namespace boards::tdeck_pro
 {
@@ -170,14 +170,18 @@ class TDeckProBoard : public BoardBase,
                         shared_spi_};
     SX1262Access radio_{&lora_module_};
     EpdPanel epd_{GxEPD2_310_GDEQ031T10(profile().epd.cs, profile().epd.dc, profile().epd.rst, profile().epd.busy)};
-    TouchDrvCSTXXX touch_;
     Adafruit_TCA8418 keyboard_;
     keyboard::Decoder keyboard_decoder_;
     GPS gps_;
     SensorBHI260AP motion_;
     PowersBQ25896 pmu_;
     GaugeBQ27220 gauge_;
-    std::vector<uint8_t> mono_buffer_;
+    using PsramByteBuffer = std::vector<
+        uint8_t,
+        ::platform::esp::arduino_common::memory::PsramAllocator<uint8_t>>;
+    // E-paper needs this retained 240 x 320 1-bit surface between partial
+    // refreshes.  It is 9,600 bytes and must not consume internal heap.
+    PsramByteBuffer mono_buffer_;
     uint16_t dirty_x1_ = 0;
     uint16_t dirty_y1_ = 0;
     uint16_t dirty_x2_ = 0;
@@ -187,6 +191,8 @@ class TDeckProBoard : public BoardBase,
     bool dirty_region_pending_ = false;
     bool epd_first_frame_pending_ = true;
     bool epd_force_full_refresh_ = true;
+    uint16_t touch_raw_width_ = static_cast<uint16_t>(kBoardProfile.screen_width);
+    uint16_t touch_raw_height_ = static_cast<uint16_t>(kBoardProfile.screen_height);
 };
 
 extern TDeckProBoard& instance;
