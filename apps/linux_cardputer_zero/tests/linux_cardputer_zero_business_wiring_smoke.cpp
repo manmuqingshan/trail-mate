@@ -168,7 +168,11 @@ int main(int argc, char** argv)
     assert(contains(menu_runtime, "defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)"));
     assert(contains(menu_runtime, "{\"ALT\", \"ALT\", \"Save screenshot\"}"));
     assert(contains(menu_runtime,
-                    "if (isMenuHelpKey(key))\n    {\n        openMenuHelpModal();\n        return true;\n    }"));
+                    "if (isMenuHelpKey(key))\n    {\n#if defined(ARDUINO_T_DECK_PRO)"));
+    // Cardputer Zero is not the T-Deck Pro text-shell target. Its help
+    // shortcut must continue through the shared LVGL modal branch.
+    assert(contains(menu_runtime,
+                    "#else\n        openMenuHelpModal();\n        return true;\n#endif"));
 
     const std::string t_display_p4_runtime = read_file(
         repo_root / "platform/esp/idf_components/t_display_p4/trail_mate_t_display_p4_runtime.cpp");

@@ -38,9 +38,13 @@ int main(int argc, char** argv)
     require_contains(node_info, "map_viewport::create(s_state.viewport, s_widgets.content)");
     require_contains(gps_page, "::ui::widgets::map::create(s_map_runtime, viewport, 180)");
     require_contains(viewport, "init_tile_context(impl->tile_ctx");
-    require_contains(esp_tiles, "xTaskCreateStatic(taskThunk");
-    require_contains(esp_tiles, "s_map_tile_worker_task_stack");
-    assert(esp_tiles.find("xTaskCreate(taskThunk") == std::string::npos);
+    // The worker stack is allocated only while the map worker is active. This
+    // preserves the internal-RAM reduction for T-Deck/Pager idle paths rather
+    // than reserving a permanent 4 KiB static stack at boot.
+    require_contains(esp_tiles, "xTaskCreate(taskThunk");
+    require_contains(esp_tiles, "stack=dynamic_internal");
+    assert(esp_tiles.find("xTaskCreateStatic(taskThunk") == std::string::npos);
+    assert(esp_tiles.find("s_map_tile_worker_task_stack") == std::string::npos);
 
     return 0;
 }

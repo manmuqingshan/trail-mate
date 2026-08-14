@@ -584,6 +584,20 @@ if(BUILD_TESTING)
     add_test(NAME trailmate_chat_delivery_event_projection_adapter_smoke
              COMMAND trailmate_chat_delivery_event_projection_adapter_smoke)
 
+    add_executable(trailmate_linux_chat_voice_event_smoke
+        "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/tests/test_chat_voice_event.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/sys/clock.cpp")
+    target_include_directories(trailmate_linux_chat_voice_event_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/platform/linux/common/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_team/include")
+    target_compile_features(trailmate_linux_chat_voice_event_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_linux_chat_voice_event_smoke
+             COMMAND trailmate_linux_chat_voice_event_smoke)
+
     add_executable(trailmate_mesh_peer_directory_contract_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/tests/test_mesh_peer_directory_contract.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_peer_directory_core.cpp"
