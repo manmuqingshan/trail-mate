@@ -561,6 +561,16 @@ std::string file_entry_name(const char* raw_name)
     return name;
 }
 
+bool ensure_flash_pack_storage_ready(bool allow_format_on_fail)
+{
+#if defined(ARDUINO)
+    return ::ui::fs::ensure_flash_storage_ready(allow_format_on_fail);
+#else
+    return platform::esp::idf_common::flash_storage_runtime::ensure_ready(
+        allow_format_on_fail);
+#endif
+}
+
 bool resolve_storage_binding(const std::string& logical_path,
                              bool allow_format_on_fail,
                              PackStorageBinding& out)
@@ -571,10 +581,9 @@ bool resolve_storage_binding(const std::string& logical_path,
         return false;
     }
 
-#if UI_FS_HAS_FLASH_PACK_STORAGE
     if (is_flash_logical_path(logical_path))
     {
-        if (!::ui::fs::ensure_flash_storage_ready(allow_format_on_fail))
+        if (!ensure_flash_pack_storage_ready(allow_format_on_fail))
         {
             return false;
         }
@@ -584,12 +593,6 @@ bool resolve_storage_binding(const std::string& logical_path,
         out.volume_path = flash_storage_path_from_logical(logical_path);
         return true;
     }
-#else
-    if (is_flash_logical_path(logical_path))
-    {
-        return false;
-    }
-#endif
 
     if (!platform::ui::device::card_ready())
     {
@@ -615,13 +618,11 @@ std::string normalize_pack_path(const std::string& logical_path, bool allow_form
         return {};
     }
 
-#if UI_FS_HAS_FLASH_PACK_STORAGE
     if (is_flash_logical_path(logical_path) &&
-        !::ui::fs::ensure_flash_storage_ready(allow_format_on_fail))
+        !ensure_flash_pack_storage_ready(allow_format_on_fail))
     {
         return {};
     }
-#endif
 
     if (is_flash_logical_path(logical_path))
     {

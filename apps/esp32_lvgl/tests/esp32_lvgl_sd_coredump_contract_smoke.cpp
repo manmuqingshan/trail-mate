@@ -424,11 +424,13 @@ int main(int argc, char** argv)
 
     const std::string lvgl_fs_utils = read_file(
         repo_root / "modules/ui_shared/include/ui/support/lvgl_fs_utils.h");
-    assert(contains(lvgl_fs_utils, "UI_FS_HAS_IDF_FLASH_PACK_STORAGE"));
-    assert(contains(lvgl_fs_utils,
-                    "flash_storage_runtime::ensure_ready"));
-    assert(contains(lvgl_fs_utils,
-                    "UI_FS_HAS_ARDUINO_FLASH_PACK_STORAGE || UI_FS_HAS_IDF_FLASH_PACK_STORAGE"));
+    assert(contains(lvgl_fs_utils, "UI_FS_HAS_ARDUINO_FLASH_PACK_STORAGE"));
+    assert(!contains(lvgl_fs_utils,
+                     "platform/esp/idf_common/flash_storage_runtime.h"));
+    const std::string pack_repository = read_file(
+        repo_root / "platform/esp/arduino_common/src/ui/runtime/pack_repository.cpp");
+    assert(contains(pack_repository, "bool ensure_flash_pack_storage_ready"));
+    assert(contains(pack_repository, "flash_storage_runtime::ensure_ready"));
 
     const std::string settings_components = read_file(
         repo_root / "modules/ui_shared/src/ui/screens/settings/settings_page_components.cpp");

@@ -683,7 +683,9 @@ void applyConversationProjection(
                         voice->outgoing ? 1U : 0U,
                         static_cast<unsigned>(voice->delivery),
                         static_cast<unsigned>(voice->duration_ms));
+#if !defined(ARDUINO_T_WATCH_S3)
             conversation.addVoiceMessage(*voice);
+#endif
             voice = next_voice();
             continue;
         }

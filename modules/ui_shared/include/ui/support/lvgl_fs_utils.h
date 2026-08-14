@@ -13,14 +13,7 @@
 #define UI_FS_HAS_ARDUINO_FLASH_PACK_STORAGE 0
 #endif
 
-#if defined(ESP_PLATFORM) && defined(LV_USE_FS_POSIX) && LV_USE_FS_POSIX
-#include "platform/esp/idf_common/flash_storage_runtime.h"
-#define UI_FS_HAS_IDF_FLASH_PACK_STORAGE 1
-#else
-#define UI_FS_HAS_IDF_FLASH_PACK_STORAGE 0
-#endif
-
-#if UI_FS_HAS_ARDUINO_FLASH_PACK_STORAGE || UI_FS_HAS_IDF_FLASH_PACK_STORAGE
+#if UI_FS_HAS_ARDUINO_FLASH_PACK_STORAGE
 #define UI_FS_HAS_FLASH_PACK_STORAGE 1
 #else
 #define UI_FS_HAS_FLASH_PACK_STORAGE 0
@@ -69,11 +62,6 @@ inline bool ensure_flash_storage_ready(bool allow_format_on_fail = false)
     }
 
     return mounted;
-#elif UI_FS_HAS_IDF_FLASH_PACK_STORAGE
-    // ESP-IDF mounts the same FAT partition through esp_vfs_fat rather than
-    // Arduino's FFat object. The LVGL POSIX driver exposes that mount as F:.
-    return ::platform::esp::idf_common::flash_storage_runtime::ensure_ready(
-        allow_format_on_fail);
 #else
     (void)allow_format_on_fail;
     return false;

@@ -23,7 +23,7 @@ namespace boards::t_display_p4
 // old front buffer cannot be reused while the panel is still reading it.
 class P4DsiRotatingPresenter final
 {
-public:
+  public:
     bool init(esp_lcd_panel_handle_t panel,
               uint32_t physical_hres,
               uint32_t physical_vres,
@@ -34,7 +34,7 @@ public:
     lv_display_t* display() const;
     std::size_t frame_bytes() const;
 
-private:
+  private:
     static void flush_callback(lv_display_t* display,
                                const lv_area_t* area,
                                uint8_t* pixel_map);

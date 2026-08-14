@@ -626,6 +626,23 @@ bool patchTextIsUsable(const ui::settings::SettingsPatchView& patch)
            !valueEquals(patch, "toggle");
 }
 
+void copyBoundedText(char* destination, std::size_t destination_size, const char* source)
+{
+    if (!destination || destination_size == 0U)
+    {
+        return;
+    }
+
+    const char* const value = source ? source : "";
+    const std::size_t maximum_copy_length = destination_size - 1U;
+    const std::size_t source_length = std::strlen(value);
+    const std::size_t copy_length = source_length < maximum_copy_length
+                                        ? source_length
+                                        : maximum_copy_length;
+    std::memcpy(destination, value, copy_length);
+    destination[copy_length] = '\0';
+}
+
 } // namespace
 
 bool RuntimeSettingsSource::buildSettingsSnapshot(
@@ -667,7 +684,7 @@ ui::UiActionResult RuntimeSettingsActionSink::applySetting(
             {
                 char* out = node_name ? config.node_name : config.short_name;
                 const size_t length = node_name ? sizeof(config.node_name) : sizeof(config.short_name);
-                std::snprintf(out, length, "%s", patch.value.c_str());
+                copyBoundedText(out, length, patch.value.c_str());
             });
         if (result.ok)
         {

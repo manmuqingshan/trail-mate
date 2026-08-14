@@ -133,11 +133,23 @@ def main() -> int:
         and "static_assert(sizeof(RuntimeSnapshot) <= 64U" in coordinator_header,
         "coordinator must expose deferred-frame and maximum-frame-wait metrics",
     )
+    tdeck_pro_render_epd = between(
+        tdeck_pro,
+        "DisplayTransferResult TDeckProBoard::renderEpd(",
+        "DisplayTransferResult TDeckProBoard::servicePendingEpd(",
+    )
+    tdeck_pro_epd_service = between(
+        tdeck_pro,
+        "DisplayTransferResult TDeckProBoard::servicePendingEpd(",
+        "void TDeckProBoard::serviceDisplay(",
+    )
     require(
         violations,
-        "DisplayTransferResult TDeckProBoard::renderEpd()" in tdeck_pro
-        and "return DisplayTransferResult::Busy;" in tdeck_pro
-        and "return renderEpd();" in tdeck_pro,
+        bool(tdeck_pro_render_epd)
+        and "return DisplayTransferResult::Busy;" in tdeck_pro_render_epd
+        and "const DisplayTransferResult result = renderEpd(full_refresh);" in tdeck_pro_epd_service
+        and "if (result != DisplayTransferResult::Completed)" in tdeck_pro_epd_service
+        and "return result;" in tdeck_pro_epd_service,
         "T-Deck Pro must propagate a missed EPD transaction as Busy",
     )
     require(

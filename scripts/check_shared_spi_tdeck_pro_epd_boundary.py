@@ -37,8 +37,8 @@ def main() -> int:
         )
         render = section(
             source,
-            "DisplayTransferResult TDeckProBoard::renderEpd()",
-            "void TDeckProBoard::pushColors(",
+            "DisplayTransferResult TDeckProBoard::renderEpd(",
+            "DisplayTransferResult TDeckProBoard::servicePendingEpd(",
         )
 
         require_before(

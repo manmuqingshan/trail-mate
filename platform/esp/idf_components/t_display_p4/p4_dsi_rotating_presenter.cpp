@@ -99,8 +99,8 @@ std::size_t P4DsiRotatingPresenter::frame_bytes() const
 }
 
 void P4DsiRotatingPresenter::flush_callback(lv_display_t* display,
-                                             const lv_area_t* area,
-                                             uint8_t* pixel_map)
+                                            const lv_area_t* area,
+                                            uint8_t* pixel_map)
 {
     auto* presenter = static_cast<P4DsiRotatingPresenter*>(lv_display_get_user_data(display));
     if (presenter == nullptr || !presenter->present_full_frame(area, pixel_map))
@@ -139,7 +139,7 @@ bool IRAM_ATTR P4DsiRotatingPresenter::refresh_done_callback(
 }
 
 bool P4DsiRotatingPresenter::present_full_frame(const lv_area_t* area,
-                                                 uint8_t* pixel_map)
+                                                uint8_t* pixel_map)
 {
     if (area == nullptr || pixel_map == nullptr || display_ == nullptr || panel_ == nullptr ||
         awaiting_refresh_.load(std::memory_order_acquire))
@@ -167,7 +167,7 @@ bool P4DsiRotatingPresenter::present_full_frame(const lv_area_t* area,
 
     void* const visible = front_buffer_.load(std::memory_order_acquire);
     void* const target = visible == scanout_buffers_[0] ? scanout_buffers_[1]
-                                                         : scanout_buffers_[0];
+                                                        : scanout_buffers_[0];
     if (target == nullptr)
     {
         return false;
@@ -198,7 +198,7 @@ bool P4DsiRotatingPresenter::present_full_frame(const lv_area_t* area,
 }
 
 void P4DsiRotatingPresenter::rotate_with_lvgl(void* output_buffer,
-                                               const uint8_t* input_buffer) const
+                                              const uint8_t* input_buffer) const
 {
     const int32_t logical_hres = lv_display_get_horizontal_resolution(display_);
     const int32_t logical_vres = lv_display_get_vertical_resolution(display_);

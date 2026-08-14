@@ -67,6 +67,7 @@ jobs:
           git ls-files -z '*.c' '*.cpp' '*.h' '*.hpp' ':(exclude)modules/core_chat/generated/**' \
             ':(exclude)modules/ui_shared/include/ui/assets/**' \
             ':(exclude)modules/ui_shared/src/ui/assets/**' \
+            ':(exclude)modules/ui_shared/src/ui/tdeck_pro/font/**' \
             ':(exclude)modules/ui_shared/src/ui/widgets/text_candidate_builtin_emoji_data.h' \
             ':(exclude)platform/nrf52/arduino_common/include/ui/fonts/**' \
             ':(exclude)platform/nrf52/arduino_common/src/ui/fonts/**' \
@@ -473,7 +474,6 @@ jobs:
           body_path: release_changelog.md
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
-          overwrite_files: true
           files: |
             dist/**/*.bin
             dist/**/*.hex

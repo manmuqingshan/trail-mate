@@ -581,6 +581,56 @@ def configure_nrf52_framework_libraries():
     )
 
 
+def filter_product_specific_ui_mono_screens():
+    current_directory = os.path.abspath(project_dir)
+    while not os.path.isdir(os.path.join(current_directory, "modules", "ui_mono")):
+        parent_directory = os.path.dirname(current_directory)
+        if parent_directory == current_directory:
+            raise RuntimeError("Unable to locate the Trail Mate repository root")
+        current_directory = parent_directory
+
+    screen_source_root = os.path.join(
+        current_directory,
+        "modules",
+        "ui_mono",
+        "src",
+        "screens",
+    )
+    product_screen_families = {
+        "gat562_mesh_evb_pro": "screen_128x64",
+        "t-echo-lite": "screen_192x176",
+    }
+    permitted_screen_family = product_screen_families.get(pio_env)
+    if pio_env.startswith("tdeck_pro_"):
+        permitted_screen_family = "screen_240x320"
+
+    product_screen_prefixes = [
+        os.path.normcase(os.path.join(screen_source_root, screen_family)) + os.sep
+        for screen_family in (
+            "screen_128x64",
+            "screen_192x176",
+            "screen_240x320",
+        )
+    ]
+    permitted_screen_prefix = (
+        os.path.normcase(os.path.join(screen_source_root, permitted_screen_family)) + os.sep
+        if permitted_screen_family
+        else None
+    )
+
+    def exclude_foreign_product_screen_source(node):
+        source_path = os.path.normcase(os.path.abspath(node.srcnode().get_path()))
+        if source_path.startswith(tuple(product_screen_prefixes)):
+            if permitted_screen_prefix and source_path.startswith(permitted_screen_prefix):
+                return node
+            return None
+        return node
+
+    env.AddBuildMiddleware(exclude_foreign_product_screen_source)
+    selected_family = permitted_screen_family or "none"
+    print(f"[pio] pre: Selected ui_mono product screen family: {selected_family}")
+
+
 def disable_arduino_tinyusb_dfu_for_release_esp32():
     # Arduino-ESP32 ships both TinyUSB DFU device classes precompiled for every
     # ESP32-S3 memory profile. Release Pager and T-Deck builds do not expose an
@@ -722,6 +772,7 @@ configure_sensorlib_for_sx1262_esp32()
 configure_sdfat_for_sx1262_esp32()
 disable_arduino_tinyusb_dfu_for_release_esp32()
 configure_nrf52_framework_libraries()
+filter_product_specific_ui_mono_screens()
 inject_project_version_define()
 
 # Only ESP Arduino builds need the shared LVGL config under platform/esp.

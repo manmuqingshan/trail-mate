@@ -6,7 +6,7 @@
 #include "chat/infra/voice/vmp_private_crypto.h"
 
 #if defined(ESP_PLATFORM) || defined(ARDUINO)
-#include "platform/esp/common/reticulum_crypto_compat.h"
+#include "chat/infra/voice/reticulum_crypto_compat.h"
 #endif
 
 #if defined(ESP_PLATFORM) && !defined(ARDUINO)
