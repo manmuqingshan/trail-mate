@@ -55,13 +55,15 @@ The catalogue maps the following stable capability entries to this projection:
   pan and commits its resulting center only when the drag ends.
 - Sky Plot: GPS receiver/fix projection and settings-backed GPS toggle.
 - Network: device and mesh status projection.
-- Settings: explicit **Section List → Option List → Option Detail → Text
-  Editor** routes. The compact projection is a complete, bounded projection
-  of persisted device configuration rather than a GPS-only shortcut. Its eight
-  categories are Profile, Radio, Channels, Chat, GPS, Map, Network, and
-  Device. Toggle, choice, and bounded-number values apply immediately through
-  the existing typed settings action sink. Text values open a separate focused
-  text editor and are saved only through that same sink.
+- Settings: use the same canonical filter catalogue and complete workflow as
+  the other UI targets: **Profile → Mesh → Radio → Wi-Fi → Location → Device
+  → Maintenance**. It retains the explicit **Filter → Option List → Option
+  Detail → Text Editor** routes, including Wi-Fi scan/SSID/password/connect
+  flow and the existing maintenance confirmations. On a 240x320 monochrome
+  screen this is a two-pane presentation with directly tappable filters and
+  setting rows; keyboard navigation is a parallel input method, not a required
+  intermediary. Toggle, choice, and bounded-number values apply through the
+  established settings runtime; text values use its focused editor.
 
   The page intentionally distinguishes three kinds of setting:
 

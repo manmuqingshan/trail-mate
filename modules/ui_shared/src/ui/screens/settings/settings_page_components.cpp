@@ -107,9 +107,15 @@ constexpr size_t kTxPowerOptionCapacity =
     static_cast<size_t>(kNetTxPowerMax - kNetTxPowerMin + 1);
 constexpr int kGpsInitProbeMinMs = 250;
 constexpr int kGpsInitProbeMaxMs = 1600;
+#if defined(ARDUINO_T_DECK_PRO)
+constexpr uint32_t kSettingsAmber = 0x000000;
+constexpr uint32_t kSettingsAmberDark = 0x000000;
+constexpr uint32_t kSettingsText = 0x000000;
+#else
 constexpr uint32_t kSettingsAmber = 0xEBA341;
 constexpr uint32_t kSettingsAmberDark = 0xC98118;
 constexpr uint32_t kSettingsText = 0x6B4A1E;
+#endif
 
 struct CategoryDef
 {
@@ -894,7 +900,7 @@ static bool use_tdeck_info_card_layout()
 
 static constexpr bool use_touch_first_settings_mode()
 {
-#if defined(ARDUINO_T_DECK) || defined(ARDUINO_T_DECK_PRO)
+#if defined(ARDUINO_T_DECK)
     return true;
 #else
     return false;
@@ -3132,6 +3138,17 @@ static void on_manual_datetime_roller_changed(lv_event_t* e)
 
 static void apply_manual_time_roller_style(lv_obj_t* roller)
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    lv_obj_set_style_bg_color(roller, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(roller, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(roller, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(roller, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_radius(roller, 0, LV_PART_MAIN);
+    lv_obj_set_style_text_color(roller, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(roller, lv_color_white(), LV_PART_SELECTED);
+    lv_obj_set_style_bg_color(roller, lv_color_black(), LV_PART_SELECTED);
+    lv_obj_set_style_bg_opa(roller, LV_OPA_COVER, LV_PART_SELECTED);
+#else
     lv_obj_set_style_bg_color(roller, lv_color_hex(0xF6E6C6), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(roller, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(roller, 2, LV_PART_MAIN);
@@ -3141,6 +3158,7 @@ static void apply_manual_time_roller_style(lv_obj_t* roller)
     lv_obj_set_style_text_color(roller, lv_color_hex(0xF6E6C6), LV_PART_SELECTED);
     lv_obj_set_style_bg_color(roller, lv_color_hex(0xEBA341), LV_PART_SELECTED);
     lv_obj_set_style_bg_opa(roller, LV_OPA_COVER, LV_PART_SELECTED);
+#endif
     lv_obj_set_style_text_font(
         roller, ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()), LV_PART_MAIN);
     lv_obj_set_style_text_font(
@@ -6715,11 +6733,13 @@ void create(lv_obj_t* parent)
         lv_timer_del(s_firmware_update_timer);
         s_firmware_update_timer = nullptr;
     }
+#if !defined(ARDUINO_T_DECK_PRO)
     s_firmware_update_timer = lv_timer_create(firmware_update_timer_cb, 250, nullptr);
     if (s_firmware_update_timer)
     {
         lv_timer_set_repeat_count(s_firmware_update_timer, -1);
     }
+#endif
     {
         const firmware_update_runtime::Status status = firmware_update_runtime::status();
         s_last_firmware_phase = status.phase;

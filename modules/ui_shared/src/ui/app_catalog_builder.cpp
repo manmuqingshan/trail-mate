@@ -132,8 +132,14 @@ ui::mono::screens::screen_240x320::ScreenApp s_pro_sky_plot_app(
     "sky_plot", "Sky Plot", ui::mono::screens::screen_240x320::PageKind::SkyPlot);
 ui::mono::screens::screen_240x320::ScreenApp s_pro_network_app(
     "network", "Network", ui::mono::screens::screen_240x320::PageKind::Network);
-ui::mono::screens::screen_240x320::ScreenApp s_pro_settings_app(
-    "settings", "Setting", ui::mono::screens::screen_240x320::PageKind::Settings);
+// Settings is intentionally the shared, complete settings workflow even on
+// the 240x320 monochrome target.  It owns the canonical filters, Wi-Fi flow,
+// editors, and maintenance confirmations; the generic mono page is reserved
+// for pages that do not already have a complete shared workflow.
+ui::CallbackAppScreen s_pro_settings_app("settings", "Setting", nullptr,
+                                         settings::ui::shell::enter,
+                                         settings::ui::shell::exit,
+                                         &s_menu_host);
 ui::mono::screens::screen_240x320::ScreenApp s_pro_tracker_app(
     "tracker", "Tracker", ui::mono::screens::screen_240x320::PageKind::Tracker);
 ui::mono::screens::screen_240x320::ScreenApp s_pro_walkie_app(

@@ -25,7 +25,7 @@ static ::ui::components::two_pane_nav::Controller s_controller{};
 
 static constexpr bool use_touch_first_settings_mode()
 {
-#if defined(ARDUINO_T_DECK) || defined(ARDUINO_T_DECK_PRO)
+#if defined(ARDUINO_T_DECK)
     return true;
 #else
     return false;
