@@ -153,10 +153,11 @@ int main(int argc, char** argv)
     // Durable attachment recovery is intentionally a send gate, never a
     // reason to hide the supported Pager's only voice affordance.
     assert(chat_voice_runtime.find("bool isRuntimeBound()") != std::string::npos);
-    assert(chat_controller.find("setVoiceButton(\"Voice\", voice_runtime_bound)") !=
+    assert(chat_controller.find(
+               "setVoiceButton(::ui::i18n::tr(\"Voice\"), voice_runtime_bound)") !=
            std::string::npos);
     assert(chat_controller.find("Hold to talk") == std::string::npos);
-    assert(chat_controller.find("setVoiceButton(\"Release\", true)") !=
+    assert(chat_controller.find("setVoiceButton(::ui::i18n::tr(\"Release\"), true)") !=
            std::string::npos);
     assert(chat_controller.find("Release %lu.%lus") == std::string::npos);
     // Typed attachments have the same conversation boundary as text: a peer
