@@ -465,19 +465,19 @@ const char* voiceConversationPreview(const ::ui::chat_voice::MessageSummary& sum
 {
     if (!summary.outgoing)
     {
-        return "Voice message";
+        return ::ui::i18n::tr("Voice message");
     }
     switch (summary.delivery)
     {
     case ::ui::chat_voice::DeliveryState::Sending:
-        return "Voice message (Sending...)";
+        return ::ui::i18n::tr("Voice message (Sending...)");
     case ::ui::chat_voice::DeliveryState::Failed:
-        return "Voice message (Failed)";
+        return ::ui::i18n::tr("Voice message (Failed)");
     case ::ui::chat_voice::DeliveryState::Sent:
-        return "Voice message";
+        return ::ui::i18n::tr("Voice message");
     case ::ui::chat_voice::DeliveryState::Received:
     default:
-        return "Voice message";
+        return ::ui::i18n::tr("Voice message");
     }
 }
 
@@ -1606,7 +1606,7 @@ void UiController::switchToCompose(chat::ConversationId conv)
     // do not show this control.
     const bool voice_runtime_bound = ::ui::chat_voice::isRuntimeBound();
     const bool voice_send_ready = ::ui::chat_voice::canRecordAndSend();
-    compose_->setVoiceButton("Voice", voice_runtime_bound);
+    compose_->setVoiceButton(::ui::i18n::tr("Voice"), voice_runtime_bound);
     CHAT_UI_LOG("[ChatUiTrace][VMP] compose voice bound=%u send_ready=%u protocol=%u channel=%u peer=%08lX\n",
                 voice_runtime_bound ? 1U : 0U,
                 voice_send_ready ? 1U : 0U,
@@ -2242,7 +2242,7 @@ void UiController::updateVoiceComposeSession()
         // The compact button is the press-and-hold affordance.  Keep its
         // label stable for the entire capture; the variable-length elapsed
         // time belongs in the top bar, where it cannot overflow the control.
-        compose_->setVoiceButton("Release", true);
+        compose_->setVoiceButton(::ui::i18n::tr("Release"), true);
         compose_->setHeaderText(nullptr, status);
     }
 
@@ -2825,27 +2825,30 @@ void UiController::handleComposeAction(ChatComposeScreen::ActionIntent intent)
             voice_hold_active_ = true;
             voice_hold_started_ms_ = lv_tick_get();
             voice_hold_last_render_ms_ = voice_hold_started_ms_;
-            compose_->setVoiceButton("Release", true);
+            compose_->setVoiceButton(::ui::i18n::tr("Release"), true);
             compose_->setHeaderText(nullptr, "REC 0.0s/5");
             CHAT_UI_LOG("[ChatUiTrace][VMP] voice press queued target=%08lX\n",
                         static_cast<unsigned long>(current_conv_.peer));
             return;
         case ::ui::chat_voice::StartResult::PrivateContactUnverified:
-            ::ui::feedback::show_notice("Verify contact for private voice", 2400);
+            ::ui::feedback::show_notice(
+                ::ui::i18n::tr("Verify contact for private voice"), 2400);
             return;
         case ::ui::chat_voice::StartResult::Busy:
-            ::ui::feedback::show_notice("Voice busy; wait", 1800);
+            ::ui::feedback::show_notice(::ui::i18n::tr("Voice busy; wait"), 1800);
             return;
         case ::ui::chat_voice::StartResult::ResourceUnavailable:
             CHAT_UI_LOG("[ChatUiTrace][VMP] voice press rejected result=resources\n");
-            ::ui::feedback::show_notice("Voice memory busy; retry", 2000);
+            ::ui::feedback::show_notice(
+                ::ui::i18n::tr("Voice memory busy; retry"), 2000);
             return;
         case ::ui::chat_voice::StartResult::Unsupported:
         default:
             CHAT_UI_LOG("[ChatUiTrace][VMP] voice press rejected result=unsupported bound=%u send_ready=%u\n",
                         ::ui::chat_voice::isRuntimeBound() ? 1U : 0U,
                         ::ui::chat_voice::canRecordAndSend() ? 1U : 0U);
-            ::ui::feedback::show_notice("Voice storage loading; try again", 2000);
+            ::ui::feedback::show_notice(
+                ::ui::i18n::tr("Voice storage loading; try again"), 2000);
             return;
         }
     }

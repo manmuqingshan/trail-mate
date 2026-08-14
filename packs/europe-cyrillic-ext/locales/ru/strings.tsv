@@ -733,3 +733,21 @@ Wi-Fi connected	Wi-Fi connected
 Wi-Fi unsupported	Wi-Fi unsupported
 Wi-Fi unsupported on this device	Wi-Fi unsupported on this device
 Writing to SD card	Writing to SD card
+Protocol Probe	Проверка протокола
+Release	Отпустить
+Voice	Голос
+Voice message	Голосовое сообщение
+Voice message (Sending...)	Голосовое сообщение (отправка...)
+Voice message (Failed)	Голосовое сообщение (не отправлено)
+Verify contact for private voice	Проверьте контакт для личного голосового сообщения
+Voice busy; wait	Голос занят; подождите
+Voice memory busy; retry	Память голосовых сообщений занята; повторите
+Voice storage loading; try again	Загрузка голосового хранилища; повторите
+VMP private	VMP личное
+VMP broadcast	VMP широковещание
+VMP broadcast (unverified)	VMP широковещание (не подтверждено)
+Playing voice...	Воспроизведение голоса...
+Voice message - Enter plays	Голосовое сообщение - Enter для воспроизведения
+playing	воспроизведение
+Enter plays	Enter - воспроизвести
+Voice audio is busy	Аудиоканал занят

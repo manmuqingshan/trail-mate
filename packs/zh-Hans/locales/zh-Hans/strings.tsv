@@ -733,3 +733,21 @@ Wi-Fi connected	Wi-Fi 已连接
 Wi-Fi unsupported	不支持 Wi-Fi
 Wi-Fi unsupported on this device	此设备不支持 Wi-Fi
 Writing to SD card	正在写入 SD 卡
+Protocol Probe	协议包探测
+Release	松开
+Voice	语音
+Voice message	语音消息
+Voice message (Sending...)	语音消息（发送中…）
+Voice message (Failed)	语音消息（发送失败）
+Verify contact for private voice	验证联系人后才能发送私密语音
+Voice busy; wait	语音忙，请稍候
+Voice memory busy; retry	语音内存忙，请重试
+Voice storage loading; try again	正在加载语音存储，请重试
+VMP private	VMP 私密
+VMP broadcast	VMP 广播
+VMP broadcast (unverified)	VMP 广播（未验证）
+Playing voice...	正在播放语音…
+Voice message - Enter plays	语音消息 - 按 Enter 播放
+playing	播放中
+Enter plays	按 Enter 播放
+Voice audio is busy	语音音频忙，请稍候

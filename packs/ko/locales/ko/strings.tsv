@@ -733,3 +733,21 @@ Wi-Fi connected	Wi-Fi connected
 Wi-Fi unsupported	Wi-Fi unsupported
 Wi-Fi unsupported on this device	Wi-Fi unsupported on this device
 Writing to SD card	Writing to SD card
+Protocol Probe	프로토콜 탐색
+Release	놓기
+Voice	음성
+Voice message	음성 메시지
+Voice message (Sending...)	음성 메시지(전송 중…)
+Voice message (Failed)	음성 메시지(실패)
+Verify contact for private voice	비공개 음성을 위해 연락처 확인
+Voice busy; wait	음성이 사용 중입니다. 기다려 주세요
+Voice memory busy; retry	음성 메모리가 사용 중입니다. 다시 시도하세요
+Voice storage loading; try again	음성 저장소를 불러오는 중입니다. 다시 시도하세요
+VMP private	VMP 비공개
+VMP broadcast	VMP 방송
+VMP broadcast (unverified)	VMP 방송(미확인)
+Playing voice...	음성 재생 중…
+Voice message - Enter plays	음성 메시지 - Enter로 재생
+playing	재생 중
+Enter plays	Enter로 재생
+Voice audio is busy	음성 오디오가 사용 중입니다

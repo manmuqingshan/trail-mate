@@ -47,7 +47,7 @@ const I18N = {
     "tag.chat": "Mesh Chat",
     "tag.team": "Team Mode",
     "tag.languages": "Language Packs",
-    "tag.scan": "Sub-GHz Scan",
+    "tag.scan": "Protocol Probe",
     "tag.usb": "PC Link",
     "capabilities.eyebrow": "What It Does",
     "capabilities.title": "Prepare the device before you leave signal behind.",
@@ -204,7 +204,7 @@ const I18N = {
     "tag.chat": "网格聊天",
     "tag.team": "团队模式",
     "tag.languages": "语言包",
-    "tag.scan": "Sub-GHz 扫描",
+    "tag.scan": "协议包探测",
     "tag.usb": "PC 连接",
     "capabilities.eyebrow": "能做什么",
     "capabilities.title": "出发前，把地图、通信和设备准备好。",
@@ -395,8 +395,8 @@ const DEVICES = [
       },
       {
         src: "./assets/showcase/utility-spectrum.png",
-        title: { en: "Energy Sweep", zh: "频谱扫描" },
-        alt: { en: "T-LoRa Pager Energy Sweep screen", zh: "T-LoRa Pager 频谱扫描界面" },
+        title: { en: "Protocol Probe", zh: "协议包探测" },
+        alt: { en: "T-LoRa Pager Protocol Probe screen", zh: "T-LoRa Pager 协议包探测界面" },
       },
       {
         src: "./assets/showcase/utility-tracker.png",

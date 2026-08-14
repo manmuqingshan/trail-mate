@@ -517,9 +517,10 @@ const char* voice_source_label(const ::ui::chat_voice::MessageSummary& summary)
 {
     if (summary.outgoing)
     {
-        return summary.private_message ? "VMP private" : "VMP broadcast";
+        return ::ui::i18n::tr(summary.private_message ? "VMP private" : "VMP broadcast");
     }
-    return summary.source_unverified ? "VMP broadcast (unverified)" : "VMP private";
+    return ::ui::i18n::tr(summary.source_unverified ? "VMP broadcast (unverified)"
+                                                    : "VMP private");
 }
 
 void format_voice_text(char* out,
@@ -537,15 +538,18 @@ void format_voice_text(char* out,
         std::snprintf(out,
                       out_size,
                       "%s",
-                      playing ? "Playing voice..." : "Voice message - Enter plays");
+                      playing ? ::ui::i18n::tr("Playing voice...")
+                              : ::ui::i18n::tr("Voice message - Enter plays"));
         return;
     }
     std::snprintf(out,
                   out_size,
-                  "Voice %lu.%lus%s",
+                  "%s %lu.%lus %s",
+                  ::ui::i18n::tr("Voice"),
                   static_cast<unsigned long>(tenths / 10U),
                   static_cast<unsigned long>(tenths % 10U),
-                  playing ? " - playing" : " - Enter plays");
+                  playing ? ::ui::i18n::tr("playing")
+                          : ::ui::i18n::tr("Enter plays"));
 }
 } // namespace
 
@@ -1087,7 +1091,7 @@ void ChatConversationScreen::voice_message_event_cb(lv_event_t* e)
     const bool started = ::ui::chat_voice::requestPlayback(context->local_id);
     if (!started)
     {
-        ::ui::feedback::show_notice("Voice audio is busy", 1600);
+        ::ui::feedback::show_notice(::ui::i18n::tr("Voice audio is busy"), 1600);
         return;
     }
 

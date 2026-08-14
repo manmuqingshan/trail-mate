@@ -733,3 +733,21 @@ Wi-Fi connected	Wi-Fi connected
 Wi-Fi unsupported	Wi-Fi unsupported
 Wi-Fi unsupported on this device	Wi-Fi unsupported on this device
 Writing to SD card	Writing to SD card
+Protocol Probe	فحص البروتوكول
+Release	إفلات
+Voice	صوت
+Voice message	رسالة صوتية
+Voice message (Sending...)	رسالة صوتية (جارٍ الإرسال...)
+Voice message (Failed)	فشل إرسال الرسالة الصوتية
+Verify contact for private voice	تحقق من جهة الاتصال للصوت الخاص
+Voice busy; wait	الصوت مشغول؛ انتظر
+Voice memory busy; retry	ذاكرة الصوت مشغولة؛ أعد المحاولة
+Voice storage loading; try again	جارٍ تحميل تخزين الصوت؛ حاول مجددًا
+VMP private	VMP خاص
+VMP broadcast	VMP عام
+VMP broadcast (unverified)	VMP عام (غير موثوق)
+Playing voice...	جارٍ تشغيل الصوت...
+Voice message - Enter plays	رسالة صوتية - اضغط Enter للتشغيل
+playing	تشغيل
+Enter plays	اضغط Enter للتشغيل
+Voice audio is busy	صوت الجهاز مشغول

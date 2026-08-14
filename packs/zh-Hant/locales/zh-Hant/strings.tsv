@@ -733,3 +733,21 @@ Wi-Fi connected	Wi-Fi connected
 Wi-Fi unsupported	Wi-Fi unsupported
 Wi-Fi unsupported on this device	Wi-Fi unsupported on this device
 Writing to SD card	Writing to SD card
+Protocol Probe	協議封包探測
+Release	放開
+Voice	語音
+Voice message	語音訊息
+Voice message (Sending...)	語音訊息（傳送中…）
+Voice message (Failed)	語音訊息（傳送失敗）
+Verify contact for private voice	驗證聯絡人後才能傳送私人語音
+Voice busy; wait	語音忙碌，請稍候
+Voice memory busy; retry	語音記憶體忙碌，請重試
+Voice storage loading; try again	正在載入語音儲存空間，請重試
+VMP private	VMP 私人
+VMP broadcast	VMP 廣播
+VMP broadcast (unverified)	VMP 廣播（未驗證）
+Playing voice...	正在播放語音…
+Voice message - Enter plays	語音訊息 - 按 Enter 播放
+playing	播放中
+Enter plays	按 Enter 播放
+Voice audio is busy	語音音訊忙碌，請稍候
