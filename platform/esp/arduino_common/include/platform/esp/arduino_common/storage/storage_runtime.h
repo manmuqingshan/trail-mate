@@ -34,6 +34,11 @@ bool hydration_active();
 // distinguish a loading cache from a genuinely empty store.
 bool initial_hydration_pending();
 
+// Returns true after the initial hydration succeeded and remains true until a
+// new storage-owner lifecycle begins. This does not consume the one-shot
+// hydration-ready notification.
+bool initial_hydration_ready();
+
 // Returns true once after the initial hydration has completed successfully.
 // The foreground loop uses this edge to apply non-critical SD-backed state.
 bool consume_hydration_ready();

@@ -21,6 +21,10 @@
 #include "ui/widgets/foreground_operation_overlay.h"
 #include "ui/widgets/top_bar.h"
 
+#if defined(ESP_PLATFORM)
+#include "esp_log.h"
+#endif
+
 #if !defined(LV_FONT_MONTSERRAT_16) || !LV_FONT_MONTSERRAT_16
 #define lv_font_montserrat_16 lv_font_montserrat_14
 #endif
@@ -38,6 +42,10 @@ namespace two_pane_styles = ::ui::components::two_pane_styles;
 namespace packs = ::ui::runtime::packs;
 
 constexpr std::size_t kInvalidIndex = static_cast<std::size_t>(-1);
+
+#if defined(ESP_PLATFORM)
+constexpr char kLogTag[] = "extensions";
+#endif
 
 enum class MainView : uint8_t
 {
@@ -64,7 +72,9 @@ struct RuntimeState
     lv_obj_t* header_card = nullptr;
     lv_obj_t* title_label = nullptr;
     lv_obj_t* status_label = nullptr;
+    lv_obj_t* body_host = nullptr;
     lv_obj_t* body_panel = nullptr;
+    lv_obj_t* visible_body_panel = nullptr;
     lv_obj_t* detail_back_btn = nullptr;
     lv_obj_t* primary_action_btn = nullptr;
     lv_obj_t* uninstall_btn = nullptr;
@@ -429,6 +439,53 @@ lv_obj_t* create_section_card(lv_obj_t* parent,
     return card;
 }
 
+lv_obj_t* create_staged_body_panel(lv_obj_t* parent)
+{
+    if (parent == nullptr)
+    {
+        return nullptr;
+    }
+
+    const auto& profile = ::ui::page_profile::current();
+    lv_obj_t* panel = lv_obj_create(parent);
+    if (panel == nullptr)
+    {
+        return nullptr;
+    }
+    lv_obj_set_width(panel, LV_PCT(100));
+    lv_obj_set_height(panel, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(panel, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(panel, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(panel, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(panel, profile.list_panel_pad_row, LV_PART_MAIN);
+    lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(panel,
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START);
+    lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    return panel;
+}
+
+void commit_body_transaction()
+{
+    if (s_runtime.body_panel == nullptr ||
+        s_runtime.body_panel == s_runtime.visible_body_panel)
+    {
+        return;
+    }
+
+    lv_obj_clear_flag(s_runtime.body_panel, LV_OBJ_FLAG_HIDDEN);
+    if (s_runtime.visible_body_panel != nullptr)
+    {
+        lv_obj_del(s_runtime.visible_body_panel);
+    }
+    s_runtime.visible_body_panel = s_runtime.body_panel;
+#if defined(ESP_PLATFORM)
+    ESP_LOGI(kLogTag, "[UI][Txn] extensions kind=structure visible_clean=0 staging_commit=1");
+#endif
+}
+
 void clear_body()
 {
     s_runtime.detail_back_btn = nullptr;
@@ -437,14 +494,30 @@ void clear_body()
     s_runtime.connect_btn = nullptr;
     s_runtime.list_buttons.clear();
 
-    if (s_runtime.body_panel != nullptr)
+    if (s_runtime.body_panel != nullptr &&
+        s_runtime.body_panel != s_runtime.visible_body_panel)
     {
-        lv_obj_clean(s_runtime.body_panel);
+        // A nested render replaces only the not-yet-visible staging tree.
+        // Keep the previous complete view alive until its successor is ready.
+        lv_obj_del(s_runtime.body_panel);
+        s_runtime.body_panel = s_runtime.visible_body_panel;
     }
+
+    lv_obj_t* staged_panel = create_staged_body_panel(s_runtime.body_host);
+    if (staged_panel == nullptr)
+    {
+#if defined(ESP_PLATFORM)
+        ESP_LOGE(kLogTag, "[UI][Txn] extensions kind=structure staging_begin_failed");
+#endif
+        return;
+    }
+    lv_obj_add_flag(staged_panel, LV_OBJ_FLAG_HIDDEN);
+    s_runtime.body_panel = staged_panel;
 }
 
 void sync_focus_group(lv_obj_t* preferred_focus = nullptr)
 {
+    commit_body_transaction();
     if (app_g == nullptr)
     {
         return;
@@ -690,7 +763,11 @@ void sync_install_ui(bool notify_completion)
             s_runtime.filter = PackageFilter::Installed;
             s_runtime.view = MainView::Detail;
             render_current_view();
-            ui_request_rebuild_active_app();
+#if defined(ESP_PLATFORM)
+            ESP_LOGI(kLogTag,
+                     "[UI][Txn] extensions install_complete package=%s full_app_rebuild=0",
+                     status.package_id.empty() ? "<none>" : status.package_id.c_str());
+#endif
         }
         else if (status.phase == packs::PackageInstallPhase::Failed)
         {
@@ -1281,16 +1358,17 @@ void create_main_panel(lv_obj_t* parent)
     two_pane_styles::apply_label_muted(s_runtime.status_label);
     ::ui::i18n::set_label_text(s_runtime.status_label, "Loading...");
 
-    s_runtime.body_panel = lv_obj_create(s_runtime.main_panel);
-    lv_obj_set_width(s_runtime.body_panel, LV_PCT(100));
-    lv_obj_set_height(s_runtime.body_panel, 0);
-    lv_obj_set_flex_grow(s_runtime.body_panel, 1);
-    lv_obj_set_style_bg_opa(s_runtime.body_panel, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(s_runtime.body_panel, 0, 0);
-    lv_obj_set_style_pad_all(s_runtime.body_panel, 0, 0);
-    lv_obj_set_style_pad_row(s_runtime.body_panel, profile.list_panel_pad_row, 0);
-    lv_obj_set_flex_flow(s_runtime.body_panel, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_scrollbar_mode(s_runtime.body_panel, LV_SCROLLBAR_MODE_AUTO);
+    s_runtime.body_host = lv_obj_create(s_runtime.main_panel);
+    lv_obj_set_width(s_runtime.body_host, LV_PCT(100));
+    lv_obj_set_height(s_runtime.body_host, 0);
+    lv_obj_set_flex_grow(s_runtime.body_host, 1);
+    lv_obj_set_style_bg_opa(s_runtime.body_host, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_runtime.body_host, 0, 0);
+    lv_obj_set_style_pad_all(s_runtime.body_host, 0, 0);
+    lv_obj_set_scrollbar_mode(s_runtime.body_host, LV_SCROLLBAR_MODE_AUTO);
+
+    s_runtime.body_panel = create_staged_body_panel(s_runtime.body_host);
+    s_runtime.visible_body_panel = s_runtime.body_panel;
 }
 
 } // namespace

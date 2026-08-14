@@ -24,6 +24,7 @@
 #include "platform/esp/arduino_common/team/event/team_event_bus_sink.h"
 #include "platform/esp/arduino_common/team/event/team_pairing_event_bus_sink.h"
 #include "platform/esp/arduino_common/team_platform_bundle.h"
+#include "platform/esp/arduino_common/voice/vmp_pager_session.h"
 #include "platform/ui/reticulum_group_config_runtime.h"
 #include "platform/ui/team_ui_store_runtime.h"
 #include "team/usecase/team_controller.h"
@@ -108,6 +109,11 @@ void init_track_recorder(const app::AppConfig& config)
 
 void deferred_storage_ready(app::IAppFacade& app_facade)
 {
+    // VMP's local attachment inbox follows the same deferred hydration gate
+    // as the authoritative text store. This is a local restore only; it never
+    // republishes an attachment to a radio, MQTT, or LXMF carrier.
+    ::platform::esp::arduino_common::voice::vmp_session::onPersistentStorageReady();
+
     const app::AppConfig& config = app_facade.readConfig();
     if (chat::infra::isReticulumMeshProtocol(
             chat::infra::normalizeMeshProtocol(config.mesh_protocol)))

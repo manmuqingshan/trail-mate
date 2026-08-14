@@ -1,375 +1,314 @@
-它实现了什么功能？
-
-## 1️⃣ 实时频段能量扫描（Energy Sweep）
-
-左侧柱状图表示：
-
-* X 轴：频率区间（例如 433.050 → 434.790 MHz）
-* Y 轴：RSSI 强度
-* 每根柱：一个步进频点的瞬时/平均功率
-
-它的意义是：
-
-* 快速查看该频段是否拥挤
-* 判断是否存在强干扰
-* 观察噪声底（Noise Floor）
-* 找出峰值位置
-
-这不是 SDR 级 FFT，而是 **工程级信道占用判断工具**。
-
----
-
-## 2️⃣ 精确频点分析（Cursor 模式）
-
-右侧 CURSOR 区域实现：
-
-* 当前指向频点（433.550 MHz）
-* 该频点 RSSI
-* 当前噪声水平
-
-这让它从“观察”变成“测量”。
-
-你不只是看到一堆柱子，而是可以：
-
-* 精确读取某个频点的功率
-* 判断是否可用
-* 判断是否存在连续干扰
-
----
-
-## 3️⃣ 自动最优信道选择（Best Channel Detection）
-
-BEST 区域实现：
-
-* 计算“最干净”的频点
-* 显示推荐频率
-* 显示 SNR
-
-这一步非常关键，它实现了：
-
-> 从频谱数据 → 可行动建议
-
-它不只是显示世界，而是**给出决策结果**。
-
----
-
-## 4️⃣ 扫描进度管理
-
-72% 进度条说明：
-
-* 扫描是区间遍历
-* 用户知道系统状态
-* 避免“卡住”误解
-
-这提升了工程可用性。
-
----
-
-## 5️⃣ 扫描控制（STOP / AUTO）
-
-* STOP：终止扫描
-* AUTO：自动选择最佳信道
-
-这意味着：
-
-这个页面已经从“只读显示器”
-变成了
-“频段管理工具”。
-
----
-
-# 二、这个界面在系统层面的意义
-
-在 Trail-Mate 架构里，这个页面完成的是：
-
-### 🛰 频谱态势感知（RF Situational Awareness）
-
-它回答：
-
-* 现在这个频段干净吗？
-* 是否有强占用？
-* 我的 LoRa 该选哪个频点？
-* 是否存在持续干扰源？
-
-它是一个“战术前侦查页面”。
-
----
-
-# 三、它属于什么级别的功能？
-
-不是：
-
-* ❌ 频谱仪
-* ❌ SDR 分析工具
-
-而是：
-
-* ✅ 信道规划工具
-* ✅ 干扰检测工具
-* ✅ 频段健康监测器
-* ✅ 自动选频前置模块
-
----
-
-# 四、从用户视角来看
-
-这个界面完成的是：
-
-> “在野外部署前，快速检查当前 Sub-GHz 频段是否适合通信。”
-
-这对于：
-
-* LoRa mesh
-* FSK 语音
-* APRS
-* 临时战术部署
-
-都非常实用。
-
----
-
-# 五、它的核心能力总结
-
-这个 UI 实现了：
-
-| 能力            | 是否实现 |
-| ------------- | ---- |
-| 频段扫描          | ✅    |
-| 功率可视化         | ✅    |
-| 精确频点读取        | ✅    |
-| 最佳信道推荐        | ✅    |
-| 扫描控制          | ✅    |
-| LoRa CAD 状态展示 | ✅    |
-
-下面按“你这个界面对应的能力”把**算法 + 功能实现方案**讲清楚，目标是：用 SX1262 在 MCU 上做一个**可用的能量扫描/信道选择器**（不是 FFT 频谱仪）。
-
----
-
-## 1) 总体架构
-
-**输入**：频段范围（f_start, f_end）、步进（step）、每点采样时长（dwell）、采样次数（N）
-**输出**：每个频点的能量值（RSSI/ED）、噪声底（noise floor）、最佳频点（best channel）、峰值/干扰标记、扫描进度
-
-数据流：
-
-1. 扫频采样 → 得到 `rssi[f_i]`
-2. 估计噪声底 → 得到 `noise_floor`
-3. 计算评分/选优 → 得到 `best_freq`
-4. UI 渲染：柱状图、cursor、RSSI/NOISE/BEST、进度
-
----
-
-## 2) 扫频采样算法（核心）
-
-### 2.1 频点序列
-
-把频率离散化：
-
-* `bins = floor((f_end - f_start)/step) + 1`
-* `f_i = f_start + i * step`
-
-**步进怎么选（工程上）**
-
-* 想“看干扰哪里高”：`step = 25 kHz` 或 `50 kHz` 足够
-* 想“粗扫很快”：`step = 100 kHz`
-* 如果你 LoRa 频道带宽是 125 kHz，你用 25 kHz 扫描能更精细地看占用“峰”的位置（但更慢）
-
-### 2.2 每个频点怎么测“能量”
-
-SX1262 拿不到 IQ，所以只能用“能量指标”。最常见是 **Instant RSSI** 或类似 ED 指标（取决于你用的库/驱动暴露的命令）。
-
-每个频点做：
-
-1. `SetRfFrequency(f_i)`
-2. 进入 RX（可以是 LoRa RX 或 FSK RX，关键是能读到 RSSI）
-3. 等待 **settle**（本振/AGC 稳定）：`t_settle ≈ 1~3 ms`
-4. 采样 N 次瞬时 RSSI：每次间隔 `t_gap ≈ 1~2 ms`
-5. 得到该频点值 `P_i`
-
-**P_i 不要直接用平均值（会被突发信号骗）**
-推荐三种稳健聚合方式：
-
-* **median（中位数）**：抗突发、抗偶发尖峰（推荐默认）
-* **trimmed mean（去头去尾均值）**：丢掉最高/最低各 10~20%
-* **EMA（指数滑动均值）**：适合连续扫描实时更新
-
-> 我建议默认：`P_i = median(rssi_samples)`
-
-### 2.3 扫描速度估算（让 UI 不卡）
-
-总时间大约：
-
-`T ≈ bins * (t_settle + N*(t_gap + t_read))`
-
-例如：
-
-* 频段宽 1.74 MHz（433.050–434.790）
-* step=25 kHz → bins≈70
-* t_settle=2ms, N=6, t_gap=1ms
-  → 单 bin ~ 2 + 6*(1+读寄存器开销) ≈ 10ms
-  → 总计 ~ 700ms（很好用）
-
----
-
-## 3) 噪声底（NOISE）如何估计
-
-你界面右侧有 `NOISE -104 dBm`，这不是芯片“真噪声”，而是你对扫描数据的统计估计。
-
-### 3.1 推荐方法：分位数/中位数 + 偏置
-
-因为频段里可能有很多峰，直接平均会被抬高。
-
-* `noise_floor = percentile(P, 20%)` 或 `median(P)`
-* 然后再做一个轻微平滑：`noise = 0.7*noise + 0.3*noise_floor`（跨帧稳定）
-
-### 3.2 为什么用 20% 分位数
-
-* 频段里如果有少数强信号，它们只占少量 bins
-* 20% 分位数更接近“底噪水平”
-* 你要的是“哪里比底噪高”，不是绝对精密测量
-
----
-
-## 4) 峰值/干扰标记（柱子变红）
-
-UI 中红柱代表“干扰/占用较强”。规则建议：
-
-* `threshold = noise + margin`
-* margin 典型：`6 dB ~ 12 dB`（看你希望多敏感）
-* 若 `P_i > threshold` → 标红（Warn）
-* 若 `P_i > threshold + 10 dB` → 可以加一个“尖峰标记”（小三角）
-
-为了避免抖动，给红柱加**滞回**：
-
-* 进入红色：`P_i > noise + 10 dB`
-* 退出红色：`P_i < noise + 7 dB`
-
----
-
-## 5) CURSOR（指针）怎么实现
-
-Cursor 有两种交互模式：
-
-### 5.1 自动跟随（扫描中）
-
-* cursor_index = 当前正在采样的 bin
-* UI 每采完一个 bin，就移动光标竖线
-
-### 5.2 手动浏览（扫描结束/暂停）
-
-* 按键左右移动 cursor_index
-* 右侧显示 `freq[cursor]`、`P_cursor`、`noise`
-
-光标竖线 + 底部小三角只是渲染层，数据来自数组即可。
-
----
-
-## 6) BEST（最佳信道）如何选
-
-你要的是“最干净、最适合通信”的频点。简单选最小 RSSI 不够，因为：
-
-* 单点最低可能是偶然低谷
-* LoRa/FSK 发射占带宽，不是一个点
-
-### 6.1 “带宽窗口”评分（推荐）
-
-设通信带宽 `BW`（例如 125k），换算成需要覆盖的 bin 数：
-
-* `k = ceil(BW / step)`
-* 对每个中心 bin i，计算窗口内的“最坏情况”：
-
-  * `score_i = max(P[i - k/2 ... i + k/2])`
-* 选择 score 最小的 i 作为 best
-
-这会避免选到“旁边有大峰”的位置。
-
-### 6.2 加上保护间隔（guard）
-
-LoRa 频偏/温漂/邻道干扰都存在，可以再加 guard，例如 ±1~2 个 bin 也纳入窗口。
-
----
-
-## 7) SNR +12 怎么来？
-
-在你这个“能量扫描”场景里，SNR 是**估算值**：
-
-* `snr_est = noise - P_best`  （注意 dBm 越小越弱，所以符号要小心）
-  更直观写法：
-* `snr_est = (P_best - noise)`，如果 P_best 比 noise 高就是负数；但你 UI 里显示 +12，代表你希望“越干净越大”。
-
-所以建议定义为：
-
-* `cleanliness = noise - P_best`（越大越干净）
-* 显示：`SNR +cleanliness`
-
-例如：noise=-104, best=-116 → cleanliness=12 → `SNR +12`（符合 UI）
-
----
-
-## 8) CAD（LoRa preamble 检测）怎么融合
-
-CAD 不是全频谱扫描，它是“在某个频点上检测是否存在 LoRa 前导码”。
-
-你 UI 顶部的 `CAD` 可以这样实现：
-
-* 当用户开启 CAD：
-
-  * 每次扫描到某个 bin，如果你关心该点是否有 LoRa，执行一次 CAD
-  * 得到 `cad_detected`（布尔）
-  * 如果 detected：给该 bin 做一个“蓝色小点/标记”，或者让状态灯闪一下
-
-但要注意：**CAD 会增加耗时**，所以策略上可以：
-
-* 只对“疑似忙碌”的 bins（P_i > noise+X）做 CAD
-* 或者扫描完成后，对 best 候选点做 CAD 复核
-
----
-
-## 9) 进度条与 STOP/AUTO 行为
-
-### 9.1 进度条
-
-* `progress = scanned_bins / bins`
-* UI 每完成一个 bin 更新一次（不要每次采样更新，UI 会抖）
-
-### 9.2 STOP
-
-* 设置一个 `scan_abort` 标志
-* 每个 bin 结束检查一次，立即退出
-* UI 状态切换到“冻结显示 + 可移动 cursor”
-
-### 9.3 AUTO
-
-* 触发 best 计算
-* 并把无线模块的工作频点切换到 best
-* （可选）保存到配置：让下一次上电沿用
-
----
-
-## 10) 如果你要更“专业”的两点增强
-
-### A) 动态中心频率校准（你之前提过）
-
-如果你担心频偏/温漂导致“峰”位置漂：
-
-* 在每个 bin 的 dwell 中，取前 2ms 的样本作为快速估计
-* 用它对后续样本做轻微校正（本质是稳定统计，不是真频偏补偿）
-  更实际的做法：**只做 UI 平滑**，别做“频率校准”的强承诺。
-
-### B) 多帧叠加（历史底噪）
-
-维护 `P_i_hist` 的 EMA：
-
-* `P_i = 0.6*P_i + 0.4*P_i_prev`
-  这样界面更稳，像“仪表”而不是“闪动的噪声”。
-
----
-
-## 11) 你最终会得到什么？
-
-* 一个频段扫描器（几十~几百 ms 出结果）
-* 可视化占用峰（红柱）
-* 可读的底噪估计（NOISE）
-* 可行动的推荐频点（BEST + 清洁度）
-* 可选的 LoRa CAD 复核
-* 并能一键 AUTO 切换工作信道
+# Protocol Probe
+
+## Status And Intent
+
+This is the authoritative target specification for the user-facing feature now
+named `Protocol Probe` (Chinese: `协议包探测`). It supersedes the
+RSSI-oriented Energy Sweep design.
+
+The internal application id and source directory remain `energy_sweep` for
+navigation and migration compatibility. The visible feature uses `radar.c`;
+`Spectrum.c` is not part of this feature.
+
+The implementation follows the product contract below: a finite queue of
+complete profiles, protocol-level evidence only, and protocol-specific
+confirmation windows. It does not retain the former 25 kHz grid or fixed
+700 ms dwell.
+
+## Purpose
+
+Protocol Probe answers one question: which complete LoRa air profiles carry
+real MeshCore, Meshtastic, or Reticulum traffic, and which MeshCore or
+Meshtastic profiles can be actively confirmed to communicate with a peer?
+
+It does not measure spectrum occupancy, identify a quietest channel, recommend
+a low-noise frequency, or infer a protocol from RSSI alone.
+
+## Air Profile And Protocol Context
+
+An air profile is a complete PHY hypothesis:
+
+```text
+protocol, frequency, bandwidth, spreading factor, coding rate,
+sync word, preamble, header mode, payload CRC mode
+```
+
+Frequency alone is not a candidate. The radio must be configured with a
+compatible PHY to decode a packet.
+
+Protocol context is deliberately separate. It holds the data needed for an
+active check: MeshCore Discover mode or a Meshtastic channel key plus observed
+node id. Reticulum has no active verification context in this release: the
+page accepts only public, self-consistent discovery or control evidence. A
+single PHY profile may carry more than one logical network, so observing it
+does not imply that Trail Mate has credentials for every network using it.
+
+## Evidence Contract
+
+Evidence is ordered and never collapsed into a binary result:
+
+| Level | Internal finding | User-visible result | Meaning |
+| --- | --- | --- | --- |
+| E0 | RF activity | Not a profile result | CAD/RF activity is a weak hint only. |
+| E1 | CRC-passing LoRa frame | Diagnostics only | The frame is not yet attributable to a target protocol. |
+| E2 | Protocol observed | `OBSERVED` | Protocol-specific parsing accepted MC, MT, or RT. Its strength depends on protocol context; it is not an active reachability claim. |
+| E3 | Active verification | `CONFIRMED` | A correlated protocol response or cryptographic proof was received. |
+
+Only E2 and E3 results are listed or selectable. Rows show an evidence count
+but never classify business payloads such as position, node info, telemetry, or
+message text. No simulator path may create evidence.
+
+A missing packet, ACK, Discover response, or Proof is inconclusive. It never
+means a profile is absent, unused, invalid, or safe to remove.
+
+## Candidate Plan And Timing
+
+Candidates are finite, complete profiles ordered by the confidence of their
+source. `Known` means Trail Mate can explain the hypothesis source, not that
+it has been confirmed.
+
+1. The actually applied profile is first. Meshtastic uses the derived frequency,
+   including override frequency and frequency offset.
+2. Meshtastic standard profiles are derived from the same complete radio
+   configuration with only the modem preset changed: region, configured
+   channel name or channel number, override frequency, frequency offset, and
+   power limits remain in effect.
+3. MeshCore profiles are derived from its supported regional/profile settings.
+4. Reticulum profiles come from the configured RNode interface. RNode PHY
+   parameters are independently configurable, so RT has no universal regional
+   candidate list.
+
+Changing only a Meshtastic modem preset must never replace the configured
+channel identity with a preset display name. Doing so would generate a
+plausible-looking but incorrect candidate frequency and turn the probe into a
+scan of the wrong channel.
+
+Within an open page session, observed profiles receive a longer dwell on later
+passes. Every candidate also remains in RX for at least the conservative
+airtime of one maximum-size explicit-header LoRa frame for that candidate's
+`BW/SF/CR`, plus a tuning guard. This is essential for slow profiles: a fixed
+2.2-second visit can leave before a valid `SF12/BW125` frame has completed.
+Slow candidates therefore make a complete pass take materially longer. That is
+an intentional reliability trade-off, not a negative channel finding.
+For MeshCore, the active Discover response window also scales with the current
+candidate. Peers use a randomized airtime-based response schedule, so a slow
+`SF11` or `SF12` candidate can need tens of seconds after the Discover
+transmission before its response is due. A fixed five-second timeout would
+incorrectly retune before a compliant peer had answered.
+Persistent profile history and user-imported hypotheses are deliberately not
+part of this release; they need their own storage and provenance UX before they
+can be presented as trusted candidates.
+
+There is no automatic full-band 25 kHz sweep. An explicit advanced mode may
+accept user-specified profiles, but it must call them best-effort hypotheses and
+must not make absence claims.
+
+The scheduler gives the active profile a sustained receive window, then walks
+the remaining queue by priority. Evidence extends and prioritises a candidate
+for revisit. Response windows are protocol-specific; a global fixed dwell is
+invalid because packet airtime, routing delay, and Proof generation vary.
+
+## Protocol-Specific Routes
+
+### MeshCore
+
+```text
+candidate MeshCore profile
+  -> rate-limited Discover
+  -> receive through the protocol response window
+  -> valid Discover response or ACK
+  -> CONFIRMED
+```
+
+A structurally valid passive MeshCore packet with a known MeshCore payload
+shape is E2. The probe rejects unknown/custom payload types and malformed
+known payloads even when their LoRa frame happens to pass CRC. Only a Discover
+response carrying this probe's tag upgrades the same profile to E3; a generic
+MeshCore ACK has no Discover-tag correlation and remains passive evidence. A
+silent response window is `NO RESPONSE`, not rejection.
+
+### Meshtastic
+
+Meshtastic must not broadcast NodeInfo or user information and expect an ACK.
+The active confirmation is a targeted unicast route:
+
+```text
+candidate MT profile
+  -> passively receive a structurally valid MeshPacket
+  -> record the observed source node id
+  -> only with a matching usable channel context/key:
+       send small user-invisible unicast MeshPacket with want_ack=true
+  -> correlated ROUTING_APP acknowledgement
+  -> CONFIRMED
+```
+
+Without the channel key, Trail Mate may retain E2 but must not claim it can
+actively use that network. No ACK remains inconclusive: the peer may sleep, be
+unroutable, be rate-limited, or use a different key.
+
+For a received MT packet whose channel hash matches a locally configured
+channel, E2 requires both successful decryption and a valid non-zero
+`meshtastic_Data.portnum`. This prevents arbitrary LoRa bytes that happen to
+resemble the 16-byte MT outer header from becoming evidence. A packet on an
+unknown MT channel cannot be decrypted, so its outer header is E1 diagnostics
+only and never creates a selectable result. The user must configure matching
+channel context and receive a decryptable frame before the probe can claim E2
+or attempt E3.
+
+### Reticulum / RNode
+
+RT is traffic-driven. A LoRa interface carrying active Reticulum backbone
+traffic can yield Announce, Path Request, Data, Link Request, or Proof frames.
+For passive E2, the probe accepts only a self-consistent Announce or a Path
+Request directed at Reticulum's fixed control destination. An Announce must
+derive the same destination hash from its included public key and name hash;
+the Path Request control destination is a fixed 128-bit protocol value. The
+page does not label either packet type in the UI.
+
+Reticulum's air header intentionally has neither a magic constant nor a
+universal authentication tag: encrypted Data, Link Request, and Proof frames
+cannot be attributed without their destination identity. Therefore they do not
+create a profile result on this page. RT E2 means "a self-consistent public
+Reticulum discovery/control frame was received on this exact configured RNode
+PHY", not proof that every frame belongs to one particular Reticulum network.
+Frames that carry an optional interface access code (IFAC) are also excluded:
+Protocol Probe has no matching access-code context while it is temporarily
+tuned, so it must not interpret the post-IFAC bytes as a normal Reticulum
+header. RT remains passive and cannot claim E3 without a separate identity-aware
+network operation after the profile is applied.
+
+```text
+candidate RT profile
+  -> passively parse Reticulum traffic
+  -> OBSERVED
+```
+
+When a Reticulum backbone is connected, it may carry announces, path requests,
+data, links, and proofs. This page converts only Announce and Path Request into
+evidence; a network that emits only encrypted Data, Link, or Proof traffic will
+intentionally produce no RT result.
+Protocol Probe intentionally does not run Reticulum Path Request or Ping while
+it owns an exclusive, temporarily tuned radio lease: those are normal-network
+operations that require the configured Reticulum runtime, its path cache, and
+its asynchronous Proof correlation. After a selected RT profile is applied,
+the existing chat Ping remains the separate way to verify a known destination.
+
+## Active-Transmission Policy
+
+Active actions are protocol routes, not a generic radio scan:
+
+- MeshCore Discover is rate-limited to one attempt per candidate in each full
+  pass. Its receive window covers the protocol's randomized response schedule
+  for that PHY, including the full response airtime and a guard. A confirmed
+  profile is not retried; an unconfirmed profile can be retried on the next
+  pass so a lost reply, sleeping node, or transient collision remains
+  inconclusive instead of becoming a permanent miss.
+- MeshCore and Meshtastic both honor their configured `tx_enabled` flag. With
+  transmission disabled, Protocol Probe continues passive evidence collection
+  but emits no confirmation probe.
+- Meshtastic sends only after passive evidence provides a target node and a
+  usable channel context.
+- Reticulum has no active probe in this page; it remains passive and does not
+  inject untargeted discovery traffic across candidates.
+
+The phase line shows the active profile while receiving, for example
+`MT 433.775 B125 S11 3/12`, and shows `TX` during an active step. This makes a
+controlled test deterministic: traffic can be sent while the exact candidate
+is visible instead of relying on blind timing. The scheduler starts the
+response/proof window only after transmission completes and RX has resumed,
+then remains in RX before retuning. A negative active result is retained as
+diagnostics and never erases passive evidence.
+
+Each active transmission uses the same candidate LoRa packet parameters as
+its receive window, including preamble length and payload-CRC mode. A request
+that changes those parameters while transmitting is not a valid confirmation
+of the candidate profile.
+
+## Radio Ownership And Apply Flow
+
+The probe obtains the exclusive LoRa runtime only while active. On each RX_DONE
+it copies the packet into caller-owned scratch storage, clears IRQ flags, and
+restarts reception. Arduino and ESP-IDF both quiesce the normal radio and mesh
+tasks before retuning; this prevents the normal adapter from clearing an IRQ or
+restarting RX during a probe frame. Leaving, stopping, applying, or losing the
+lease reapplies the configured mesh PHY before returning the radio to mesh
+ownership and resuming only the tasks that the probe itself paused.
+
+The RX poller treats preamble, sync-word, and valid-header IRQs as in-progress
+signals. It clears those sticky notifications without restarting the receiver;
+only RX completion, CRC/header failure, or timeout restarts RX. Restarting on
+every non-RX_DONE IRQ would abort a real long packet before its payload can be
+read and would make a protocol probe appear silent. The Arduino RadioLib and
+ESP-IDF SX126x runtime paths enforce the same terminal-IRQ rule.
+
+Applying a selected result is an explicit two-step action:
+
+1. The user selects an observed profile and opens the confirmation dialog.
+2. On confirmation, the page stops probing, releases the temporary radio
+   session, updates configuration in a `beginConfigEdit()` transaction, commits
+   `AppConfigChangeSet::mesh()`, then calls `applyMeshConfig()`.
+
+Meshtastic is switched to manual modem parameters with the observed center
+frequency as its override and zero frequency offset. MeshCore and Reticulum use
+their own supported persistent-profile mappings. A result without a faithful
+mapping remains viewable but is not offered as an apply target.
+
+## Hardware Capability Model
+
+| Radio | Baseline | Product consequence |
+| --- | --- | --- |
+| SX1262 | One frequency/BW/SF/CR receive configuration at a time | Candidates are visited serially. |
+| LR1121 | The IC can detect two LoRa SF values in parallel on a compatible frequency/BW configuration | A native-driver proof of concept may group two same-frequency/BW SF hypotheses. |
+
+RadioLib's high-level receive API must not be assumed to expose LR1121 Multi-SF
+attribution. Until a device-level proof of concept demonstrates configuration,
+RX packet retrieval, and SF attribution, LR1121 follows the SX1262 single-lane
+scheduler. Multi-SF improves passive MT/RT discovery only; a transmission still
+uses one explicit profile.
+
+## On-Air Acceptance
+
+The acceptance test uses protocol traffic, not arbitrary CRC-valid LoRa bytes.
+Watch the live phase line and transmit only while the intended candidate is
+shown; the finite candidate queue deliberately does not listen on every
+frequency or modem combination at the same time.
+
+| Protocol | Required peer-side action | Expected evidence |
+| --- | --- | --- |
+| MeshCore | Keep at least one discover-capable peer on the candidate PHY while the page is scanning. | `CONFIRMED` only after a Discover response carrying this probe's tag. A passive MeshCore frame may first create `OBSERVED`. |
+| Meshtastic | Have a configured-channel peer send a normal MeshPacket, then remain reachable for the targeted `want_ack` request. | The valid packet creates `OBSERVED`; a correlated encrypted `ROUTING_APP` ACK upgrades it to `CONFIRMED`. |
+| Reticulum | Keep the RNode interface connected to a network that emits an Announce or Path Request. | A self-consistent Announce or fixed-control Path Request creates `OBSERVED`; this page does not claim E3 for RT. |
+
+The test must not treat arbitrary packets, generic LoRa generators, or a
+CRC-valid non-target frame as protocol evidence. Those inputs exercise the
+radio's PHY but intentionally do not populate Protocol Probe results.
+
+## Pager UI Specification
+
+The 480x222 Pager page follows the Map page language:
+
+- A 30 px amber top bar titled `PROTOCOL PROBE`.
+- An unframed, full-width work area containing the observed-profile list only.
+  The selected row is highlighted in place; there is no repeated detail panel,
+  which keeps the page viable on T-Deck-class narrow displays.
+- Rows show protocol tag, `frequency`, `BW/SF/CR`, evidence count, and
+  `OBSERVED` or `CONFIRMED`.
+- The phase line states the real action and active profile, for example
+  `MT 433.775 B125 S11 3/12`, `MC TX 433.775`, or `RT TRAFFIC 18`.
+- A 24 px Map-style bottom bar: `UP/DN Select`, `ENTER Set`, `S Start/Stop`,
+  and `ESC Back`.
+- Selecting `Set` opens a dimmed warm-white modal. `Cancel` is the default
+  focus; `ESC` cancels and `ENTER` applies after the user has moved focus to
+  Apply.
+
+The page has no RSSI graph, CAD badge, noise estimate, quietest-channel score,
+AUTO action, selected-detail panel, or business-packet classification. Those
+measurements cannot establish protocol-channel presence.
+
+## References
+
+- [MeshCore packet format](https://docs.meshcore.io/packet_format/)
+- [Meshtastic protocol and want_ack](https://github.com/meshtastic/meshtastic-sdk/blob/main/docs/protocol.md)
+- [Reticulum announces, paths, and proofs](https://reticulum.network/manual/understanding.html)
+- [Reticulum RNode interface configuration](https://reticulum.network/manual/interfaces.html)
+- [RadioLib LR1121 API surface](https://jgromes.github.io/RadioLib/class_l_r1121-members.html)

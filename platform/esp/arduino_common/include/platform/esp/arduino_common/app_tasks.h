@@ -16,6 +16,25 @@ namespace app
 {
 
 /**
+ * @brief Optional bounded sideband parser for application-owned raw RF frames.
+ *
+ * The interceptor runs in the mesh task before the configured mesh adapter.
+ * It must return false for every frame it does not own, and it must not block,
+ * pause radio tasks, or perform radio I/O from that task.  Returning true
+ * consumes the frame permanently; this is how an application protocol such as
+ * VMP stays outside the MT/MC/RT decoder and forwarding paths.
+ */
+class IRawRadioPacketInterceptor
+{
+  public:
+    virtual ~IRawRadioPacketInterceptor() = default;
+    virtual bool tryConsume(const uint8_t* data,
+                            size_t size,
+                            float rssi,
+                            float snr) = 0;
+};
+
+/**
  * @brief Task management
  */
 class AppTasks
@@ -116,6 +135,14 @@ class AppTasks
     static bool isRadioTransmitActive();
     static bool enqueueRadioTransmit(const uint8_t* data, size_t size);
 
+    /**
+     * @brief Installs/removes the one application-owned raw packet interceptor.
+     *
+     * The caller retains ownership and must clear the pointer before destroying
+     * the interceptor.  Null leaves existing mesh-adapter behavior unchanged.
+     */
+    static void setRawRadioPacketInterceptor(IRawRadioPacketInterceptor* interceptor);
+
     class ScopedRadioTransmitActivity
     {
       public:
@@ -133,6 +160,7 @@ class AppTasks
     static TaskHandle_t mesh_task_handle_;
     static LoraBoard* board_;
     static chat::IMeshAdapter* adapter_;
+    static IRawRadioPacketInterceptor* raw_radio_packet_interceptor_;
     static uint8_t* radio_rx_scratch_;
     static volatile bool radio_tasks_paused_;
     static volatile bool radio_receive_active_;

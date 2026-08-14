@@ -75,10 +75,23 @@ class TDeckBoard : public BoardBase,
     void setMessageToneVolume(uint8_t volume_percent) override;
     uint8_t getMessageToneVolume() const override;
 
+    /** @brief True after the board's I2S speaker runtime is available. */
+    bool isVoicePlaybackReady() const;
+
+    /** @brief Plays one Codec2-1300 voice-message object through the speaker. */
+    bool playCodec2Voice(const uint8_t* encoded_media,
+                         std::size_t encoded_media_len,
+                         uint8_t volume_percent);
+
     // LilyGo_Display
     void setRotation(uint8_t rotation) override;
     uint8_t getRotation() override;
     void pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color) override;
+    DisplayTransferResult transferPixels(uint16_t x1,
+                                         uint16_t y1,
+                                         uint16_t x2,
+                                         uint16_t y2,
+                                         uint16_t* color) override;
     bool pushColorsResult(uint16_t x1,
                           uint16_t y1,
                           uint16_t x2,
@@ -106,9 +119,9 @@ class TDeckBoard : public BoardBase,
     float getRadioRSSI() override;
     float getRadioInstantRSSI() override;
     float getRadioSNR() override;
-    void configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
-                            int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
-                            uint8_t crc_len) override;
+    int configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
+                           int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
+                           uint8_t crc_len) override;
 
     // GpsBoard
     void setGPSReceiverInitConfig(const gps::GpsReceiverInitConfig& config) override

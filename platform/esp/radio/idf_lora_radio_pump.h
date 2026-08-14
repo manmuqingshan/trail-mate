@@ -14,7 +14,9 @@ enum class IdfLoraPollResult : uint8_t
     None = 0,
     Frame,
     RadioOffline,
+    ReceiveStartFailed,
     ReceiveRestarted,
+    ReceiveRestartFailed,
     InvalidPacketLength,
     ReadFailed,
 };
@@ -37,6 +39,7 @@ class IdfLoraRadioPump final
     bool ensureReceiveStarted();
     bool restartReceive();
     void markReceiveStopped();
+    int lastReceiveStartResult() const { return last_receive_start_result_; }
     IdfLoraPollResult poll(IdfLoraRadioFrame& out);
 
   private:
@@ -45,6 +48,7 @@ class IdfLoraRadioPump final
     LoraBoard& board_;
     std::array<uint8_t, kMaxPacketBytes> rx_scratch_{};
     bool receive_started_ = false;
+    int last_receive_start_result_ = -1;
 };
 
 } // namespace platform::esp::radio

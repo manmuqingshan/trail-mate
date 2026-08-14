@@ -6,12 +6,12 @@
 
 #include <atomic>
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
+#include <new>
 
 #if defined(ESP_PLATFORM)
-#include "esp_attr.h"
-#define UI_FEEDBACK_STATE_RAM_ATTR EXT_RAM_ATTR
-#else
-#define UI_FEEDBACK_STATE_RAM_ATTR
+#include "esp_heap_caps.h"
 #endif
 
 namespace ui::feedback
@@ -128,14 +128,53 @@ class RuntimeFeedbackPresenter final : public sys::runtime::IFeedbackPresenter
     }
 };
 
-UI_FEEDBACK_STATE_RAM_ATTR sys::runtime::FeedbackQueue<kNoticeQueueCapacity> s_feedback_queue;
-sys::runtime::DefaultFeedbackPolicy s_feedback_policy;
-RuntimeFeedbackEventSink s_feedback_events;
-RuntimeFeedbackPresenter s_feedback_presenter;
-sys::runtime::FeedbackRuntime<kNoticeQueueCapacity> s_feedback_runtime(s_feedback_queue,
-                                                                       s_feedback_policy,
-                                                                       s_feedback_presenter,
-                                                                       s_feedback_events);
+struct FeedbackRuntimeState
+{
+    sys::runtime::FeedbackQueue<kNoticeQueueCapacity> queue{};
+    sys::runtime::DefaultFeedbackPolicy policy{};
+    RuntimeFeedbackEventSink events{};
+    RuntimeFeedbackPresenter presenter{};
+    sys::runtime::FeedbackRuntime<kNoticeQueueCapacity> runtime;
+
+    FeedbackRuntimeState()
+        : runtime(queue, policy, presenter, events)
+    {
+    }
+};
+
+FeedbackRuntimeState* s_feedback_state = nullptr;
+bool s_feedback_state_allocation_failed_logged = false;
+
+FeedbackRuntimeState* ensure_feedback_state()
+{
+    QueueLock lock;
+    if (s_feedback_state)
+    {
+        return s_feedback_state;
+    }
+
+#if defined(ESP_PLATFORM)
+    void* storage = heap_caps_malloc(sizeof(FeedbackRuntimeState),
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+    void* storage = std::malloc(sizeof(FeedbackRuntimeState));
+#endif
+    if (!storage)
+    {
+        if (!s_feedback_state_allocation_failed_logged)
+        {
+            std::printf("[UI][Feedback] state allocation_failed memory=psram bytes=%u\n",
+                        static_cast<unsigned>(sizeof(FeedbackRuntimeState)));
+            s_feedback_state_allocation_failed_logged = true;
+        }
+        return nullptr;
+    }
+
+    s_feedback_state = new (storage) FeedbackRuntimeState{};
+    std::printf("[UI][Feedback] state allocated memory=psram bytes=%u\n",
+                static_cast<unsigned>(sizeof(FeedbackRuntimeState)));
+    return s_feedback_state;
+}
 
 IFeedbackPresenter& active_presenter()
 {
@@ -158,8 +197,15 @@ void ensure_presenter_ready()
 
 void drain_queued_notices()
 {
+    FeedbackRuntimeState* state = ensure_feedback_state();
+    if (!state)
+    {
+        (void)s_hide_requests.exchange(0, std::memory_order_acq_rel);
+        return;
+    }
+
     QueueLock lock;
-    (void)s_feedback_runtime.drainToUi(lv_tick_get());
+    (void)state->runtime.drainToUi(lv_tick_get());
     const uint32_t hide_count = s_hide_requests.exchange(0, std::memory_order_acq_rel);
     if (hide_count > 0)
     {
@@ -201,6 +247,7 @@ IFeedbackPresenter& presenter()
 
 void init()
 {
+    (void)ensure_feedback_state();
     ensure_presenter_ready();
     ensure_drain_timer();
     drain_queued_notices();
@@ -220,8 +267,14 @@ bool show_notice(const NoticeIntent& intent)
     runtime_intent.duration_ms = intent.duration_ms;
     runtime_intent.created_at_ms = lv_tick_get();
 
+    FeedbackRuntimeState* state = ensure_feedback_state();
+    if (!state)
+    {
+        return false;
+    }
+
     QueueLock lock;
-    return s_feedback_runtime.post(runtime_intent);
+    return state->runtime.post(runtime_intent);
 }
 
 bool show_notice(const char* text, uint32_t duration_ms)

@@ -100,6 +100,8 @@ static inline void codec2_fft(codec2_fft_cfg cfg, codec2_fft_cpx* in, codec2_fft
 }
 
 void codec2_fft_inplace(codec2_fft_cfg cfg, codec2_fft_cpx* inout);
+void codec2_fft_inplace_with_scratch(codec2_fft_cfg cfg, codec2_fft_cpx* inout,
+                                     codec2_fft_cpx scratch[]);
 
 
 #endif

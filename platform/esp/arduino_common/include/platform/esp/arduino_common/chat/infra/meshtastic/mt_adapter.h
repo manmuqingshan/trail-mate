@@ -70,6 +70,8 @@ class MtAdapter : public chat::IMeshAdapter
     bool hasPkiKey(NodeId dest) const override;
     bool getNodePublicKey(NodeId node_id, uint8_t out_key[32]) const;
     bool getOwnPublicKey(uint8_t out_key[32]) const;
+    /** Derives a domain-separated VMP contact secret from verified MT PKI. */
+    bool deriveVmpContactSecret(NodeId peer_id, uint8_t out_secret[32]);
     void rememberNodePublicKey(NodeId node_id, const uint8_t* key, size_t key_len);
     void forgetNodePublicKey(NodeId node_id);
     meshtastic_Routing_Error getLastRoutingError() const;

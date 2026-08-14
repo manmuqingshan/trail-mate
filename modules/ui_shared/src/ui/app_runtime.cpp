@@ -332,12 +332,26 @@ void rebuild_active_app_timer_cb(lv_timer_t* timer)
         return;
     }
 
+#if defined(ESP_PLATFORM)
+    ESP_LOGI(kTag,
+             "[UI][Txn] active_rebuild begin app=%s parent=%p children_before=%lu",
+             app->name(),
+             parent,
+             static_cast<unsigned long>(child_count(parent)));
+#endif
     app->exit(parent);
     if (parent != nullptr && child_count(parent) > 0)
     {
         lv_obj_clean(parent);
     }
     app->enter(parent);
+#if defined(ESP_PLATFORM)
+    ESP_LOGI(kTag,
+             "[UI][Txn] active_rebuild complete app=%s parent=%p children_after=%lu",
+             app->name(),
+             parent,
+             static_cast<unsigned long>(child_count(parent)));
+#endif
 }
 } // namespace
 

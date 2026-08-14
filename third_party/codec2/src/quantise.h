@@ -47,18 +47,48 @@
 #define LPCPF_GAMMA 0.5
 #define LPCPF_BETA  0.2
 
-float lpc_model_amplitudes(float Sn[], float w[], MODEL *model, int order,
-			   int lsp,float ak[]);
-void aks_to_M2(codec2_fftr_cfg fftr_fwd_cfg, float ak[], int order, MODEL *model,
-	       float E, float *snr, int dump, int sim_pf,
-               int pf, int bass_boost, float beta, float gamma, COMP Aw[]);
+/*
+ * aks_to_M2() and lpc_post_filter() normally place these temporary FFT and
+ * spectral arrays on their caller's stack. Codec2-1300 decoding invokes both
+ * beneath the Pager's bounded audio task, so that layout exceeds the 8 KiB
+ * task budget. The Codec2-1300 decoder owns one instance in its PSRAM state
+ * and calls aks_to_M2_with_scratch(); the legacy entry point below keeps its
+ * automatic workspace for other Codec2 users.
+ */
+typedef struct
+{
+    float fft_input[FFT_ENC];
+    float power_spectrum[FFT_ENC / 2];
+    COMP post_filter_weight[FFT_ENC / 2 + 1];
+    float post_filter_response[FFT_ENC / 2 + 1];
+} CODEC2_LPC_SCRATCH;
 
-int   encode_Wo(C2CONST *c2const, float Wo, int bits);
-float decode_Wo(C2CONST *c2const, int index, int bits);
-int   encode_log_Wo(C2CONST *c2const, float Wo, int bits);
-float decode_log_Wo(C2CONST *c2const, int index, int bits);
-void  encode_lsps_scalar(int indexes[], float lsp[], int order);
-void  decode_lsps_scalar(float lsp[], int indexes[], int order);
+float lpc_model_amplitudes(float Sn[], float w[], MODEL* model, int order,
+                           int lsp, float ak[]);
+void aks_to_M2(codec2_fftr_cfg fftr_fwd_cfg, float ak[], int order, MODEL* model,
+               float E, float* snr, int dump, int sim_pf,
+               int pf, int bass_boost, float beta, float gamma, COMP Aw[]);
+void aks_to_M2_with_scratch(codec2_fftr_cfg fftr_fwd_cfg,
+                            float ak[],
+                            int order,
+                            MODEL* model,
+                            float E,
+                            float* snr,
+                            int dump,
+                            int sim_pf,
+                            int pf,
+                            int bass_boost,
+                            float beta,
+                            float gamma,
+                            COMP Aw[],
+                            CODEC2_LPC_SCRATCH* scratch);
+
+int encode_Wo(C2CONST* c2const, float Wo, int bits);
+float decode_Wo(C2CONST* c2const, int index, int bits);
+int encode_log_Wo(C2CONST* c2const, float Wo, int bits);
+float decode_log_Wo(C2CONST* c2const, int index, int bits);
+void encode_lsps_scalar(int indexes[], float lsp[], int order);
+void decode_lsps_scalar(float lsp[], int indexes[], int order);
 void  encode_lspds_scalar(int indexes[], float lsp[], int order);
 void  decode_lspds_scalar(float lsp[], int indexes[], int order);
 

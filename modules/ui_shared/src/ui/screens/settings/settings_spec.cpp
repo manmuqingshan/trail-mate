@@ -135,6 +135,7 @@ constexpr SettingSpec kSpecs[] = {
     {SettingId::ManualTimeSet, "manual_time_set", DynamicOptionKind::None},
     {SettingId::GaugeDesignMah, "gauge_design_mah", DynamicOptionKind::None},
     {SettingId::GaugeFullMah, "gauge_full_mah", DynamicOptionKind::None},
+    {SettingId::SpiDiagnostics, "spi_diagnostics", DynamicOptionKind::None},
     {SettingId::WifiEnabled, "wifi_enabled", DynamicOptionKind::None},
     {SettingId::WifiStatus, "wifi_status", DynamicOptionKind::None},
     {SettingId::WifiScan, "wifi_scan", DynamicOptionKind::None},

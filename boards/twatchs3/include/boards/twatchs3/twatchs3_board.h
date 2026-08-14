@@ -61,6 +61,11 @@ class TWatchS3Board : public BoardBase,
     void setRotation(uint8_t rotation) override;
     uint8_t getRotation() override;
     void pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color) override;
+    DisplayTransferResult transferPixels(uint16_t x1,
+                                         uint16_t y1,
+                                         uint16_t x2,
+                                         uint16_t y2,
+                                         uint16_t* color) override;
     bool pushColorsResult(uint16_t x1,
                           uint16_t y1,
                           uint16_t x2,
@@ -82,9 +87,9 @@ class TWatchS3Board : public BoardBase,
     float getRadioRSSI() override;
     float getRadioInstantRSSI() override;
     float getRadioSNR() override;
-    void configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
-                            int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
-                            uint8_t crc_len) override;
+    int configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
+                           int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
+                           uint8_t crc_len) override;
 
   private:
     TWatchS3Board();

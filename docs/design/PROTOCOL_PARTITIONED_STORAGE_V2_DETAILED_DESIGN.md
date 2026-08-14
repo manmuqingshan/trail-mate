@@ -247,7 +247,8 @@ same owner. This mutex is a state lock, not a bus lock.
 The storage service is the only normal owner of physical SD I/O. Store,
 repository, and page-cache code calls semantic storage operations and must not
 open a physical device session around a sequence of those operations. The
-shared-SPI mechanism is defined only in `docs/spi_bus_architecture.md`.
+shared-SPI mechanism is defined only in
+`docs/specs/SPI_BUS_ARCHITECTURE_SPEC.md`.
 
 Explicit hardware sessions are separate: SD unmount/recovery, USB mass storage,
 and user-visible external font loading are owned by their device services.

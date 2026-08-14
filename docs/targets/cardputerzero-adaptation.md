@@ -64,8 +64,8 @@ own the same ten product routes:
 - Extensions
 - Settings
 
-Cardputer Zero intentionally does not expose PC Link, SSTV, Energy Sweep /
-Spectrum, or SD Storage / USB Disk in its product menu. SD Storage is the USB
+Cardputer Zero intentionally does not expose PC Link, SSTV, Protocol Probe, or
+SD Storage / USB Disk in its product menu. SD Storage is the USB
 mass-storage card-access entry; it is not the same thing as Extensions.
 
 The Cardputer Zero CMake test slice checks this manifest alignment directly.

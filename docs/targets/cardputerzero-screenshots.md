@@ -80,8 +80,8 @@ live SX1262 endpoint. It does not change the UI route being rendered.
 | Extensions | `docs/images/cardputerzero/screenshots/extensions.png` | Real shared extensions page reached from the compact menu. |
 | Settings | `docs/images/cardputerzero/screenshots/settings.png` | Real shared settings page reached from the compact menu. |
 
-Excluded Cardputer Zero product entries: PC Link, SSTV, Energy Sweep /
-Spectrum, and SD Storage / USB Disk. SD Storage is the card-access/USB
+Excluded Cardputer Zero product entries: PC Link, SSTV, Protocol Probe, and SD
+Storage / USB Disk. SD Storage is the card-access/USB
 mass-storage feature and is distinct from Extensions, which remains part of the
 Cardputer Zero product menu.
 

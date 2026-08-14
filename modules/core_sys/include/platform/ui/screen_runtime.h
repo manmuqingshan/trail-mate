@@ -27,6 +27,7 @@ bool is_sleeping();
 bool is_sleep_disabled();
 bool is_saver_active();
 void handle_input();
+void handle_confirm_input();
 void handle_input_release();
 void wake_for_modal();
 void record_activity();

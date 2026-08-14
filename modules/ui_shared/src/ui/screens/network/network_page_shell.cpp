@@ -283,7 +283,13 @@ struct NetworkPageState
     char search_query[kSearchTextLen] = {};
 };
 
-NetworkPageState g_state;
+// This page has no background owner outside its CallbackAppScreen lifecycle.
+// Keeping its large fixed buffers in a file-static object permanently consumes
+// internal RAM even when Network is never opened.  It is instead constructed
+// in strict PSRAM on enter() and destroyed on exit().
+NetworkPageState* s_page_state = nullptr;
+
+#define g_state (*s_page_state)
 
 constexpr uint32_t kAmber = ::ui::components::two_pane_styles::kAccent;
 constexpr uint32_t kAmberDark = 0xC98118;
@@ -397,6 +403,49 @@ void network_page_free(void* ptr)
 #else
     std::free(ptr);
 #endif
+}
+
+NetworkPageState* allocate_network_page_state()
+{
+#if defined(ESP_PLATFORM)
+    void* storage = heap_caps_malloc(sizeof(NetworkPageState), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+    void* storage = std::malloc(sizeof(NetworkPageState));
+#endif
+    if (!storage)
+    {
+        return nullptr;
+    }
+    return new (storage) NetworkPageState{};
+}
+
+bool ensure_network_page_state()
+{
+    if (s_page_state)
+    {
+        return true;
+    }
+
+    s_page_state = allocate_network_page_state();
+    if (!s_page_state)
+    {
+        std::printf("[UI][Network] enter denied reason=psram_state_alloc bytes=%lu\n",
+                    static_cast<unsigned long>(sizeof(NetworkPageState)));
+        return false;
+    }
+    return true;
+}
+
+void release_network_page_state()
+{
+    if (!s_page_state)
+    {
+        return;
+    }
+
+    s_page_state->~NetworkPageState();
+    network_page_free(s_page_state);
+    s_page_state = nullptr;
 }
 
 template <typename T>
@@ -5535,7 +5584,8 @@ namespace network::ui::shell
 
 void enter(void* /*user_data*/, lv_obj_t* parent)
 {
-    if (!parent || (g_state.root && lv_obj_is_valid(g_state.root)))
+    if (!parent || !ensure_network_page_state() ||
+        (g_state.root && lv_obj_is_valid(g_state.root)))
     {
         return;
     }
@@ -5602,6 +5652,11 @@ void enter(void* /*user_data*/, lv_obj_t* parent)
 
 void exit(void* /*user_data*/, lv_obj_t* /*parent*/)
 {
+    if (!s_page_state)
+    {
+        return;
+    }
+
     NETWORK_PAGE_LOG("exit begin root=%u rows=%u links=%u history=%u\n",
                      g_state.root && lv_obj_is_valid(g_state.root) ? 1U : 0U,
                      static_cast<unsigned>(g_state.row_context_count),
@@ -5623,6 +5678,7 @@ void exit(void* /*user_data*/, lv_obj_t* /*parent*/)
         lv_obj_del(g_state.root);
     }
     reset_state_after_destroy();
+    release_network_page_state();
     NETWORK_PAGE_LOG("exit done\n");
 }
 

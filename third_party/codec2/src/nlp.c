@@ -32,6 +32,7 @@
 #undef PROFILE
 #include "machdep.h"
 #include "os.h"
+#include "debug_alloc.h"
 
 #include <assert.h>
 #include <math.h>
@@ -127,6 +128,7 @@ typedef struct {
     float         mem_x,mem_y;       /* memory for notch filter      */
     float         mem_fir[NLP_NTAP]; /* decimation FIR filter memory */
     codec2_fft_cfg  fft_cfg;         /* kiss FFT config              */
+    COMP         *Fw;               /* [PE_FFT_SIZE] NLP spectrum   */
     float        *Sn16k;	     /* Fs=16kHz input speech vector */
     FILE         *f;
 } NLP;
@@ -151,9 +153,15 @@ void *nlp_create(C2CONST *c2const)
     int  m = c2const->m_pitch;
     int  Fs = c2const->Fs;
 
-    nlp = (NLP*)malloc(sizeof(NLP));
+    nlp = (NLP*)MALLOC(sizeof(NLP));
     if (nlp == NULL)
 	return NULL;
+
+    nlp->Fw = (COMP*)MALLOC(sizeof(COMP)*PE_FFT_SIZE);
+    if (nlp->Fw == NULL) {
+        FREE(nlp);
+        return NULL;
+    }
 
     assert((Fs == 8000) || (Fs == 16000));
     nlp->Fs = Fs;
@@ -163,13 +171,14 @@ void *nlp_create(C2CONST *c2const)
     /* if running at 16kHz allocate storage for decimating filter memory */
 
     if (Fs == 16000) {
-        nlp->Sn16k = (float*)malloc(sizeof(float)*(FDMDV_OS_TAPS_16K + c2const->n_samp));
+        nlp->Sn16k = (float*)MALLOC(sizeof(float)*(FDMDV_OS_TAPS_16K + c2const->n_samp));
+        if (nlp->Sn16k == NULL) {
+            FREE(nlp->Fw);
+            FREE(nlp);
+            return NULL;
+        }
         for(i=0; i<FDMDV_OS_TAPS_16K; i++) {
            nlp->Sn16k[i] = 0.0;
-        }
-        if (nlp->Sn16k == NULL) {
-            free(nlp);
-            return NULL;
         }
 
         /* most processing occurs at 8 kHz sample rate so halve m */
@@ -212,9 +221,10 @@ void nlp_destroy(void *nlp_state)
 
     codec2_fft_free(nlp->fft_cfg);
     if (nlp->Fs == 16000) {
-        free(nlp->Sn16k);
+        FREE(nlp->Sn16k);
     }
-    free(nlp_state);
+    FREE(nlp->Fw);
+    FREE(nlp_state);
 }
 
 /*---------------------------------------------------------------------------*\
@@ -254,12 +264,13 @@ float nlp(
   float *pitch,			/* estimated pitch period in samples at current Fs    */
   COMP   Sw[],                  /* Freq domain version of Sn[]                        */
   float  W[],                   /* Freq domain window                                 */
-  float *prev_f0                /* previous pitch f0 in Hz, memory for pitch tracking */
+  float *prev_f0,               /* previous pitch f0 in Hz, memory for pitch tracking */
+  COMP   fft_scratch[]          /* caller-owned KISS FFT input copy                   */
 )
 {
     NLP   *nlp;
     float  notch;		    /* current notch filter output          */
-    COMP   Fw[PE_FFT_SIZE];	    /* DFT of squared signal (input/output) */
+    COMP   *Fw;                 /* DFT of squared signal (input/output) */
     float  gmax;
     int    gmax_bin;
     int    m, i, j;
@@ -268,6 +279,8 @@ float nlp(
 
     assert(nlp_state != NULL);
     nlp = (NLP*)nlp_state;
+    assert(nlp->Fw != NULL);
+    Fw = nlp->Fw;
     m = nlp->m;
 
     /* Square, notch filter at DC, and LP filter vector */
@@ -354,7 +367,7 @@ float nlp(
 
     // FIXME: check if this can be converted to a real fft
     // since all imag inputs are 0
-    codec2_fft_inplace(nlp->fft_cfg, Fw);
+    codec2_fft_inplace_with_scratch(nlp->fft_cfg, Fw, fft_scratch);
     PROFILE_SAMPLE_AND_LOG(fft, window, "      fft");
 
     for(i=0; i<PE_FFT_SIZE; i++)

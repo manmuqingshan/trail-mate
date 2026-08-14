@@ -11,7 +11,7 @@ rules. This document explains the design that makes those rules implementable
 and testable.
 
 The physical shared-device mechanism is a technical concern owned by
-`docs/spi_bus_architecture.md`. This document defines only UI/runtime ownership
+`docs/specs/SPI_BUS_ARCHITECTURE_SPEC.md`. This document defines only UI/runtime ownership
 and semantic storage behavior.
 
 There is no generic `sys::runtime::PersistenceRuntime` in production. Storage
@@ -589,14 +589,14 @@ rather than blocking UI execution.
 
 The storage runtimes are not the device owner. They own operation state and
 call semantic device services. Those services own the physical transaction
-mechanism described in `docs/spi_bus_architecture.md`.
+mechanism described in `docs/specs/SPI_BUS_ARCHITECTURE_SPEC.md`.
 
 ## Device I/O Boundary
 
 Workers call semantic device services for storage, display, and radio work.
 Those services own all physical transactions. The runtime layer receives only
 semantic results. The complete shared-device mechanism is specified only in
-`docs/spi_bus_architecture.md`.
+`docs/specs/SPI_BUS_ARCHITECTURE_SPEC.md`.
 
 ### Long-Running Progress Overlay Boundary
 
@@ -652,7 +652,8 @@ device transaction state.
 UI/runtime specifications describe commands, worker ownership, semantic
 results, and event delivery. The concrete display, radio, and storage
 services perform physical I/O behind the device boundary. Their shared-device
-transaction rules are defined only in `docs/spi_bus_architecture.md`.
+transaction rules are defined only in
+`docs/specs/SPI_BUS_ARCHITECTURE_SPEC.md`.
 
 ## UML Map Tile Class Model
 
@@ -1205,7 +1206,7 @@ objects.
 Workers submit semantic operations to device services. Device services own
 physical arbitration and return semantic completion, retry, unavailable, or
 failure results. The shared-device mechanism is specified only in
-`docs/spi_bus_architecture.md`.
+`docs/specs/SPI_BUS_ARCHITECTURE_SPEC.md`.
 
 ## Map Tile Runtime Design
 

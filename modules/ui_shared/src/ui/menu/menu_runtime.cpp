@@ -13,13 +13,19 @@
 #include "platform/ui/screen_brightness_steps.h"
 #include "platform/ui/time_runtime.h"
 #include "platform/ui/walkie_runtime.h"
+#if !defined(ARDUINO_T_DECK_PRO)
 #include "ui/components/shortcut_help_modal.h"
+#endif
 #include "ui/formatters.h"
 #include "ui/menu/menu_layout.h"
 #include "ui/menu/menu_profile.h"
 #include "ui/ui_common.h"
 #include "ui/ui_status.h"
 #include "ui/ui_theme.h"
+
+#if defined(ARDUINO_T_DECK_PRO)
+#include "ui/tdeck_pro/text_shell.h"
+#endif
 
 namespace ui
 {
@@ -46,7 +52,9 @@ struct RuntimeState
     lv_timer_t* walkie_record_timer = nullptr;
     lv_obj_t* walkie_record_overlay = nullptr;
     lv_obj_t* walkie_record_bars[kWalkieRecordBarCount]{};
+#if !defined(ARDUINO_T_DECK_PRO)
     ::ui::components::shortcut_help_modal::State menu_help_modal{};
+#endif
     int watch_face_battery = -1;
     bool menu_active = true;
     bool walkie_recording = false;
@@ -220,6 +228,7 @@ bool screenBrightnessShortcutEnabled()
            platform::ui::device::screen_brightness_max() > 0;
 }
 
+#if !defined(ARDUINO_T_DECK_PRO)
 void closeMenuHelpModal()
 {
     ::ui::components::shortcut_help_modal::close(s_runtime.menu_help_modal);
@@ -278,6 +287,7 @@ void openMenuHelpModal()
         parent,
         config);
 }
+#endif
 
 uint8_t nextScreenBrightnessLevel()
 {
@@ -296,7 +306,9 @@ bool cycleScreenBrightness()
 
     platform::ui::device::set_screen_brightness(nextScreenBrightnessLevel());
     ui::menu_layout::set_bottom_bar_help_text("H Help");
+#if !defined(ARDUINO_T_DECK_PRO)
     closeMenuHelpModal();
+#endif
     return true;
 }
 
@@ -331,7 +343,9 @@ bool cycleKeyboardBacklight()
         max_level);
     platform::ui::device::set_keyboard_backlight(next);
     ui::menu_layout::set_bottom_bar_help_text("H Help");
+#if !defined(ARDUINO_T_DECK_PRO)
     closeMenuHelpModal();
+#endif
     return true;
 }
 
@@ -423,6 +437,15 @@ void watchFaceUnlock()
 
 void refreshTimeLabel()
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    {
+        char time_str[16] = {};
+        ui::tdeck_pro::text_shell::set_time_text(
+            formatMenuTime(time_str, sizeof(time_str)) ? time_str : "--:--");
+        return;
+    }
+#endif
+
     if (s_runtime.time_label == nullptr)
     {
         updateWatchFaceTime();
@@ -450,6 +473,24 @@ void refreshTimeLabel()
 
 void refreshBatteryLabel()
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    {
+        char battery_str[32] = {};
+        const platform::ui::device::BatteryInfo battery = platform::ui::device::battery_info();
+        if (battery.level < 0)
+        {
+            ui::tdeck_pro::text_shell::set_battery_text(battery.charging ? "USB" : "BAT --");
+            return;
+        }
+
+        platform::ui::device::handle_low_battery(battery);
+        ui_format_battery(battery.level, battery.charging, battery_str, sizeof(battery_str));
+        ui::tdeck_pro::text_shell::set_battery_text(battery_str);
+        refreshBottomBar();
+        return;
+    }
+#endif
+
     if (s_runtime.battery_label == nullptr)
     {
         return;
@@ -569,6 +610,12 @@ void ensureWalkieRecordOverlay()
 
 void setWalkieRecording(bool recording)
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    s_runtime.walkie_recording = recording;
+    ui::tdeck_pro::text_shell::set_walkie_recording(recording);
+    return;
+#endif
+
     if (s_runtime.walkie_recording == recording)
     {
         return;
@@ -726,6 +773,12 @@ void initWatchFace()
 
 void createTimers()
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    // The text shell refreshes status at explicit lifecycle boundaries and
+    // user actions. A clock/battery timer would otherwise issue a periodic
+    // EPD update while the menu is idle.
+    return;
+#else
     constexpr uint32_t time_update_interval_ms = 60000;
     constexpr uint32_t battery_update_interval_ms = 60000;
 
@@ -748,6 +801,7 @@ void createTimers()
         battery_update_interval_ms,
         nullptr);
     lv_timer_set_repeat_count(s_runtime.battery_timer, -1);
+#endif
 }
 
 } // namespace
@@ -759,10 +813,16 @@ void init(lv_obj_t* screen_root, lv_obj_t* main_screen, lv_obj_t* menu_panel, co
     s_runtime.main_screen = main_screen;
     s_runtime.menu_panel = menu_panel;
 
+#if !defined(ARDUINO_T_DECK_PRO)
     createTopBar();
+#endif
     ui::menu_layout::bringContentToFront();
+#if !defined(ARDUINO_T_DECK_PRO)
     ui::status::init();
+#endif
+#if !defined(ARDUINO_T_DECK_PRO)
     initWatchFace();
+#endif
     createTimers();
     refreshTimeLabel();
     refreshBatteryLabel();
@@ -774,6 +834,9 @@ void showWatchFace()
 {
     if (!watchFaceReady() || s_runtime.main_screen == nullptr)
     {
+        // Profiles without a watch-face implementation (including the Pro
+        // text shell) still use the shared screen-power menu return path.
+        showMainMenu();
         return;
     }
 #if defined(ESP_PLATFORM)
@@ -793,9 +856,12 @@ void setMenuActive(bool active)
     {
         platform::ui::walkie::set_ptt(false);
         setWalkieRecording(false);
+#if !defined(ARDUINO_T_DECK_PRO)
         closeMenuHelpModal();
+#endif
     }
 
+#if !defined(ARDUINO_T_DECK_PRO)
     if (s_runtime.time_timer != nullptr)
     {
         if (active)
@@ -819,6 +885,7 @@ void setMenuActive(bool active)
             lv_timer_pause(s_runtime.battery_timer);
         }
     }
+#endif
 
     if (active)
     {
@@ -860,8 +927,13 @@ bool handleShortcutKey(char key, int state)
 
     if (isMenuHelpKey(key))
     {
+#if defined(ARDUINO_T_DECK_PRO)
+        ui::tdeck_pro::text_shell::toggle_help();
+        return true;
+#else
         openMenuHelpModal();
         return true;
+#endif
     }
 
     if (isScreenBrightnessKey(key))

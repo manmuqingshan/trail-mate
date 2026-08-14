@@ -7,6 +7,7 @@
 #include "chat/domain/contact_types.h"
 #include "chat/infra/meshcore/meshcore_payload_helpers.h"
 #include "chat/infra/meshcore/meshcore_protocol_helpers.h"
+#include "chat/infra/voice/vmp_private_crypto.h"
 #include "chat/runtime/meshcore_direct_route_policy.h"
 #include "chat/runtime/meshcore_direct_secret_core.h"
 #include "chat/time_utils.h"
@@ -3196,6 +3197,41 @@ bool MeshCoreAdapter::hasPkiKey(NodeId dest) const
     const uint8_t peer_hash = static_cast<uint8_t>(dest & 0xFFU);
     const PeerRouteEntry* route = findPeerRouteByHash(peer_hash);
     return route && route->has_pubkey;
+}
+
+bool MeshCoreAdapter::deriveVmpContactSecret(NodeId peer_id,
+                                             uint8_t out_secret[32])
+{
+    if (!out_secret || !isPkiReady() || peer_id == 0U || peer_id == 0xFFFFFFFFUL)
+    {
+        return false;
+    }
+    for (const PeerRouteEntry& route : peer_routes_)
+    {
+        if (route.node_id_guess != peer_id || !route.has_pubkey ||
+            !route.pubkey_verified ||
+            isZeroKey(route.pubkey, sizeof(route.pubkey)))
+        {
+            continue;
+        }
+
+        uint8_t identity_shared_secret[MeshCoreIdentity::kPubKeySize] = {};
+        const bool derived = identity_.deriveSharedSecret(route.pubkey,
+                                                          identity_shared_secret) &&
+                             ::chat::voice::vmp::deriveVmpContactSecret(
+                                 identity_shared_secret,
+                                 ::chat::voice::vmp::ContactSecretIdentityFamily::MeshCore,
+                                 node_id_,
+                                 peer_id,
+                                 out_secret);
+        volatile uint8_t* const cursor = identity_shared_secret;
+        for (std::size_t index = 0U; index < sizeof(identity_shared_secret); ++index)
+        {
+            cursor[index] = 0U;
+        }
+        return derived;
+    }
+    return false;
 }
 
 bool MeshCoreAdapter::handleControlAppData(const MeshIncomingData& incoming,

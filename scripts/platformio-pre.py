@@ -401,7 +401,9 @@ def configure_crypto_for_sx1262_esp32():
     crypto_dir = os.path.join(project_dir, ".pio", "libdeps", pio_env, "Crypto")
     library_json_path = os.path.join(crypto_dir, "library.json")
     # This is the linked object closure for AES-CTR, ChaCha-Poly1305,
-    # Curve25519, RNG, and SHA-256 used by the four supported protocols.
+    # Curve25519, HKDF, RNG, and SHA-256 used by the supported protocols.
+    # VMP private MQTT uses HKDF even on the SX1262 Pager, whose VMP carrier
+    # is MQTT-only and therefore never takes the LR1121 RF handshake path.
     desired_src_filter = [
         "-<*>",
         "+<AESEsp32.cpp>",
@@ -414,6 +416,7 @@ def configure_crypto_for_sx1262_esp32():
         "+<Crypto.cpp>",
         "+<Curve25519.cpp>",
         "+<Hash.cpp>",
+        "+<HKDF.cpp>",
         "+<Poly1305.cpp>",
         "+<RNG.cpp>",
         "+<SHA256.cpp>",
@@ -578,6 +581,179 @@ def configure_nrf52_framework_libraries():
     )
 
 
+def filter_product_specific_ui_mono_screens():
+    current_directory = os.path.abspath(project_dir)
+    while not os.path.isdir(os.path.join(current_directory, "modules", "ui_mono")):
+        parent_directory = os.path.dirname(current_directory)
+        if parent_directory == current_directory:
+            raise RuntimeError("Unable to locate the Trail Mate repository root")
+        current_directory = parent_directory
+
+    screen_source_root = os.path.join(
+        current_directory,
+        "modules",
+        "ui_mono",
+        "src",
+        "screens",
+    )
+    product_screen_families = {
+        "gat562_mesh_evb_pro": "screen_128x64",
+        "t-echo-lite": "screen_192x176",
+    }
+    permitted_screen_family = product_screen_families.get(pio_env)
+    if pio_env.startswith("tdeck_pro_"):
+        permitted_screen_family = "screen_240x320"
+
+    product_screen_prefixes = [
+        os.path.normcase(os.path.join(screen_source_root, screen_family)) + os.sep
+        for screen_family in (
+            "screen_128x64",
+            "screen_192x176",
+            "screen_240x320",
+        )
+    ]
+    permitted_screen_prefix = (
+        os.path.normcase(os.path.join(screen_source_root, permitted_screen_family)) + os.sep
+        if permitted_screen_family
+        else None
+    )
+
+    def exclude_foreign_product_screen_source(node):
+        source_path = os.path.normcase(os.path.abspath(node.srcnode().get_path()))
+        if source_path.startswith(tuple(product_screen_prefixes)):
+            if permitted_screen_prefix and source_path.startswith(permitted_screen_prefix):
+                return node
+            return None
+        return node
+
+    env.AddBuildMiddleware(exclude_foreign_product_screen_source)
+    selected_family = permitted_screen_family or "none"
+    print(f"[pio] pre: Selected ui_mono product screen family: {selected_family}")
+
+
+def disable_arduino_tinyusb_dfu_for_release_esp32():
+    # Arduino-ESP32 ships both TinyUSB DFU device classes precompiled for every
+    # ESP32-S3 memory profile. Release Pager and T-Deck builds do not expose an
+    # application USB maintenance interface: flashing remains available through
+    # the ESP32-S3 ROM downloader after the physical BOOT + RESET sequence.
+    #
+    # Remove both Arduino DFU drivers from a build-private archive. In addition
+    # to the full DFU driver's permanent 4 KiB transfer buffer, this keeps DFU
+    # Runtime out of a release image entirely. Debug environments deliberately
+    # retain the original archive so they can expose CDC + full DFU together.
+    #
+    # Keep this list deliberately ESP32-only: nRF52 targets have their own
+    # TinyUSB source/configuration and retain their DFU support unchanged.
+    dfu_disabled_envs = {
+        "tlora_pager_sx1262",
+        "tlora_pager_lr1121",
+        "tdeck",
+        "tdeck_pro_a7682e",
+        "tdeck_pro_pcm512a",
+    }
+    if not is_esp32_env or pio_env not in dfu_disabled_envs:
+        return
+
+    platform = env.PioPlatform()
+    framework_dir = platform.get_package_dir("framework-arduinoespressif32")
+    if not framework_dir:
+        raise RuntimeError("Arduino-ESP32 framework package is required for TinyUSB DFU trimming")
+
+    board_config = env.BoardConfig()
+    mcu = board_config.get("build.mcu")
+    source_archive = os.path.join(
+        framework_dir,
+        "tools",
+        "sdk",
+        mcu,
+        "lib",
+        "libarduino_tinyusb.a",
+    )
+    if not os.path.isfile(source_archive):
+        raise RuntimeError(f"Arduino TinyUSB archive not found: {source_archive}")
+
+    # The directory name is part of the transformation version. It prevents an
+    # archive created by an earlier full-DFU-only optimization from being reused
+    # after DFU Runtime was also removed.
+    archive_dir = os.path.join(env.subst("$BUILD_DIR"), "trail_mate_tinyusb_no_dfu_v2")
+    os.makedirs(archive_dir, exist_ok=True)
+    trimmed_archive = os.path.join(archive_dir, "libarduino_tinyusb.a")
+    toolchain_dir = platform.get_package_dir(f"toolchain-xtensa-{mcu}")
+    if not toolchain_dir:
+        raise RuntimeError(f"ESP32 toolchain package not found for {mcu}")
+    ar_name_candidates = (
+        f"xtensa-{mcu}-elf-ar",
+        f"xtensa-{mcu}-elf-gcc-ar",
+        env.subst("$AR"),
+    )
+    ar_candidates = []
+    for ar_name in ar_name_candidates:
+        candidate = os.path.join(toolchain_dir, "bin", ar_name)
+        ar_candidates.append(candidate)
+        if os.name == "nt":
+            ar_candidates.append(candidate + ".exe")
+    ar_path = next((candidate for candidate in ar_candidates if os.path.isfile(candidate)), None)
+    if not ar_path:
+        raise RuntimeError(
+            "ESP32 archive tool not found; checked: " + ", ".join(ar_candidates)
+        )
+    forbidden_members = ("dfu_device.c.obj", "dfu_rt_device.c.obj")
+
+    def archive_still_contains_dfu_members():
+        if not os.path.isfile(trimmed_archive):
+            return True
+        try:
+            archive_members = subprocess.check_output(
+                [ar_path, "t", trimmed_archive],
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError):
+            return True
+        return any(member in archive_members.splitlines() for member in forbidden_members)
+
+    archive_needs_refresh = (
+        not os.path.isfile(trimmed_archive)
+        or os.path.getmtime(trimmed_archive) < os.path.getmtime(source_archive)
+        or archive_still_contains_dfu_members()
+    )
+    if archive_needs_refresh:
+        with open(source_archive, "rb") as source_fp, open(trimmed_archive, "wb") as target_fp:
+            target_fp.write(source_fp.read())
+        subprocess.check_call(
+            [
+                ar_path,
+                "d",
+                trimmed_archive,
+                "dfu_device.c.obj",
+                "dfu_rt_device.c.obj",
+            ],
+        )
+        archive_members = subprocess.check_output(
+            [ar_path, "t", trimmed_archive],
+            text=True,
+        )
+        remaining_members = [
+            member for member in forbidden_members if member in archive_members.splitlines()
+        ]
+        if remaining_members:
+            raise RuntimeError(
+                "Failed to remove Arduino TinyUSB DFU archive members: "
+                f"{', '.join(remaining_members)}"
+            )
+
+    # PlatformIO selects this SDK archive through -larduino_tinyusb. Search
+    # this build-private directory first so the original package remains
+    # untouched and every CI/local build gets the same trimmed copy.
+    env.Prepend(LIBPATH=[archive_dir])
+
+    env.AppendUnique(
+        CPPDEFINES=[
+            ("TRAIL_MATE_DISABLE_ARDUINO_TINYUSB_DFU", 1),
+        ]
+    )
+    print(f"[pio] pre: Disabled Arduino TinyUSB DFU classes for release {pio_env}")
+
+
 def inject_project_version_define():
     version = resolve_project_version()
     escaped_version = version.replace("\\", "\\\\").replace('"', '\\"')
@@ -594,7 +770,9 @@ configure_lvgl_for_esp32_ui()
 configure_crypto_for_sx1262_esp32()
 configure_sensorlib_for_sx1262_esp32()
 configure_sdfat_for_sx1262_esp32()
+disable_arduino_tinyusb_dfu_for_release_esp32()
 configure_nrf52_framework_libraries()
+filter_product_specific_ui_mono_screens()
 inject_project_version_define()
 
 # Only ESP Arduino builds need the shared LVGL config under platform/esp.

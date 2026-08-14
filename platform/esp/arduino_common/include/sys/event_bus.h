@@ -83,19 +83,33 @@ struct Event
     virtual ~Event() = default;
 };
 
+enum class ChatMessageContentKind : uint8_t
+{
+    Text = 0U,
+    Voice,
+};
+
 /**
- * @brief Chat new message event
+ * @brief One incoming chat item, either text or a local attachment.
+ *
+ * The content kind occupies the padding that already followed `channel`, so
+ * normal text notifications retain their event footprint.  Attachment media
+ * is deliberately not copied into this transport event.
  */
 struct ChatNewMessageEvent : public Event
 {
     uint8_t channel;
+    ChatMessageContentKind content_kind;
     uint32_t msg_id;
     char text[64]; // Message text (truncated if needed)
     chat::RxMeta rx_meta;
 
     ChatNewMessageEvent(uint8_t ch, uint32_t id, const char* msg_text = "",
                         const chat::RxMeta* meta = nullptr)
-        : Event(EventType::ChatNewMessage), channel(ch), msg_id(id)
+        : Event(EventType::ChatNewMessage),
+          channel(ch),
+          content_kind(ChatMessageContentKind::Text),
+          msg_id(id)
     {
         if (msg_text)
         {
@@ -110,6 +124,25 @@ struct ChatNewMessageEvent : public Event
         {
             rx_meta = *meta;
         }
+    }
+};
+
+/**
+ * @brief Incoming voice variant of the standard new-chat-item event.
+ *
+ * The VMP inbox retains the media and metadata; this short-lived event carries
+ * only the attachment identifier used for diagnostics and future routing.
+ * It deliberately shares EventType::ChatNewMessage so notifications and chat
+ * refresh are a single incoming-message flow rather than a voice side path.
+ */
+struct ChatVoiceMessageEvent final : public ChatNewMessageEvent
+{
+    uint64_t local_id;
+
+    ChatVoiceMessageEvent(uint8_t channel, uint64_t id)
+        : ChatNewMessageEvent(channel, 0U, "Voice message"), local_id(id)
+    {
+        content_kind = ChatMessageContentKind::Voice;
     }
 };
 

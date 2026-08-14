@@ -11,13 +11,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <new>
 
 #if defined(ESP_PLATFORM)
-#include "esp_attr.h"
-#define UI_GNSS_STATE_RAM_ATTR EXT_RAM_ATTR
-#else
-#define UI_GNSS_STATE_RAM_ATTR
+#include <esp_heap_caps.h>
 #endif
 
 #if !defined(LV_FONT_MONTSERRAT_12) || !LV_FONT_MONTSERRAT_12
@@ -605,15 +604,77 @@ struct SkyPlotUi
     lv_point_precise_t ew_points[2]{};
 };
 
-static UI_GNSS_STATE_RAM_ATTR SkyPlotUi s_ui{};
-static UI_GNSS_STATE_RAM_ATTR SkyPlotLayout s_layout{};
-static lv_timer_t* s_refresh_timer = nullptr;
-static bool s_gps_power_lease_active = false;
+struct SkyPlotPageState final
+{
+    SkyPlotUi ui{};
+    SkyPlotLayout layout{};
+    SatInfo cached_sats[kMaxSats]{};
+    int cached_sat_count = 0;
+    GnssStatus cached_status{};
+    bool cached_status_valid = false;
+};
 
-static UI_GNSS_STATE_RAM_ATTR SatInfo s_cached_sats[kMaxSats];
-static int s_cached_sat_count = 0;
-static UI_GNSS_STATE_RAM_ATTR GnssStatus s_cached_status{};
-static bool s_cached_status_valid = false;
+SkyPlotPageState* s_page_state = nullptr;
+bool s_page_state_allocation_failed_logged = false;
+lv_timer_t* s_refresh_timer = nullptr;
+bool s_gps_power_lease_active = false;
+
+SkyPlotPageState* allocate_page_state()
+{
+#if defined(ESP_PLATFORM)
+    void* const raw = heap_caps_malloc(sizeof(SkyPlotPageState),
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+    void* const raw = std::malloc(sizeof(SkyPlotPageState));
+#endif
+    return raw ? new (raw) SkyPlotPageState{} : nullptr;
+}
+
+bool ensure_page_state()
+{
+    if (s_page_state)
+    {
+        return true;
+    }
+
+    s_page_state = allocate_page_state();
+    if (s_page_state)
+    {
+        return true;
+    }
+
+    if (!s_page_state_allocation_failed_logged)
+    {
+        s_page_state_allocation_failed_logged = true;
+        std::printf(
+            "[UI][GNSS] page enter denied reason=psram_state_alloc bytes=%u\n",
+            static_cast<unsigned>(sizeof(SkyPlotPageState)));
+    }
+    return false;
+}
+
+void release_page_state()
+{
+    if (!s_page_state)
+    {
+        return;
+    }
+
+    s_page_state->~SkyPlotPageState();
+#if defined(ESP_PLATFORM)
+    heap_caps_free(s_page_state);
+#else
+    std::free(s_page_state);
+#endif
+    s_page_state = nullptr;
+}
+
+#define s_ui (s_page_state->ui)
+#define s_layout (s_page_state->layout)
+#define s_cached_sats (s_page_state->cached_sats)
+#define s_cached_sat_count (s_page_state->cached_sat_count)
+#define s_cached_status (s_page_state->cached_status)
+#define s_cached_status_valid (s_page_state->cached_status_valid)
 
 lv_color_t sys_color(SatInfo::Sys sys)
 {
@@ -1245,15 +1306,17 @@ void refresh_timer_cb(lv_timer_t* timer)
 
 lv_obj_t* ui_gnss_skyplot_create(lv_obj_t* parent)
 {
-    s_ui = {};
-    s_layout = {};
-    if (parent)
+    if (!parent || !ensure_page_state())
     {
-        lv_obj_update_layout(parent);
+        return nullptr;
     }
 
-    lv_coord_t parent_w = parent ? lv_obj_get_width(parent) : 0;
-    lv_coord_t parent_h = parent ? lv_obj_get_height(parent) : 0;
+    s_ui = {};
+    s_layout = {};
+    lv_obj_update_layout(parent);
+
+    lv_coord_t parent_w = lv_obj_get_width(parent);
+    lv_coord_t parent_h = lv_obj_get_height(parent);
     const auto& profile = ::ui::page_profile::current();
     const lv_coord_t top_bar_h = profile.top_bar_height;
     s_layout = resolve_layout(parent_w, parent_h, top_bar_h);
@@ -1602,6 +1665,11 @@ lv_obj_t* ui_gnss_skyplot_create(lv_obj_t* parent)
 
 void ui_gnss_skyplot_set_sats(const SatInfo* sats, int count)
 {
+    if (!ensure_page_state())
+    {
+        return;
+    }
+
     if (count < 0)
     {
         count = 0;
@@ -1626,6 +1694,11 @@ void ui_gnss_skyplot_set_sats(const SatInfo* sats, int count)
 
 void ui_gnss_skyplot_set_status(GnssStatus st)
 {
+    if (!ensure_page_state())
+    {
+        return;
+    }
+
     s_cached_status = st;
     s_cached_status_valid = true;
     if (s_ui.root)
@@ -1636,6 +1709,11 @@ void ui_gnss_skyplot_set_status(GnssStatus st)
 
 void ui_gnss_skyplot_enter(lv_obj_t* parent)
 {
+    if (!ensure_page_state())
+    {
+        return;
+    }
+
     if (s_ui.root)
     {
         ui_gnss_skyplot_exit(parent);
@@ -1644,7 +1722,11 @@ void ui_gnss_skyplot_enter(lv_obj_t* parent)
     lv_group_t* prev_group = lv_group_get_default();
     set_default_group(nullptr);
 
-    ui_gnss_skyplot_create(parent);
+    if (!ui_gnss_skyplot_create(parent))
+    {
+        set_default_group(prev_group);
+        return;
+    }
 
     refresh_gnss_data();
     if (!s_refresh_timer)
@@ -1678,12 +1760,17 @@ void ui_gnss_skyplot_exit(lv_obj_t* parent)
         lv_timer_del(s_refresh_timer);
         s_refresh_timer = nullptr;
     }
+    if (!s_page_state)
+    {
+        return;
+    }
     if (s_ui.root)
     {
         lv_obj_del(s_ui.root);
     }
     s_ui = {};
     s_layout = {};
+    release_page_state();
 }
 
 namespace gnss::ui::runtime

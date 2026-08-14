@@ -8,7 +8,6 @@
 #include <RadioLib.h>
 #include <SPI.h>
 #include <SensorBHI260AP.hpp>
-#include <TouchDrvCSTXXX.hpp>
 #include <XPowersLib.h>
 #include <memory>
 #include <vector>
@@ -20,8 +19,10 @@
 #include "board/SdBoard.h"
 #include "board/TLoRaPagerTypes.h"
 #include "boards/tdeck_pro/board_profile.h"
+#include "boards/tdeck_pro/tdeck_pro_keyboard.h"
 #include "display/DisplayInterface.h"
 #include "platform/esp/arduino_common/gps/GPS.h"
+#include "platform/esp/arduino_common/memory/psram_allocator.h"
 
 namespace boards::tdeck_pro
 {
@@ -56,6 +57,7 @@ class TDeckProBoard : public BoardBase,
 
     void setBrightness(uint8_t level) override;
     uint8_t getBrightness() override { return brightness_; }
+    bool keepsScreenSaverVisibleDuringSleep() const override { return true; }
 
     bool hasKeyboard() override { return keyboard_ready_; }
     void keyboardSetBrightness(uint8_t level) override;
@@ -79,6 +81,13 @@ class TDeckProBoard : public BoardBase,
     void setRotation(uint8_t rotation) override;
     uint8_t getRotation() override { return rotation_; }
     void pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color) override;
+    DisplayTransferResult transferPixels(uint16_t x1,
+                                         uint16_t y1,
+                                         uint16_t x2,
+                                         uint16_t y2,
+                                         uint16_t* color) override;
+    void serviceDisplay(uint32_t now_ms) override;
+    void requestFullRefresh() override;
     uint16_t width() override;
     uint16_t height() override;
     bool hasTouch() override { return touch_ready_; }
@@ -95,9 +104,9 @@ class TDeckProBoard : public BoardBase,
     float getRadioRSSI() override;
     float getRadioInstantRSSI() override;
     float getRadioSNR() override;
-    void configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
-                            int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
-                            uint8_t crc_len) override;
+    int configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
+                           int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
+                           uint8_t crc_len) override;
 
     bool initGPS() override;
     void deinitGPS() override;
@@ -125,8 +134,14 @@ class TDeckProBoard : public BoardBase,
     bool initStorage();
     bool installSD() override;
     void uninstallSD() override;
-    void renderEpd();
-    void setBit(int16_t x, int16_t y, bool black);
+    DisplayTransferResult servicePendingEpd(uint32_t now_ms, bool force_now);
+    DisplayTransferResult renderEpd(bool full_refresh);
+    void mergeDirtyRegion(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint32_t now_ms);
+    void clearDirtyRegion();
+    // Returns true only when the desired EPD pixel differs from the retained
+    // monochrome framebuffer. LVGL may flush unchanged regions repeatedly;
+    // those must not turn into physical E-paper updates.
+    bool setBit(int16_t x, int16_t y, bool black);
     bool keyEventToChar(uint8_t event, char* c, bool* pressed);
 
     using EpdPanel = GxEPD2_BW<GxEPD2_310_GDEQ031T10, GxEPD2_310_GDEQ031T10::HEIGHT>;
@@ -155,13 +170,29 @@ class TDeckProBoard : public BoardBase,
                         shared_spi_};
     SX1262Access radio_{&lora_module_};
     EpdPanel epd_{GxEPD2_310_GDEQ031T10(profile().epd.cs, profile().epd.dc, profile().epd.rst, profile().epd.busy)};
-    TouchDrvCSTXXX touch_;
     Adafruit_TCA8418 keyboard_;
+    keyboard::Decoder keyboard_decoder_;
     GPS gps_;
     SensorBHI260AP motion_;
     PowersBQ25896 pmu_;
     GaugeBQ27220 gauge_;
-    std::vector<uint8_t> mono_buffer_;
+    using PsramByteBuffer = std::vector<
+        uint8_t,
+        ::platform::esp::arduino_common::memory::PsramAllocator<uint8_t>>;
+    // E-paper needs this retained 240 x 320 1-bit surface between partial
+    // refreshes.  It is 9,600 bytes and must not consume internal heap.
+    PsramByteBuffer mono_buffer_;
+    uint16_t dirty_x1_ = 0;
+    uint16_t dirty_y1_ = 0;
+    uint16_t dirty_x2_ = 0;
+    uint16_t dirty_y2_ = 0;
+    uint32_t dirty_since_ms_ = 0;
+    uint32_t last_epd_refresh_ms_ = 0;
+    bool dirty_region_pending_ = false;
+    bool epd_first_frame_pending_ = true;
+    bool epd_force_full_refresh_ = true;
+    uint16_t touch_raw_width_ = static_cast<uint16_t>(kBoardProfile.screen_width);
+    uint16_t touch_raw_height_ = static_cast<uint16_t>(kBoardProfile.screen_height);
 };
 
 extern TDeckProBoard& instance;

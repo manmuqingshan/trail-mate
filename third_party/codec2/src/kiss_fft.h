@@ -29,8 +29,14 @@ extern "C" {
 #define KISS_FFT_MALLOC(nbytes) _mm_malloc(nbytes,16)
 #define KISS_FFT_FREE _mm_free
 #else
+#if defined(ARDUINO_T_LORA_PAGER)
+#include "debug_alloc.h"
+#define KISS_FFT_MALLOC codec2_malloc
+#define KISS_FFT_FREE codec2_free
+#else
 #define KISS_FFT_MALLOC malloc
 #define KISS_FFT_FREE free
+#endif
 #endif
 
 

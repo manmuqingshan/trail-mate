@@ -1,3 +1,4 @@
+#include "chat/infra/meshcore/meshcore_payload_helpers.h"
 #include "chat/runtime/meshcore_runtime.h"
 
 #include <cassert>
@@ -135,6 +136,87 @@ int main()
     context.self_node = 0x11111111UL;
     context.meshcore_discover_node_type = chat::meshcore::kMeshCoreAdvertTypeChat;
     context.meshcore_local_modified_epoch = 1781259000UL;
+
+    {
+        chat::meshcore::MeshCoreDiscoverRequestBuildInfo request{};
+        request.tag = 0x13572468UL;
+        request.type_filter = chat::meshcore::kMeshCoreDiscoverTypeFilterAll;
+
+        uint8_t payload[16] = {};
+        size_t payload_len = 0;
+        assert(chat::meshcore::buildDiscoverRequestControlPayload(request,
+                                                                  payload,
+                                                                  sizeof(payload),
+                                                                  &payload_len));
+
+        uint8_t frame[32] = {};
+        size_t frame_len = 0;
+        assert(chat::meshcore::buildFrameNoTransport(
+            chat::meshcore::PayloadProfile::V2,
+            0x02,
+            chat::meshcore::kMeshCorePayloadTypeControl,
+            nullptr,
+            0,
+            payload,
+            payload_len,
+            frame,
+            sizeof(frame),
+            &frame_len));
+
+        chat::meshcore::ParsedPacket parsed{};
+        assert(chat::meshcore::parsePacket(frame, frame_len, &parsed));
+        assert(chat::meshcore::isPlausibleProtocolPacket(parsed));
+    }
+
+    {
+        uint8_t payload[chat::meshcore::kMeshCoreTraceBasePayloadSize] = {};
+        size_t payload_len = 0;
+        assert(chat::meshcore::buildTracePayload(0x01020304UL,
+                                                 0xA0B0C0D0UL,
+                                                 0,
+                                                 payload,
+                                                 sizeof(payload),
+                                                 &payload_len));
+
+        uint8_t frame[32] = {};
+        size_t frame_len = 0;
+        assert(chat::meshcore::buildFrameNoTransport(
+            chat::meshcore::PayloadProfile::V1,
+            0x02,
+            chat::meshcore::kMeshCorePayloadTypeTrace,
+            nullptr,
+            0,
+            payload,
+            payload_len,
+            frame,
+            sizeof(frame),
+            &frame_len));
+
+        chat::meshcore::ParsedPacket parsed{};
+        assert(chat::meshcore::parsePacket(frame, frame_len, &parsed));
+        assert(chat::meshcore::isPlausibleProtocolPacket(parsed));
+    }
+
+    {
+        const uint8_t unknown_payload[] = {0x55};
+        uint8_t frame[16] = {};
+        size_t frame_len = 0;
+        assert(chat::meshcore::buildFrameNoTransport(
+            chat::meshcore::PayloadProfile::V1,
+            0x02,
+            0x0E,
+            nullptr,
+            0,
+            unknown_payload,
+            sizeof(unknown_payload),
+            frame,
+            sizeof(frame),
+            &frame_len));
+
+        chat::meshcore::ParsedPacket parsed{};
+        assert(chat::meshcore::parsePacket(frame, frame_len, &parsed));
+        assert(!chat::meshcore::isPlausibleProtocolPacket(parsed));
+    }
 
     {
         SendTextIntent intent{};

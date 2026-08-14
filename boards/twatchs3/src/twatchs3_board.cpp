@@ -97,12 +97,21 @@ uint32_t TWatchS3Board::begin(uint32_t disable_hw_init)
     rtc_ready_ = (time(nullptr) > 0);
 
 #if defined(DISP_SCK) && defined(DISP_MISO) && defined(DISP_MOSI) && defined(DISP_CS) && defined(DISP_DC)
-    LilyGoDispArduinoSPI::init(DISP_SCK, DISP_MISO, DISP_MOSI, DISP_CS, DISP_RST, DISP_DC, DISP_BL, 40, SPI);
-    LilyGoDispArduinoSPI::setRotation(2);
-    rotation_ = LilyGoDispArduinoSPI::getRotation();
-    display_ready_ = true;
-    setBrightness(brightness_);
-    Serial.printf("[TWatchS3Board] display init OK: %ux%u\n", LilyGoDispArduinoSPI::_width, LilyGoDispArduinoSPI::_height);
+    display_ready_ = LilyGoDispArduinoSPI::init(
+        DISP_SCK, DISP_MISO, DISP_MOSI, DISP_CS, DISP_RST, DISP_DC, DISP_BL, 40, SPI);
+    if (display_ready_)
+    {
+        LilyGoDispArduinoSPI::setRotation(2);
+        rotation_ = LilyGoDispArduinoSPI::getRotation();
+        setBrightness(brightness_);
+        Serial.printf("[TWatchS3Board] display init OK: %ux%u\n",
+                      LilyGoDispArduinoSPI::_width,
+                      LilyGoDispArduinoSPI::_height);
+    }
+    else
+    {
+        Serial.println("[TWatchS3Board] display init failed");
+    }
 #else
     Serial.println("[TWatchS3Board] display init skipped: missing DISP_* pins");
 #endif
@@ -276,6 +285,15 @@ void TWatchS3Board::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y
     LilyGoDispArduinoSPI::pushColors(x1, y1, x2, y2, color);
 }
 
+DisplayTransferResult TWatchS3Board::transferPixels(uint16_t x1,
+                                                    uint16_t y1,
+                                                    uint16_t x2,
+                                                    uint16_t y2,
+                                                    uint16_t* color)
+{
+    return LilyGoDispArduinoSPI::transferPixels(x1, y1, x2, y2, color);
+}
+
 bool TWatchS3Board::pushColorsResult(uint16_t x1,
                                      uint16_t y1,
                                      uint16_t x2,
@@ -407,22 +425,32 @@ float TWatchS3Board::getRadioSNR()
     return radio_.getSNR();
 }
 
-void TWatchS3Board::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
-                                       int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
-                                       uint8_t crc_len)
+int TWatchS3Board::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
+                                      int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
+                                      uint8_t crc_len)
 {
-    radio_.setFrequency(freq_mhz);
-    radio_.setBandwidth(bw_khz);
-    radio_.setSpreadingFactor(sf);
-    radio_.setCodingRate(cr_denom);
+    int first_error = RADIOLIB_ERR_NONE;
+    const auto note_error = [&first_error](int rc)
+    {
+        if (rc != RADIOLIB_ERR_NONE && first_error == RADIOLIB_ERR_NONE)
+        {
+            first_error = rc;
+        }
+    };
+
+    note_error(radio_.setFrequency(freq_mhz));
+    note_error(radio_.setBandwidth(bw_khz));
+    note_error(radio_.setSpreadingFactor(sf));
+    note_error(radio_.setCodingRate(cr_denom));
 #if defined(ARDUINO_LILYGO_LORA_SX1262)
     apply_tx_power(radio_, tx_power);
 #else
-    radio_.setOutputPower(tx_power);
+    note_error(radio_.setOutputPower(tx_power));
 #endif
-    radio_.setPreambleLength(preamble_len);
-    radio_.setSyncWord(sync_word);
-    radio_.setCRC(crc_len);
+    note_error(radio_.setPreambleLength(preamble_len));
+    note_error(radio_.setSyncWord(sync_word));
+    note_error(radio_.setCRC(crc_len));
+    return first_error;
 }
 
 namespace

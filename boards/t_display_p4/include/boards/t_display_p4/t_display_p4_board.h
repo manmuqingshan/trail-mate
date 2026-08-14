@@ -133,6 +133,8 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
     void keyboardSetBrightness(uint8_t level) override;
     uint8_t keyboardGetBrightness() override;
     bool ensureExternal3v3Power();
+    bool recoverExternal3v3ForKeyboardAttach(uint32_t off_ms = 200,
+                                             uint32_t settle_ms = 300);
     bool configureBatteryGaugeCapacity(uint16_t design_capacity_mah,
                                        uint16_t full_charge_capacity_mah);
     void setKeyboardReady(bool ready);
@@ -200,9 +202,9 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
     void clearRadioIrqFlags(uint32_t flags) override;
     float getRadioRSSI() override;
     float getRadioSNR() override;
-    void configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
-                            int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
-                            uint8_t crc_len) override;
+    int configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
+                           int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
+                           uint8_t crc_len) override;
 
   private:
     struct ManagedI2cSlot

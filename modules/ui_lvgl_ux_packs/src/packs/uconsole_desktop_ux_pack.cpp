@@ -51,7 +51,7 @@ void UConsoleDesktopUxPack::buildScreens(ScreenRegistry& out) const
     (void)out.add({ScreenId::Gps, "GPS", true});
     (void)out.add({ScreenId::Team, "Team", true});
     (void)out.add({ScreenId::Tracker, "Tracker", true});
-    (void)out.add({ScreenId::EnergySweep, "Energy Sweep", true});
+    (void)out.add({ScreenId::EnergySweep, "Protocol Probe", true});
     (void)out.add({ScreenId::WalkieTalkie, "Walkie", true});
     (void)out.add({ScreenId::Sstv, "SSTV", true});
     (void)out.add({ScreenId::Extensions, "Extensions", true});

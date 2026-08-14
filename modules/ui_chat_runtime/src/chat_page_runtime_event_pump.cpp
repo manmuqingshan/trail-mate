@@ -90,7 +90,17 @@ void ChatPageRuntimeEventPump::handleChatNewMessage(
 {
     if (ui_ != nullptr)
     {
-        ui_->onRuntimeMessageArrived(event.msg_id);
+        if (event.content_kind == sys::ChatMessageContentKind::Voice)
+        {
+            // Voice lives in the VMP attachment inbox rather than the text
+            // ledger. Refresh the same unread projection used for incoming
+            // text; its fixed metadata buffer supplies the voice bubble.
+            ui_->onRuntimeUnreadChanged();
+        }
+        else
+        {
+            ui_->onRuntimeMessageArrived(event.msg_id);
+        }
     }
 }
 

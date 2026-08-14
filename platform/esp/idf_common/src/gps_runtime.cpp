@@ -32,6 +32,33 @@ constexpr std::time_t kMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
 constexpr uint32_t kProbeWarmupMs = 1500;
 constexpr uint32_t kProbeListenMs = 3500;
 constexpr uint32_t kNoDataWarnMs = 5000;
+constexpr size_t kRawDiagnosticSampleBytes = 16;
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+constexpr uint32_t kP4GnssFallbackBaud = 9600;
+constexpr uint32_t kP4GnssFallbackWakeCycleMs = 100;
+#endif
+
+enum class NmeaParseResult : uint8_t
+{
+    Accepted = 0,
+    Unsupported,
+    MissingDollar,
+    InvalidChecksum,
+    Malformed,
+};
+
+struct GpsRxDiagnostics
+{
+    uint64_t discarded_prefix_bytes = 0;
+    uint32_t completed_lines = 0;
+    uint32_t accepted_sentences = 0;
+    uint32_t unsupported_sentences = 0;
+    uint32_t invalid_checksums = 0;
+    uint32_t malformed_sentences = 0;
+    uint32_t line_overflows = 0;
+    std::array<uint8_t, kRawDiagnosticSampleBytes> raw_sample{};
+    size_t raw_sample_len = 0;
+};
 
 enum class CollectorSlot : size_t
 {
@@ -535,16 +562,20 @@ void parse_gsv_locked(const char* talker, const std::array<char*, kMaxFields>& f
     merge_sats_locked();
 }
 
-void parse_sentence_locked(const char* sentence, uint32_t ts)
+NmeaParseResult parse_sentence_locked(const char* sentence, uint32_t ts)
 {
-    if (!sentence || sentence[0] != '$' || !verify_checksum(sentence)) return;
+    if (!sentence || sentence[0] != '$') return NmeaParseResult::MissingDollar;
+    if (!verify_checksum(sentence)) return NmeaParseResult::InvalidChecksum;
     char working[kLineBufferSize] = {};
     std::strncpy(working, sentence + 1, sizeof(working) - 1);
     char* star = std::strchr(working, '*');
     if (star) *star = '\0';
     std::array<char*, kMaxFields> fields{};
     std::size_t count = split_fields(working, fields);
-    if (count == 0 || !fields[0] || std::strlen(fields[0]) < 5) return;
+    if (count == 0 || !fields[0] || std::strlen(fields[0]) < 5)
+    {
+        return NmeaParseResult::Malformed;
+    }
     char talker[3] = {fields[0][0], fields[0][1], '\0'};
     const char* type = fields[0] + std::strlen(fields[0]) - 3;
     s_runtime.last_rx_ms = ts;
@@ -557,11 +588,85 @@ void parse_sentence_locked(const char* sentence, uint32_t ts)
     else if (std::strcmp(type, "GGA") == 0) parse_gga_locked(fields, count, ts);
     else if (std::strcmp(type, "GSA") == 0) parse_gsa_locked(fields, count);
     else if (std::strcmp(type, "GSV") == 0) parse_gsv_locked(talker, fields, count);
+    else return NmeaParseResult::Unsupported;
+    return NmeaParseResult::Accepted;
 }
 
-void append_bytes_and_process(const uint8_t* buffer, int length, char* line_buffer, std::size_t* line_length)
+void record_nmea_parse_result(GpsRxDiagnostics* diagnostics, NmeaParseResult result)
+{
+    if (!diagnostics) return;
+    switch (result)
+    {
+    case NmeaParseResult::Accepted:
+        ++diagnostics->accepted_sentences;
+        break;
+    case NmeaParseResult::Unsupported:
+        ++diagnostics->unsupported_sentences;
+        break;
+    case NmeaParseResult::InvalidChecksum:
+        ++diagnostics->invalid_checksums;
+        break;
+    case NmeaParseResult::Malformed:
+    case NmeaParseResult::MissingDollar:
+        ++diagnostics->malformed_sentences;
+        break;
+    }
+}
+
+void save_raw_diagnostic_sample(GpsRxDiagnostics* diagnostics, const uint8_t* buffer, int length)
+{
+    if (!diagnostics || !buffer || length <= 0) return;
+    diagnostics->raw_sample_len =
+        std::min<std::size_t>(static_cast<std::size_t>(length), diagnostics->raw_sample.size());
+    std::memcpy(diagnostics->raw_sample.data(), buffer, diagnostics->raw_sample_len);
+}
+
+void format_raw_diagnostic_sample(const GpsRxDiagnostics& diagnostics,
+                                  char* output,
+                                  std::size_t output_size)
+{
+    if (!output || output_size == 0) return;
+    output[0] = '\0';
+    std::size_t used = 0;
+    for (std::size_t i = 0; i < diagnostics.raw_sample_len && used + 3 < output_size; ++i)
+    {
+        const int written = std::snprintf(output + used,
+                                          output_size - used,
+                                          "%02X%s",
+                                          static_cast<unsigned>(diagnostics.raw_sample[i]),
+                                          i + 1 == diagnostics.raw_sample_len ? "" : " ");
+        if (written <= 0) break;
+        used += static_cast<std::size_t>(written);
+    }
+}
+
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+bool raw_diagnostic_sample_is_all_zero(const GpsRxDiagnostics& diagnostics)
+{
+    if (diagnostics.raw_sample_len == 0)
+    {
+        return false;
+    }
+
+    for (std::size_t index = 0; index < diagnostics.raw_sample_len; ++index)
+    {
+        if (diagnostics.raw_sample[index] != 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+#endif
+
+void append_bytes_and_process(const uint8_t* buffer,
+                              int length,
+                              char* line_buffer,
+                              std::size_t* line_length,
+                              GpsRxDiagnostics* diagnostics)
 {
     if (!buffer || length <= 0 || !line_buffer || !line_length) return;
+    save_raw_diagnostic_sample(diagnostics, buffer, length);
     for (int i = 0; i < length; ++i)
     {
         char ch = static_cast<char>(buffer[i]);
@@ -571,14 +676,27 @@ void append_bytes_and_process(const uint8_t* buffer, int length, char* line_buff
             {
                 line_buffer[*line_length] = '\0';
                 std::lock_guard<std::mutex> lock(s_mutex);
-                parse_sentence_locked(line_buffer, now_ms());
+                const NmeaParseResult result = parse_sentence_locked(line_buffer, now_ms());
+                if (diagnostics)
+                {
+                    ++diagnostics->completed_lines;
+                    record_nmea_parse_result(diagnostics, result);
+                }
                 *line_length = 0;
             }
             continue;
         }
-        if (*line_length == 0 && ch != '$') continue;
+        if (*line_length == 0 && ch != '$')
+        {
+            if (diagnostics) ++diagnostics->discarded_prefix_bytes;
+            continue;
+        }
         if (*line_length + 1 < kLineBufferSize) line_buffer[(*line_length)++] = ch;
-        else *line_length = 0;
+        else
+        {
+            if (diagnostics) ++diagnostics->line_overflows;
+            *line_length = 0;
+        }
     }
 }
 
@@ -664,6 +782,10 @@ void worker_task(void*)
     uint8_t rx_buffer[kRxBufferSize] = {};
     uint64_t raw_rx_bytes = 0;
     uint32_t last_raw_rx_ms = 0;
+    GpsRxDiagnostics rx_diagnostics{};
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    bool p4_auto_baud_fallback_attempted = false;
+#endif
 
     while (true)
     {
@@ -678,7 +800,11 @@ void worker_task(void*)
         {
             raw_rx_bytes += static_cast<uint64_t>(read_len);
             last_raw_rx_ms = now_ms();
-            append_bytes_and_process(rx_buffer, read_len, line_buffer, &line_length);
+            append_bytes_and_process(rx_buffer,
+                                     read_len,
+                                     line_buffer,
+                                     &line_length,
+                                     &rx_diagnostics);
         }
 
         bool should_exit = false;
@@ -688,6 +814,9 @@ void worker_task(void*)
         uint32_t last_rx_ms = 0;
         uint32_t last_fix_ms = 0;
         uint32_t now = now_ms();
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+        bool switch_to_p4_fallback_baud = false;
+#endif
         {
             std::lock_guard<std::mutex> lock(s_mutex);
             enabled = s_runtime.enabled;
@@ -706,17 +835,74 @@ void worker_task(void*)
             else if ((now - last_rx_ms) >= kNoDataWarnMs && s_runtime.last_no_data_log_ms + kNoDataWarnMs <= now)
             {
                 const auto gps_uart_log = gps_uart_pins();
+                char raw_sample[3 * kRawDiagnosticSampleBytes] = {};
+                format_raw_diagnostic_sample(rx_diagnostics, raw_sample, sizeof(raw_sample));
                 ESP_LOGW(kTag,
-                         "GNSS no NMEA data yet: port=%d tx=%d rx=%d mode=%u raw_bytes=%llu last_raw_ms=%u",
+                         "GNSS parser has no valid NMEA: port=%d tx=%d rx=%d mode=%u raw_bytes=%llu last_raw_ms=%u lines=%lu valid=%lu unsupported=%lu bad_checksum=%lu malformed=%lu prefix_bytes=%llu overflow=%lu partial_len=%u raw_hex=%s",
                          gps_uart_log.port,
                          gps_uart_log.tx,
                          gps_uart_log.rx,
                          s_runtime.gnss_mode,
                          static_cast<unsigned long long>(raw_rx_bytes),
-                         last_raw_rx_ms);
+                         last_raw_rx_ms,
+                         static_cast<unsigned long>(rx_diagnostics.completed_lines),
+                         static_cast<unsigned long>(rx_diagnostics.accepted_sentences),
+                         static_cast<unsigned long>(rx_diagnostics.unsupported_sentences),
+                         static_cast<unsigned long>(rx_diagnostics.invalid_checksums),
+                         static_cast<unsigned long>(rx_diagnostics.malformed_sentences),
+                         static_cast<unsigned long long>(rx_diagnostics.discarded_prefix_bytes),
+                         static_cast<unsigned long>(rx_diagnostics.line_overflows),
+                         static_cast<unsigned>(line_length),
+                         raw_sample[0] != '\0' ? raw_sample : "none");
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+                // A P4 receiver left at a factory L76K rate can look like a
+                // continuously low UART when sampled at the board's 115200
+                // default. Only auto-fallback when Settings requested the
+                // board default (baud=0); an explicit user selection always
+                // remains authoritative.
+                if (!p4_auto_baud_fallback_attempted &&
+                    s_runtime.receiver_init_config.baud == 0 &&
+                    raw_rx_bytes >= kRxBufferSize &&
+                    raw_diagnostic_sample_is_all_zero(rx_diagnostics))
+                {
+                    p4_auto_baud_fallback_attempted = true;
+                    switch_to_p4_fallback_baud = true;
+                }
+#endif
                 s_runtime.last_no_data_log_ms = now;
             }
         }
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+        if (switch_to_p4_fallback_baud)
+        {
+            ESP_LOGW(kTag,
+                     "P4 GNSS auto-baud fallback: raw UART stayed at 0x00 with Settings baud=Auto; cycling wake then trying %lu",
+                     static_cast<unsigned long>(kP4GnssFallbackBaud));
+            teardown_uart_hardware();
+            vTaskDelay(pdMS_TO_TICKS(kP4GnssFallbackWakeCycleMs));
+            if (::boards::t_display_p4::TDisplayP4Board::instance().prepareGpsRuntime(
+                    kP4GnssFallbackBaud))
+            {
+                ESP_LOGI(kTag,
+                         "P4 GNSS auto-baud fallback active: port=%d tx=%d rx=%d baud=%lu",
+                         gps_uart.port,
+                         gps_uart.tx,
+                         gps_uart.rx,
+                         static_cast<unsigned long>(kP4GnssFallbackBaud));
+                std::memset(line_buffer, 0, sizeof(line_buffer));
+                line_length = 0;
+                raw_rx_bytes = 0;
+                last_raw_rx_ms = 0;
+                rx_diagnostics = GpsRxDiagnostics{};
+            }
+            else
+            {
+                ESP_LOGE(kTag, "P4 GNSS auto-baud fallback UART setup failed");
+                (void)::boards::t_display_p4::TDisplayP4Board::instance().prepareGpsRuntime();
+            }
+            continue;
+        }
+#endif
         if (should_exit) break;
     }
 

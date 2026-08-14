@@ -253,6 +253,7 @@ TaskHandle_t AppTasks::radio_task_handle_ = nullptr;
 TaskHandle_t AppTasks::mesh_task_handle_ = nullptr;
 LoraBoard* AppTasks::board_ = nullptr;
 chat::IMeshAdapter* AppTasks::adapter_ = nullptr;
+IRawRadioPacketInterceptor* AppTasks::raw_radio_packet_interceptor_ = nullptr;
 uint8_t* AppTasks::radio_rx_scratch_ = nullptr;
 volatile bool AppTasks::radio_tasks_paused_ = false;
 volatile bool AppTasks::radio_receive_active_ = false;
@@ -465,6 +466,12 @@ bool AppTasks::enqueueRadioTransmit(const uint8_t* data, size_t size)
 
     requestRadioReceiveRestart();
     return true;
+}
+
+void AppTasks::setRawRadioPacketInterceptor(
+    IRawRadioPacketInterceptor* interceptor)
+{
+    raw_radio_packet_interceptor_ = interceptor;
 }
 
 AppTasks::ScopedRadioTransmitActivity::ScopedRadioTransmitActivity()
@@ -780,13 +787,24 @@ void AppTasks::meshTask(void* pvParameters)
         }
         if (xQueueReceive(mesh_queue_, &rx_packet, 0) == pdPASS)
         {
-            if (!rx_packet.is_tx && rx_packet.data && adapter_)
+            if (!rx_packet.is_tx && rx_packet.data)
             {
-                // Decode and process through configured mesh adapter
-                adapter_->setLastRxStats(rx_packet.rssi, rx_packet.snr);
-                adapter_->handleRawPacket(rx_packet.data, rx_packet.size);
+                const bool intercepted = raw_radio_packet_interceptor_ &&
+                                         raw_radio_packet_interceptor_->tryConsume(
+                                             rx_packet.data,
+                                             rx_packet.size,
+                                             rx_packet.rssi,
+                                             rx_packet.snr);
+                if (!intercepted && adapter_)
+                {
+                    // The default behavior is intentionally unchanged for any
+                    // frame that an application-owned sideband parser declines.
+                    adapter_->setLastRxStats(rx_packet.rssi, rx_packet.snr);
+                    adapter_->handleRawPacket(rx_packet.data, rx_packet.size);
+                }
 
-                // Free buffer
+                // Both the mesh adapter and a sideband parser receive borrowed
+                // bytes only; AppTasks retains and releases this allocation.
                 heap_caps_free(rx_packet.data);
             }
         }

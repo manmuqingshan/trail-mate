@@ -48,7 +48,7 @@ struct ChatComposeScreen::Impl
         ActionIntent intent = ActionIntent::Send;
     };
     ActionContext send_ctx;
-    ActionContext position_ctx;
+    ActionContext auxiliary_ctx;
     ActionContext cancel_ctx;
     lv_obj_t* sym_btn = nullptr;
     lv_obj_t* emoji_btn = nullptr;
@@ -161,12 +161,27 @@ ChatComposeScreen::ChatComposeScreen(lv_obj_t* parent, chat::ConversationId conv
 
     impl_->send_ctx.screen = this;
     impl_->send_ctx.intent = ActionIntent::Send;
-    impl_->position_ctx.screen = this;
-    impl_->position_ctx.intent = ActionIntent::Position;
+    impl_->auxiliary_ctx.screen = this;
+    impl_->auxiliary_ctx.intent = ActionIntent::Position;
     impl_->cancel_ctx.screen = this;
     impl_->cancel_ctx.intent = ActionIntent::Cancel;
     lv_obj_add_event_cb(impl_->w.send_btn, on_action_click, LV_EVENT_CLICKED, &impl_->send_ctx);
-    lv_obj_add_event_cb(impl_->w.position_btn, on_action_click, LV_EVENT_CLICKED, &impl_->position_ctx);
+    lv_obj_add_event_cb(impl_->w.position_btn, on_action_click, LV_EVENT_CLICKED, &impl_->auxiliary_ctx);
+    // Voice mode deliberately uses press/release rather than CLICKED. CLICKED
+    // is emitted only after release, which would start a five-second capture
+    // after the user had already stopped holding the control.
+    lv_obj_add_event_cb(impl_->w.position_btn,
+                        on_voice_pressed,
+                        LV_EVENT_PRESSED,
+                        &impl_->auxiliary_ctx);
+    lv_obj_add_event_cb(impl_->w.position_btn,
+                        on_voice_released,
+                        LV_EVENT_RELEASED,
+                        &impl_->auxiliary_ctx);
+    lv_obj_add_event_cb(impl_->w.position_btn,
+                        on_voice_released,
+                        LV_EVENT_PRESS_LOST,
+                        &impl_->auxiliary_ctx);
     lv_obj_add_event_cb(impl_->w.cancel_btn, on_action_click, LV_EVENT_CLICKED, &impl_->cancel_ctx);
     lv_obj_add_event_cb(impl_->w.send_btn, on_key, LV_EVENT_KEY, this);
     lv_obj_add_event_cb(impl_->w.position_btn, on_key, LV_EVENT_KEY, this);
@@ -184,6 +199,7 @@ ChatComposeScreen::ChatComposeScreen(lv_obj_t* parent, chat::ConversationId conv
 
     input::bind_textarea_events(impl_->w, this, on_key, on_text_changed);
     input::setup_default_group_focus(impl_->w);
+    syncFocusOrder();
 
     if (impl_->w.container && !lv_obj_is_valid(impl_->w.container))
     {
@@ -266,6 +282,7 @@ void ChatComposeScreen::setActionLabels(const char* send_label, const char* canc
 void ChatComposeScreen::setPositionButton(const char* label, bool visible)
 {
     if (!impl_ || !impl_->w.position_btn) return;
+    impl_->auxiliary_ctx.intent = ActionIntent::Position;
     if (label)
     {
         set_btn_label_text(impl_->w.position_btn, label);
@@ -280,16 +297,38 @@ void ChatComposeScreen::setPositionButton(const char* label, bool visible)
         lv_obj_add_flag(impl_->w.position_btn, LV_OBJ_FLAG_HIDDEN);
     }
 
-    if (lv_group_t* g = lv_group_get_default())
+    syncFocusOrder();
+}
+
+void ChatComposeScreen::setVoiceButton(const char* label, bool visible)
+{
+    if (!impl_ || !impl_->w.position_btn) return;
+    impl_->auxiliary_ctx.intent = ActionIntent::VoiceStart;
+    const bool visibility_changed =
+        lv_obj_has_flag(impl_->w.position_btn, LV_OBJ_FLAG_HIDDEN) == visible;
+    if (label)
     {
-        if (visible)
-        {
-            lv_group_add_obj(g, impl_->w.position_btn);
-        }
-        else
-        {
-            lv_group_remove_obj(impl_->w.position_btn);
-        }
+        set_btn_label_text(impl_->w.position_btn, label);
+        fit_btn_to_label(impl_->w.position_btn, 8);
+    }
+    if (visible)
+    {
+        lv_obj_clear_flag(impl_->w.position_btn, LV_OBJ_FLAG_HIDDEN);
+    }
+    else
+    {
+        lv_obj_add_flag(impl_->w.position_btn, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // Recording begins on LV_EVENT_PRESSED and ends on LV_EVENT_RELEASED.
+    // Rebuilding the LVGL group just to refresh "Voice" -> "Release" removes
+    // the currently pressed object from the group, which transfers encoder
+    // focus before the release reaches it. Only a visibility transition
+    // changes the group membership; a label/timer refresh must preserve the
+    // focused Voice button for the entire press-and-hold sequence.
+    if (visibility_changed)
+    {
+        syncFocusOrder();
     }
 }
 
@@ -344,6 +383,11 @@ void ChatComposeScreen::attachImeWidget(::ui::widgets::ImeWidget* widget)
         return;
     }
 
+    // Keep the invisible IME proxy out of the rotary sequence.  Key events
+    // instead enter through the visible IME control, so a hardware keyboard
+    // can still type while focus traversal stays entirely visual.
+    lv_obj_add_event_cb(ime_toggle, on_key, LV_EVENT_KEY, this);
+
     lv_group_t* group = lv_group_get_default();
     const auto ensure_candidate_button =
         [&](lv_obj_t*& button, ::ui::widgets::text_candidates::CandidateSet set, std::uint32_t index)
@@ -384,6 +428,69 @@ void ChatComposeScreen::attachImeWidget(::ui::widgets::ImeWidget* widget)
         impl_->emoji_btn,
         ::ui::widgets::text_candidates::CandidateSet::Emoji,
         2);
+    syncFocusOrder(true);
+}
+
+void ChatComposeScreen::syncFocusOrder(bool focus_ime)
+{
+    if (!impl_)
+    {
+        return;
+    }
+    lv_group_t* const group = lv_group_get_default();
+    if (!group)
+    {
+        return;
+    }
+
+    // A rotary user traverses visible controls in their visual sequence. The
+    // textarea stays editable through touch/IME, while IME's hidden proxy
+    // stays internal and never appears as a focus stop.
+    lv_obj_t* const ime_toggle =
+        ime_widget_ && lv_obj_is_valid(ime_widget_->toggle_btn())
+            ? ime_widget_->toggle_btn()
+            : nullptr;
+    lv_obj_t* const focus_proxy =
+        ime_widget_ && lv_obj_is_valid(ime_widget_->focus_obj())
+            ? ime_widget_->focus_obj()
+            : nullptr;
+    const auto remove = [group](lv_obj_t* object)
+    {
+        if (object && lv_obj_is_valid(object))
+        {
+            lv_group_remove_obj(object);
+        }
+    };
+    remove(impl_->w.textarea);
+    remove(focus_proxy);
+    remove(ime_toggle);
+    remove(impl_->sym_btn);
+    remove(impl_->emoji_btn);
+    remove(impl_->w.send_btn);
+    remove(impl_->w.position_btn);
+    remove(impl_->w.cancel_btn);
+    remove(impl_->w.top_bar.back_btn);
+
+    const auto add_visible = [group](lv_obj_t* object)
+    {
+        if (object && lv_obj_is_valid(object) &&
+            !lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN))
+        {
+            lv_group_add_obj(group, object);
+        }
+    };
+    add_visible(ime_toggle);
+    add_visible(impl_->sym_btn);
+    add_visible(impl_->emoji_btn);
+    add_visible(impl_->w.send_btn);
+    add_visible(impl_->w.position_btn);
+    add_visible(impl_->w.cancel_btn);
+    add_visible(impl_->w.top_bar.back_btn);
+
+    if (focus_ime && ime_toggle)
+    {
+        lv_group_focus_obj(ime_toggle);
+    }
 }
 
 lv_obj_t* ChatComposeScreen::getTextarea() const
@@ -520,7 +627,52 @@ void ChatComposeScreen::on_action_click(lv_event_t* e)
     {
         return;
     }
+    // A voice hold has already begun on LV_EVENT_PRESSED. Ignore the synthetic
+    // click emitted after release so it cannot begin a second recording.
+    if (ctx->intent == ActionIntent::VoiceStart)
+    {
+        return;
+    }
     screen->schedule_action_async(ctx->intent);
+}
+
+void ChatComposeScreen::on_voice_pressed(lv_event_t* e)
+{
+    auto* ctx = static_cast<Impl::ActionContext*>(lv_event_get_user_data(e));
+    if (!ctx || ctx->intent != ActionIntent::VoiceStart || !ctx->screen)
+    {
+        return;
+    }
+    auto* const screen = ctx->screen;
+    if (!screen->impl_ || !screen->impl_->guard || !screen->impl_->guard->alive ||
+        !screen->action_cb_)
+    {
+        return;
+    }
+    CHAT_COMPOSE_LOG("[ChatCompose][VMP] voice press: begin capture\n");
+    screen->action_cb_(ActionIntent::VoiceStart, screen->action_cb_user_data_);
+}
+
+void ChatComposeScreen::on_voice_released(lv_event_t* e)
+{
+    auto* ctx = static_cast<Impl::ActionContext*>(lv_event_get_user_data(e));
+    if (!ctx || ctx->intent != ActionIntent::VoiceStart || !ctx->screen)
+    {
+        return;
+    }
+    auto* const screen = ctx->screen;
+    if (!screen->impl_ || !screen->impl_->guard || !screen->impl_->guard->alive ||
+        !screen->action_cb_)
+    {
+        return;
+    }
+    // Stopping capture may immediately switch back to the conversation and
+    // destroy this compose button.  Defer that state transition until after
+    // LVGL has finished dispatching RELEASED/PRESS_LOST; recording itself was
+    // already started synchronously on PRESSED, so this does not reintroduce
+    // the old click-to-start behavior.
+    CHAT_COMPOSE_LOG("[ChatCompose][VMP] voice release: schedule capture stop\n");
+    screen->schedule_action_async(ActionIntent::VoiceStop);
 }
 
 void ChatComposeScreen::on_text_changed(lv_event_t* e)
@@ -556,6 +708,9 @@ void ChatComposeScreen::on_key(lv_event_t* e)
     }
 
     uint32_t key = lv_event_get_key(e);
+    lv_obj_t* const target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+    lv_indev_t* indev = lv_indev_get_act();
+    const bool is_encoder = indev && lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER;
     if (key == LV_KEY_ESC)
     {
         if (screen->back_cb_)
@@ -568,7 +723,6 @@ void ChatComposeScreen::on_key(lv_event_t* e)
 
     if (key == LV_KEY_ENTER && screen->impl_->w.send_btn)
     {
-        lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
         lv_obj_t* focused = nullptr;
         if (lv_group_t* g = lv_group_get_default())
         {
@@ -582,15 +736,21 @@ void ChatComposeScreen::on_key(lv_event_t* e)
         }
     }
 
+    // LVGL turns the encoder's ENTER on a focused button into CLICKED.  Do
+    // not consume it here: the visible IME control must keep its ordinary
+    // mode-switch action.  Keypad ENTER continues into the IME as text input.
+    if (screen->ime_widget_ && target == screen->ime_widget_->toggle_btn() &&
+        is_encoder && key == LV_KEY_ENTER)
+    {
+        return;
+    }
+
     if (screen->ime_widget_ && screen->ime_widget_->handle_key(e))
     {
         return;
     }
 
     CHAT_COMPOSE_LOG("[ChatCompose] key=%lu\n", static_cast<unsigned long>(key));
-
-    lv_indev_t* indev = lv_indev_get_act();
-    bool is_encoder = indev && lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER;
 
     if (is_encoder && key == LV_KEY_ENTER && screen->impl_->w.send_btn)
     {

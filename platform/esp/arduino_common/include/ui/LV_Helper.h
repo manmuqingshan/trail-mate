@@ -1,5 +1,9 @@
 #pragma once
 
+#if defined(ARDUINO_T_DECK_PRO)
+#include <stdint.h>
+#endif
+
 #include <lvgl.h>
 
 class LilyGo_Display;
@@ -10,6 +14,12 @@ class LilyGo_Display;
 #endif
 
 void beginLvglHelper(LilyGo_Display& display, bool debug = false);
+#if defined(ARDUINO_T_DECK_PRO)
+void serviceLvglDisplay(uint32_t now_ms);
+#endif
+// Marks the next physical frame as a full refresh when the active display
+// supports one.  Callers use this only for visual lifecycle boundaries.
+void requestLvglFullRefresh();
 void lv_set_default_group(lv_group_t* group);
 lv_indev_t* lv_get_touch_indev();
 lv_indev_t* lv_get_keyboard_indev();

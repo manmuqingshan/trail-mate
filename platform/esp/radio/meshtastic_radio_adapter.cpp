@@ -37,6 +37,7 @@ constexpr uint16_t kIrqCrcErr = 0x0040;
 constexpr uint16_t kIrqTimeout = 0x0200;
 constexpr uint8_t kBitfieldWantResponseMask = 0x02;
 constexpr uint32_t kRadioOk = 0;
+constexpr uint32_t kRadioDiagnosticIntervalMs = 5000;
 
 uint32_t now_millis()
 {
@@ -720,14 +721,47 @@ void MeshtasticRadioAdapter::pollRadio()
 {
     if (!ready_ || !board_.isRadioOnline())
     {
+        const uint32_t now = now_millis();
+        if (last_radio_diagnostic_ms_ == 0 ||
+            now - last_radio_diagnostic_ms_ >= kRadioDiagnosticIntervalMs)
+        {
+            ESP_LOGW(kTag,
+                     "radio rx unavailable ready=%d board_online=%d",
+                     ready_ ? 1 : 0,
+                     board_.isRadioOnline() ? 1 : 0);
+            last_radio_diagnostic_ms_ = now;
+        }
         return;
     }
 
     IdfLoraRadioFrame frame{};
     const IdfLoraPollResult result = radio_pump_.poll(frame);
-    if (result == IdfLoraPollResult::None ||
-        result == IdfLoraPollResult::RadioOffline)
+    const uint32_t now = now_millis();
+    if (result == IdfLoraPollResult::None)
     {
+        if (last_radio_diagnostic_ms_ == 0 ||
+            now - last_radio_diagnostic_ms_ >= kRadioDiagnosticIntervalMs)
+        {
+            ESP_LOGI(kTag, "radio rx waiting: receiver_started=1 irq=0x0000");
+            last_radio_diagnostic_ms_ = now;
+        }
+        return;
+    }
+    if (result == IdfLoraPollResult::RadioOffline ||
+        result == IdfLoraPollResult::ReceiveStartFailed ||
+        result == IdfLoraPollResult::ReceiveRestartFailed)
+    {
+        if (last_radio_diagnostic_ms_ == 0 ||
+            now - last_radio_diagnostic_ms_ >= kRadioDiagnosticIntervalMs)
+        {
+            ESP_LOGW(kTag,
+                     "radio rx state failure result=%u board_online=%d start_rc=%d irq=0x%04lX",
+                     static_cast<unsigned>(result),
+                     board_.isRadioOnline() ? 1 : 0,
+                     radio_pump_.lastReceiveStartResult(),
+                     static_cast<unsigned long>(frame.irq));
+            last_radio_diagnostic_ms_ = now;
+        }
         return;
     }
 
@@ -791,11 +825,18 @@ void MeshtasticRadioAdapter::configureRadio()
     radio_bw_hz_ = static_cast<uint32_t>(std::lround(radio.bw_khz * 1000.0f));
     radio_sf_ = radio.sf;
     radio_cr_ = radio.cr_denom;
-    ready_ = true;
-    (void)radio_pump_.restartReceive();
+    const bool receive_started = radio_pump_.restartReceive();
+    ready_ = receive_started;
+    if (!receive_started)
+    {
+        ESP_LOGE(kTag,
+                 "radio configuration applied but receive start failed: start_rc=%d",
+                 radio_pump_.lastReceiveStartResult());
+        return;
+    }
 
     ESP_LOGI(kTag,
-             "radio ready node=%08lX region=%u preset=%u use_preset=%u freq=%.3f bw=%.1f sf=%u cr=4/%u tx=%d ch=%lu sync=0x%02X preamble=%u hash=(%02X,%02X)",
+             "radio ready node=%08lX region=%u preset=%u use_preset=%u freq=%.3f bw=%.1f sf=%u cr=4/%u tx=%d ch=%lu sync=0x%02X preamble=%u hash=(%02X,%02X) rx_started=1",
              static_cast<unsigned long>(node_id_),
              static_cast<unsigned>(radio.region_code),
              static_cast<unsigned>(radio.modem_preset),

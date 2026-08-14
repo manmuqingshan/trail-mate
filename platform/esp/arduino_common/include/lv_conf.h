@@ -531,10 +531,18 @@
  *
  * Keep ESP-only fonts declared from ESP-owned paths so NRF builds don't
  * accidentally pull large bitmap assets into their source lists.*/
+#if defined(ARDUINO_T_DECK_PRO)
+#define LV_FONT_CUSTOM_DECLARE LV_FONT_DECLARE(tdeck_pro_unifont_16) extern lv_font_t tdeck_pro_ui_font_16;
+#else
 #define LV_FONT_CUSTOM_DECLARE
+#endif
 
 /*Always set a default font*/
+#if defined(ARDUINO_T_DECK_PRO)
+#define LV_FONT_DEFAULT &tdeck_pro_ui_font_16
+#else
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
+#endif
 
 /*Enable handling large font and/or fonts with a lot of characters.
  *The limit depends on the font size, font face and bpp.

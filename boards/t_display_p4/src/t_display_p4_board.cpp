@@ -511,6 +511,91 @@ bool TDisplayP4Board::ensureExternal3v3Power()
     return true;
 }
 
+bool TDisplayP4Board::recoverExternal3v3ForKeyboardAttach(uint32_t off_ms,
+                                                          uint32_t settle_ms)
+{
+    if (!ensure_external_3v3_power_control())
+    {
+        return false;
+    }
+
+    if (!expander_ready_)
+    {
+        if ((!started_ && begin() != 0) || (!expander_ready_ && !initializeExpander()))
+        {
+            ESP_LOGE(kTag, "Failed to prepare XL9535 for keyboard 3.3V recovery");
+            return false;
+        }
+    }
+
+    const auto& io = ioExpanderPins();
+    const auto& p = profile();
+    if (!expanderPinMode(io.power_3v3, true))
+    {
+        ESP_LOGE(kTag, "Failed to configure external 3.3V rail for keyboard recovery");
+        return false;
+    }
+
+    bool gps_wake_was_active = false;
+    bool gps_wake_state_known = false;
+    if (io.gps_wake >= 0)
+    {
+        gps_wake_state_known =
+            expanderReadActive(io.gps_wake, &gps_wake_was_active, p.gps_wake_active_high);
+        (void)expanderPinMode(io.gps_wake, true);
+        (void)expanderWriteActive(io.gps_wake, false, p.gps_wake_active_high);
+    }
+
+    bool c6_was_active = false;
+    bool c6_state_known = false;
+    if (io.c6_enable >= 0)
+    {
+        c6_state_known =
+            expanderReadActive(io.c6_enable, &c6_was_active, p.c6_enable_active_high);
+        (void)expanderPinMode(io.c6_enable, true);
+        (void)expanderWriteActive(io.c6_enable, false, p.c6_enable_active_high);
+    }
+
+    ESP_LOGW(kTag,
+             "Keyboard attach recovery cycling external 3.3V rail off_ms=%lu settle_ms=%lu gps_known=%u gps_was_active=%u c6_known=%u c6_was_active=%u",
+             static_cast<unsigned long>(off_ms),
+             static_cast<unsigned long>(settle_ms),
+             gps_wake_state_known ? 1U : 0U,
+             gps_wake_was_active ? 1U : 0U,
+             c6_state_known ? 1U : 0U,
+             c6_was_active ? 1U : 0U);
+
+    if (!expanderWriteActive(io.power_3v3, false, p.power_3v3_active_high))
+    {
+        ESP_LOGE(kTag, "Failed to deassert external 3.3V rail for keyboard recovery");
+        return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(off_ms));
+
+    if (!expanderWriteActive(io.power_3v3, true, p.power_3v3_active_high))
+    {
+        ESP_LOGE(kTag, "Failed to reassert external 3.3V rail for keyboard recovery");
+        return false;
+    }
+    s_external_3v3_ready = true;
+    vTaskDelay(pdMS_TO_TICKS(settle_ms));
+
+    if (gps_wake_state_known)
+    {
+        (void)expanderWriteActive(io.gps_wake, gps_wake_was_active, p.gps_wake_active_high);
+    }
+    if (c6_state_known)
+    {
+        (void)expanderWriteActive(io.c6_enable, c6_was_active, p.c6_enable_active_high);
+    }
+
+    ESP_LOGW(kTag,
+             "Keyboard attach recovery completed external 3.3V rail cycle gps_restored=%u c6_restored=%u",
+             gps_wake_state_known ? 1U : 0U,
+             c6_state_known ? 1U : 0U);
+    return true;
+}
+
 bool TDisplayP4Board::configureBatteryGaugeCapacity(uint16_t design_capacity_mah,
                                                     uint16_t full_charge_capacity_mah)
 {
@@ -1533,28 +1618,41 @@ float TDisplayP4Board::getRadioSNR()
     return 0.0f;
 }
 
-void TDisplayP4Board::configureLoraRadio(float freq_mhz,
-                                         float bw_khz,
-                                         uint8_t sf,
-                                         uint8_t cr_denom,
-                                         int8_t tx_power,
-                                         uint16_t preamble_len,
-                                         uint8_t sync_word,
-                                         uint8_t crc_len)
+int TDisplayP4Board::configureLoraRadio(float freq_mhz,
+                                        float bw_khz,
+                                        uint8_t sf,
+                                        uint8_t cr_denom,
+                                        int8_t tx_power,
+                                        uint16_t preamble_len,
+                                        uint8_t sync_word,
+                                        uint8_t crc_len)
 {
     if (!ensureRadioReady())
     {
-        return;
+        ESP_LOGE(kTag, "SX1262 LoRa configuration skipped: radio is not ready");
+        return -1;
     }
 
-    (void)radio().configureLoRaReceive(freq_mhz,
-                                       bw_khz,
-                                       sf,
-                                       cr_denom,
-                                       tx_power,
-                                       preamble_len,
-                                       sync_word,
-                                       crc_len);
+    const bool configured = radio().configureLoRaReceive(freq_mhz,
+                                                         bw_khz,
+                                                         sf,
+                                                         cr_denom,
+                                                         tx_power,
+                                                         preamble_len,
+                                                         sync_word,
+                                                         crc_len);
+    if (!configured)
+    {
+        ESP_LOGE(kTag,
+                 "SX1262 LoRa configuration failed: freq=%.3f bw=%.1f sf=%u cr=4/%u sync=0x%02X err=%s",
+                 freq_mhz,
+                 bw_khz,
+                 static_cast<unsigned>(sf),
+                 static_cast<unsigned>(cr_denom),
+                 static_cast<unsigned>(sync_word),
+                 radio().lastError());
+    }
+    return configured ? 0 : -1;
 }
 
 bool TDisplayP4Board::initializeI2cBuses()

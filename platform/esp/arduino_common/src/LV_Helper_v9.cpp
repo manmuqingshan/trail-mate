@@ -63,13 +63,6 @@ static_assert(kTDeckDmaDrawBufferLines >= 10, "TDeck draw buffers below 10 lines
 #endif
 constexpr bool kTDeckUseDmaDrawBuffers = TRAIL_MATE_TDECK_USE_DMA_DRAW_BUFFERS != 0;
 #endif
-// LVGL's SD drive callback can still be reached by resource-pack and image
-// paths. Keep every callback acquisition extremely short: a busy shared
-// bus must surface as LV_FS_RES_BUSY/failed open, not as a blocked UI frame.
-constexpr TickType_t kLvglSdFsWait = pdMS_TO_TICKS(2);
-constexpr TickType_t kLvglSdFsCloseWait = pdMS_TO_TICKS(10);
-constexpr const char* kLvglExternalFontOwner = "lvgl_font_sd";
-
 lv_fs_drv_t s_flash_fs_drv;
 lv_fs_drv_t s_sd_fs_drv;
 bool s_flash_fs_ready = false;
@@ -82,18 +75,6 @@ bool external_font_load_fs_scope_active()
 {
     return s_external_font_load_fs_depth.load(std::memory_order_relaxed) > 0 &&
            s_external_font_owner_task == xTaskGetCurrentTaskHandle();
-}
-
-TickType_t current_sd_fs_wait(TickType_t normal_wait)
-{
-    // Font loading is a sequence of short filesystem transactions. Do not
-    // carry one SPI token across the whole lv_binfont_create() call.
-    return normal_wait;
-}
-
-const char* current_sd_fs_owner()
-{
-    return external_font_load_fs_scope_active() ? kLvglExternalFontOwner : nullptr;
 }
 
 void mark_external_font_fs_busy()
@@ -152,44 +133,6 @@ lv_fs_res_t sd_fs_error_to_res()
     return LV_FS_RES_FS_ERR;
 }
 
-class LvglSdBusGuard final
-{
-  public:
-    LvglSdBusGuard(TickType_t wait_ticks, const char* owner)
-    {
-        sys::runtime::BusAcquireRequest request{};
-        request.resource =
-            ::platform::esp::common::SharedSpiCoordinator::kSharedBusResource;
-        request.policy = wait_ticks == 0
-                             ? sys::runtime::BusAccessPolicy::UiNeverBlock
-                             : sys::runtime::BusAccessPolicy::InteractiveWorkerBounded;
-        request.command_id = 0x4C564653U;
-        request.origin = request.command_id;
-        request.deadline_ms =
-            sys::millis_now() + static_cast<uint32_t>(wait_ticks) * portTICK_PERIOD_MS;
-        request.owner_label = owner ? owner : "lvgl_sd_fs";
-        result_ = ::platform::esp::common::shared_spi_coordinator().acquire(request);
-        token_ = result_.token;
-        locked_ = result_.status == sys::runtime::BusAcquireStatus::Acquired &&
-                  token_.valid;
-    }
-
-    ~LvglSdBusGuard()
-    {
-        if (locked_)
-        {
-            ::platform::esp::common::shared_spi_coordinator().release(token_);
-        }
-    }
-
-    bool locked() const { return locked_; }
-
-  private:
-    sys::runtime::BusAcquireResult result_{};
-    sys::runtime::BusAccessToken token_{};
-    bool locked_ = false;
-};
-
 bool sd_fs_ready_cb(lv_fs_drv_t* drv)
 {
     LV_UNUSED(drv);
@@ -199,16 +142,10 @@ bool sd_fs_ready_cb(lv_fs_drv_t* drv)
 void* sd_fs_open(lv_fs_drv_t* drv, const char* path, lv_fs_mode_t mode)
 {
     LV_UNUSED(drv);
-    // This is a platform adapter boundary. Product/UI code must not use LVGL
-    // FS as a synchronous SD probe; callers should submit runtime work and let
-    // worker-domain code handle retry/backpressure.
-    LvglSdBusGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
-    if (!spi_guard.locked())
-    {
-        mark_external_font_fs_busy();
-        return nullptr;
-    }
+    // This is a semantic filesystem adapter, not a second SPI transaction
+    // owner. SdRuntimeFile acquires the coordinator only at its SdFat driver
+    // boundary; retaining a token around this whole callback would pin the
+    // bus across allocation, path handling, and multi-sector filesystem work.
 
     const char* open_mode = "r";
     if (mode == LV_FS_MODE_WR)
@@ -227,6 +164,7 @@ void* sd_fs_open(lv_fs_drv_t* drv, const char* path, lv_fs_mode_t mode)
     }
     if (!file->open(path, open_mode))
     {
+        mark_external_font_fs_busy();
         delete file;
         return nullptr;
     }
@@ -241,15 +179,8 @@ lv_fs_res_t sd_fs_close(lv_fs_drv_t* drv, void* file_p)
     {
         return LV_FS_RES_INV_PARAM;
     }
-    LvglSdBusGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsCloseWait), current_sd_fs_owner());
     file->close();
     delete file;
-    if (!spi_guard.locked())
-    {
-        mark_external_font_fs_busy();
-        return LV_FS_RES_BUSY;
-    }
     return LV_FS_RES_OK;
 }
 
@@ -261,14 +192,6 @@ lv_fs_res_t sd_fs_read(lv_fs_drv_t* drv, void* file_p, void* buf, uint32_t btr, 
     {
         return LV_FS_RES_INV_PARAM;
     }
-    LvglSdBusGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
-    if (!spi_guard.locked())
-    {
-        mark_external_font_fs_busy();
-        return LV_FS_RES_BUSY;
-    }
-
     const int result = file->read(buf, btr);
     if (result < 0)
     {
@@ -294,20 +217,17 @@ lv_fs_res_t sd_fs_write(lv_fs_drv_t* drv,
     {
         return LV_FS_RES_INV_PARAM;
     }
-    LvglSdBusGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
-    if (!spi_guard.locked())
-    {
-        mark_external_font_fs_busy();
-        return LV_FS_RES_BUSY;
-    }
-
     const std::size_t result = file->write(buf, btw);
     if (bw != nullptr)
     {
         *bw = static_cast<uint32_t>(result);
     }
-    return result == btw ? LV_FS_RES_OK : sd_fs_error_to_res();
+    if (result != btw)
+    {
+        mark_external_font_fs_busy();
+        return sd_fs_error_to_res();
+    }
+    return LV_FS_RES_OK;
 }
 
 lv_fs_res_t sd_fs_seek(lv_fs_drv_t* drv, void* file_p, uint32_t pos, lv_fs_whence_t whence)
@@ -318,14 +238,6 @@ lv_fs_res_t sd_fs_seek(lv_fs_drv_t* drv, void* file_p, uint32_t pos, lv_fs_whenc
     {
         return LV_FS_RES_INV_PARAM;
     }
-    LvglSdBusGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
-    if (!spi_guard.locked())
-    {
-        mark_external_font_fs_busy();
-        return LV_FS_RES_BUSY;
-    }
-
     uint64_t target = pos;
     switch (whence)
     {
@@ -357,13 +269,6 @@ lv_fs_res_t sd_fs_tell(lv_fs_drv_t* drv, void* file_p, uint32_t* pos_p)
     {
         return LV_FS_RES_INV_PARAM;
     }
-    LvglSdBusGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
-    if (!spi_guard.locked())
-    {
-        mark_external_font_fs_busy();
-        return LV_FS_RES_BUSY;
-    }
     *pos_p = static_cast<uint32_t>(file->position());
     return LV_FS_RES_OK;
 }
@@ -371,13 +276,6 @@ lv_fs_res_t sd_fs_tell(lv_fs_drv_t* drv, void* file_p, uint32_t* pos_p)
 void* sd_fs_dir_open(lv_fs_drv_t* drv, const char* path)
 {
     LV_UNUSED(drv);
-    LvglSdBusGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
-    if (!spi_guard.locked())
-    {
-        return nullptr;
-    }
-
     auto* dir = new (std::nothrow)::platform::esp::arduino_common::storage::SdRuntimeDir();
     if (dir == nullptr)
     {
@@ -385,6 +283,7 @@ void* sd_fs_dir_open(lv_fs_drv_t* drv, const char* path)
     }
     if (!dir->open(path))
     {
+        mark_external_font_fs_busy();
         delete dir;
         return nullptr;
     }
@@ -399,13 +298,6 @@ lv_fs_res_t sd_fs_dir_read(lv_fs_drv_t* drv, void* dir_p, char* fn, uint32_t fn_
     {
         return LV_FS_RES_INV_PARAM;
     }
-    LvglSdBusGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsWait), current_sd_fs_owner());
-    if (!spi_guard.locked())
-    {
-        return LV_FS_RES_BUSY;
-    }
-
     bool is_dir = false;
     if (!dir->read_next(fn, fn_len, &is_dir))
     {
@@ -429,8 +321,6 @@ lv_fs_res_t sd_fs_dir_close(lv_fs_drv_t* drv, void* dir_p)
     {
         return LV_FS_RES_INV_PARAM;
     }
-    LvglSdBusGuard spi_guard(
-        current_sd_fs_wait(kLvglSdFsCloseWait), current_sd_fs_owner());
     dir->close();
     delete dir;
     return LV_FS_RES_OK;
@@ -733,6 +623,144 @@ void init_sd_fs_driver()
 }
 } // namespace
 
+namespace
+{
+
+struct PendingDisplayFlush
+{
+    lv_display_t* display = nullptr;
+    LilyGo_Display* plane = nullptr;
+    lv_area_t area{};
+    uint16_t* pixels = nullptr;
+    uint32_t sequence = 0;
+    uint32_t deferred_since_ms = 0;
+    bool active = false;
+};
+
+// This record owns identity only. It must never become a frame copy or grow
+// with an LVGL area; the original LVGL buffer remains the transfer payload.
+static_assert(sizeof(PendingDisplayFlush) <= 64U,
+              "Pending display state must remain a small scalar record");
+
+PendingDisplayFlush s_pending_display_flush{};
+
+const char* display_transfer_result_label(DisplayTransferResult result)
+{
+    switch (result)
+    {
+    case DisplayTransferResult::Completed:
+        return "completed";
+    case DisplayTransferResult::Busy:
+        return "busy";
+    case DisplayTransferResult::Unavailable:
+        return "unavailable";
+    case DisplayTransferResult::Failed:
+    default:
+        return "failed";
+    }
+}
+
+DisplayTransferResult submit_display_transfer(LilyGo_Display* plane,
+                                              const lv_area_t& area,
+                                              uint16_t* pixels)
+{
+    if (plane == nullptr || pixels == nullptr)
+    {
+        return DisplayTransferResult::Failed;
+    }
+    return plane->transferPixels(area.x1,
+                                 area.y1,
+                                 lv_area_get_width(&area),
+                                 lv_area_get_height(&area),
+                                 pixels);
+}
+
+void invalidate_after_display_failure()
+{
+    lv_obj_invalidate(lv_screen_active());
+    lv_obj_invalidate(lv_layer_top());
+}
+
+void record_display_failure(const PendingDisplayFlush& pending,
+                            DisplayTransferResult result,
+                            uint32_t wait_ms)
+{
+    auto& coordinator = platform::esp::common::shared_spi_coordinator();
+    coordinator.noteDisplayFrameFailed();
+    Serial.printf("[SPI][DISPLAY] flush_failed seq=%lu result=%s area=(%d,%d)-(%d,%d) "
+                  "wait_ms=%lu requests=%lu completed=%lu deferred=%lu busy=%lu failed=%lu\n",
+                  static_cast<unsigned long>(pending.sequence),
+                  display_transfer_result_label(result),
+                  static_cast<int>(pending.area.x1),
+                  static_cast<int>(pending.area.y1),
+                  static_cast<int>(pending.area.x2),
+                  static_cast<int>(pending.area.y2),
+                  static_cast<unsigned long>(wait_ms),
+                  static_cast<unsigned long>(coordinator.displayFrameRequests()),
+                  static_cast<unsigned long>(coordinator.displayFrameCompletions()),
+                  static_cast<unsigned long>(coordinator.displayFrameDeferrals()),
+                  static_cast<unsigned long>(coordinator.displayFrameBusyRetries()),
+                  static_cast<unsigned long>(coordinator.displayFrameFailures()));
+}
+
+void disp_flush_wait(lv_display_t* disp_drv)
+{
+    if (!s_pending_display_flush.active || s_pending_display_flush.display != disp_drv)
+    {
+        Serial.printf("[SPI][DISPLAY] flush_wait invariant_violation display=%p pending=%p active=%d\n",
+                      static_cast<void*>(disp_drv),
+                      static_cast<void*>(s_pending_display_flush.display),
+                      s_pending_display_flush.active ? 1 : 0);
+        return;
+    }
+
+    for (;;)
+    {
+        PendingDisplayFlush& pending = s_pending_display_flush;
+        const DisplayTransferResult result =
+            submit_display_transfer(pending.plane, pending.area, pending.pixels);
+        const uint32_t wait_ms =
+            static_cast<uint32_t>(sys::millis_now() - pending.deferred_since_ms);
+        if (result == DisplayTransferResult::Completed)
+        {
+            auto& coordinator = platform::esp::common::shared_spi_coordinator();
+            coordinator.noteDisplayFrameCompleted(wait_ms);
+            Serial.printf("[SPI][DISPLAY] flush_deferred_complete seq=%lu area=(%d,%d)-(%d,%d) "
+                          "wait_ms=%lu requests=%lu completed=%lu deferred=%lu busy=%lu failed=%lu\n",
+                          static_cast<unsigned long>(pending.sequence),
+                          static_cast<int>(pending.area.x1),
+                          static_cast<int>(pending.area.y1),
+                          static_cast<int>(pending.area.x2),
+                          static_cast<int>(pending.area.y2),
+                          static_cast<unsigned long>(wait_ms),
+                          static_cast<unsigned long>(coordinator.displayFrameRequests()),
+                          static_cast<unsigned long>(coordinator.displayFrameCompletions()),
+                          static_cast<unsigned long>(coordinator.displayFrameDeferrals()),
+                          static_cast<unsigned long>(coordinator.displayFrameBusyRetries()),
+                          static_cast<unsigned long>(coordinator.displayFrameFailures()));
+            s_pending_display_flush = {};
+            // LVGL v9 clears its flushing state immediately after this wait
+            // callback returns. Do not call lv_display_flush_ready() here.
+            return;
+        }
+
+        if (result == DisplayTransferResult::Failed)
+        {
+            record_display_failure(pending, result, wait_ms);
+            s_pending_display_flush = {};
+            invalidate_after_display_failure();
+            return;
+        }
+
+        // Busy/Unavailable keeps the exact LVGL area and buffer pending. The
+        // coordinator already accounts for Busy acquisition attempts; yielding
+        // one tick avoids a retry spin when an adapter is temporarily unavailable.
+        vTaskDelay(1);
+    }
+}
+
+} // namespace
+
 static void disp_flush(lv_display_t* disp_drv, const lv_area_t* area, uint8_t* color_p)
 {
     static uint8_t s_tdeck_pro_flush_log_count = 0;
@@ -805,42 +833,67 @@ static void disp_flush(lv_display_t* disp_drv, const lv_area_t* area, uint8_t* c
     }
 #endif
 
-    const bool transferred =
-        plane->pushColorsResult(area->x1, area->y1, w, h, (uint16_t*)color_p);
-    if (!transferred)
+    const DisplayTransferResult result =
+        submit_display_transfer(plane, *area, reinterpret_cast<uint16_t*>(color_p));
+    if (result == DisplayTransferResult::Busy || result == DisplayTransferResult::Unavailable)
     {
         auto& coordinator = platform::esp::common::shared_spi_coordinator();
-        coordinator.noteDisplayFrameFailed();
-        Serial.printf("[SPI][DISPLAY] flush_recovery area=(%d,%d)-(%d,%d) "
-                      "requests=%lu completed=%lu busy=%lu failed=%lu\n",
+        if (s_pending_display_flush.active)
+        {
+            Serial.printf("[SPI][DISPLAY] flush_pending_conflict seq=%lu active_seq=%lu\n",
+                          static_cast<unsigned long>(flush_sequence),
+                          static_cast<unsigned long>(s_pending_display_flush.sequence));
+            return;
+        }
+        s_pending_display_flush.display = disp_drv;
+        s_pending_display_flush.plane = plane;
+        s_pending_display_flush.area = *area;
+        s_pending_display_flush.pixels = reinterpret_cast<uint16_t*>(color_p);
+        s_pending_display_flush.sequence = flush_sequence;
+        s_pending_display_flush.deferred_since_ms = sys::millis_now();
+        s_pending_display_flush.active = true;
+        coordinator.noteDisplayFrameDeferred();
+        Serial.printf("[SPI][DISPLAY] flush_deferred seq=%lu result=%s area=(%d,%d)-(%d,%d) "
+                      "requests=%lu completed=%lu deferred=%lu busy=%lu failed=%lu\n",
+                      static_cast<unsigned long>(flush_sequence),
+                      display_transfer_result_label(result),
                       static_cast<int>(area->x1),
                       static_cast<int>(area->y1),
                       static_cast<int>(area->x2),
                       static_cast<int>(area->y2),
                       static_cast<unsigned long>(coordinator.displayFrameRequests()),
                       static_cast<unsigned long>(coordinator.displayFrameCompletions()),
+                      static_cast<unsigned long>(coordinator.displayFrameDeferrals()),
                       static_cast<unsigned long>(coordinator.displayFrameBusyRetries()),
                       static_cast<unsigned long>(coordinator.displayFrameFailures()));
-        // LVGL cannot be left waiting forever for a transfer that was never
-        // started. Complete this flush through the explicit recovery path and
-        // invalidate both the active screen and the top layer so the next
-        // timer pass retries the pixels instead of accepting a silent drop.
-        lv_display_flush_ready(disp_drv);
-        lv_obj_invalidate(lv_screen_active());
-        lv_obj_invalidate(lv_layer_top());
         return;
     }
 
-    platform::esp::common::shared_spi_coordinator().noteDisplayFrameCompleted();
+    if (result == DisplayTransferResult::Failed)
+    {
+        PendingDisplayFlush failed{};
+        failed.display = disp_drv;
+        failed.plane = plane;
+        failed.area = *area;
+        failed.pixels = reinterpret_cast<uint16_t*>(color_p);
+        failed.sequence = flush_sequence;
+        record_display_failure(failed, result, 0U);
+        lv_display_flush_ready(disp_drv);
+        invalidate_after_display_failure();
+        return;
+    }
+
+    platform::esp::common::shared_spi_coordinator().noteDisplayFrameCompleted(0U);
     lv_display_flush_ready(disp_drv);
     if (flush_sequence <= 8U)
     {
         auto& coordinator = platform::esp::common::shared_spi_coordinator();
         Serial.printf("[LVGL][DISPLAY] flush_complete seq=%lu requests=%lu "
-                      "completed=%lu busy=%lu failed=%lu\n",
+                      "completed=%lu deferred=%lu busy=%lu failed=%lu\n",
                       static_cast<unsigned long>(flush_sequence),
                       static_cast<unsigned long>(coordinator.displayFrameRequests()),
                       static_cast<unsigned long>(coordinator.displayFrameCompletions()),
+                      static_cast<unsigned long>(coordinator.displayFrameDeferrals()),
                       static_cast<unsigned long>(coordinator.displayFrameBusyRetries()),
                       static_cast<unsigned long>(coordinator.displayFrameFailures()));
     }
@@ -899,10 +952,20 @@ static void touchpad_read(lv_indev_t* drv, lv_indev_data_t* data)
 {
     static int16_t x, y;
     static bool was_touched = false;
+#if defined(ARDUINO_T_DECK_PRO)
+    static bool debug_touch_active = false;
+#endif
     auto* plane = (LilyGo_Display*)lv_indev_get_user_data(drv);
     uint8_t touched = plane->getPoint(&x, &y, 1);
     if (touched)
     {
+#if defined(ARDUINO_T_DECK_PRO)
+        if (!debug_touch_active)
+        {
+            Serial.printf("[DEBUG-touch-a7682e] down lvgl=%d,%d\n", x, y);
+            debug_touch_active = true;
+        }
+#endif
         was_touched = true;
         input::MorseEngine::notifyTouch();
         if (::platform::ui::screen::is_sleeping() ||
@@ -923,6 +986,13 @@ static void touchpad_read(lv_indev_t* drv, lv_indev_data_t* data)
         was_touched = false;
         ::platform::ui::screen::handle_input_release();
     }
+#if defined(ARDUINO_T_DECK_PRO)
+    if (debug_touch_active)
+    {
+        Serial.printf("[DEBUG-touch-a7682e] up lvgl=%d,%d\n", x, y);
+        debug_touch_active = false;
+    }
+#endif
     data->state = LV_INDEV_STATE_REL;
 }
 #endif
@@ -942,8 +1012,7 @@ static void lv_encoder_read(lv_indev_t* drv, lv_indev_data_t* data)
 #endif
 
     // Screen power transitions consume the input event before normal UI
-    // navigation. The state machine decides whether this is a wake preview
-    // or confirmation into the main menu.
+    // navigation. Keyboard Space is the explicit resume action.
     if (::platform::ui::screen::is_sleeping() ||
         ::platform::ui::screen::is_saver_active())
     {
@@ -1036,19 +1105,25 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
         state = plane->getKeyChar(&c);
         if (state >= 0)
         {
-            key = static_cast<uint8_t>(c);
+            key = c == '\n' || c == '\r' ? LV_KEY_ENTER : static_cast<uint8_t>(c);
         }
     }
 
     // Screen power transitions consume the input event before normal keyboard
-    // dispatch. The state machine applies the same two-step policy to every
-    // physical input device.
+    // dispatch. Space resumes the page and focus preserved at sleep time.
     if (::platform::ui::screen::is_sleeping() ||
         ::platform::ui::screen::is_saver_active())
     {
         if (state == KEYBOARD_PRESSED)
         {
-            ::platform::ui::screen::handle_input();
+            if (!from_nav && key == ' ')
+            {
+                ::platform::ui::screen::handle_confirm_input();
+            }
+            else
+            {
+                ::platform::ui::screen::handle_input();
+            }
         }
         else if (state == KEYBOARD_RELEASED)
         {
@@ -1066,6 +1141,22 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
         const bool on_walkie_page =
             active_app != nullptr && active_app->stable_id() != nullptr &&
             std::strcmp(active_app->stable_id(), "walkie_talkie") == 0;
+
+#if defined(ARDUINO_T_DECK_PRO)
+        // The Pro keyboard has no dedicated cursor keys.  Translate its
+        // physical W/S keys only while the text-shell menu owns focus; text
+        // fields on adapted pages must continue to accept literal w and s.
+        if (on_menu && (c == 'w' || c == 'W'))
+        {
+            key = LV_KEY_PREV;
+            from_nav = true;
+        }
+        else if (on_menu && (c == 's' || c == 'S'))
+        {
+            key = LV_KEY_NEXT;
+            from_nav = true;
+        }
+#endif
 
         if (on_menu && ui::menu_runtime::handleWalkieKey(c, state))
         {
@@ -1285,6 +1376,7 @@ void beginLvglHelper(LilyGo_Display& board, bool debug)
                   (unsigned)ESP.getFreePsram());
     lv_display_set_color_format(disp_drv, LV_COLOR_FORMAT_RGB565);
     lv_display_set_flush_cb(disp_drv, disp_flush);
+    lv_display_set_flush_wait_cb(disp_drv, disp_flush_wait);
     lv_display_set_user_data(disp_drv, &board);
 
     lv_display_set_resolution(disp_drv, board.width(), board.height());
@@ -1340,6 +1432,36 @@ void beginLvglHelper(LilyGo_Display& board, bool debug)
 
     lv_tick_set_cb(lv_tick_get_callback);
     lv_set_default_group(default_group);
+}
+
+#if defined(ARDUINO_T_DECK_PRO)
+void serviceLvglDisplay(uint32_t now_ms)
+{
+    if (disp_drv == nullptr)
+    {
+        return;
+    }
+
+    auto* plane = static_cast<LilyGo_Display*>(lv_display_get_user_data(disp_drv));
+    if (plane != nullptr)
+    {
+        plane->serviceDisplay(now_ms);
+    }
+}
+#endif
+
+void requestLvglFullRefresh()
+{
+    if (disp_drv == nullptr)
+    {
+        return;
+    }
+
+    auto* plane = static_cast<LilyGo_Display*>(lv_display_get_user_data(disp_drv));
+    if (plane != nullptr)
+    {
+        plane->requestFullRefresh();
+    }
 }
 
 void lv_set_default_group(lv_group_t* group)
@@ -1449,6 +1571,16 @@ bool lvgl_has_psram()
 #endif
 }
 
+bool lvgl_external_font_load_uses_strict_psram()
+{
+    // Binfont loading creates many small cmap and glyph-metadata objects.  A
+    // size-only routing policy would put those fragments in internal RAM even
+    // when the much larger glyph bitmap is in PSRAM.  The existing external
+    // font FS scope serializes this exact operation on its owner task, so it
+    // is also a safe, narrowly-scoped allocator ownership boundary.
+    return lvgl_has_psram() && external_font_load_fs_scope_active();
+}
+
 uint32_t lvgl_primary_caps(size_t size)
 {
     if (lvgl_has_psram() && size >= kLvglLargeAllocThresholdBytes)
@@ -1501,6 +1633,12 @@ extern "C" void* lv_malloc_core(size_t size)
     {
         return nullptr;
     }
+    if (lvgl_external_font_load_uses_strict_psram())
+    {
+        // Font load must fail cleanly rather than silently consume the Wi-Fi,
+        // task-stack, and DMA reserve in internal RAM.
+        return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
     return heap_caps_malloc_prefer(size, 2, lvgl_primary_caps(size), lvgl_secondary_caps(size));
 #else
     return malloc(size);
@@ -1514,6 +1652,10 @@ extern "C" void* lv_realloc_core(void* p, size_t new_size)
     {
         heap_caps_free(p);
         return nullptr;
+    }
+    if (lvgl_external_font_load_uses_strict_psram())
+    {
+        return heap_caps_realloc(p, new_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     }
     return heap_caps_realloc_prefer(
         p, new_size, 2, lvgl_primary_caps(new_size), lvgl_secondary_caps(new_size));

@@ -42,6 +42,7 @@ using Projection = gps::ui::shell::Projection;
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #include <string>
 #include <utility>
 #include <vector>
@@ -55,10 +56,7 @@ using Projection = gps::ui::shell::Projection;
 #endif
 
 #if defined(ESP_PLATFORM)
-#include "esp_attr.h"
-#define UI_GPS_PAGE_STATE_RAM_ATTR EXT_RAM_ATTR
-#else
-#define UI_GPS_PAGE_STATE_RAM_ATTR
+#include "esp_heap_caps.h"
 #endif
 
 bool isGPSLoadingTiles()
@@ -167,7 +165,7 @@ int s_map_pan_x = 0;
 int s_map_pan_y = 0;
 bool s_map_view_initialized = false;
 bool s_map_info_visible = true;
-UI_GPS_PAGE_STATE_RAM_ATTR ::ui::map::MapOverlaySnapshot s_overlay_snapshot;
+::ui::map::MapOverlaySnapshot* s_overlay_snapshot = nullptr;
 Projection s_projection = Projection::Map;
 bool s_gps_power_lease_active = false;
 lv_obj_t* s_gps_status_label = nullptr;
@@ -242,6 +240,58 @@ void sync_map_tile_loader_pause();
 void sync_map_chrome_visibility();
 void rebuild_map_control_group();
 bool load_map_track_file_impl(const char* path, bool show_fail_toast);
+
+::ui::map::MapOverlaySnapshot* allocate_overlay_snapshot()
+{
+#if defined(ESP_PLATFORM)
+    void* storage = heap_caps_malloc(sizeof(::ui::map::MapOverlaySnapshot),
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+    void* storage = std::malloc(sizeof(::ui::map::MapOverlaySnapshot));
+#endif
+    if (!storage)
+    {
+        return nullptr;
+    }
+    return new (storage)::ui::map::MapOverlaySnapshot{};
+}
+
+bool ensure_overlay_snapshot()
+{
+    if (s_overlay_snapshot)
+    {
+        return true;
+    }
+
+    s_overlay_snapshot = allocate_overlay_snapshot();
+    if (!s_overlay_snapshot)
+    {
+        std::printf("[GPS][MAP] enter denied reason=psram_overlay_alloc bytes=%u\n",
+                    static_cast<unsigned>(sizeof(::ui::map::MapOverlaySnapshot)));
+        return false;
+    }
+
+    std::printf("[GPS][MAP] overlay allocated memory=psram bytes=%u\n",
+                static_cast<unsigned>(sizeof(::ui::map::MapOverlaySnapshot)));
+    return true;
+}
+
+void release_overlay_snapshot()
+{
+    if (!s_overlay_snapshot)
+    {
+        return;
+    }
+
+    s_overlay_snapshot->~MapOverlaySnapshot();
+#if defined(ESP_PLATFORM)
+    heap_caps_free(s_overlay_snapshot);
+#else
+    std::free(s_overlay_snapshot);
+#endif
+    s_overlay_snapshot = nullptr;
+}
+
 void downsample_track_points(std::vector<TrackOverlayPoint>& points);
 void append_track_point_raw(std::vector<TrackOverlayPoint>& out,
                             double lat,
@@ -3116,7 +3166,7 @@ void sync_map_tile_loader_pause()
 
 void refresh_view()
 {
-    if (!s_root)
+    if (!s_root || s_projection != Projection::Map || !s_overlay_snapshot)
     {
         return;
     }
@@ -3128,12 +3178,12 @@ void refresh_view()
 
     sync_workspace_layers_from_renderer();
     auto snapshot = map_workspace_model().snapshot();
-    (void)map_overlay_source().buildMapOverlaySnapshot(s_overlay_snapshot);
-    append_route_image_overlay(s_overlay_snapshot);
-    append_track_overlay(s_overlay_snapshot);
+    (void)map_overlay_source().buildMapOverlaySnapshot(*s_overlay_snapshot);
+    append_route_image_overlay(*s_overlay_snapshot);
+    append_track_overlay(*s_overlay_snapshot);
     if (!s_map_info_visible)
     {
-        keep_only_current_position_overlay(s_overlay_snapshot);
+        keep_only_current_position_overlay(*s_overlay_snapshot);
     }
 
     if (snapshot.header.valid)
@@ -3155,7 +3205,7 @@ void refresh_view()
         }
         if (!s_map_drag_active)
         {
-            ::ui::widgets::map::apply_overlay(s_map_runtime, s_overlay_snapshot);
+            ::ui::widgets::map::apply_overlay(s_map_runtime, *s_overlay_snapshot);
         }
     }
     else
@@ -4342,6 +4392,11 @@ bool load_map_track_file(const char* path, bool show_fail_toast)
 
 void enter(const shell::Host* host, lv_obj_t* parent, shell::Projection projection)
 {
+    if (projection == Projection::Map && !ensure_overlay_snapshot())
+    {
+        return;
+    }
+
     if (!s_gps_power_lease_active)
     {
         platform::ui::gps::acquire_power_lease(projection == Projection::GpsStatus ? "lvgl-gps" : "lvgl-map");
@@ -4449,6 +4504,7 @@ void exit(lv_obj_t* parent)
     if (s_projection == Projection::Map)
     {
         ::ui::widgets::map::destroy(s_map_runtime);
+        release_overlay_snapshot();
     }
     s_map_tile_loader_paused = false;
     clear_gps_status_labels();

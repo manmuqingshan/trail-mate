@@ -17,7 +17,7 @@ renderer must not open tile files, wait for device I/O, or decode tile payloads
 from an input callback, LVGL timer, GTK callback, or page render callback.
 
 The physical shared-device mechanism is a platform technical concern defined
-only by `docs/spi_bus_architecture.md`. The map runtime calls a tile/storage
+only by `docs/specs/SPI_BUS_ARCHITECTURE_SPEC.md`. The map runtime calls a tile/storage
 service and consumes semantic results.
 
 ## Objects

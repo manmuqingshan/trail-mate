@@ -4,6 +4,9 @@
 
 #include "lvgl.h"
 #include "platform/esp/boards/board_runtime.h"
+#if defined(ARDUINO_T_DECK_PRO)
+#include "ui/LV_Helper.h"
+#endif
 #include "ui/localization.h"
 
 #ifndef MAIN_TIMING_DEBUG
@@ -49,6 +52,13 @@ void tickIfDue(uint32_t now_ms)
         // overlay that requested the work had a normal chance to present.
         ::ui::i18n::on_lvgl_frame_completed();
     }
+
+#if defined(ARDUINO_T_DECK_PRO)
+    // This runs after LVGL has copied all invalidated pixels for the current
+    // frame. The EPD can merge those regions and commit one hardware refresh
+    // without retaining an LVGL-owned buffer.
+    serviceLvglDisplay(now_ms);
+#endif
 
 #if MAIN_TIMING_DEBUG
     if (run_lvgl)

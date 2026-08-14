@@ -20,6 +20,7 @@
 #include "pins_arduino.h"
 #include "platform/esp/arduino_common/power/battery_adc.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/common/shared_spi_coordinator.h"
 #include "platform/ui/audio/call_notification_tone.h"
 #include "platform/ui/audio/pager_notification_tone.h"
@@ -95,6 +96,8 @@ const char* audioOwnerLabel(PagerAudioOwner owner)
         return "incoming_call_tone";
     case PagerAudioOwner::ReticulumCall:
         return "reticulum_call";
+    case PagerAudioOwner::VoiceMessage:
+        return "voice_message";
     case PagerAudioOwner::Walkie:
         return "walkie";
     case PagerAudioOwner::Sstv:
@@ -223,8 +226,6 @@ bool withSharedSpiRadioAccess(const char* owner,
 #endif
 #include <BoschFirmware.h>
 
-#define TASK_ROTARY_START_PRESSED_FLAG _BV(0)
-
 // Keyboard configuration
 #ifdef USING_INPUT_DEV_KEYBOARD
 // 4x10 character map
@@ -256,7 +257,6 @@ static const LilyGoKeyboardConfigure_t keyboardConfig = {
 
 static QueueHandle_t rotaryMsg;
 static TaskHandle_t rotaryHandler;
-static EventGroupHandle_t rotaryTaskFlag;
 static TimerHandle_t hapticStopTimer;
 
 static void hapticStopCallback(TimerHandle_t timer)
@@ -272,8 +272,9 @@ static void hapticStopCallback(TimerHandle_t timer)
  * @brief Read rotary encoder center button state with debouncing
  * @return true if button is pressed (LOW), false otherwise
  *
- * This function implements debouncing logic to filter out mechanical switch bounce.
- * It also handles the TASK_ROTARY_START_PRESSED_FLAG to prevent multiple triggers.
+ * This function returns the debounced level, not a one-shot press edge. LVGL
+ * needs to see a stable pressed state for the complete physical hold so an
+ * action such as voice push-to-talk receives its matching release event.
  */
 static bool getButtonState()
 {
@@ -283,22 +284,6 @@ static bool getButtonState()
     const uint8_t debounceDelay = 20; // Debounce delay in milliseconds
 
     int reading = digitalRead(ROTARY_C);
-
-    // Check if button press flag is set (prevents multiple triggers)
-    EventBits_t eventBits = xEventGroupGetBits(rotaryTaskFlag);
-    if (eventBits & TASK_ROTARY_START_PRESSED_FLAG)
-    {
-        if (reading == HIGH)
-        {
-            // Button released, clear the flag
-            xEventGroupClearBits(rotaryTaskFlag, TASK_ROTARY_START_PRESSED_FLAG);
-        }
-        else
-        {
-            // Button still pressed, don't trigger again
-            return false;
-        }
-    }
 
     // Debouncing logic
     if (reading != lastButtonState)
@@ -313,17 +298,11 @@ static bool getButtonState()
         if (reading != buttonState)
         {
             buttonState = reading;
-            if (buttonState == LOW)
-            {
-                // Button pressed (LOW = pressed due to pull-up)
-                lastButtonState = reading;
-                return true;
-            }
         }
     }
 
     lastButtonState = reading;
-    return false;
+    return buttonState == LOW;
 }
 
 TLoRaPagerBoard::TLoRaPagerBoard()
@@ -363,12 +342,23 @@ TLoRaPagerBoard* TLoRaPagerBoard::getInstance()
 
 void TLoRaPagerBoard::initShareSPIPins()
 {
-    const uint8_t share_spi_bus_devices_cs_pins[] = {
+    const uint8_t shared_spi_chip_select_pins[] = {
         LORA_CS,
         SD_CS,
+        DISP_CS,
+    };
+    for (auto pin : shared_spi_chip_select_pins)
+    {
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, HIGH);
+    }
+
+    // Reset is a control line, not a shared-SPI chip-select. Keep this list
+    // separate so SD recovery can reason about actual bus participants.
+    const uint8_t shared_spi_reset_pins[] = {
         LORA_RST,
     };
-    for (auto pin : share_spi_bus_devices_cs_pins)
+    for (auto pin : shared_spi_reset_pins)
     {
         pinMode(pin, OUTPUT);
         digitalWrite(pin, HIGH);
@@ -755,17 +745,6 @@ uint32_t TLoRaPagerBoard::begin(uint32_t disable_hw_init)
         Serial.printf("[TLoRaPagerBoard::begin] rotary queue create ok=1\n");
     }
 
-    rotaryTaskFlag = xEventGroupCreate();
-    if (rotaryTaskFlag == nullptr)
-    {
-        log_e("Failed to create rotary encoder event group");
-        Serial.printf("[TLoRaPagerBoard::begin] rotary event group create ok=0\n");
-    }
-    else
-    {
-        Serial.printf("[TLoRaPagerBoard::begin] rotary event group create ok=1\n");
-    }
-
     BaseType_t task_result = xTaskCreate(rotaryTask, "rotary", 2 * 1024, NULL, 10, &rotaryHandler);
     if (task_result != pdPASS)
     {
@@ -1015,8 +994,21 @@ bool TLoRaPagerBoard::initLoRa()
 
 bool TLoRaPagerBoard::installSD()
 {
-    static const int extra_cs_pins[] = {
+    if (!::platform::esp::boards::storageStartupGateSatisfied())
+    {
+        log_d("SD mount deferred: first shared-SPI display transaction incomplete");
+        return false;
+    }
+
+    // The power-cycle runs before installSpiSd() acquires RecoveryExclusive.
+    // It must not drive a live display CS. The recovery peer set below is used
+    // only by installSpiSd(), after that coordinator token has been acquired.
+    static const int power_cycle_peer_cs_pins[] = {
         LORA_CS,
+    };
+    static const int recovery_peer_cs_pins[] = {
+        LORA_CS,
+        DISP_CS,
     };
 
     // Check SD card detection pin (if available)
@@ -1038,24 +1030,28 @@ bool TLoRaPagerBoard::installSD()
 #ifdef EXPANDS_SD_EN
     if (devices_probe & HW_EXPAND_ONLINE)
     {
-        sdutil::releaseSdBusDevices(SD_CS, extra_cs_pins,
-                                    sizeof(extra_cs_pins) / sizeof(extra_cs_pins[0]));
+        sdutil::releaseSdBusDevices(
+            SD_CS,
+            power_cycle_peer_cs_pins,
+            sizeof(power_cycle_peer_cs_pins) / sizeof(power_cycle_peer_cs_pins[0]));
         Serial.println("[SD] power cycle begin");
         powerControl(POWER_SD_CARD, false);
         delay(120);
         powerControl(POWER_SD_CARD, true);
         delay(250);
-        sdutil::releaseSdBusDevices(SD_CS, extra_cs_pins,
-                                    sizeof(extra_cs_pins) / sizeof(extra_cs_pins[0]));
+        sdutil::releaseSdBusDevices(
+            SD_CS,
+            power_cycle_peer_cs_pins,
+            sizeof(power_cycle_peer_cs_pins) / sizeof(power_cycle_peer_cs_pins[0]));
         Serial.println("[SD] power cycle end");
     }
 #endif
 
     uint8_t card_type = sdutil::kCardNone;
     uint32_t card_size_mb = 0;
-    bool ok = sdutil::installSpiSd(*this, SD_CS, SD_SPI_FREQUENCY, "/sd",
-                                   extra_cs_pins,
-                                   sizeof(extra_cs_pins) / sizeof(extra_cs_pins[0]),
+    bool ok = sdutil::installSpiSd(SD_CS, SD_SPI_FREQUENCY, "/sd",
+                                   recovery_peer_cs_pins,
+                                   sizeof(recovery_peer_cs_pins) / sizeof(recovery_peer_cs_pins[0]),
                                    &card_type, &card_size_mb);
     if (!ok)
     {
@@ -1745,6 +1741,15 @@ void TLoRaPagerBoard::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t
     LilyGoDispArduinoSPI::pushColors(x1, y1, x2, y2, color);
 }
 
+DisplayTransferResult TLoRaPagerBoard::transferPixels(uint16_t x1,
+                                                      uint16_t y1,
+                                                      uint16_t x2,
+                                                      uint16_t y2,
+                                                      uint16_t* color)
+{
+    return LilyGoDispArduinoSPI::transferPixels(x1, y1, x2, y2, color);
+}
+
 bool TLoRaPagerBoard::pushColorsResult(uint16_t x1,
                                        uint16_t y1,
                                        uint16_t x2,
@@ -1966,14 +1971,14 @@ int TLoRaPagerBoard::restoreLoRaRadio()
 
         if (cached.valid)
         {
-            configureLoraRadio(cached.freq_mhz,
-                               cached.bw_khz,
-                               cached.sf,
-                               cached.cr_denom,
-                               cached.tx_power,
-                               cached.preamble_len,
-                               cached.sync_word,
-                               cached.crc_len);
+            return configureLoraRadio(cached.freq_mhz,
+                                      cached.bw_khz,
+                                      cached.sf,
+                                      cached.cr_denom,
+                                      cached.tx_power,
+                                      cached.preamble_len,
+                                      cached.sync_word,
+                                      cached.crc_len);
         }
         return rc;
     }
@@ -2001,20 +2006,22 @@ static void apply_tx_power(SX1262Access& radio, int8_t tx_power)
 }
 #endif
 
-void TLoRaPagerBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
-                                         int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
-                                         uint8_t crc_len)
+int TLoRaPagerBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
+                                        int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
+                                        uint8_t crc_len)
 {
-    lora_config_.valid = true;
-    lora_config_.freq_mhz = freq_mhz;
-    lora_config_.bw_khz = bw_khz;
-    lora_config_.sf = sf;
-    lora_config_.cr_denom = cr_denom;
-    lora_config_.tx_power = tx_power;
-    lora_config_.preamble_len = preamble_len;
-    lora_config_.sync_word = sync_word;
-    lora_config_.crc_len = crc_len;
+    CachedLoRaConfig requested{};
+    requested.valid = true;
+    requested.freq_mhz = freq_mhz;
+    requested.bw_khz = bw_khz;
+    requested.sf = sf;
+    requested.cr_denom = cr_denom;
+    requested.tx_power = tx_power;
+    requested.preamble_len = preamble_len;
+    requested.sync_word = sync_word;
+    requested.crc_len = crc_len;
 
+    int config_rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
     auto configure = [&]()
     {
         int first_error = RADIOLIB_ERR_NONE;
@@ -2046,8 +2053,17 @@ void TLoRaPagerBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t s
                   failed_step ? failed_step : "unknown",
                   first_error);
         }
+        config_rc = first_error;
     };
-    (void)withSharedSpiRadioAccess("radio_cfg", pdMS_TO_TICKS(100), configure);
+    if (!withSharedSpiRadioAccess("radio_cfg", pdMS_TO_TICKS(100), configure))
+    {
+        return RADIOLIB_ERR_SPI_WRITE_FAILED;
+    }
+    if (config_rc == RADIOLIB_ERR_NONE)
+    {
+        lora_config_ = requested;
+    }
+    return config_rc;
 }
 
 bool TLoRaPagerBoard::hasEncoder()
@@ -2778,7 +2794,10 @@ RotaryMsg_t TLoRaPagerBoard::getRotary()
     {
         return msg;
     }
-    msg.centerBtnPressed = false;
+    // Keep the last debounced button level between queue events. The rotary
+    // task queues only edges, whereas LVGL polls the current level every
+    // input cycle. Clearing this here fabricated an immediate release a few
+    // milliseconds after every press and made long-press UI actions unreliable.
     msg.dir = ROTARY_DIR_NONE;
     return msg;
 }
@@ -3018,7 +3037,27 @@ void TLoRaPagerBoard::shutdownImpl(bool save_data, ShutdownMode mode)
 
     // 11) End communication buses before ESP deep sleep
     Serial1.end();
-    SPI.end();
+    sys::runtime::BusAcquireRequest spi_end_request{};
+    spi_end_request.resource = kSharedSpiBusResource;
+    spi_end_request.policy = sys::runtime::BusAccessPolicy::RecoveryExclusive;
+    spi_end_request.command_id = kSharedSpiBusOwnerId + 2U;
+    spi_end_request.origin = kSharedSpiBusOwnerId;
+    spi_end_request.deadline_ms = sys::millis_now() + 500U;
+    spi_end_request.owner_label = "pager_shutdown_spi_end";
+    sys::runtime::ScopedBusAccessToken spi_end_token(
+        ::platform::esp::common::shared_spi_coordinator(),
+        spi_end_request);
+    if (spi_end_token.acquired())
+    {
+        SPI.end();
+    }
+    else
+    {
+        // Deep sleep resets the controller anyway. Never force teardown over
+        // another valid owner merely to satisfy an optional shutdown cleanup.
+        log_w("Skipping shared SPI end before deep sleep: coordinator unavailable");
+    }
+    spi_end_token.release();
     Wire.end();
 
     // 12) Set key GPIOs to OPEN_DRAIN (exact LilyGo pin list)

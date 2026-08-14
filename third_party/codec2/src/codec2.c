@@ -108,6 +108,7 @@ static void ear_protection(float in_out[], int n);
 struct CODEC2 * codec2_create(int mode)
 {
     struct CODEC2 *c2;
+    COMP          *analysis_window_scratch;
     int            i,l;
 
     // ALL POSSIBLE MODES MUST BE CHECKED HERE!
@@ -133,6 +134,9 @@ struct CODEC2 * codec2_create(int mode)
 	return NULL;
 
     c2->mode = mode;
+    c2->analysis_spectrum = NULL;
+    c2->fft_inplace_scratch = NULL;
+    c2->mode_1300_scratch = NULL;
 
     /* store constants in a few places for convenience */
     
@@ -168,6 +172,24 @@ struct CODEC2 * codec2_create(int mode)
 	return NULL;
     }
 
+    /*
+     * Analysis-window initialisation uses two FFT_ENC complex buffers only
+     * while establishing c2->w and c2->W. Keeping them as automatic arrays
+     * costs more than 8 KiB on every caller's stack, which overflows Pager's
+     * bounded voice worker before it can capture its first frame. Allocate
+     * this non-DMA scratch through Codec2's platform allocator instead; the
+     * Pager routes it to PSRAM and it is freed immediately after setup.
+     */
+    analysis_window_scratch = (COMP*)MALLOC(2U * FFT_ENC * sizeof(COMP));
+    if (analysis_window_scratch == NULL) {
+        FREE(c2->Pn);
+        FREE(c2->Sn_);
+        FREE(c2->w);
+        FREE(c2->Sn);
+        FREE(c2);
+	return NULL;
+    }
+
     for(i=0; i<m_pitch; i++)
 	c2->Sn[i] = 1.0;
     c2->hpf_states[0] = c2->hpf_states[1] = 0.0;
@@ -175,7 +197,9 @@ struct CODEC2 * codec2_create(int mode)
 	c2->Sn_[i] = 0;
     c2->fft_fwd_cfg = codec2_fft_alloc(FFT_ENC, 0, NULL, NULL);
     c2->fftr_fwd_cfg = codec2_fftr_alloc(FFT_ENC, 0, NULL, NULL);
-    make_analysis_window(&c2->c2const, c2->fft_fwd_cfg, c2->w,c2->W);
+    make_analysis_window(&c2->c2const, c2->fft_fwd_cfg, c2->w, c2->W,
+                         analysis_window_scratch);
+    FREE(analysis_window_scratch);
     make_synthesis_window(&c2->c2const, c2->Pn);
     c2->fftr_inv_cfg = codec2_fftr_alloc(FFT_DEC, 1, NULL, NULL);
     c2->prev_f0_enc = 1/P_MAX_S;
@@ -209,9 +233,37 @@ struct CODEC2 * codec2_create(int mode)
     c2->post_filter_en = true;
     
     c2->bpf_buf = (float*)MALLOC(sizeof(float)*(BPF_N+4*c2->n_samp));
-    assert(c2->bpf_buf != NULL);
+    if (c2->bpf_buf == NULL) {
+        codec2_destroy(c2);
+        return NULL;
+    }
     for(i=0; i<BPF_N+4*c2->n_samp; i++)
         c2->bpf_buf[i] = 0.0;
+
+    c2->analysis_spectrum = (COMP*)MALLOC(sizeof(COMP)*FFT_ENC);
+    if (c2->analysis_spectrum == NULL) {
+        codec2_destroy(c2);
+        return NULL;
+    }
+    /*
+     * KISS FFT requires a distinct input buffer for its in-place API. Reuse
+     * this instance-owned workspace for both analysis and NLP transforms so
+     * the VMP capture task never needs codec2_fft_inplace()'s 4 KiB local.
+     */
+    c2->fft_inplace_scratch = (COMP*)MALLOC(sizeof(COMP)*FFT_ENC);
+    if (c2->fft_inplace_scratch == NULL) {
+        codec2_destroy(c2);
+        return NULL;
+    }
+
+    if ( CODEC2_MODE_ACTIVE(CODEC2_MODE_1300, c2->mode)) {
+        c2->mode_1300_scratch =
+            (CODEC2_1300_SCRATCH*)CALLOC(1, sizeof(CODEC2_1300_SCRATCH));
+        if (c2->mode_1300_scratch == NULL) {
+            codec2_destroy(c2);
+            return NULL;
+        }
+    }
 
     c2->softdec = NULL;
     c2->gray = 1;
@@ -340,6 +392,9 @@ struct CODEC2 * codec2_create(int mode)
 void codec2_destroy(struct CODEC2 *c2)
 {
     assert(c2 != NULL);
+    FREE(c2->mode_1300_scratch);
+    FREE(c2->fft_inplace_scratch);
+    FREE(c2->analysis_spectrum);
     FREE(c2->bpf_buf);
     nlp_destroy(c2->nlp);
     codec2_fft_free(c2->fft_fwd_cfg);
@@ -1246,19 +1301,27 @@ void codec2_encode_1300(struct CODEC2 *c2, unsigned char * bits, short speech[])
 
 void codec2_decode_1300(struct CODEC2 *c2, short speech[], const unsigned char * bits, float ber_est)
 {
-    MODEL   model[4];
-    int     lsp_indexes[LPC_ORD];
-    float   lsps[4][LPC_ORD];
+    CODEC2_1300_SCRATCH *scratch = c2->mode_1300_scratch;
+    MODEL   *model;
+    int     *lsp_indexes;
+    float   (*lsps)[LPC_ORD];
     int     Wo_index, e_index;
-    float   e[4];
+    float   *e;
     float   snr;
-    float   ak[4][LPC_ORD+1];
+    float   (*ak)[LPC_ORD+1];
     int     i,j;
     unsigned int nbit = 0;
     float   weight;
-    COMP    Aw[FFT_ENC];
+    COMP    *Aw;
 
     assert(c2 != NULL);
+    assert(scratch != NULL);
+    model = scratch->decoder_model;
+    lsp_indexes = scratch->decoder_lsp_indexes;
+    lsps = scratch->decoder_lsps;
+    e = scratch->decoder_e;
+    ak = scratch->decoder_ak;
+    Aw = scratch->decoder_aw;
     
     /* only need to zero these out due to (unused) snr calculation */
 
@@ -1304,33 +1367,47 @@ void codec2_decode_1300(struct CODEC2 *c2, short speech[], const unsigned char *
 
     for(i=0, weight=0.25; i<3; i++, weight += 0.25) {
 	interpolate_lsp_ver2(&lsps[i][0], c2->prev_lsps_dec, &lsps[3][0], weight, LPC_ORD);
-        interp_Wo2(&model[i], &c2->prev_model_dec, &model[3], weight, c2->c2const.Wo_min);
-        e[i] = interp_energy2(c2->prev_e_dec, e[3],weight);
+    interp_Wo2(&model[i], &c2->prev_model_dec, &model[3], weight, c2->c2const.Wo_min);
+    e[i] = interp_energy2(c2->prev_e_dec, e[3], weight);
     }
 
     /* then recover spectral amplitudes */
 
-    for(i=0; i<4; i++) {
-	lsp_to_lpc(&lsps[i][0], &ak[i][0], LPC_ORD);
-	aks_to_M2(c2->fftr_fwd_cfg, &ak[i][0], LPC_ORD, &model[i], e[i], &snr, 0, 0,
-                  c2->lpc_pf, c2->bass_boost, c2->beta, c2->gamma, Aw);
-	apply_lpc_correction(&model[i]);
-	synthesise_one_frame(c2, &speech[c2->n_samp*i], &model[i], Aw, 1.0);
+    for (i = 0; i < 4; i++)
+    {
+        lsp_to_lpc(&lsps[i][0], &ak[i][0], LPC_ORD);
+        aks_to_M2_with_scratch(c2->fftr_fwd_cfg,
+                               &ak[i][0],
+                               LPC_ORD,
+                               &model[i],
+                               e[i],
+                               &snr,
+                               0,
+                               0,
+                               c2->lpc_pf,
+                               c2->bass_boost,
+                               c2->beta,
+                               c2->gamma,
+                               Aw,
+                               &scratch->decoder_lpc_scratch);
+        apply_lpc_correction(&model[i]);
+        synthesise_one_frame(c2, &speech[c2->n_samp * i], &model[i], Aw, 1.0);
 
-	/* dump parameters for deep learning experiments */
-	
-	if (c2->fmlfeat != NULL) {
-	    /* 10 LSPs - energy - Wo - voicing flag - 10 LPCs */                
-	    fwrite(&lsps[i][0], LPC_ORD, sizeof(float), c2->fmlfeat);
-	    fwrite(&e[i], 1, sizeof(float), c2->fmlfeat);
-	    fwrite(&model[i].Wo, 1, sizeof(float), c2->fmlfeat); 
-	    float voiced_float = model[i].voiced;
-	    fwrite(&voiced_float, 1, sizeof(float), c2->fmlfeat);
-	    fwrite(&ak[i][1], LPC_ORD, sizeof(float), c2->fmlfeat);
-	}
+        /* dump parameters for deep learning experiments */
+
+        if (c2->fmlfeat != NULL)
+        {
+            /* 10 LSPs - energy - Wo - voicing flag - 10 LPCs */
+            fwrite(&lsps[i][0], LPC_ORD, sizeof(float), c2->fmlfeat);
+            fwrite(&e[i], 1, sizeof(float), c2->fmlfeat);
+            fwrite(&model[i].Wo, 1, sizeof(float), c2->fmlfeat);
+            float voiced_float = model[i].voiced;
+            fwrite(&voiced_float, 1, sizeof(float), c2->fmlfeat);
+            fwrite(&ak[i][1], LPC_ORD, sizeof(float), c2->fmlfeat);
+        }
     }
- 
-    #ifdef DUMP
+
+#ifdef DUMP
     dump_lsp_(&lsps[3][0]);
     dump_ak_(&ak[3][0], LPC_ORD);
     #endif
@@ -2075,11 +2152,13 @@ void synthesise_one_frame(struct CODEC2 *c2, short speech[], MODEL *model, COMP 
 
 void analyse_one_frame(struct CODEC2 *c2, MODEL *model, short speech[])
 {
-    COMP    Sw[FFT_ENC];
+    COMP    *Sw = c2->analysis_spectrum;
     float   pitch;
     int     i;
     int     n_samp = c2->n_samp;
     int     m_pitch = c2->m_pitch;
+
+    assert(Sw != NULL);
 
     /* Read input speech */
 
@@ -2088,10 +2167,12 @@ void analyse_one_frame(struct CODEC2 *c2, MODEL *model, short speech[])
     for(i=0; i<n_samp; i++)
       c2->Sn[i+m_pitch-n_samp] = speech[i];
 
-    dft_speech(&c2->c2const, c2->fft_fwd_cfg, Sw, c2->Sn, c2->w);
+    dft_speech(&c2->c2const, c2->fft_fwd_cfg, Sw, c2->Sn, c2->w,
+               c2->fft_inplace_scratch);
 
     /* Estimate pitch */
-    nlp(c2->nlp, c2->Sn, n_samp, &pitch, Sw, c2->W, &c2->prev_f0_enc);
+    nlp(c2->nlp, c2->Sn, n_samp, &pitch, Sw, c2->W, &c2->prev_f0_enc,
+        c2->fft_inplace_scratch);
     model->Wo = TWO_PI/pitch;
     model->L = PI/model->Wo;
 

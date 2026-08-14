@@ -232,6 +232,108 @@ int main()
         assert(plaintext_size == sizeof(plaintext));
         assert(memcmp(plaintext, payload, sizeof(payload)) == 0);
 
+        meshtastic_Data expected_data = meshtastic_Data_init_zero;
+        expected_data.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+        expected_data.payload.size = 1;
+        expected_data.payload.bytes[0] = 0x42;
+        uint8_t encoded_data[64] = {};
+        pb_ostream_t encoded_stream =
+            pb_ostream_from_buffer(encoded_data, sizeof(encoded_data));
+        assert(pb_encode(&encoded_stream, meshtastic_Data_fields, &expected_data));
+
+        uint8_t data_wire[96] = {};
+        size_t data_wire_size = sizeof(data_wire);
+        assert(chat::meshtastic::buildWirePacket(encoded_data,
+                                                 encoded_stream.bytes_written,
+                                                 0x07060504UL,
+                                                 0x10203040UL,
+                                                 0xFFFFFFFFUL,
+                                                 0x08,
+                                                 3,
+                                                 false,
+                                                 psk,
+                                                 sizeof(psk),
+                                                 data_wire,
+                                                 &data_wire_size));
+
+        chat::meshtastic::PacketHeaderWire data_header{};
+        uint8_t data_cipher[64] = {};
+        size_t data_cipher_size = sizeof(data_cipher);
+        assert(chat::meshtastic::parseWirePacket(data_wire,
+                                                 data_wire_size,
+                                                 &data_header,
+                                                 data_cipher,
+                                                 &data_cipher_size));
+        uint8_t data_plaintext[64] = {};
+        size_t data_plaintext_size = sizeof(data_plaintext);
+        meshtastic_Data decoded_data = meshtastic_Data_init_zero;
+        assert(chat::meshtastic::decryptAndValidateDataPayload(data_header,
+                                                               data_cipher,
+                                                               data_cipher_size,
+                                                               psk,
+                                                               sizeof(psk),
+                                                               data_plaintext,
+                                                               &data_plaintext_size,
+                                                               &decoded_data));
+        assert(decoded_data.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP);
+        assert(decoded_data.payload.size == 1);
+        assert(decoded_data.payload.bytes[0] == 0x42);
+
+        uint8_t wrong_psk[sizeof(psk)] = {};
+        memcpy(wrong_psk, psk, sizeof(wrong_psk));
+        wrong_psk[0] ^= 0xFF;
+        data_plaintext_size = sizeof(data_plaintext);
+        assert(!chat::meshtastic::decryptAndValidateDataPayload(data_header,
+                                                                data_cipher,
+                                                                data_cipher_size,
+                                                                wrong_psk,
+                                                                sizeof(wrong_psk),
+                                                                data_plaintext,
+                                                                &data_plaintext_size,
+                                                                &decoded_data));
+
+        data_plaintext_size = sizeof(data_plaintext);
+        assert(!chat::meshtastic::decryptAndValidateDataPayload(data_header,
+                                                                data_cipher,
+                                                                data_cipher_size,
+                                                                nullptr,
+                                                                0,
+                                                                data_plaintext,
+                                                                &data_plaintext_size,
+                                                                &decoded_data));
+
+        expected_data.portnum = meshtastic_PortNum_UNKNOWN_APP;
+        encoded_stream = pb_ostream_from_buffer(encoded_data, sizeof(encoded_data));
+        assert(pb_encode(&encoded_stream, meshtastic_Data_fields, &expected_data));
+        data_wire_size = sizeof(data_wire);
+        assert(chat::meshtastic::buildWirePacket(encoded_data,
+                                                 encoded_stream.bytes_written,
+                                                 0x07060504UL,
+                                                 0x50607080UL,
+                                                 0xFFFFFFFFUL,
+                                                 0x08,
+                                                 3,
+                                                 false,
+                                                 psk,
+                                                 sizeof(psk),
+                                                 data_wire,
+                                                 &data_wire_size));
+        data_cipher_size = sizeof(data_cipher);
+        assert(chat::meshtastic::parseWirePacket(data_wire,
+                                                 data_wire_size,
+                                                 &data_header,
+                                                 data_cipher,
+                                                 &data_cipher_size));
+        data_plaintext_size = sizeof(data_plaintext);
+        assert(!chat::meshtastic::decryptAndValidateDataPayload(data_header,
+                                                                data_cipher,
+                                                                data_cipher_size,
+                                                                psk,
+                                                                sizeof(psk),
+                                                                data_plaintext,
+                                                                &data_plaintext_size,
+                                                                &decoded_data));
+
         constexpr uint8_t psk256[] = {
             0x00,
             0x01,

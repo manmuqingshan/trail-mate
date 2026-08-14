@@ -42,7 +42,7 @@ introducing a separate Linux gray/green theme:
 | Border / separator | `#D9B06A` / `#E8D2AB` | Desktop pane and card boundaries |
 | Primary / muted text | `#3A2A1A` / `#6A5646` | Main copy and secondary metadata |
 | Status green / blue | `#5BAF4A` / `#2F6FD6` | Healthy and informational states |
-| Map / sweep background | `#F6E7C8` / `#F2E4C8` | Map tiles, sky plot, and Energy Sweep |
+| Map / probe background | `#F6E7C8` / `#F2E4C8` | Map tiles, sky plot, and Protocol Probe |
 
 The canonical shared values come from
 `modules/ui_shared/include/ui/ui_theme.h`; the dashboard-specific panel,
@@ -111,7 +111,7 @@ a modal.
 
 ## Radio tools workbench
 
-Energy Sweep, SSTV, and Walkie retain independent runtimes and controls but are
+Protocol Probe, SSTV, and Walkie retain independent runtimes and controls but are
 grouped into one desktop workbench. This reduces navigation depth without
 removing any ESP32 capability.
 

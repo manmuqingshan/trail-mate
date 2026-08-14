@@ -37,6 +37,9 @@ const char* primaryChannelName(const MeshConfig& config);
 const char* secondaryChannelName(const MeshConfig& config);
 const char* channelName(const MeshConfig& config, ChannelId channel);
 RadioConfig deriveRadioConfig(const MeshConfig& config);
+RadioConfig deriveRadioConfigForModemPreset(
+    const MeshConfig& config,
+    meshtastic_Config_LoRaConfig_ModemPreset modem_preset);
 
 } // namespace meshtastic
 } // namespace chat

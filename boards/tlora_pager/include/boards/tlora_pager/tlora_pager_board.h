@@ -76,6 +76,7 @@ enum class PagerAudioOwner : uint8_t
     MessageTone,
     IncomingCallTone,
     ReticulumCall,
+    VoiceMessage,
     Walkie,
     Sstv,
 };
@@ -221,6 +222,11 @@ class TLoRaPagerBoard : public BoardBase,
     uint16_t width() override;
     uint16_t height() override;
     void pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color) override;
+    DisplayTransferResult transferPixels(uint16_t x1,
+                                         uint16_t y1,
+                                         uint16_t x2,
+                                         uint16_t y2,
+                                         uint16_t* color) override;
     bool pushColorsResult(uint16_t x1,
                           uint16_t y1,
                           uint16_t x2,
@@ -321,9 +327,9 @@ class TLoRaPagerBoard : public BoardBase,
     float getRadioRSSI() override;
     float getRadioInstantRSSI() override;
     float getRadioSNR() override;
-    void configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
-                            int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
-                            uint8_t crc_len) override;
+    int configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
+                           int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
+                           uint8_t crc_len) override;
     int radioStandby();
     int configureFskRadio(float freq_mhz, float bit_rate_kbps, float freq_dev_khz, float rx_bw_khz,
                           int8_t tx_power, uint16_t preamble_len, float tcxo_voltage,

@@ -1,156 +1,134 @@
-## 1) 关键可读性规则（针对 ~227PPI）
+# Protocol Probe Pager UI
 
-### 字号策略
+## Product State
 
-* **标题/关键频点**：18–20 px（不要再小）
-* **常规信息**：14–16 px
-* **弱信息/单位/标签**：12–13 px（底线，不再小）
-* 数字（频率/RSSI）尽量用 **等宽字体** 或数字等宽特性（否则跳动）
+This is the target UI for Protocol Probe (Chinese: 协议包探测). It replaces the
+former Energy Sweep / Spectrum dashboard. The internal route remains
+`energy_sweep`; the visible name is `PROTOCOL PROBE` and the menu icon is
+`radar.c`.
 
-### 线宽与柱宽（高 PPI 必须加粗）
+The page answers whether a complete protocol air profile has been observed or
+confirmed. It never presents RSSI as proof, recommends a quiet channel, or
+names a received business payload.
 
-* 面板边框：**2 px**（不要 1px）
-* 网格线：1 px（但降低不透明度）
-* 光标竖线：**2 px**
-* 柱状条：**4 px 宽**（间隔 2 px），否则会变成“毛刺”
+## Visual Language
 
-### 点击/触控命中（如果是触控）
+Protocol Probe follows the current Map page language rather than the former
+Energy Sweep dashboard language.
 
-* 最小按钮高度：**28 px**
-* 按钮内边距：左右 10 px
-* 两个按钮并排比两行更合适（不挤信息）
+| Token | Value | Use |
+| --- | --- | --- |
+| Work surface | `#FFF3DF` | Full screen beneath the top bar |
+| Keycap surface | `#F8E6C3` | Bottom-bar controls and result rows |
+| Divider | `#B3915D` | Result-row and keycap borders |
+| Primary text | `#593D1C` | Labels and frequency values |
+| Secondary text | `#846A42` | Parameter details and progress |
+| Amber | `#EBA341` | Selected result and Apply action |
+| Blue | `#315F91` | Listening state and selected frequency |
+| Green | `#397046` | Evidence count and applied confirmation |
 
----
+No page-level floating cards are used. Result rows are interactive repeated
+items; the rest of the screen remains a continuous work surface. There is no
+selected-profile detail panel, so Pager and T-Deck use the same layout.
 
-## 2) 画布与全局 Token（不变）
+## 480x222 Layout
 
-* Screen：**480(w) × 222(h)**
-* BG：`WarmBG #F6E6C6`
-* Panel：`PanelBG #FAF0D8`
-* Line：`#E7C98F`（边框/分隔线）
-* Text：`#6B4A1E`
-* TextDim：`#8A6A3A`
-* Amber：`#EBA341`
-* AmberDark：`#C98118`
-* Warn/Ok/Info：`#B94A2C / #3E7D3E / #2D6FB6`
+```
+0,0     +------------------------------------------------+
+        | <  PROTOCOL PROBE                         battery |
+30      +------------------------------------------------+
+        | MT 433.775 B125 S11 3/12                        |
+        | [MT 433.775  125K SF11 C4/8       OBSERVED x04] |
+        | [RT 433.775  125K SF09 C4/5       OBSERVED x18] |
+        | [MC 433.550  250K SF07 C4/5      CONFIRMED x01] |
+        | 3 FOUND   TX only during protocol verification   |
+198     +------------------------------------------------+
+        | UP/DN SELECT | ENTER SET | S STOP | ESC BACK   |
+222     +------------------------------------------------+
+```
 
----
+- Top bar: 30 px, supplied by the shared top-bar component.
+- Work area: `y=30..198`, 10 px outer margin, one full-width list surface.
+- Bottom bar: 24 px, using the Map control-bar keycap treatment.
+- Pager result rows: 24 px high, 3 px gap, up to four visible rows. `UP/DN`
+  automatically moves the four-row window when the selection crosses a page
+  boundary, so every observed profile remains visible and selectable.
 
-## 3) 新的布局（更适合 2.33"：信息更少、更大、更“扫一眼就懂”）
+The live phase line names the action actually in progress:
 
-### A) Topbar（更薄，但字更大）
+| Phase | Label | Meaning |
+| --- | --- | --- |
+| Passive candidate RX | `MT 433.775 B125 S11 3/12` | The radio listens on this complete candidate profile. |
+| MeshCore request | `MC TX 433.775` | Discover was sent and the response window is open. |
+| Meshtastic check | `MT ACK 433.775` | A targeted `want_ack` check is running. |
+| Reticulum traffic | `RT TRAFFIC 18` | Valid Reticulum frames were seen on the profile. |
 
-* **Topbar 高度：28 px**（比 30 稍省空间）
-* 区域：x=0,y=0,w=480,h=28
-* 背景：PanelBG
-* 底分隔线：2px，Line
+## Content Rules
 
-**Topbar 内容**
+Each row uses fixed-width content:
 
-* 左：`SUB-GHz SCAN`，字号 **18**，Text
-* 右：两个状态标签（文字 13，TextDim / Info）
+```text
+PROTOCOL  FREQUENCY  BW/SF/CR  STATE  xEVIDENCE
+```
 
-  * `RSSI`（默认 TextDim；工作中用 AmberDark）
-  * `CAD`（开启时 Info）
+`OBSERVED` means protocol-level evidence. `CONFIRMED` means a correlated
+MeshCore Discover response or Meshtastic routing ACK. Reticulum remains
+`OBSERVED` in Protocol Probe; a later normal-network Ping after applying its
+profile is separate from probing. The evidence count totals protocol
+frames/responses and never lists business payload types.
 
-> 高 PPI 下，Topbar 文字 18 才“像标题”。
+Rows with RF activity or only a generic LoRa frame are diagnostics, not
+selectable result rows. A timeout never removes an existing observation.
 
----
+The selected row is the only selection-state presentation. It is amber and
+keeps the same fixed fields as every other row. Confirmed state uses green
+treatment without changing layout. The page never repeats selected details,
+RSSI metadata, or business-packet labels elsewhere.
 
-### B) 主区（28 以下的 194 px 高度）
+Empty state text is factual:
 
-主区 y=28，h=194，左右分栏：
+- `READY TO PROBE KNOWN PROFILES` before scanning
+- `NO PROTOCOL EVIDENCE YET` while a pass is running
+- `NO EVIDENCE IN THIS PASS` after a quiet pass
 
-* **左侧频谱面板：w=332**
-* **右侧信息面板：w=480-12-10-12-332 = 114**（更窄，但我们减少字段 + 放大关键数）
+None claims that a band, profile, or network is absent.
 
-外边距：12，栏间距：10。
+## Keyboard And Touch Interaction
 
----
+| Input | Action |
+| --- | --- |
+| `UP` / `DOWN` | Select an observed or confirmed profile |
+| `ENTER` | Open the apply confirmation for the selected profile |
+| `S` | Start or stop the probe |
+| `ESC` / Back | Close the dialog or leave the page |
+| Tap/click a result row | Select that profile |
+| Tap/click bottom `SET` or `START/STOP` | Same action as the matching key |
 
-## 4) 左侧：频谱面板（重点：图更清晰）
+The bottom bar reflects the active state by displaying `S START` before a
+probe starts and `S STOP` while it owns the radio. Protocol-specific TX is an
+automatic scheduler step; there is no generic Transmit, Ping all, or Broadcast
+all action.
 
-* Panel：x=12,y=40,w=332,h=170
-* 边框：2px Line
-* 内边距：10
+## Confirmation Overlay
 
-### 左面板内部
+Applying a result is intentionally not a one-key operation.
 
-#### 1) Plot 区
+```
+                  +----------------------------+
+                  | APPLY PROTOCOL PROFILE?    |
+                  | MT 433.775 MHz             |
+                  | 125K  SF11  C4/8            |
+                  | CONFIRMED VIA ROUTING ACK   |
+                  | [ESC CANCEL] [ENTER APPLY] |
+                  +----------------------------+
+```
 
-* x=22,y=50,w=312,h=118
-* 网格线：每 26px 一条横线（1px，Line，OPA 50）
-* 柱：4px 宽，2px 间距
+Only observed/confirmed profiles with a faithful persistent mapping expose
+`SET`. The dialog states the evidence class, never the business packet type.
+It does not restart probing, transmit a new probe packet, or rewrite
+configuration until Apply is explicitly confirmed.
 
-  * 正常柱：Amber
-  * 超阈值柱：Warn
-* 光标竖线：2px，Info
-* 光标底部小三角：Info（更容易定位）
-
-#### 2) 底部频率刻度条（更“可读”）
-
-* x=22,y=172,w=312,h=28
-* 左：起始频率（14px，Text）
-* 中：`STEP 25k`（12px，TextDim）
-* 右：终止频率（14px，Text）
-
-> 刻度条高度提升到 28，是为了让 12–14px 字在 2.33" 上不拥挤。
-
----
-
-## 5) 右侧：信息面板（只保留“对操作有用”的字段）
-
-* Panel：x=354,y=40,w=114,h=170
-* 边框：2px Line
-* 内边距：8
-
-### 右面板内容（从上到下，强层级）
-
-1. **CURSOR 频点（最大）**
-
-* `433.550`：字号 **20**，Text
-* `MHz`：字号 12，TextDim（贴右上或紧跟）
-
-2. **RSSI（第二层级）**
-
-* `-92 dBm`：字号 **18**，Text（超阈值改 Warn）
-
-3. **BEST（建议频点）**
-
-* `434.125`：字号 **16**，Ok
-* 下方小字：`SNR +12`（12，TextDim）
-
-4. **进度条 + 百分比（底部）**
-
-* 进度条：h=12，边框 2px Line
-* 填充：AmberDark
-* 右侧 `72%`：12，TextDim
-
-5. **按钮（并排，单行）**
-
-* y = 面板底部 - 28 - 8
-* 两个按钮各 w= (114-8-6)/2 ≈ 50
-* h=28（触控/可读都够）
-* `STOP/SCAN`：底 Amber（扫描中 STOP 用 Warn）
-* `AUTO`：边框 Info（开启时），默认 Line
-
-> 右侧很窄，所以**把单位、标签都做小字**，把数字做大字，扫一眼就懂。
-
----
-
-## 6) 你上一张效果图里“不符合高 PPI 的点”我已经修了
-
-* 1px 边框会显“发虚” → 全部改 2px
-* 柱太细会像噪点 → 柱宽 4px + 间距 2px
-* 信息太多会挤小字 → 右侧只保留 Cursor/RSSI/Best/Progress
-* 按钮做大但不占两行 → 并排一行
-
----
-
-## 7) LVGL 实现提示（不写代码，只说关键参数）
-
-* Panel border width：2
-* 字体：Title 18 / Big number 20 / Mid 16–18 / Small 12–13
-* 网格线：Line + opa 50
-* 柱：用 canvas 或 chart，自绘柱子更可控（4px 宽）
-
+The full-screen scrim is warm dark brown at 50 percent opacity. The modal is
+warm white with a 2 px amber border and 8 px radius, matching the existing
+tracker confirmation treatment. `Cancel` owns initial focus. Arrow left/right
+moves between the two actions; Enter applies only after Apply is focused.

@@ -23,6 +23,7 @@
                                 "-I../../../modules/ui_gps_runtime/include",
                                 "-I../../../modules/ui_lvgl_core/include",
                                 "-I../../../modules/ui_lvgl_ux_packs/include",
+                                "-I../../../modules/ui_mono/include",
                                 "-I../../../modules/core_device/include",
                                 "-I../../../modules/core_mesh/include",
                                 "-I../../../modules/core_phone/include",
@@ -32,7 +33,8 @@
                                 "-I../../../modules/core_team/include",
                                 "-I../../../modules/core_chat/generated",
                                 "-I../../../modules/core_chat/third_party/nanopb",
-                                "-I../../../platform/esp/common/include"
+                                "-I../../../platform/esp/common/include",
+                                "-I../../../boards/tdeck_pro/include"
                             ]
               },
     "dependencies":  [

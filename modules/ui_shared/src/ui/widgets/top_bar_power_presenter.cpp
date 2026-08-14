@@ -25,6 +25,7 @@ namespace
 constexpr std::size_t kMaxTargets = 8;
 constexpr std::size_t kLabelLen = 32;
 constexpr uint32_t kRefreshIntervalMs = 1000;
+constexpr int kBatteryLevelStepPercent = 1;
 constexpr uint8_t kChargingChangeStableSamples = 2;
 
 struct PresenterState

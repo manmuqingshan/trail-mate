@@ -100,6 +100,7 @@ class MeshtasticRadioAdapter final : public chat::IMeshAdapter
     uint32_t radio_bw_hz_ = 0;
     uint8_t radio_sf_ = 0;
     uint8_t radio_cr_ = 0;
+    uint32_t last_radio_diagnostic_ms_ = 0;
     uint8_t primary_channel_hash_ = 0x00;
     uint8_t secondary_channel_hash_ = 0x00;
     uint8_t primary_psk_[chat::kMeshtasticChannelKeyMaxLen] = {};

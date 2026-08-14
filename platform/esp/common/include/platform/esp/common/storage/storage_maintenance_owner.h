@@ -65,6 +65,8 @@ class StorageMaintenanceOwner final
 
         initial_now_ms_ = now_ms;
         initial_gate_satisfied_ = startup_gate_satisfied;
+        initial_hydration_ready_.store(false, std::memory_order_release);
+        hydration_ready_generation_.store(0U, std::memory_order_release);
         foreground_storage_barrier_.store(
             startup_gate_satisfied ||
                 config_.startup_gate == StorageStartupGate::Immediate,
@@ -174,6 +176,14 @@ class StorageMaintenanceOwner final
             *generation = ready_generation;
         }
         return ready_generation != 0U;
+    }
+
+    // Unlike consumeHydrationReady(), this is a durable state. Consumers that
+    // start after the one-shot edge was consumed can still safely begin their
+    // own local restore without racing the authoritative hydration owner.
+    bool initialHydrationReady() const
+    {
+        return initial_hydration_ready_.load(std::memory_order_acquire);
     }
 
     bool hydrationActive() const
@@ -549,6 +559,7 @@ class StorageMaintenanceOwner final
         {
             hydration_ready_generation_.store(ready_generation,
                                               std::memory_order_release);
+            initial_hydration_ready_.store(true, std::memory_order_release);
         }
 
         if (current.state == StorageRuntimeState::Ready ||
@@ -601,6 +612,7 @@ class StorageMaintenanceOwner final
     std::atomic<bool> published_startup_gate_satisfied_{false};
     std::atomic<bool> foreground_storage_barrier_{false};
     std::atomic<StorageOperationGeneration> hydration_ready_generation_{0U};
+    std::atomic<bool> initial_hydration_ready_{false};
 };
 
 } // namespace platform::esp::common::storage

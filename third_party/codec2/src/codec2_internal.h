@@ -33,20 +33,41 @@
 #include "codec2_fft.h"
 #include "newamp1.h"
 #include "newamp2.h"
+#include "quantise.h"
 
-struct CODEC2 {
-    int           mode;
-    C2CONST       c2const;
-    int           Fs;
-    int           n_samp;
-    int           m_pitch;
-    codec2_fft_cfg  fft_fwd_cfg;           /* forward FFT config                        */
+/*
+ * Codec2-1300's decoder has roughly 10 KiB of automatic arrays. That is a
+ * poor fit for constrained RTOS task stacks, especially when the same task
+ * must own an audio driver. Keep that per-instance, non-DMA workspace out of
+ * the call stack. The embedding platform owns the allocation placement.
+ */
+typedef struct
+{
+    MODEL decoder_model[4];
+    int decoder_lsp_indexes[LPC_ORD];
+    float decoder_lsps[4][LPC_ORD];
+    float decoder_e[4];
+    float decoder_ak[4][LPC_ORD + 1];
+    COMP decoder_aw[FFT_ENC];
+    CODEC2_LPC_SCRATCH decoder_lpc_scratch;
+} CODEC2_1300_SCRATCH;
+
+struct CODEC2
+{
+    int mode;
+    C2CONST c2const;
+    int Fs;
+    int n_samp;
+    int m_pitch;
+    codec2_fft_cfg fft_fwd_cfg;            /* forward FFT config                        */
     codec2_fftr_cfg fftr_fwd_cfg;          /* forward real FFT config                   */
     float        *w;	                   /* [m_pitch] time domain hamming window      */
     float         W[FFT_ENC];	           /* DFT of w[]                                */
     float        *Pn;	                   /* [2*n_samp] trapezoidal synthesis window   */
     float        *bpf_buf;                 /* buffer for band pass filter               */
     float        *Sn;                      /* [m_pitch] input speech                    */
+    COMP         *analysis_spectrum;       /* [FFT_ENC] encoder working spectrum        */
+    COMP         *fft_inplace_scratch;     /* [FFT_ENC] encoder FFT input copy           */
     float         hpf_states[2];           /* high pass filter states                   */
     void         *nlp;                     /* pitch predictor states                    */
     int           gray;                    /* non-zero for gray encoding                */
@@ -59,6 +80,7 @@ struct CODEC2 {
     MODEL         prev_model_dec;          /* previous frame's model parameters         */
     float         prev_lsps_dec[LPC_ORD];  /* previous frame's LSPs                     */
     float         prev_e_dec;              /* previous frame's LPC energy               */
+    CODEC2_1300_SCRATCH *mode_1300_scratch;
 
     int           lpc_pf;                  /* LPC post filter on                        */
     int           bass_boost;              /* LPC post filter bass boost                */

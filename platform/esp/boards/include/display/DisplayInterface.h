@@ -64,6 +64,17 @@ typedef struct RotaryMsg
     bool centerBtnPressed;
 } RotaryMsg_t;
 
+// A display flush must distinguish a transaction that did not start from a
+// transaction that actually completed. LVGL owns the pixel buffer until the
+// integration observes Completed for that exact buffer.
+enum class DisplayTransferResult : uint8_t
+{
+    Completed,
+    Busy,
+    Unavailable,
+    Failed,
+};
+
 class LilyGo_Display
 {
   public:
@@ -75,14 +86,18 @@ class LilyGo_Display
     virtual void setRotation(uint8_t rotation) = 0;
     virtual uint8_t getRotation() = 0;
     virtual void pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color) = 0;
+    virtual DisplayTransferResult transferPixels(uint16_t x1,
+                                                 uint16_t y1,
+                                                 uint16_t x2,
+                                                 uint16_t y2,
+                                                 uint16_t* color) = 0;
     virtual bool pushColorsResult(uint16_t x1,
                                   uint16_t y1,
                                   uint16_t x2,
                                   uint16_t y2,
                                   uint16_t* color)
     {
-        pushColors(x1, y1, x2, y2, color);
-        return true;
+        return transferPixels(x1, y1, x2, y2, color) == DisplayTransferResult::Completed;
     }
     virtual uint16_t width() = 0;
     virtual uint16_t height() = 0;
@@ -104,8 +119,18 @@ class LilyGo_Display
     virtual bool hasEncoder() { return false; }
     virtual bool hasKeyboard() { return false; }
     virtual void feedback(void* args = nullptr) { (void)args; }
+    // Displays that distinguish partial and full physical updates may defer a
+    // full waveform until the next submitted LVGL frame.  Most displays have
+    // no separate full-refresh mode, so the default is intentionally a no-op.
+    virtual void requestFullRefresh() {}
     bool needFullRefresh() { return _full_refresh; }
     virtual bool useDMA() { return false; }
+#if defined(ARDUINO_T_DECK_PRO)
+    // Board-specific display work that has been safely copied out of the LVGL
+    // draw buffer can be completed here. The EPD needs this deferred commit;
+    // do not grow the display vtable on synchronous display targets.
+    virtual void serviceDisplay(uint32_t now_ms) { (void)now_ms; }
+#endif
 
   protected:
     uint16_t _offset_x;
@@ -163,6 +188,12 @@ class LilyGoDispArduinoSPI
     uint8_t getRotation();
     void pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color);
     void pushColors(uint16_t* data, uint32_t len);
+    DisplayTransferResult transferPixels(uint16_t x1,
+                                         uint16_t y1,
+                                         uint16_t x2,
+                                         uint16_t y2,
+                                         uint16_t* color);
+    DisplayTransferResult transferPixels(uint16_t* data, uint32_t len);
     bool pushColorsResult(uint16_t x1,
                           uint16_t y1,
                           uint16_t x2,

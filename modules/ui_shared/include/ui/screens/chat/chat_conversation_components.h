@@ -11,6 +11,7 @@
 #include "chat/domain/chat_types.h"
 #include "chat_conversation_input.h"
 #include "lvgl.h"
+#include "ui/chat_voice_runtime.h"
 #include "ui/components/shortcut_help_modal.h"
 #include "ui/widgets/map/map_viewport.h"
 #include "ui/widgets/top_bar.h"
@@ -51,7 +52,14 @@ class ChatConversationScreen
     ~ChatConversationScreen();
 
     void addMessage(const ::ui::chat::MessageRow& row);
+    /** @brief Adds one local-only, selectable VMP voice bubble. */
+    void addVoiceMessage(const ::ui::chat_voice::MessageSummary& summary);
     void clearMessages();
+    /** Moves the non-touch timeline selection without changing rotary scroll. */
+    bool selectPreviousMessage();
+    bool selectNextMessage();
+    /** Plays the selected voice bubble. Non-voice bubbles retain normal Enter behavior. */
+    bool activateSelectedMessage();
     void scrollToTop();
     void scrollToBottom();
     bool updateMessageStatus(
@@ -95,7 +103,8 @@ class ChatConversationScreen
     enum class TimerDomain
     {
         ScreenGeneral,
-        Input
+        Input,
+        VoicePlayback
     };
 
     struct TimerEntry
@@ -149,6 +158,14 @@ class ChatConversationScreen
         ::ui::chat::MessageRef ref;
     };
 
+    struct VoicePlaybackContext
+    {
+        uint64_t local_id = 0U;
+        uint16_t duration_ms = 0U;
+        lv_obj_t* text_label = nullptr;
+        lv_timer_t* reset_timer = nullptr;
+    };
+
     lv_obj_t* container_ = nullptr;
     ::ui::widgets::TopBar top_bar_{};
     lv_obj_t* body_row_ = nullptr;
@@ -188,6 +205,7 @@ class ChatConversationScreen
         lv_obj_t* time_label = nullptr;   // inside meta row
         lv_obj_t* status_label = nullptr; // inside meta row
         std::unique_ptr<MessageActionContext> retry_ctx;
+        std::unique_ptr<VoicePlaybackContext> voice_playback_ctx;
         bool retry_enabled = false;
     };
 
@@ -211,8 +229,11 @@ class ChatConversationScreen
     bool history_newer_boundary_notified_ = false;
     bool location_map_visible_ = false;
     bool location_map_created_ = false;
+    int selected_message_index_ = -1;
 
     void createMessageItem(const ::ui::chat::MessageRow& row);
+    bool selectMessageRelative(int direction);
+    void setSelectedMessageIndex(int index);
     void handleScroll();
     void enableRetryAction(MessageItem& item);
     void disableRetryAction(MessageItem& item);
@@ -224,6 +245,8 @@ class ChatConversationScreen
 
     static void action_event_cb(lv_event_t* e);
     static void message_action_event_cb(lv_event_t* e);
+    static void voice_message_event_cb(lv_event_t* e);
+    static void voice_playback_reset_cb(lv_timer_t* timer);
     static void scroll_event_cb(lv_event_t* e);
     static void async_action_cb(void* user_data);
     static void async_message_action_cb(void* user_data);

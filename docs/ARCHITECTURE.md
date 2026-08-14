@@ -17,9 +17,9 @@ This document defines:
 - what kinds of code belong to shared modules vs platform adapters
 - how the project should evolve to support `PIO + IDF + Linux` without maintaining multiple full copies of the same source tree
 
-The shared-SPI ownership and scheduling contract is documented separately in
-[spi_bus_architecture.md](./spi_bus_architecture.md). It is the only document
-that defines shared-SPI locking and transaction rules. Any ESP board that
+The shared-SPI ownership and scheduling contract is documented as the
+[Shared SPI specification set](./specs/SPI_BUS_ARCHITECTURE_SPEC.md). It is the only
+specification set that defines shared-SPI locking and transaction rules. Any ESP board that
 shares display, SD, radio, font, track, team, or USB SPI access must follow
 that technical boundary; feature specifications describe only semantic
 behavior and must not copy the locking model.

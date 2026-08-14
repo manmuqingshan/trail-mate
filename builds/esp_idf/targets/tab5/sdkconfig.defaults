@@ -25,3 +25,5 @@ CONFIG_LV_USE_FS_POSIX=y
 CONFIG_LV_FS_POSIX_LETTER=70
 CONFIG_LV_FS_POSIX_PATH="/fs"
 CONFIG_LV_FS_POSIX_CACHE_SIZE=0
+# Resource packs contain long archive, directory, and asset names.
+CONFIG_FATFS_LFN_HEAP=y

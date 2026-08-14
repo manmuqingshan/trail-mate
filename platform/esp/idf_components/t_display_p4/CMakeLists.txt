@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "trail_mate_t_display_p4_runtime.cpp"
+        "p4_dsi_rotating_presenter.cpp"
         "t_display_p4_audio_runtime.cpp"
         "${CMAKE_SOURCE_DIR}/boards/t_display_p4/src/runtime_support.cpp"
         "hi8561_driver.c"

@@ -218,8 +218,14 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
     case sys::EventType::ChatNewMessage:
     {
         auto* msg_event = static_cast<sys::ChatNewMessageEvent*>(event);
+        const bool voice_message =
+            msg_event->content_kind == sys::ChatMessageContentKind::Voice;
+        const char* const notice = voice_message
+                                       ? ::ui::i18n::tr("Voice message")
+                                       : msg_event->text;
         const bool alerts_enabled = messageAlertsEnabled();
-        std::printf("[UI][event] chat_new_message msg=%lu ch=%u len=%u origin=%u alerts=%u text='%s'\n",
+        std::printf("[UI][event] chat_new_message kind=%s msg=%lu ch=%u len=%u origin=%u alerts=%u text='%s'\n",
+                    voice_message ? "voice" : "text",
                     static_cast<unsigned long>(msg_event->msg_id),
                     static_cast<unsigned>(msg_event->channel),
                     static_cast<unsigned>(std::strlen(msg_event->text)),
@@ -229,13 +235,15 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
         if (alerts_enabled)
         {
             triggerMessageFeedback(app_context);
-            ::ui::feedback::show_notice(msg_event->text, 3000);
-            std::printf("[UI][notice] chat_new_message msg=%lu shown=1\n",
+            ::ui::feedback::show_notice(notice, 3000);
+            std::printf("[UI][notice] chat_new_message kind=%s msg=%lu shown=1\n",
+                        voice_message ? "voice" : "text",
                         static_cast<unsigned long>(msg_event->msg_id));
         }
         else
         {
-            std::printf("[UI][notice] chat_new_message msg=%lu shown=0 reason=alerts_disabled\n",
+            std::printf("[UI][notice] chat_new_message kind=%s msg=%lu shown=0 reason=alerts_disabled\n",
+                        voice_message ? "voice" : "text",
                         static_cast<unsigned long>(msg_event->msg_id));
         }
         break;
@@ -315,7 +323,8 @@ bool handleUiEvent(app::IAppFacade& app_context, sys::Event* event)
         if (event->type == sys::EventType::ChatNewMessage)
         {
             auto* msg_event = static_cast<sys::ChatNewMessageEvent*>(event);
-            std::printf("[UI][chat_runtime] dispatch chat_new_message msg=%lu ch=%u\n",
+            std::printf("[UI][chat_runtime] dispatch chat_new_message kind=%u msg=%lu ch=%u\n",
+                        static_cast<unsigned>(msg_event->content_kind),
                         static_cast<unsigned long>(msg_event->msg_id),
                         static_cast<unsigned>(msg_event->channel));
         }

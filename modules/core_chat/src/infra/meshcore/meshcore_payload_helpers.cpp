@@ -21,14 +21,19 @@ constexpr uint8_t kRouteTypeTransportFlood = 0x00;
 constexpr uint8_t kPayloadTypeReq = 0x00;
 constexpr uint8_t kPayloadTypeResponse = 0x01;
 constexpr uint8_t kPayloadTypeTxtMsg = 0x02;
+constexpr uint8_t kPayloadTypeAck = 0x03;
+constexpr uint8_t kPayloadTypeAdvert = 0x04;
 constexpr uint8_t kPayloadTypeGrpTxt = 0x05;
+constexpr uint8_t kPayloadTypeGrpData = 0x06;
 constexpr uint8_t kPayloadTypeAnonReq = 0x07;
 constexpr uint8_t kPayloadTypeDirectData = kPayloadTypeAnonReq;
 constexpr uint8_t kPayloadTypePath = 0x08;
+constexpr uint8_t kPayloadTypeMultipart = 0x0A;
 constexpr size_t kMeshcoreMaxFrameSize = 255;
 constexpr size_t kCipherBlockSize = 16;
 constexpr size_t kMeshcorePubKeySize = 32;
 constexpr size_t kMeshcorePubKeyPrefixSize = 8;
+constexpr size_t kMeshcoreAdvertSignatureSize = 64;
 constexpr NodeId kSyntheticNodePrefix = 0x4D430000UL;
 constexpr uint8_t kDirectAppMagic0 = 0xDA;
 constexpr uint8_t kDirectAppMagic1 = 0x7A;
@@ -175,6 +180,93 @@ bool isAnonReqCipherShape(PayloadProfile profile, size_t payload_len)
     }
     const size_t enc_len = payload_len - prefix_len - mac_bytes;
     return (enc_len % kCipherBlockSize) == 0;
+}
+
+bool isPlausibleProtocolPacket(const ParsedPacket& packet)
+{
+    if (!isSupportedPayloadVersion(packet.payload_ver) || !packet.payload ||
+        packet.payload_len == 0)
+    {
+        return false;
+    }
+
+    const PayloadProfile profile = payloadProfileFromVersion(packet.payload_ver);
+    const size_t hash_bytes = payloadHashBytes(profile);
+    const size_t mac_bytes = payloadMacBytes(profile);
+
+    switch (packet.payload_type)
+    {
+    case kPayloadTypeReq:
+    case kPayloadTypeResponse:
+    case kPayloadTypeTxtMsg:
+    case kPayloadTypePath:
+        return isPeerCipherShape(profile, packet.payload_len);
+
+    case kPayloadTypeAnonReq:
+        return isPeerCipherShape(profile, packet.payload_len) ||
+               isAnonReqCipherShape(profile, packet.payload_len);
+
+    case kPayloadTypeGrpTxt:
+    case kPayloadTypeGrpData:
+        return packet.payload_len > (hash_bytes + mac_bytes) &&
+               ((packet.payload_len - hash_bytes - mac_bytes) % kCipherBlockSize) == 0;
+
+    case kPayloadTypeAck:
+        return packet.payload_len == sizeof(uint32_t);
+
+    case kPayloadTypeAdvert:
+        return packet.payload_len >=
+               (kMeshcorePubKeySize + sizeof(uint32_t) + kMeshcoreAdvertSignatureSize);
+
+    case kMeshCorePayloadTypeTrace:
+    {
+        DecodedTracePayload trace{};
+        return decodeTracePayload(packet.payload,
+                                  packet.payload_len,
+                                  packet.path_len,
+                                  &trace) &&
+               trace.valid && trace.tag != 0 && trace.auth != 0 &&
+               isValidTracePathHashBytes(trace.flags,
+                                         trace.trace_hashes_len,
+                                         kMeshCoreMaxPathBytes);
+    }
+
+    case kPayloadTypeMultipart:
+        return packet.payload_len == 5 &&
+               (packet.payload[0] & 0x0FU) == kPayloadTypeAck;
+
+    case kMeshCorePayloadTypeControl:
+    {
+        DecodedDiscoverRequest discover_request{};
+        if (decodeDiscoverRequest(packet.payload,
+                                  packet.payload_len,
+                                  &discover_request) &&
+            discover_request.valid)
+        {
+            return true;
+        }
+
+        DecodedDiscoverResponse discover_response{};
+        if (decodeDiscoverResponse(packet.payload,
+                                   packet.payload_len,
+                                   &discover_response) &&
+            discover_response.valid)
+        {
+            return true;
+        }
+
+        DecodedNodeInfoControl node_info{};
+        return decodeNodeInfoControlPayload(packet.payload,
+                                            packet.payload_len,
+                                            &node_info) &&
+               node_info.valid && node_info.complete;
+    }
+
+    default:
+        // Raw/custom payloads and unknown types cannot establish a protocol
+        // profile without a protocol marker or authenticated envelope.
+        return false;
+    }
 }
 
 bool buildFrameNoTransport(uint8_t route_type, uint8_t payload_type,

@@ -71,6 +71,7 @@ constexpr const char* kNetworkTimeSyncServer = "pool.ntp.org";
 constexpr std::time_t kNetworkTimeMinValidEpochSeconds = 1577836800; // 2020-01-01 UTC
 constexpr uint32_t kNetworkTimeSyncTimeoutMs = 15000;
 constexpr uint32_t kNetworkTimeApplyTaskStackBytes = 3072;
+constexpr uint32_t kWifiProfileRetryDelayMs = 1500;
 
 enum class WifiInitProfile : uint8_t
 {
@@ -86,7 +87,6 @@ struct RuntimeState
     bool wifi_initialized = false;
     bool ble_paused_for_wifi = false;
     bool network_time_sync_in_progress = false;
-    bool network_time_sync_attempted = false;
     std::time_t network_time_sync_epoch = 0;
     bool config_cached = false;
     bool profiles_cached = false;
@@ -94,19 +94,25 @@ struct RuntimeState
     bool connecting = false;
     bool connect_deferred_for_resources = false;
     bool intentional_disconnect_pending = false;
+    bool profile_retry_pending = false;
+    bool automatic_profile_attempt_active = false;
+    bool automatic_profile_shutdown_pending = false;
     bool scanning = false;
     int rssi = -127;
     Config config{};
     Config profiles[kWifiProfileCapacity] = {};
+    wifi_config_t station_config{};
     wifi_ap_record_t auto_scan_records[kWifiAutoScanMaxRecords] = {};
     std::size_t profile_count = 0;
     std::size_t next_profile_index = 0;
+    std::size_t automatic_profile_failures = 0;
     char ssid[kMaxSsidLength + 1] = {};
     char ip[kMaxIpLength + 1] = {};
     char message[kMaxStatusMessageLength + 1] = {};
     esp_netif_t* sta_netif = nullptr;
     esp_event_handler_instance_t wifi_event_handler = nullptr;
     esp_event_handler_instance_t ip_event_handler = nullptr;
+    esp_timer_handle_t profile_retry_timer = nullptr;
     esp_timer_handle_t network_time_sync_timeout_timer = nullptr;
     TaskHandle_t network_time_apply_task = nullptr;
     void* reconnect_memory_reserve = nullptr;
@@ -153,6 +159,160 @@ void log_heap_snapshot(const char* stage)
 
 void set_status_message(const char* message);
 void cancel_network_time_sync();
+
+bool radio_is_reserved()
+{
+    const ::platform::ui::wifi_access::RuntimeStatus access =
+        ::platform::ui::wifi_access::status();
+    if (!access.non_preemptible_active)
+    {
+        return false;
+    }
+
+    set_status_message("Wireless radio is busy");
+    std::printf("[WiFi] start rejected: radio reserved activity=%s\n",
+                access.non_preemptible_reason ? access.non_preemptible_reason : "unknown");
+    return true;
+}
+
+void cancel_profile_retry()
+{
+    if (s_runtime.profile_retry_timer != nullptr)
+    {
+        (void)esp_timer_stop(s_runtime.profile_retry_timer);
+    }
+    s_runtime.profile_retry_pending = false;
+}
+
+void reset_automatic_profile_failure_cycle()
+{
+    s_runtime.automatic_profile_attempt_active = false;
+    s_runtime.automatic_profile_shutdown_pending = false;
+    s_runtime.automatic_profile_failures = 0;
+}
+
+void disable_wifi_after_profile_exhaustion()
+{
+    s_runtime.automatic_profile_shutdown_pending = false;
+    s_runtime.automatic_profile_attempt_active = false;
+    s_runtime.automatic_profile_failures = 0;
+
+    Config disabled_config = s_runtime.config;
+    disabled_config.enabled = false;
+    const bool persisted = save_config(disabled_config);
+    if (!persisted)
+    {
+        // Do not leave the radio retrying just because its disabled state
+        // could not be written. The next explicit enable will start a new
+        // profile cycle; a reboot can retry only if persistence also failed.
+        s_runtime.config = disabled_config;
+        s_runtime.config_cached = true;
+    }
+    const bool stopped = apply_enabled(false);
+    std::printf("[WiFi] saved profiles exhausted action=wifi_off persisted=%u stopped=%u\n",
+                persisted ? 1U : 0U,
+                stopped ? 1U : 0U);
+}
+
+void profile_retry_timer_cb(void*)
+{
+    s_runtime.profile_retry_pending = false;
+    if (s_runtime.automatic_profile_shutdown_pending)
+    {
+        disable_wifi_after_profile_exhaustion();
+        return;
+    }
+    if (!s_runtime.wifi_started || !s_runtime.config_cached || !s_runtime.config.enabled ||
+        s_runtime.connected || s_runtime.connecting || s_runtime.profile_count == 0 ||
+        radio_is_reserved())
+    {
+        return;
+    }
+
+    std::printf("[WiFi] retrying saved profile=%u/%u\n",
+                static_cast<unsigned>(s_runtime.next_profile_index + 1U),
+                static_cast<unsigned>(s_runtime.profile_count));
+    (void)connect(nullptr);
+}
+
+bool ensure_profile_retry_timer()
+{
+    if (s_runtime.profile_retry_timer != nullptr)
+    {
+        return true;
+    }
+
+    esp_timer_create_args_t args{};
+    args.callback = &profile_retry_timer_cb;
+    args.name = "wifi_retry";
+    const esp_err_t err = esp_timer_create(&args, &s_runtime.profile_retry_timer);
+    if (err != ESP_OK)
+    {
+        std::printf("[WiFi] retry timer create failed err=0x%x\n",
+                    static_cast<unsigned>(err));
+        return false;
+    }
+    return true;
+}
+
+void schedule_profile_retry()
+{
+    if (s_runtime.profile_retry_pending || !s_runtime.wifi_started ||
+        !s_runtime.config_cached || !s_runtime.config.enabled ||
+        s_runtime.profile_count == 0 || radio_is_reserved())
+    {
+        return;
+    }
+    if (!ensure_profile_retry_timer())
+    {
+        return;
+    }
+
+    const esp_err_t err = esp_timer_start_once(
+        s_runtime.profile_retry_timer,
+        static_cast<uint64_t>(kWifiProfileRetryDelayMs) * 1000ULL);
+    if (err != ESP_OK)
+    {
+        std::printf("[WiFi] retry timer start failed err=0x%x\n",
+                    static_cast<unsigned>(err));
+        return;
+    }
+    s_runtime.profile_retry_pending = true;
+}
+
+void note_automatic_profile_failure(std::size_t failed_index, const char* source)
+{
+    s_runtime.automatic_profile_attempt_active = false;
+    if (s_runtime.profile_count == 0)
+    {
+        return;
+    }
+
+    if (s_runtime.automatic_profile_failures < s_runtime.profile_count)
+    {
+        ++s_runtime.automatic_profile_failures;
+    }
+    s_runtime.next_profile_index = (failed_index + 1U) % s_runtime.profile_count;
+
+    if (s_runtime.automatic_profile_failures >= s_runtime.profile_count)
+    {
+        s_runtime.automatic_profile_shutdown_pending = true;
+        std::printf("[WiFi] saved profiles failed=%u/%u source=%s action=wifi_off\n",
+                    static_cast<unsigned>(s_runtime.automatic_profile_failures),
+                    static_cast<unsigned>(s_runtime.profile_count),
+                    source ? source : "unknown");
+    }
+    else
+    {
+        std::printf("[WiFi] saved profile failed=%u/%u next=%u/%u source=%s\n",
+                    static_cast<unsigned>(s_runtime.automatic_profile_failures),
+                    static_cast<unsigned>(s_runtime.profile_count),
+                    static_cast<unsigned>(s_runtime.next_profile_index + 1U),
+                    static_cast<unsigned>(s_runtime.profile_count),
+                    source ? source : "unknown");
+    }
+    schedule_profile_retry();
+}
 
 void release_reconnect_memory_reserve()
 {
@@ -597,7 +757,6 @@ void clear_connection_details()
     cancel_network_time_sync();
     s_runtime.connected = false;
     s_runtime.connecting = false;
-    s_runtime.network_time_sync_attempted = false;
     s_runtime.rssi = -127;
     s_runtime.ssid[0] = '\0';
     s_runtime.ip[0] = '\0';
@@ -687,20 +846,28 @@ void stop_sntp_once()
     esp_sntp_set_time_sync_notification_cb(nullptr);
 }
 
-void cancel_network_time_sync()
+// A time sync is strictly bound to the current IP lease. Keep the timer
+// allocated with the Wi-Fi runtime so repeated DHCP events do not fragment
+// scarce internal memory, but make every terminal path stop it and unregister
+// the SNTP callback before another lease can start a new sync.
+void finish_network_time_sync()
 {
+    s_runtime.network_time_sync_in_progress = false;
     if (s_runtime.network_time_sync_timeout_timer != nullptr)
     {
         (void)esp_timer_stop(s_runtime.network_time_sync_timeout_timer);
     }
     stop_sntp_once();
-    s_runtime.network_time_sync_in_progress = false;
+}
+
+void cancel_network_time_sync()
+{
+    finish_network_time_sync();
 }
 
 void network_time_apply_task(void*)
 {
     const std::time_t epoch_seconds = s_runtime.network_time_sync_epoch;
-    stop_sntp_once();
 
     if (is_valid_network_epoch(epoch_seconds))
     {
@@ -716,7 +883,7 @@ void network_time_apply_task(void*)
                     static_cast<long long>(epoch_seconds));
     }
 
-    s_runtime.network_time_sync_in_progress = false;
+    finish_network_time_sync();
     s_runtime.network_time_apply_task = nullptr;
     vTaskDelete(nullptr);
 }
@@ -747,8 +914,7 @@ void network_time_sync_notification_cb(timeval* tv)
                                            &s_runtime.network_time_apply_task);
     if (created != pdPASS)
     {
-        stop_sntp_once();
-        s_runtime.network_time_sync_in_progress = false;
+        finish_network_time_sync();
         s_runtime.network_time_apply_task = nullptr;
         std::printf("[WiFi][Time] failed to start SNTP apply task\n");
     }
@@ -762,8 +928,7 @@ void network_time_sync_timeout_cb(void*)
     }
 
     std::printf("[WiFi][Time] SNTP sync timed out server=%s\n", kNetworkTimeSyncServer);
-    stop_sntp_once();
-    s_runtime.network_time_sync_in_progress = false;
+    finish_network_time_sync();
 }
 
 bool ensure_network_time_sync_timer()
@@ -810,12 +975,12 @@ void start_or_restart_sntp()
 
 void request_network_time_sync()
 {
-    if (s_runtime.network_time_sync_attempted || s_runtime.network_time_sync_in_progress)
+    if (s_runtime.network_time_sync_in_progress)
     {
+        std::printf("[WiFi][Time] duplicate GOT_IP ignored while SNTP is in progress\n");
         return;
     }
 
-    s_runtime.network_time_sync_attempted = true;
     if (!ensure_network_time_sync_timer())
     {
         return;
@@ -827,7 +992,7 @@ void request_network_time_sync()
                              static_cast<uint64_t>(kNetworkTimeSyncTimeoutMs) * 1000ULL);
     if (timer_err != ESP_OK)
     {
-        s_runtime.network_time_sync_in_progress = false;
+        finish_network_time_sync();
         std::printf("[WiFi][Time] failed to start SNTP timeout timer err=0x%x\n",
                     static_cast<unsigned>(timer_err));
         return;
@@ -927,7 +1092,14 @@ bool ensure_stack_ready()
 
     if (s_runtime.sta_netif == nullptr)
     {
-        s_runtime.sta_netif = esp_netif_create_default_wifi_sta();
+        // Team ESP-NOW pairing may have initialized the globally-owned default
+        // STA netif first. Adopt it instead of relying only on this runtime's
+        // private pointer and triggering ESP-IDF's duplicate-key assertion.
+        s_runtime.sta_netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+        if (s_runtime.sta_netif == nullptr)
+        {
+            s_runtime.sta_netif = esp_netif_create_default_wifi_sta();
+        }
         if (s_runtime.sta_netif == nullptr)
         {
             set_status_message("STA netif create failed");
@@ -998,18 +1170,29 @@ void wifi_event_handler(void*,
                 break;
             }
 
-            const bool attempt_failed = s_runtime.connecting;
+            const bool retry_after_disconnect = s_runtime.connecting || s_runtime.connected;
+            const bool failed_automatic_profile =
+                s_runtime.connecting && s_runtime.automatic_profile_attempt_active;
+            const std::size_t failed_profile_index = s_runtime.next_profile_index;
             clear_connection_details();
-            if (attempt_failed && s_runtime.profile_count > 1)
+            refresh_runtime_status_message();
+            if (failed_automatic_profile)
             {
-                s_runtime.next_profile_index =
-                    (s_runtime.next_profile_index + 1U) %
-                    s_runtime.profile_count;
-                std::printf("[WiFi] connect event failed; next profile=%u/%u\n",
+                // Only an association failure may advance the saved-profile
+                // cycle. A service, DNS, or reachability failure while this
+                // station is already connected never reaches this path.
+                note_automatic_profile_failure(failed_profile_index, "association");
+            }
+            else if (retry_after_disconnect && s_runtime.profile_count > 0)
+            {
+                // A station that had reached GOT_IP retries its current SSID
+                // first. Do not silently turn a connected-session loss into a
+                // profile switch.
+                std::printf("[WiFi] station link lost action=retry_current_profile index=%u/%u\n",
                             static_cast<unsigned>(s_runtime.next_profile_index + 1U),
                             static_cast<unsigned>(s_runtime.profile_count));
+                schedule_profile_retry();
             }
-            refresh_runtime_status_message();
             break;
         }
         case WIFI_EVENT_SCAN_DONE:
@@ -1025,6 +1208,7 @@ void wifi_event_handler(void*,
         const auto* got_ip = static_cast<ip_event_got_ip_t*>(event_data);
         s_runtime.connected = true;
         s_runtime.connecting = false;
+        reset_automatic_profile_failure_cycle();
         if (got_ip)
         {
             std::snprintf(s_runtime.ip,
@@ -1045,6 +1229,7 @@ void wifi_event_handler(void*,
                     s_runtime.ip[0] ? s_runtime.ip : "<none>",
                     s_runtime.ssid[0] ? s_runtime.ssid : current_config().ssid,
                     s_runtime.rssi);
+        std::printf("[WiFi][Time] GOT_IP triggers one-shot SNTP\n");
         request_network_time_sync();
         ensure_reconnect_memory_reserve();
     }
@@ -1273,8 +1458,15 @@ bool apply_enabled(bool enabled)
         return false;
     }
 
+    if (enabled && radio_is_reserved())
+    {
+        return false;
+    }
+
     if (!enabled)
     {
+        reset_automatic_profile_failure_cycle();
+        cancel_profile_retry();
         if (!::platform::ui::wifi_access::set_transport_enabled(false))
         {
             std::printf("[WiFi] transport clients failed to quiesce; keeping driver active\n");
@@ -1315,6 +1507,8 @@ bool apply_enabled(bool enabled)
     {
         return false;
     }
+    // An explicit user enable starts a fresh, bounded saved-profile cycle.
+    reset_automatic_profile_failure_cycle();
     if (!::platform::ui::wifi_access::set_transport_enabled(true))
     {
         set_status_message("Wi-Fi clients unavailable");
@@ -1323,6 +1517,13 @@ bool apply_enabled(bool enabled)
 
     clear_connection_details();
     refresh_runtime_status_message();
+    Config config{};
+    if (load_config(config) && config.enabled && has_saved_credentials(config))
+    {
+        // Enabling Wi-Fi is expected to resume the saved-profile cycle even
+        // when no MQTT, Reticulum, or other network client is active yet.
+        (void)connect(nullptr);
+    }
     return true;
 }
 
@@ -1330,6 +1531,7 @@ enum class ConnectStartResult : uint8_t
 {
     Started,
     DeferredForResources,
+    NotAttempted,
     Failed,
 };
 
@@ -1338,18 +1540,23 @@ static ConnectStartResult connect_single_profile(const Config& config)
     if (!config.enabled)
     {
         set_status_message("Enable Wi-Fi first");
-        return ConnectStartResult::Failed;
+        return ConnectStartResult::NotAttempted;
     }
 
     if (!has_saved_credentials(config))
     {
         set_status_message("SSID is not set");
-        return ConnectStartResult::Failed;
+        return ConnectStartResult::NotAttempted;
+    }
+
+    if (radio_is_reserved())
+    {
+        return ConnectStartResult::NotAttempted;
     }
 
     if (!ensure_wifi_started())
     {
-        return ConnectStartResult::Failed;
+        return ConnectStartResult::NotAttempted;
     }
 
     if (!internal_memory_ready_for_wifi_connect("before esp_wifi_connect"))
@@ -1357,19 +1564,19 @@ static ConnectStartResult connect_single_profile(const Config& config)
         return ConnectStartResult::DeferredForResources;
     }
 
-    wifi_config_t wifi_config{};
-    copy_bounded(reinterpret_cast<char*>(wifi_config.sta.ssid),
-                 sizeof(wifi_config.sta.ssid),
+    s_runtime.station_config = wifi_config_t{};
+    copy_bounded(reinterpret_cast<char*>(s_runtime.station_config.sta.ssid),
+                 sizeof(s_runtime.station_config.sta.ssid),
                  config.ssid);
-    copy_bounded(reinterpret_cast<char*>(wifi_config.sta.password),
-                 sizeof(wifi_config.sta.password),
+    copy_bounded(reinterpret_cast<char*>(s_runtime.station_config.sta.password),
+                 sizeof(s_runtime.station_config.sta.password),
                  config.password);
-    wifi_config.sta.threshold.authmode =
+    s_runtime.station_config.sta.threshold.authmode =
         config.password[0] == '\0' ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
-    wifi_config.sta.pmf_cfg.capable = true;
-    wifi_config.sta.pmf_cfg.required = false;
+    s_runtime.station_config.sta.pmf_cfg.capable = true;
+    s_runtime.station_config.sta.pmf_cfg.required = false;
 
-    if (esp_wifi_set_config(WIFI_IF_STA, &wifi_config) != ESP_OK)
+    if (esp_wifi_set_config(WIFI_IF_STA, &s_runtime.station_config) != ESP_OK)
     {
         set_status_message("Set Wi-Fi config failed");
         return ConnectStartResult::Failed;
@@ -1401,10 +1608,23 @@ static ConnectStartResult connect_single_profile(const Config& config)
 
 bool connect(const Config* override_config)
 {
+    cancel_profile_retry();
     if (override_config)
     {
-        return connect_single_profile(*override_config) ==
-               ConnectStartResult::Started;
+        reset_automatic_profile_failure_cycle();
+        if (s_runtime.connecting && same_ssid(s_runtime.config, *override_config) &&
+            std::strncmp(s_runtime.config.password,
+                         override_config->password,
+                         sizeof(s_runtime.config.password)) == 0)
+        {
+            return true;
+        }
+        const ConnectStartResult result = connect_single_profile(*override_config);
+        if (result != ConnectStartResult::Started)
+        {
+            schedule_profile_retry();
+        }
+        return result == ConnectStartResult::Started;
     }
 
     Config config{};
@@ -1436,9 +1656,11 @@ bool connect(const Config* override_config)
                 static_cast<unsigned>(index + 1U),
                 static_cast<unsigned>(s_runtime.profile_count),
                 candidate.ssid);
+    s_runtime.automatic_profile_attempt_active = false;
     const ConnectStartResult result = connect_single_profile(candidate);
     if (result == ConnectStartResult::Started)
     {
+        s_runtime.automatic_profile_attempt_active = true;
         return true;
     }
     if (result == ConnectStartResult::DeferredForResources)
@@ -1446,21 +1668,29 @@ bool connect(const Config* override_config)
         std::printf("[WiFi] auto connect deferred profile index=%u/%u reason=resources\n",
                     static_cast<unsigned>(index + 1U),
                     static_cast<unsigned>(s_runtime.profile_count));
+        schedule_profile_retry();
         return false;
     }
-    s_runtime.next_profile_index = (index + 1U) % s_runtime.profile_count;
-    std::printf("[WiFi] auto connect profile failed index=%u/%u next=%u\n",
-                static_cast<unsigned>(index + 1U),
-                static_cast<unsigned>(s_runtime.profile_count),
-                static_cast<unsigned>(s_runtime.next_profile_index + 1U));
+    if (result == ConnectStartResult::NotAttempted)
+    {
+        std::printf("[WiFi] auto connect deferred profile index=%u/%u reason=not_attempted\n",
+                    static_cast<unsigned>(index + 1U),
+                    static_cast<unsigned>(s_runtime.profile_count));
+        schedule_profile_retry();
+        return false;
+    }
+    note_automatic_profile_failure(index, "start");
     return false;
 }
 
 void disconnect()
 {
+    reset_automatic_profile_failure_cycle();
+    cancel_profile_retry();
     if (s_runtime.wifi_started)
     {
-        (void)esp_wifi_disconnect();
+        s_runtime.intentional_disconnect_pending =
+            esp_wifi_disconnect() == ESP_OK;
     }
     clear_connection_details();
     refresh_runtime_status_message();

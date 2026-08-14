@@ -10,6 +10,7 @@
 #include "ui/presentation_sources/runtime_chat_action_sink.h"
 #include "ui/presentation_sources/team_chat_action_sink.h"
 #include "ui/presentation_sources/team_chat_presentation_source.h"
+#include "ui/runtime/ui_feedback.h"
 #include "ui/screens/chat/chat_team_workflow.h"
 #include "ui/screens/chat/chat_ui_controller.h"
 #include "ui/team_actions/team_action_runtime_sink.h"
@@ -125,6 +126,14 @@ std::unique_ptr<chat::ui::UiController> s_ui_controller = nullptr;
 std::unique_ptr<chat::ui::ChatPageRuntimeEventPump> s_event_pump = nullptr;
 std::unique_ptr<chat::ui::IChatUiRuntime> s_runtime_facade = nullptr;
 
+struct PendingComposeRoute
+{
+    chat::ConversationId conversation{};
+    bool pending = false;
+};
+
+PendingComposeRoute s_pending_compose_route{};
+
 class ChatPageRuntimeFacade final : public chat::ui::IChatUiRuntime
 {
   public:
@@ -183,6 +192,23 @@ bool is_available()
 lv_obj_t* get_container()
 {
     return s_chat_container;
+}
+
+bool requestCompose(const chat::ConversationId& conversation)
+{
+    if (!is_available())
+    {
+        return false;
+    }
+    s_pending_compose_route.conversation = conversation;
+    s_pending_compose_route.pending = true;
+    return true;
+}
+
+void clearRequestedCompose()
+{
+    s_pending_compose_route.pending = false;
+    s_pending_compose_route.conversation = chat::ConversationId{};
 }
 
 void enter(const shell::Host* host, lv_obj_t* parent)
@@ -383,6 +409,21 @@ void enter(const shell::Host* host, lv_obj_t* parent)
                                    request_shell_exit,
                                    nullptr));
     s_ui_controller->init();
+    if (s_pending_compose_route.pending)
+    {
+        const chat::ConversationId requested = s_pending_compose_route.conversation;
+        s_pending_compose_route.pending = false;
+        const bool opened = s_ui_controller->openComposeForConversation(requested);
+        std::printf("[Chat][Route] compose target protocol=%u channel=%u peer=%08lX opened=%u\n",
+                    static_cast<unsigned>(requested.protocol),
+                    static_cast<unsigned>(requested.channel),
+                    static_cast<unsigned long>(requested.peer),
+                    opened ? 1U : 0U);
+        if (!opened)
+        {
+            ::ui::feedback::show_notice("Chat destination unavailable", 2000);
+        }
+    }
     s_event_pump =
         std::unique_ptr<chat::ui::ChatPageRuntimeEventPump>(
             new chat::ui::ChatPageRuntimeEventPump(

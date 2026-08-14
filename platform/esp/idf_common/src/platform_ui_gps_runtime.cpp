@@ -39,22 +39,46 @@ bool supports_receiver_baud_setting()
 
 bool supports_receiver_init_policy_settings()
 {
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    // P4 currently applies the selected UART baud on the next GNSS lifecycle,
+    // but does not send receiver profile/policy commands.  Do not show a
+    // settings group whose values cannot reach the GNSS receiver.
+    return false;
+#else
     return true;
+#endif
 }
 
 bool supports_gnss_runtime_settings()
 {
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    // The P4 runtime parses the receiver's current NMEA stream; it does not
+    // yet program constellation mode or satellite mask commands.
+    return false;
+#else
     return true;
+#endif
 }
 
 bool supports_collection_interval_setting()
 {
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    // There is no P4 receiver command or sampling scheduler behind this UI
+    // setting, so exposing it makes the configuration misleading.
+    return false;
+#else
     return true;
+#endif
 }
 
 bool supports_external_nmea_output_setting()
 {
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    // P4 has no external NMEA output transport wired to this setting.
+    return false;
+#else
     return true;
+#endif
 }
 
 bool supports_altitude_reference_setting()

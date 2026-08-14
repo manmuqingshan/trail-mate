@@ -1,5 +1,8 @@
 #include "platform/esp/arduino_common/team/pairing/team_pairing_transport_espnow.h"
 
+#include "platform/ui/wifi_access_runtime.h"
+#include "platform/ui/wifi_runtime.h"
+
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_netif.h"
@@ -60,8 +63,49 @@ void log_local_mac()
                   static_cast<unsigned long>(node_id_from_mac(mac)));
 }
 
+bool disable_configured_wifi_for_pairing()
+{
+    const platform::ui::wifi::Status status = platform::ui::wifi::status();
+    if (!status.enabled)
+    {
+        return true;
+    }
+
+    platform::ui::wifi::Config config{};
+    if (!platform::ui::wifi::load_config(config))
+    {
+        Serial.printf("[Pairing] cannot load Wi-Fi configuration before ESP-NOW\n");
+        return false;
+    }
+
+    const platform::ui::wifi::Config previous_config = config;
+    config.enabled = false;
+    if (!platform::ui::wifi::save_config(config))
+    {
+        Serial.printf("[Pairing] cannot persist Wi-Fi disable before ESP-NOW\n");
+        return false;
+    }
+
+    if (platform::ui::wifi::apply_enabled(false))
+    {
+        Serial.printf("[Pairing] Wi-Fi disabled for ESP-NOW pairing\n");
+        return true;
+    }
+
+    // Keep the persisted setting consistent when the Wi-Fi runtime could not
+    // quiesce all of its clients and therefore left the driver running.
+    (void)platform::ui::wifi::save_config(previous_config);
+    Serial.printf("[Pairing] Wi-Fi shutdown failed; refusing to start ESP-NOW\n");
+    return false;
+}
+
 bool init_wifi_stack()
 {
+    if (!disable_configured_wifi_for_pairing())
+    {
+        return false;
+    }
+
     static bool netif_ready = false;
     if (!netif_ready)
     {
@@ -79,10 +123,18 @@ bool init_wifi_stack()
                           static_cast<int>(loop_err),
                           esp_err_to_name(loop_err));
         }
-        esp_netif_t* sta = esp_netif_create_default_wifi_sta();
+        // The normal Wi-Fi runtime creates this netif even when Wi-Fi is
+        // currently disabled. Creating a second instance with the same
+        // WIFI_STA_DEF key triggers an ESP-IDF assert and reboots the device.
+        esp_netif_t* sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+        if (!sta)
+        {
+            sta = esp_netif_create_default_wifi_sta();
+        }
         if (!sta)
         {
             Serial.printf("[Pairing] netif create sta failed\n");
+            return false;
         }
         netif_ready = true;
     }
@@ -162,6 +214,11 @@ bool EspNowTeamPairingTransport::begin(Receiver& receiver)
         return false;
     }
 
+    // ESP-NOW uses the same 2.4 GHz radio as normal Wi-Fi. Publish the lease
+    // through the shared Wi-Fi access runtime so a later Settings toggle
+    // cannot reconfigure the driver during Team pairing.
+    ::platform::ui::wifi_access::set_non_preemptible_activity(true, "team_pairing");
+
     receiver_ = &receiver;
     instance_ = this;
     esp_now_register_recv_cb([](const uint8_t* mac, const uint8_t* data, int len)
@@ -181,6 +238,7 @@ void EspNowTeamPairingTransport::end()
         return;
     }
     esp_now_deinit();
+    ::platform::ui::wifi_access::set_non_preemptible_activity(false);
     esp_err_t stop_err = esp_wifi_stop();
     if (stop_err != ESP_OK)
     {

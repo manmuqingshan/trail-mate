@@ -10,6 +10,7 @@
 #include "lvgl.h"
 #include "sys/event_bus.h"
 #include "ui/chat_ui_runtime.h"
+#include "ui/chat_voice_runtime.h"
 #include "ui/screens/chat/chat_compose_components.h"
 #include "ui/screens/chat/chat_conversation_components.h"
 #include "ui/screens/chat/chat_message_list_components.h"
@@ -18,6 +19,7 @@
 #include "ui_lvgl_ux_packs/common/key_verification_modal_renderer.h"
 #include "ui_lvgl_ux_packs/common/team_position_picker_renderer.h"
 #include "ui_presentation/chat/chat_workspace_model.h"
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -82,6 +84,10 @@ class UiController : public IChatUiRefreshSink
     void handleComposeAction(ChatComposeScreen::ActionIntent intent);
     void exitToMenu();
 
+    // Called by the app-level route only after the Chat page has entered.
+    // Other pages must not construct a ChatComposeScreen in their own tree.
+    bool openComposeForConversation(const chat::ConversationId& conv);
+
     State getState() const { return state_; }
     bool isTeamConversationActive() const { return team_conv_active_; }
     lv_obj_t* getParent() const { return parent_; }
@@ -132,6 +138,10 @@ class UiController : public IChatUiRefreshSink
     void switchToChannelList();
     void switchToConversation(chat::ConversationId conv);
     void switchToCompose(chat::ConversationId conv);
+    void appendVoiceMessagesToConversation();
+    uint64_t currentVoiceProjectionSignature();
+    uint64_t currentVoiceListSignature();
+    void updateVoiceComposeSession();
     void handleChannelSelected(const chat::ConversationId& conv);
     void handlePingDestination(const chat::ConversationId& conv);
     void handleDeleteConversation(const chat::ConversationId& conv);
@@ -180,6 +190,15 @@ class UiController : public IChatUiRefreshSink
     // the stack during page entry. Reuse controller-owned buffers instead.
     ::ui::chat::ChatWorkspaceSnapshot chat_snapshot_buffer_{};
     ::ui::chat::ChatWorkspaceSnapshot team_chat_snapshot_buffer_{};
+    static constexpr std::size_t kVoiceProjectionCapacity = 8U;
+    ::ui::chat_voice::MessageSummary voice_projection_buffer_[kVoiceProjectionCapacity] = {};
+    uint64_t rendered_voice_projection_signature_ = 0U;
+    uint64_t rendered_voice_list_signature_ = 0U;
+    uint32_t voice_projection_last_poll_ms_ = 0U;
+    uint32_t voice_list_last_poll_ms_ = 0U;
+    uint32_t voice_hold_started_ms_ = 0U;
+    uint32_t voice_hold_last_render_ms_ = 0U;
+    bool voice_hold_active_ = false;
     bool conversation_list_dirty_ = true;
     bool conversation_list_loaded_ = false;
     bool conversation_view_loaded_ = false;

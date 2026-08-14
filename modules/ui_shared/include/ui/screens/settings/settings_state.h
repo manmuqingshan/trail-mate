@@ -144,6 +144,7 @@ enum class SettingId : std::uint16_t
     ManualTimeSet,
     GaugeDesignMah,
     GaugeFullMah,
+    SpiDiagnostics,
     WifiEnabled,
     WifiStatus,
     WifiScan,
@@ -356,6 +357,11 @@ struct UiState
     lv_obj_t* content = nullptr;
     lv_obj_t* filter_panel = nullptr;
     lv_obj_t* list_panel = nullptr;
+    // The scrolling panel remains stable. Rebuilt list content is constructed
+    // in a hidden sibling and swapped only after it is complete, so settings
+    // updates never clear the user-visible container.
+    lv_obj_t* list_content = nullptr;
+    lv_obj_t* visible_list_content = nullptr;
     lv_obj_t* list_back_btn = nullptr;
     ::ui::widgets::TopBar top_bar;
     lv_obj_t* filter_buttons[8]{};

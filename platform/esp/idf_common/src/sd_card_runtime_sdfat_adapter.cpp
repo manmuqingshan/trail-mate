@@ -318,6 +318,23 @@ class SdmmcBlockDevice final : public FsBlockDeviceInterface
         {
             return false;
         }
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) || \
+    defined(TRAIL_MATE_ESP_BOARD_TAB5)
+        if (canUseMultiSectorDma(dst, ns))
+        {
+            const esp_err_t err = sdmmc_read_sectors(card_, dst, sector, ns);
+            if (err != ESP_OK)
+            {
+                ESP_LOGW(kTag,
+                         "raw multi-read sector=%lu count=%u failed: %s",
+                         static_cast<unsigned long>(sector),
+                         static_cast<unsigned>(ns),
+                         esp_err_to_name(err));
+                return false;
+            }
+            return true;
+        }
+#endif
         for (size_t i = 0; i < ns; ++i)
         {
             if (!readSector(sector + static_cast<Sector_t>(i),
@@ -361,6 +378,23 @@ class SdmmcBlockDevice final : public FsBlockDeviceInterface
         {
             return false;
         }
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) || \
+    defined(TRAIL_MATE_ESP_BOARD_TAB5)
+        if (canUseMultiSectorDma(src, ns))
+        {
+            const esp_err_t err = sdmmc_write_sectors(card_, src, sector, ns);
+            if (err != ESP_OK)
+            {
+                ESP_LOGW(kTag,
+                         "raw multi-write sector=%lu count=%u failed: %s",
+                         static_cast<unsigned long>(sector),
+                         static_cast<unsigned>(ns),
+                         esp_err_to_name(err));
+                return false;
+            }
+            return true;
+        }
+#endif
         for (size_t i = 0; i < ns; ++i)
         {
             if (!writeSector(sector + static_cast<Sector_t>(i),
@@ -373,6 +407,24 @@ class SdmmcBlockDevice final : public FsBlockDeviceInterface
     }
 
   private:
+#if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) || \
+    defined(TRAIL_MATE_ESP_BOARD_TAB5)
+    bool canUseMultiSectorDma(const void* buffer, size_t sector_count) const
+    {
+        if (!card_ || !buffer || sector_count < 2 ||
+            sector_count > (SIZE_MAX / kSdSectorSize) ||
+            card_->host.check_buffer_alignment == nullptr)
+        {
+            return false;
+        }
+
+        return card_->host.check_buffer_alignment(
+            card_->host.slot,
+            buffer,
+            sector_count * kSdSectorSize);
+    }
+#endif
+
     sdmmc_card_t* card_ = nullptr;
 };
 
@@ -519,6 +571,12 @@ bool mount_sdmmc_locked(sdmmc_host_runtime::SlotOwner owner,
 using namespace detail;
 
 bool mount_sd_card(int, SPIClass&, uint32_t, const char*, uint8_t)
+{
+    ESP_LOGW(kTag, "SPI SdFat mount is unavailable in ESP-IDF build; use native SDMMC mount");
+    return false;
+}
+
+bool mount_sd_card(int, const SdSpiBusConfig&, uint32_t, const char*, uint8_t)
 {
     ESP_LOGW(kTag, "SPI SdFat mount is unavailable in ESP-IDF build; use native SDMMC mount");
     return false;

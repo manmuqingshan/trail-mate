@@ -221,8 +221,6 @@ constexpr uint32_t kMapTileMissingCacheTtlMs = 5U * 60U * 1000U;
 constexpr uint32_t kMapTileGenerationInitial = 1;
 constexpr uint32_t kMapTileDiagnosticLogIntervalMs = 1000;
 constexpr TickType_t kMapTileWorkerPostCommandYieldTicks = pdMS_TO_TICKS(32);
-StaticTask_t s_map_tile_worker_task_tcb{};
-StackType_t s_map_tile_worker_task_stack[(kMapTileWorkerTaskStackBytes + sizeof(StackType_t) - 1U) / sizeof(StackType_t)]{};
 
 uint32_t g_map_tile_decode_log_ms = 0;
 uint32_t g_map_tile_event_log_ms = 0;
@@ -1272,20 +1270,18 @@ class MapTileAsyncHost final
             }
         }
 
-        task_ = xTaskCreateStatic(taskThunk,
-                                  "map_tile_worker",
-                                  kMapTileWorkerTaskStackBytes,
-                                  this,
-                                  1,
-                                  s_map_tile_worker_task_stack,
-                                  &s_map_tile_worker_task_tcb);
-        const BaseType_t ok = task_ != nullptr ? pdPASS : errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY;
+        const BaseType_t ok = xTaskCreate(taskThunk,
+                                          "map_tile_worker",
+                                          kMapTileWorkerTaskStackBytes,
+                                          this,
+                                          1,
+                                          &task_);
         if (ok != pdPASS)
         {
             if (!task_start_failed_logged_)
             {
                 std::printf("[GPS][MAP][worker] task_start_failed rc=%ld "
-                            "stack=static_internal bytes=%u internal_free=%u "
+                            "stack=dynamic_internal bytes=%u internal_free=%u "
                             "internal_largest=%u\n",
                             static_cast<long>(ok),
                             static_cast<unsigned>(kMapTileWorkerTaskStackBytes),
@@ -1866,6 +1862,18 @@ bool gps_screen_pos(const TileContext& ctx, double lat, double lng, int& sx, int
     // GPS position = anchor position + (GPS pixel - anchor pixel)
     int32_t dx = gps_global_pixel_x - ctx.anchor->gps_global_pixel_x;
     int32_t dy = gps_global_pixel_y - ctx.anchor->gps_global_pixel_y;
+
+    // The map is horizontally periodic. Match tile_screen_pos_xyz() and use
+    // the shortest route across the date line rather than spanning the world.
+    const int32_t world_px = static_cast<int32_t>(n * TILE_SIZE);
+    if (dx > world_px / 2)
+    {
+        dx -= world_px;
+    }
+    else if (dx < -world_px / 2)
+    {
+        dx += world_px;
+    }
 
     sx = ctx.anchor->gps_tile_screen_x + ctx.anchor->gps_offset_x + dx;
     sy = ctx.anchor->gps_tile_screen_y + ctx.anchor->gps_offset_y + dy;

@@ -4,6 +4,7 @@
 #include "display/drivers/ST7789TDeck.h"
 #include "platform/esp/arduino_common/power/battery_adc.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/esp/boards/board_runtime.h"
 #include "platform/esp/common/shared_spi_coordinator.h"
 #include "sys/bus_access_scope.h"
 #include <Wire.h>
@@ -409,8 +410,9 @@ uint32_t TDeckBoard::begin(uint32_t disable_hw_init)
     Wire.begin(SDA, SCL);
     delay(10);
 
-    SPI.begin(SCK, MISO, MOSI);
-    Serial.println("[TDeckBoard] SPI bus initialized");
+    // LilyGoDispArduinoSPI::init() establishes the shared controller inside
+    // the coordinator immediately before the first display transaction.
+    Serial.println("[TDeckBoard] shared SPI bus pending display initialization");
 
     // Initialize trackball pins early; they are active-low in LilyGo examples.
 #if defined(TRACKBALL_UP) && defined(TRACKBALL_DOWN) && defined(TRACKBALL_LEFT) && defined(TRACKBALL_RIGHT)
@@ -453,36 +455,67 @@ uint32_t TDeckBoard::begin(uint32_t disable_hw_init)
     // Initialize display (ST7789) before SD so the SPI lock exists (pager-style ordering).
 #if defined(DISP_SCK) && defined(DISP_MISO) && defined(DISP_MOSI) && defined(DISP_CS) && defined(DISP_DC)
     // Keep T-Deck display flushes fast enough that LVGL partial refresh does not visibly scan.
-    LilyGoDispArduinoSPI::init(DISP_SCK,
-                               DISP_MISO,
-                               DISP_MOSI,
-                               DISP_CS,
-                               DISP_RST,
-                               DISP_DC,
-                               DISP_BL,
-                               kTDeckDisplaySpiClockMhz,
-                               SPI);
-    // T-Deck default orientation should be rotated right by 90 degrees.
-    LilyGoDispArduinoSPI::setRotation(1);
-    rotation_ = LilyGoDispArduinoSPI::getRotation();
-    display_ready_ = true;
-    setBrightness(brightness_);
-    Serial.printf("[TDeckBoard] display init OK: %ux%u spi=%luMHz\n",
-                  LilyGoDispArduinoSPI::_width,
-                  LilyGoDispArduinoSPI::_height,
-                  static_cast<unsigned long>(kTDeckDisplaySpiClockMhz));
+    display_ready_ = LilyGoDispArduinoSPI::init(DISP_SCK,
+                                                DISP_MISO,
+                                                DISP_MOSI,
+                                                DISP_CS,
+                                                DISP_RST,
+                                                DISP_DC,
+                                                DISP_BL,
+                                                kTDeckDisplaySpiClockMhz,
+                                                SPI);
+    if (display_ready_)
+    {
+        // T-Deck default orientation should be rotated right by 90 degrees.
+        LilyGoDispArduinoSPI::setRotation(1);
+        rotation_ = LilyGoDispArduinoSPI::getRotation();
+        setBrightness(brightness_);
+        Serial.printf("[TDeckBoard] display init OK: %ux%u spi=%luMHz\n",
+                      LilyGoDispArduinoSPI::_width,
+                      LilyGoDispArduinoSPI::_height,
+                      static_cast<unsigned long>(kTDeckDisplaySpiClockMhz));
+    }
+    else
+    {
+        Serial.println("[TDeckBoard] display init failed");
+    }
 #else
     Serial.println("[TDeckBoard] display init skipped: missing DISP_* pins");
 #endif
 
     // Initialize radio before SD to align with the pager begin() sequence.
-    radio_.reset();
-    int radio_state = radio_.begin(434.0f, 125.0f, 9, 7, RADIOLIB_SX126X_SYNC_WORD_PRIVATE,
-                                   10, 8, kTDeckRadioTcxoVoltage, false);
-    if (radio_state == RADIOLIB_ERR_NONE)
+    // RadioLib configuration performs SPI traffic, so its entire hardware
+    // transaction stays within the same coordinator boundary as runtime I/O.
+    int radio_state = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    int rf_switch_state = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    int current_limit_state = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    const bool radio_bus_acquired = withSharedSpiRadioAccess(
+        "radio_init",
+        pdMS_TO_TICKS(200),
+        [&]()
+        {
+            radio_.reset();
+            radio_state = radio_.begin(434.0f,
+                                       125.0f,
+                                       9,
+                                       7,
+                                       RADIOLIB_SX126X_SYNC_WORD_PRIVATE,
+                                       10,
+                                       8,
+                                       kTDeckRadioTcxoVoltage,
+                                       false);
+            if (radio_state == RADIOLIB_ERR_NONE)
+            {
+                rf_switch_state = radio_.setDio2AsRfSwitch(true);
+                current_limit_state = radio_.setCurrentLimit(kTDeckRadioCurrentLimitMa);
+            }
+        });
+    if (!radio_bus_acquired)
     {
-        const int rf_switch_state = radio_.setDio2AsRfSwitch(true);
-        const int current_limit_state = radio_.setCurrentLimit(kTDeckRadioCurrentLimitMa);
+        Serial.println("[TDeckBoard] radio init deferred: shared SPI unavailable");
+    }
+    else if (radio_state == RADIOLIB_ERR_NONE)
+    {
         if (rf_switch_state == RADIOLIB_ERR_NONE && current_limit_state == RADIOLIB_ERR_NONE)
         {
             devices_probe_ |= HW_RADIO_ONLINE;
@@ -703,6 +736,12 @@ char TDeckBoard::translateKeyboardByte(uint8_t value)
 
 bool TDeckBoard::installSD()
 {
+    if (!::platform::esp::boards::storageStartupGateSatisfied())
+    {
+        Serial.println("[TDeckBoard] SD mount deferred: first shared-SPI display transaction incomplete");
+        return false;
+    }
+
 #ifdef SD_CS
     const int* extra_cs = nullptr;
     size_t extra_cs_count = 0;
@@ -722,10 +761,9 @@ bool TDeckBoard::installSD()
 
     uint8_t cardType = sdutil::kCardNone;
     uint32_t cardSizeMB = 0;
-    bool ok = sdutil::installSpiSd(*this, SD_CS, SD_SPI_FREQUENCY, "/sd",
+    bool ok = sdutil::installSpiSd(SD_CS, SD_SPI_FREQUENCY, "/sd",
                                    extra_cs, extra_cs_count,
-                                   &cardType, &cardSizeMB,
-                                   display_ready_);
+                                   &cardType, &cardSizeMB);
 
     Serial.printf("[TDeckBoard] SD init: %s\n", ok ? "OK" : "FAIL");
     if (ok)
@@ -868,6 +906,15 @@ uint8_t TDeckBoard::getRotation()
 void TDeckBoard::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* color)
 {
     LilyGoDispArduinoSPI::pushColors(x1, y1, x2, y2, color);
+}
+
+DisplayTransferResult TDeckBoard::transferPixels(uint16_t x1,
+                                                 uint16_t y1,
+                                                 uint16_t x2,
+                                                 uint16_t y2,
+                                                 uint16_t* color)
+{
+    return LilyGoDispArduinoSPI::transferPixels(x1, y1, x2, y2, color);
 }
 
 bool TDeckBoard::pushColorsResult(uint16_t x1,
@@ -1185,28 +1232,37 @@ static void apply_tx_power(SX1262Access& radio, int8_t tx_power)
 }
 #endif
 
-void TDeckBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
-                                    int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
-                                    uint8_t crc_len)
+int TDeckBoard::configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
+                                   int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
+                                   uint8_t crc_len)
 {
-    (void)withSharedSpiRadioAccess("radio_cfg", pdMS_TO_TICKS(100), [&]()
-                                   {
+    int first_error = RADIOLIB_ERR_NONE;
+    const bool configured = withSharedSpiRadioAccess("radio_cfg", pdMS_TO_TICKS(100), [&]()
+                                                     {
+        const auto note_error = [&first_error](int rc)
+        {
+            if (rc != RADIOLIB_ERR_NONE && first_error == RADIOLIB_ERR_NONE)
+            {
+                first_error = rc;
+            }
+        };
 #if defined(ARDUINO_LILYGO_LORA_SX1262)
-        radio_.setDio2AsRfSwitch(true);
-        radio_.setCurrentLimit(kTDeckRadioCurrentLimitMa);
+        note_error(radio_.setDio2AsRfSwitch(true));
+        note_error(radio_.setCurrentLimit(kTDeckRadioCurrentLimitMa));
 #endif
-        radio_.setFrequency(freq_mhz);
-        radio_.setBandwidth(bw_khz);
-        radio_.setSpreadingFactor(sf);
-        radio_.setCodingRate(cr_denom);
+        note_error(radio_.setFrequency(freq_mhz));
+        note_error(radio_.setBandwidth(bw_khz));
+        note_error(radio_.setSpreadingFactor(sf));
+        note_error(radio_.setCodingRate(cr_denom));
 #if defined(ARDUINO_LILYGO_LORA_SX1262)
         apply_tx_power(radio_, tx_power);
 #else
-        radio_.setOutputPower(tx_power);
+        note_error(radio_.setOutputPower(tx_power));
 #endif
-        radio_.setPreambleLength(preamble_len);
-        radio_.setSyncWord(sync_word);
-        radio_.setCRC(crc_len); });
+        note_error(radio_.setPreambleLength(preamble_len));
+        note_error(radio_.setSyncWord(sync_word));
+        note_error(radio_.setCRC(crc_len)); });
+    return configured ? first_error : RADIOLIB_ERR_SPI_WRITE_FAILED;
 }
 
 RotaryMsg_t TDeckBoard::getRotary()
@@ -1372,6 +1428,18 @@ void TDeckBoard::setMessageToneVolume(uint8_t volume_percent)
 uint8_t TDeckBoard::getMessageToneVolume() const
 {
     return message_tone_volume_;
+}
+
+bool TDeckBoard::isVoicePlaybackReady() const
+{
+    return audio_runtime_.isReady();
+}
+
+bool TDeckBoard::playCodec2Voice(const uint8_t* encoded_media,
+                                 std::size_t encoded_media_len,
+                                 uint8_t volume_percent)
+{
+    return audio_runtime_.playCodec2Voice(encoded_media, encoded_media_len, volume_percent);
 }
 
 namespace

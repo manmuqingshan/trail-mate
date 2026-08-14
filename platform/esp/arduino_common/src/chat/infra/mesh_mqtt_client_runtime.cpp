@@ -3,10 +3,12 @@
 #include "app/app_config.h"
 #include "app/app_facades.h"
 #include "chat/infra/meshtastic/mt_radio_config.h"
+#include "chat/infra/voice/vmp_mqtt_transport.h"
 #include "meshtastic/mesh.pb.h"
 #include "meshtastic/mqtt.pb.h"
 #include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_adapter.h"
 #include "platform/esp/arduino_common/chat/infra/meshtastic/mt_adapter.h"
+#include "platform/esp/arduino_common/voice/vmp_pager_session.h"
 #include "platform/ui/wifi_access_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 #include "sys/event_bus.h"
@@ -58,9 +60,6 @@ constexpr uint32_t kMqttConnackTimeoutMs = 10000;
 constexpr uint32_t kMqttSubackTimeoutMs = 10000;
 constexpr uint32_t kMqttPingResponseTimeoutMs = 10000;
 constexpr int32_t kMqttSocketConnectTimeoutMs = 15000;
-constexpr uint8_t kMqttDnsFailureReconnectThreshold = 3;
-constexpr uint32_t kMqttDnsRecoveryCooldownMs = 30000;
-constexpr uint32_t kMqttDnsRecoveryReconnectDelayMs = 1000;
 constexpr std::size_t kTxBufferSize = 512;
 constexpr std::size_t kRxBufferSize = 512;
 constexpr std::size_t kMeshCoreFrameBufferSize = 255;
@@ -231,6 +230,7 @@ class PlainMqttRuntime
         if (protocol != chat::MeshProtocol::Meshtastic &&
             protocol != chat::MeshProtocol::MeshCore)
         {
+            ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkEnabled(false);
             stop("protocol");
             have_config_ = false;
             return;
@@ -241,8 +241,14 @@ class PlainMqttRuntime
             refreshConfig(app_context, now_ms);
         }
 
+        ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkEnabled(
+            config_.configured && config_.protocol == RuntimeProtocol::Meshtastic &&
+            config_.uplink_enabled);
+
         if (!config_.configured)
         {
+            ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkOnline(
+                false);
             stop("disabled");
             syncAdapterDisabled(app_context);
             return;
@@ -286,6 +292,8 @@ class PlainMqttRuntime
 
         if (!ensureWifi(now_ms))
         {
+            ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkOnline(
+                false);
             syncAdapterDisabled(app_context);
             return;
         }
@@ -301,6 +309,8 @@ class PlainMqttRuntime
 
         if (!ensureMqtt(now_ms))
         {
+            ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkOnline(
+                false);
             return;
         }
 
@@ -312,8 +322,17 @@ class PlainMqttRuntime
         const uint32_t after_network_ms = millis();
         if (!checkSessionLiveness(after_network_ms))
         {
+            ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkOnline(
+                false);
             return;
         }
+        // VMP must distinguish the persisted MT uplink switch from a live
+        // MQTT session. CONNACK is the earliest point at which the existing
+        // client can publish, so only this state suppresses LR1121 2.4 GHz
+        // voice for a newly admitted clip.
+        ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkOnline(
+            config_.protocol == RuntimeProtocol::Meshtastic && config_.uplink_enabled &&
+            mqtt_ready_);
         flushPublishQueue(mt, mc);
         maybePing(after_network_ms);
     }
@@ -359,8 +378,6 @@ class PlainMqttRuntime
     uint32_t subscribe_sent_ms_ = 0;
     uint32_t ping_sent_ms_ = 0;
     uint32_t wifi_retry_not_before_ms_ = 0;
-    uint32_t dns_recovery_not_before_ms_ = 0;
-    uint8_t consecutive_dns_failures_ = 0;
     char address_scratch_[80] = {};
     char subscribe_topic_[96] = {};
     char publish_topic_[96] = {};
@@ -368,6 +385,8 @@ class PlainMqttRuntime
     std::array<char, 16> dns_secondary_scratch_{};
     std::array<uint8_t, kTxBufferSize> tx_{};
     std::array<uint8_t, kRxBufferSize> rx_{};
+    std::array<uint8_t, ::chat::voice::vmp::kMaxMqttEnvelopeSize>
+        vmp_publish_envelope_{};
     std::array<uint8_t, 32> discard_{};
     meshtastic_MqttClientProxyMessage mt_proxy_ = meshtastic_MqttClientProxyMessage_init_zero;
     meshtastic_MqttClientProxyMessage mt_publish_proxy_ =
@@ -568,7 +587,6 @@ class PlainMqttRuntime
             logged_plaintext_forced_ = false;
             stop("config");
             resetMqttReconnectBackoff();
-            resetDnsFailureState();
             if (config_.configured || was_configured)
             {
                 std::printf("[%s][MQTT] config enabled=%u host=%s port=%u root=%s tls=%u enc_requested=%u up=%u down=%u\n",
@@ -925,55 +943,6 @@ class PlainMqttRuntime
                     dnsServerText(1, dns_secondary_scratch_));
     }
 
-    void resetDnsFailureState()
-    {
-        consecutive_dns_failures_ = 0;
-        dns_recovery_not_before_ms_ = 0;
-    }
-
-    bool isDnsFailure(
-        platform::esp::arduino_common::net::TcpConnectFailure failure) const
-    {
-        using platform::esp::arduino_common::net::TcpConnectFailure;
-        return failure == TcpConnectFailure::ResolveFailed ||
-               failure == TcpConnectFailure::ResolveEmptyResponse;
-    }
-
-    void noteDnsConnectFailure(
-        platform::esp::arduino_common::net::TcpConnectFailure failure,
-        uint32_t now_ms)
-    {
-        if (!isDnsFailure(failure))
-        {
-            return;
-        }
-        if (consecutive_dns_failures_ < UINT8_MAX)
-        {
-            ++consecutive_dns_failures_;
-        }
-        std::printf("[%s][MQTT] resolver failure consecutive=%u threshold=%u\n",
-                    protocolTag(),
-                    static_cast<unsigned>(consecutive_dns_failures_),
-                    static_cast<unsigned>(kMqttDnsFailureReconnectThreshold));
-        if (consecutive_dns_failures_ < kMqttDnsFailureReconnectThreshold ||
-            deadlinePending(now_ms, dns_recovery_not_before_ms_))
-        {
-            return;
-        }
-
-        // A station may retain an old DHCP lease after an AP/DNS change.  The
-        // MQTT client owns the recovery policy, while the connector remains a
-        // task-free one-shot DNS + TCP state machine.  Re-associate only after
-        // repeated resolver failures, never for an ordinary TCP failure.
-        std::printf("[%s][MQTT] resolver recovery action=wifi_reconnect cooldown_ms=%lu\n",
-                    protocolTag(),
-                    static_cast<unsigned long>(kMqttDnsRecoveryCooldownMs));
-        platform::ui::wifi::disconnect();
-        wifi_retry_not_before_ms_ = now_ms + kMqttDnsRecoveryReconnectDelayMs;
-        dns_recovery_not_before_ms_ = now_ms + kMqttDnsRecoveryCooldownMs;
-        consecutive_dns_failures_ = 0;
-    }
-
     bool ensureMqtt(uint32_t now_ms)
     {
 #if !TRAIL_MATE_MESH_MQTT_HAS_SOCKET
@@ -1081,7 +1050,6 @@ class PlainMqttRuntime
                             platform::esp::arduino_common::net::
                                 tcpConnectFailureName(status.failure),
                             status.detail);
-                noteDnsConnectFailure(status.failure, now_ms);
                 return false;
             }
         }
@@ -1101,7 +1069,6 @@ class PlainMqttRuntime
                         platform::esp::arduino_common::net::
                             tcpConnectFailureName(connect_status.failure),
                         connect_status.detail);
-            noteDnsConnectFailure(connect_status.failure, now_ms);
             connector_.cancel();
             return false;
         }
@@ -1111,7 +1078,6 @@ class PlainMqttRuntime
         {
             return false;
         }
-        resetDnsFailureState();
         const int no_delay = 1;
         if (setsockopt(socket_, IPPROTO_TCP, TCP_NODELAY, &no_delay, sizeof(no_delay)) != 0)
         {
@@ -1133,6 +1099,8 @@ class PlainMqttRuntime
 
     void stop(const char* reason)
     {
+        ::platform::esp::arduino_common::voice::vmp_session::setMqttUplinkOnline(
+            false);
 #if TRAIL_MATE_MESH_MQTT_HAS_SOCKET
         const bool retry_after_live_transport = socket_ >= 0;
         connector_.cancel();
@@ -1320,6 +1288,66 @@ class PlainMqttRuntime
                writePacket(pos, "puback");
     }
 
+    bool buildVmpTopic(char* out, std::size_t out_len) const
+    {
+        if (!out || out_len == 0U || config_.protocol != RuntimeProtocol::Meshtastic)
+        {
+            return false;
+        }
+        const int written = std::snprintf(
+            out,
+            out_len,
+            "%s/2/e/vmp",
+            config_.root[0] ? config_.root : kDefaultMeshtasticMqttRoot);
+        return written > 0 && static_cast<std::size_t>(written) < out_len;
+    }
+
+    bool isVmpTopic(const uint8_t* topic, std::size_t topic_len)
+    {
+        if (!topic || topic_len == 0U ||
+            !buildVmpTopic(publish_topic_, sizeof(publish_topic_)))
+        {
+            return false;
+        }
+        const std::size_t expected_len = std::strlen(publish_topic_);
+        return topic_len == expected_len &&
+               std::memcmp(topic, publish_topic_, expected_len) == 0;
+    }
+
+    bool flushVmpPublish()
+    {
+        if (config_.protocol != RuntimeProtocol::Meshtastic ||
+            !config_.uplink_enabled ||
+            !buildVmpTopic(publish_topic_, sizeof(publish_topic_)))
+        {
+            return false;
+        }
+        std::size_t envelope_len = vmp_publish_envelope_.size();
+        if (!::platform::esp::arduino_common::voice::vmp_session::peekMqttEnvelope(
+                vmp_publish_envelope_.data(), &envelope_len))
+        {
+            return false;
+        }
+        if (!sendPublishRaw(publish_topic_,
+                            vmp_publish_envelope_.data(),
+                            envelope_len))
+        {
+            std::printf("[VMP][MQTT] publish failed retained_for_retry=1\n");
+            stop("vmp_publish");
+            return false;
+        }
+        if (!::platform::esp::arduino_common::voice::vmp_session::acknowledgeMqttEnvelope())
+        {
+            std::printf("[VMP][MQTT] publish acknowledgement lost\n");
+            stop("vmp_publish_ack");
+            return false;
+        }
+        std::printf("[VMP][MQTT] publish topic=%s bytes=%u\n",
+                    publish_topic_,
+                    static_cast<unsigned>(envelope_len));
+        return true;
+    }
+
     void flushPublishQueue(chat::meshtastic::MtAdapter* mt,
                            chat::meshcore::MeshCoreAdapter* mc)
     {
@@ -1347,6 +1375,15 @@ class PlainMqttRuntime
         const std::size_t tx_packet_budget =
             control_plane_uplink ? std::max<std::size_t>(budget.tx_packet_budget, 1U)
                                  : budget.tx_packet_budget;
+
+        if (flushVmpPublish())
+        {
+            if (control_plane_uplink)
+            {
+                control_plane_uplink_sent_ = true;
+            }
+            return;
+        }
 
         if (config_.protocol == RuntimeProtocol::MeshCore)
         {
@@ -1855,6 +1892,27 @@ class PlainMqttRuntime
             }
         }
         const std::size_t payload_len = rx_remaining_len_ - payload_offset;
+        const uint8_t* const topic = rx_.data() + 2U;
+        if (config_.protocol == RuntimeProtocol::Meshtastic &&
+            isVmpTopic(topic, topic_len))
+        {
+            if (!config_.downlink_enabled || (rx_header_ & 0x01U) != 0U ||
+                payload_len == 0U ||
+                payload_len > ::chat::voice::vmp::kMaxMqttEnvelopeSize)
+            {
+                std::printf("[VMP][MQTT] inbound drop retained=%u bytes=%u\n",
+                            (rx_header_ & 0x01U) != 0U ? 1U : 0U,
+                            static_cast<unsigned>(payload_len));
+                return;
+            }
+            const bool accepted =
+                ::platform::esp::arduino_common::voice::vmp_session::acceptMqttEnvelope(
+                    rx_.data() + payload_offset, payload_len);
+            std::printf("[VMP][MQTT] inbound bytes=%u local_only=%u\n",
+                        static_cast<unsigned>(payload_len),
+                        accepted ? 1U : 0U);
+            return;
+        }
         if (config_.protocol == RuntimeProtocol::MeshCore)
         {
             handleMeshCorePublish(mc, payload_offset, payload_len, topic_len);

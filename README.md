@@ -100,18 +100,21 @@ Expected SD card tile layout:
 * Clear indication of satellites used in the current fix
 * Summary of USE/HDOP/FIX for fast diagnostics
 
-### 📶 Energy Sweep (Sub-GHz Scan)
+### 📡 Protocol Probe (LoRa Profile Discovery)
 
-![sub-ghz scan](docs/images/subGScan.png)
+Protocol Probe finds complete LoRa air profiles carrying real Trail Mate
+protocol traffic. It is not an RSSI spectrum analyser and never calls a quiet
+frequency a usable protocol channel.
 
-Energy Sweep provides a fast Sub-GHz occupancy view for channel planning in the field.
+* Starts with the active profile and finite protocol-derived candidates instead of a generic 25 kHz frequency grid
+* MeshCore uses Discover and a valid response/ACK for active confirmation
+* Meshtastic passively discovers a target node, then uses a keyed unicast `want_ack` check when available
+* Reticulum records only self-consistent public Announce or control Path Request traffic; it remains passive and does not claim confirmation in this temporary tuning flow
+* Lists only `OBSERVED` and `CONFIRMED` profiles, with evidence counts but no business-packet labels
+* Lets the user apply a selected observed/confirmed profile only after explicit confirmation
 
-* Real-time RSSI sweep bars across the configured Sub-GHz band
-* Cursor readout for exact frequency, RSSI, and noise floor
-* Best-channel recommendation with cleanliness/SNR hint
-* `STOP/SCAN` control for pause/resume
-* `AUTO` applies the current best channel and moves cursor to the recommended frequency
-* Sweep range follows the currently configured region (Meshtastic region or MeshCore region preset)
+See [the Protocol Probe specification](docs/EnergySweep/function.md) for the
+evidence model and protocol-specific boundaries.
 
 ### 📡 Decentralized Messaging (Meshtastic / MeshCore / Reticulum)
 

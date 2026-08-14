@@ -83,4 +83,3 @@ const lv_image_dsc_t wifi_topbar = {
     .data_size = sizeof(wifi_topbar_map),
     .data = wifi_topbar_map,
   };
-

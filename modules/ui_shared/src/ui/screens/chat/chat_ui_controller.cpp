@@ -8,6 +8,7 @@
 #include "app/app_facade_access.h"
 #include "chat/infra/mesh_protocol_utils.h"
 #include "chat/infra/meshtastic/mt_radio_config.h"
+#include "chat/infra/voice/vmp_wire.h"
 #include "chat/usecase/contact_service.h"
 #include "chat_presentation_adapters/chat_conversation_mapper.h"
 #include "platform/ui/reticulum_directory_runtime.h"
@@ -16,6 +17,7 @@
 #include "sys/event_bus.h"
 #include "ui/app_runtime.h"
 #include "ui/assets/fonts/font_utils.h"
+#include "ui/chat_voice_runtime.h"
 #include "ui/components/two_pane_styles.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
@@ -34,6 +36,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <utility>
 
 #ifndef CHAT_UI_LOG_ENABLE
 #define CHAT_UI_LOG_ENABLE 0
@@ -64,6 +67,11 @@ enum class ConversationScrollAnchor
 constexpr uint8_t kTeamChatChannelRaw = static_cast<uint8_t>(chat::ChannelId::TEAM);
 constexpr chat::ChannelId kTeamChatChannel =
     static_cast<chat::ChannelId>(kTeamChatChannelRaw);
+// While a local voice worker is encoding or sending, refresh the chat
+// projection promptly so the durable outgoing `Sending` bubble is visible as
+// soon as it exists.  Idle conversations retain the lower-frequency poll.
+constexpr uint32_t kVoiceProjectionBusyPollMs = 150U;
+constexpr uint32_t kVoiceProjectionIdlePollMs = 1000U;
 
 const char* protocol_short_label(chat::MeshProtocol protocol)
 {
@@ -101,6 +109,21 @@ bool has_reticulum_destination(const chat::ConversationId& conv)
 {
     return conv.protocol == chat::MeshProtocol::Reticulum &&
            chat::hasReticulumDestinationIdentity(conv.reticulum_identity);
+}
+
+bool supports_text_for_conversation(const chat::ConversationId& conv)
+{
+    return has_reticulum_destination(conv)
+               ? chat_support::supports_reticulum_destination_text()
+               : chat_support::supports_local_text_chat();
+}
+
+const char* text_unavailable_message_for_conversation(
+    const chat::ConversationId& conv)
+{
+    return has_reticulum_destination(conv)
+               ? chat_support::reticulum_destination_text_unavailable_message()
+               : chat_support::local_text_chat_unavailable_message();
 }
 
 std::string reticulum_destination_label(const chat::ReticulumPeerIdentity& identity)
@@ -409,6 +432,101 @@ void appendSnapshotConversationsToControllerList(
     }
 }
 
+bool conversationIdForVoiceMessage(const ::ui::chat_voice::MessageSummary& summary,
+                                   chat::ConversationId* out)
+{
+    if (!out || summary.presentation_protocol == 0U ||
+        summary.presentation_channel > 7U ||
+        (summary.presentation_protocol !=
+             static_cast<uint8_t>(chat::MeshProtocol::Meshtastic) &&
+         summary.presentation_protocol !=
+             static_cast<uint8_t>(chat::MeshProtocol::MeshCore) &&
+         summary.presentation_protocol !=
+             static_cast<uint8_t>(chat::MeshProtocol::Reticulum)))
+    {
+        return false;
+    }
+    const uint32_t peer = summary.private_message
+                              ? (summary.outgoing ? summary.target_id
+                                                  : summary.sender_id)
+                              : 0U;
+    if (summary.private_message && peer == 0U)
+    {
+        return false;
+    }
+    *out = chat::ConversationId(
+        static_cast<chat::ChannelId>(summary.presentation_channel),
+        peer,
+        static_cast<chat::MeshProtocol>(summary.presentation_protocol));
+    return true;
+}
+
+const char* voiceConversationPreview(const ::ui::chat_voice::MessageSummary& summary)
+{
+    if (!summary.outgoing)
+    {
+        return "Voice message";
+    }
+    switch (summary.delivery)
+    {
+    case ::ui::chat_voice::DeliveryState::Sending:
+        return "Voice message (Sending...)";
+    case ::ui::chat_voice::DeliveryState::Failed:
+        return "Voice message (Failed)";
+    case ::ui::chat_voice::DeliveryState::Sent:
+        return "Voice message";
+    case ::ui::chat_voice::DeliveryState::Received:
+    default:
+        return "Voice message";
+    }
+}
+
+void appendVoiceConversationsToControllerList(
+    const ::ui::chat_voice::MessageSummary* voice_messages,
+    std::size_t voice_count,
+    std::vector<chat::ConversationMeta>& out)
+{
+    for (std::size_t index = 0U; voice_messages && index < voice_count; ++index)
+    {
+        const auto& summary = voice_messages[index];
+        chat::ConversationId voice_id;
+        if (!conversationIdForVoiceMessage(summary, &voice_id))
+        {
+            continue;
+        }
+
+        auto existing = out.end();
+        for (auto it = out.begin(); it != out.end(); ++it)
+        {
+            if (it->id == voice_id)
+            {
+                existing = it;
+                break;
+            }
+        }
+        if (existing == out.end())
+        {
+            chat::ConversationMeta created;
+            created.id = voice_id;
+            created.preview = voiceConversationPreview(summary);
+            created.last_timestamp = summary.received_at_seconds;
+            created.unread = (!summary.outgoing && !summary.read) ? 1 : 0;
+            out.push_back(std::move(created));
+            continue;
+        }
+
+        if (!summary.outgoing && !summary.read)
+        {
+            ++existing->unread;
+        }
+        if (summary.received_at_seconds >= existing->last_timestamp)
+        {
+            existing->preview = voiceConversationPreview(summary);
+            existing->last_timestamp = summary.received_at_seconds;
+        }
+    }
+}
+
 bool teamConversationMetaFromSnapshot(
     const ::ui::chat::ChatWorkspaceSnapshot& snapshot,
     chat::ConversationMeta& out)
@@ -479,8 +597,48 @@ bool teamConversationMetaFromSnapshot(
     return overlay;
 }
 
-void applySnapshotMessagesToConversation(
+bool voiceMessageMatchesConversation(
+    const ::ui::chat_voice::MessageSummary& summary,
+    const chat::ConversationId& conversation)
+{
+    const chat::MeshProtocol protocol =
+        chat::infra::normalizeMeshProtocol(conversation.protocol);
+    if (summary.presentation_protocol != static_cast<uint8_t>(protocol) ||
+        summary.presentation_channel != static_cast<uint8_t>(conversation.channel))
+    {
+        return false;
+    }
+    if (!summary.private_message)
+    {
+        return conversation.peer == 0U;
+    }
+    if (conversation.peer == 0U)
+    {
+        return false;
+    }
+    return summary.outgoing ? summary.target_id == conversation.peer
+                            : summary.sender_id == conversation.peer;
+}
+
+uint32_t presentationRowTimestamp(const ::ui::chat::MessageRow& row)
+{
+    const char* const timestamp = row.time_label.c_str();
+    if (!timestamp || timestamp[0] == '\0')
+    {
+        return 0U;
+    }
+    char* end = nullptr;
+    const unsigned long parsed = std::strtoul(timestamp, &end, 10);
+    return end != timestamp && end && *end == '\0'
+               ? static_cast<uint32_t>(parsed)
+               : 0U;
+}
+
+void applyConversationProjection(
     const ::ui::chat::ChatWorkspaceSnapshot& snapshot,
+    const ::ui::chat_voice::MessageSummary* voice_messages,
+    std::size_t voice_count,
+    const chat::ConversationId& voice_conversation,
     ChatConversationScreen& conversation,
     ConversationScrollAnchor scroll_anchor = ConversationScrollAnchor::Bottom)
 {
@@ -495,22 +653,58 @@ void applySnapshotMessagesToConversation(
     conversation.clearMessages();
     CHAT_UI_LOG("[ChatUiTrace] stage=apply_snapshot clear_done elapsed_ms=%lu\n",
                 static_cast<unsigned long>(lv_tick_elaps(started_ms)));
-    for (size_t i = 0; i < snapshot.message_count; ++i)
+    std::size_t text_index = 0U;
+    std::size_t voice_cursor = voice_count;
+    const auto next_voice = [&]() -> const ::ui::chat_voice::MessageSummary*
     {
+        while (voice_messages && voice_cursor > 0U)
+        {
+            const auto& candidate = voice_messages[--voice_cursor];
+            if (voiceMessageMatchesConversation(candidate, voice_conversation))
+            {
+                return &candidate;
+            }
+        }
+        return nullptr;
+    };
+    const ::ui::chat_voice::MessageSummary* voice = next_voice();
+    while (text_index < snapshot.message_count || voice)
+    {
+        const bool emit_voice = voice &&
+                                (text_index == snapshot.message_count ||
+                                 (voice->received_at_seconds != 0U &&
+                                  presentationRowTimestamp(snapshot.messages[text_index]) != 0U &&
+                                  voice->received_at_seconds <
+                                      presentationRowTimestamp(snapshot.messages[text_index])));
+        if (emit_voice)
+        {
+            CHAT_UI_LOG("[ChatUiTrace][VMP] stage=apply_voice local_id=%llu outgoing=%u delivery=%u duration_ms=%u\n",
+                        static_cast<unsigned long long>(voice->local_id),
+                        voice->outgoing ? 1U : 0U,
+                        static_cast<unsigned>(voice->delivery),
+                        static_cast<unsigned>(voice->duration_ms));
+#if !defined(ARDUINO_T_WATCH_S3)
+            conversation.addVoiceMessage(*voice);
+#endif
+            voice = next_voice();
+            continue;
+        }
+
         const uint32_t item_started_ms = lv_tick_get();
-        const auto& row = snapshot.messages[i];
+        const auto& row = snapshot.messages[text_index];
         CHAT_UI_LOG("[ChatUiTrace] stage=apply_message begin index=%u local_id=%llu protocol_id=%lu outgoing=%u delivery=%u text_len=%u\n",
-                    static_cast<unsigned>(i),
+                    static_cast<unsigned>(text_index),
                     static_cast<unsigned long long>(row.ref.local_id),
                     static_cast<unsigned long>(row.ref.protocol_id),
                     row.outgoing ? 1U : 0U,
                     static_cast<unsigned>(row.delivery),
                     static_cast<unsigned>(std::strlen(row.text.c_str())));
-        conversation.addMessage(snapshot.messages[i]);
+        conversation.addMessage(row);
         CHAT_UI_LOG("[ChatUiTrace] stage=apply_message done index=%u elapsed_ms=%lu total_elapsed_ms=%lu\n",
                     static_cast<unsigned>(i),
                     static_cast<unsigned long>(lv_tick_elaps(item_started_ms)),
                     static_cast<unsigned long>(lv_tick_elaps(started_ms)));
+        ++text_index;
     }
     CHAT_UI_LOG("[ChatUiTrace] stage=apply_snapshot messages_done elapsed_ms=%lu\n",
                 static_cast<unsigned long>(lv_tick_elaps(started_ms)));
@@ -541,6 +735,35 @@ void applySnapshotMessagesToConversation(
 #endif
     CHAT_UI_LOG("[ChatUiTrace] stage=apply_snapshot end elapsed_ms=%lu\n",
                 static_cast<unsigned long>(lv_tick_elaps(started_ms)));
+}
+
+void applySnapshotMessagesToConversation(
+    const ::ui::chat::ChatWorkspaceSnapshot& snapshot,
+    ChatConversationScreen& conversation,
+    ConversationScrollAnchor scroll_anchor = ConversationScrollAnchor::Bottom)
+{
+    applyConversationProjection(snapshot,
+                                nullptr,
+                                0U,
+                                chat::ConversationId{},
+                                conversation,
+                                scroll_anchor);
+}
+
+void applySnapshotAndVoiceMessagesToConversation(
+    const ::ui::chat::ChatWorkspaceSnapshot& snapshot,
+    const ::ui::chat_voice::MessageSummary* voice_messages,
+    std::size_t voice_count,
+    const chat::ConversationId& voice_conversation,
+    ChatConversationScreen& conversation,
+    ConversationScrollAnchor scroll_anchor = ConversationScrollAnchor::Bottom)
+{
+    applyConversationProjection(snapshot,
+                                voice_messages,
+                                voice_count,
+                                voice_conversation,
+                                conversation,
+                                scroll_anchor);
 }
 
 const char* key_verification_action_failure_message(::ui::UiActionResult result)
@@ -790,8 +1013,27 @@ void UiController::init()
 
 void UiController::update()
 {
-    // Refresh UI only when an event marks the conversation list dirty.
+    // Voice attachments do not pass through the text-event bus. Poll their
+    // fixed metadata projection while the list is visible so received clips
+    // create/update an IM thread preview and unread count even before that
+    // thread is opened.
+    if (channel_list_ && ::ui::chat_voice::isAvailable() &&
+        lv_tick_elaps(voice_list_last_poll_ms_) >= kVoiceProjectionIdlePollMs)
+    {
+        voice_list_last_poll_ms_ = lv_tick_get();
+        const uint64_t signature = currentVoiceListSignature();
+        if (signature != rendered_voice_list_signature_)
+        {
+            rendered_voice_list_signature_ = signature;
+            conversation_list_dirty_ = true;
+            CHAT_UI_LOG("[ChatUiTrace][VMP] conversation_list_refresh signature=%llu\n",
+                        static_cast<unsigned long long>(signature));
+        }
+    }
+    // Refresh UI only when an event or the typed attachment projection marks
+    // the conversation list dirty.
     refreshUnreadCounts(false);
+    updateVoiceComposeSession();
     if (state_ == State::Conversation && conversation_ &&
         !team_conv_active_ && !conversation_view_loaded_)
     {
@@ -799,6 +1041,21 @@ void UiController::update()
         // temporary not-ready result during page entry become a permanent
         // empty message list just because the conversation list has loaded.
         reloadConversationView();
+    }
+    if (state_ == State::Conversation && conversation_ && !team_conv_active_ &&
+        ::ui::chat_voice::isAvailable())
+    {
+        const uint32_t projection_poll_ms = ::ui::chat_voice::isOutboundActive()
+                                                ? kVoiceProjectionBusyPollMs
+                                                : kVoiceProjectionIdlePollMs;
+        if (lv_tick_elaps(voice_projection_last_poll_ms_) >= projection_poll_ms)
+        {
+            voice_projection_last_poll_ms_ = lv_tick_get();
+            if (currentVoiceProjectionSignature() != rendered_voice_projection_signature_)
+            {
+                reloadConversationView();
+            }
+        }
     }
     const auto receive = ::platform::ui::reticulum_receive::snapshot();
     if (state_ == State::Conversation && conversation_ &&
@@ -1012,6 +1269,13 @@ void UiController::switchToChannelList()
     }
 
     service_.setModelEnabled(true);
+    // The attachment projection has no text-event-bus notification. Force a
+    // fixed-summary merge on return so clips received while a thread was open
+    // are visible in the list immediately, not after its one-second poll.
+    if (::ui::chat_voice::isAvailable())
+    {
+        conversation_list_dirty_ = true;
+    }
     refreshUnreadCounts(false);
 }
 
@@ -1093,7 +1357,7 @@ void UiController::switchToConversation(chat::ConversationId conv)
     const bool can_reply = team_conv_active_
                                ? chat_support::supports_team_chat()
                                : (conv.protocol == chat_support::active_mesh_protocol() &&
-                                  chat_support::supports_local_text_chat());
+                                  supports_text_for_conversation(conv));
     conversation_->setReplyEnabled(can_reply);
 
     if (team_conv_active_)
@@ -1178,7 +1442,7 @@ void UiController::switchToConversation(chat::ConversationId conv)
                 static_cast<unsigned long>(lv_tick_elaps(started_ms)));
     if (snapshot_loaded)
     {
-        applySnapshotMessagesToConversation(chat_snapshot_buffer_, *conversation_);
+        appendVoiceMessagesToConversation();
     }
     conversation_view_loaded_ = snapshot_loaded;
     CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation mark_read begin elapsed_ms=%lu\n",
@@ -1192,6 +1456,23 @@ void UiController::switchToConversation(chat::ConversationId conv)
     {
         conversation_list_dirty_ = true;
     }
+    const chat::MeshProtocol voice_protocol =
+        chat::infra::normalizeMeshProtocol(conv.protocol);
+    const bool voice_read = ::ui::chat_voice::isAvailable() &&
+                            ::ui::chat_voice::markConversationRead(
+                                static_cast<uint8_t>(voice_protocol),
+                                static_cast<uint8_t>(conv.channel),
+                                conv.peer,
+                                conv.peer == 0U);
+    if (voice_read)
+    {
+        conversation_list_dirty_ = true;
+    }
+    CHAT_UI_LOG("[ChatUiTrace][VMP] conversation_mark_read protocol=%u channel=%u peer=%08lX changed=%u\n",
+                static_cast<unsigned>(voice_protocol),
+                static_cast<unsigned>(conv.channel),
+                static_cast<unsigned long>(conv.peer),
+                voice_read ? 1U : 0U);
     CHAT_UI_LOG("[ChatUiTrace] stage=switch_conversation end elapsed_ms=%lu\n",
                 static_cast<unsigned long>(lv_tick_elaps(started_ms)));
 }
@@ -1206,9 +1487,10 @@ void UiController::switchToCompose(chat::ConversationId conv)
         ::ui::feedback::show_notice("Conversation protocol mismatch", 2000);
         return;
     }
-    if (!is_team_conv && !chat_support::supports_local_text_chat())
+    if (!is_team_conv && !supports_text_for_conversation(conv))
     {
-        ::ui::feedback::show_notice(chat_support::local_text_chat_unavailable_message(), 2200);
+        ::ui::feedback::show_notice(
+            text_unavailable_message_for_conversation(conv), 2200);
         return;
     }
     if (is_team_conv && !chat_support::supports_team_chat())
@@ -1273,10 +1555,6 @@ void UiController::switchToCompose(chat::ConversationId conv)
         }
         compose_ime_->init(compose_content, compose_textarea);
         compose_->attachImeWidget(compose_ime_.get());
-        if (lv_group_t* group = lv_group_get_default())
-        {
-            lv_group_add_obj(group, compose_ime_->focus_obj());
-        }
     }
 
     std::string title = resolveConversationDisplayName(conv);
@@ -1320,7 +1598,34 @@ void UiController::switchToCompose(chat::ConversationId conv)
     }
     std::string header = "[" + std::string(protocol_short_label(conv.protocol)) + "] " + title;
     compose_->setHeaderText(header.c_str(), nullptr);
+#if !defined(ARDUINO_T_WATCH_S3)
+    // Durable VMP attachment recovery happens after the main UI is usable.
+    // That transient readiness state must never remove the only recording
+    // affordance from a supported Pager.  A press reports the exact current
+    // state instead; unsupported boards have no bound VMP runtime and still
+    // do not show this control.
+    const bool voice_runtime_bound = ::ui::chat_voice::isRuntimeBound();
+    const bool voice_send_ready = ::ui::chat_voice::canRecordAndSend();
+    compose_->setVoiceButton("Voice", voice_runtime_bound);
+    CHAT_UI_LOG("[ChatUiTrace][VMP] compose voice bound=%u send_ready=%u protocol=%u channel=%u peer=%08lX\n",
+                voice_runtime_bound ? 1U : 0U,
+                voice_send_ready ? 1U : 0U,
+                static_cast<unsigned>(conv.protocol),
+                static_cast<unsigned>(conv.channel),
+                static_cast<unsigned long>(conv.peer));
+#else
     compose_->setPositionButton(nullptr, false);
+#endif
+}
+
+bool UiController::openComposeForConversation(const chat::ConversationId& conv)
+{
+    CHAT_UI_LOG("[ChatUiTrace] stage=external_compose_route protocol=%u channel=%u peer=%08lX\n",
+                static_cast<unsigned>(conv.protocol),
+                static_cast<unsigned>(conv.channel),
+                static_cast<unsigned long>(conv.peer));
+    switchToCompose(conv);
+    return state_ == State::Compose;
 }
 
 void UiController::handleChannelSelected(const chat::ConversationId& conv)
@@ -1585,11 +1890,12 @@ void UiController::handleSendMessage(const std::string& text)
         handleComposeSendDone(result.ok, false);
         return;
     }
-    if (!chat_support::supports_local_text_chat())
+    if (!supports_text_for_conversation(current_conv_))
     {
         CHAT_UI_LOG("[ChatUiTrace] stage=handle_send reject reason=unsupported elapsed_ms=%lu\n",
                     static_cast<unsigned long>(lv_tick_elaps(started_ms)));
-        ::ui::feedback::show_notice(chat_support::local_text_chat_unavailable_message(), 2200);
+        ::ui::feedback::show_notice(
+            text_unavailable_message_for_conversation(current_conv_), 2200);
         return;
     }
 
@@ -1655,6 +1961,14 @@ void UiController::syncConversationListFromStore()
         appendSnapshotConversationsToControllerList(chat_snapshot_buffer_,
                                                     next_conversations);
     }
+    const std::size_t voice_count = ::ui::chat_voice::isAvailable()
+                                        ? ::ui::chat_voice::listMessages(
+                                              voice_projection_buffer_,
+                                              kVoiceProjectionCapacity)
+                                        : 0U;
+    appendVoiceConversationsToControllerList(voice_projection_buffer_,
+                                             voice_count,
+                                             next_conversations);
     normalizeConversationNames(next_conversations);
 
     chat::ConversationMeta team_conv;
@@ -1817,7 +2131,122 @@ void UiController::reloadConversationView()
     {
         return;
     }
-    applySnapshotMessagesToConversation(chat_snapshot_buffer_, *conversation_);
+    appendVoiceMessagesToConversation();
+}
+
+void UiController::appendVoiceMessagesToConversation()
+{
+    if (!conversation_ || team_conv_active_)
+    {
+        return;
+    }
+
+    const std::size_t count = ::ui::chat_voice::isAvailable()
+                                  ? ::ui::chat_voice::listMessages(
+                                        voice_projection_buffer_,
+                                        kVoiceProjectionCapacity)
+                                  : 0U;
+    // Text and typed attachment messages share the one conversation timeline.
+    // The merge reads the fixed text snapshot and the fixed eight-entry VMP
+    // metadata projection directly; no mixed vector is allocated on the UI
+    // task stack or heap.
+    applySnapshotAndVoiceMessagesToConversation(chat_snapshot_buffer_,
+                                                voice_projection_buffer_,
+                                                count,
+                                                current_conv_,
+                                                *conversation_);
+    rendered_voice_projection_signature_ = currentVoiceProjectionSignature();
+}
+
+uint64_t UiController::currentVoiceProjectionSignature()
+{
+    if (!::ui::chat_voice::isAvailable())
+    {
+        return 0U;
+    }
+    const std::size_t count = ::ui::chat_voice::listMessages(
+        voice_projection_buffer_, kVoiceProjectionCapacity);
+    uint64_t signature = static_cast<uint64_t>(count);
+    for (std::size_t index = 0U; index < count; ++index)
+    {
+        const auto& summary = voice_projection_buffer_[index];
+        if (voiceMessageMatchesConversation(summary, current_conv_))
+        {
+            const uint64_t state = (static_cast<uint64_t>(summary.delivery) << 56U) |
+                                   (summary.outgoing ? (uint64_t{1} << 55U) : 0U) |
+                                   summary.duration_ms;
+            signature ^= summary.local_id + state + 0x9E3779B97F4A7C15ULL +
+                         (signature << 6U) + (signature >> 2U);
+        }
+    }
+    return signature;
+}
+
+uint64_t UiController::currentVoiceListSignature()
+{
+    if (!::ui::chat_voice::isAvailable())
+    {
+        return 0U;
+    }
+    const std::size_t count = ::ui::chat_voice::listMessages(
+        voice_projection_buffer_, kVoiceProjectionCapacity);
+    uint64_t signature = static_cast<uint64_t>(count);
+    for (std::size_t index = 0U; index < count; ++index)
+    {
+        const auto& summary = voice_projection_buffer_[index];
+        const uint64_t state =
+            (static_cast<uint64_t>(summary.delivery) << 56U) |
+            (summary.outgoing ? (uint64_t{1} << 55U) : 0U) |
+            (summary.read ? (uint64_t{1} << 54U) : 0U) |
+            (static_cast<uint64_t>(summary.presentation_protocol) << 46U) |
+            (static_cast<uint64_t>(summary.presentation_channel) << 38U) |
+            summary.received_at_seconds;
+        signature ^= summary.local_id + state + 0x9E3779B97F4A7C15ULL +
+                     (signature << 6U) + (signature >> 2U);
+    }
+    return signature;
+}
+
+void UiController::updateVoiceComposeSession()
+{
+#if !defined(ARDUINO_T_WATCH_S3)
+    if (!voice_hold_active_ || state_ != State::Compose || !compose_)
+    {
+        return;
+    }
+
+    const uint32_t elapsed_ms = lv_tick_elaps(voice_hold_started_ms_);
+    if (elapsed_ms >= 5000U)
+    {
+        (void)::ui::chat_voice::requestStopRecording();
+        voice_hold_active_ = false;
+        // The worker creates the durable outgoing record asynchronously. Go
+        // back to the timeline now, rather than making the user wait for RF,
+        // MQTT, or LXMF completion; the busy projection poll will show its
+        // Sending bubble as soon as that local commit finishes.
+        voice_projection_last_poll_ms_ = lv_tick_get() - kVoiceProjectionBusyPollMs;
+        CHAT_UI_LOG("[ChatUiTrace][VMP] voice capture cap reached; return to timeline\n");
+        switchToConversation(current_conv_);
+        return;
+    }
+    else if (lv_tick_elaps(voice_hold_last_render_ms_) >= 250U)
+    {
+        voice_hold_last_render_ms_ = lv_tick_get();
+        const uint32_t tenths = (elapsed_ms + 99U) / 100U;
+        char status[16] = {};
+        std::snprintf(status,
+                      sizeof(status),
+                      "REC %lu.%lus/5",
+                      static_cast<unsigned long>(tenths / 10U),
+                      static_cast<unsigned long>(tenths % 10U));
+        // The compact button is the press-and-hold affordance.  Keep its
+        // label stable for the entire capture; the variable-length elapsed
+        // time belongs in the top bar, where it cannot overflow the control.
+        compose_->setVoiceButton("Release", true);
+        compose_->setHeaderText(nullptr, status);
+    }
+
+#endif
 }
 
 bool UiController::isTeamConversation(const chat::ConversationId& conv) const
@@ -2172,7 +2601,7 @@ void UiController::handleConversationAction(ChatConversationScreen::ActionIntent
             ::ui::feedback::show_notice("No more messages", 1400);
             return;
         }
-        applySnapshotMessagesToConversation(chat_snapshot_buffer_, *conversation_);
+        appendVoiceMessagesToConversation();
         return;
     }
 
@@ -2237,9 +2666,19 @@ void UiController::handleConversationAction(ChatConversationScreen::ActionIntent
             ::ui::feedback::show_notice("Latest messages", 1400);
             return;
         }
-        applySnapshotMessagesToConversation(chat_snapshot_buffer_,
-                                            *conversation_,
-                                            ConversationScrollAnchor::Top);
+        const std::size_t voice_count = ::ui::chat_voice::isAvailable()
+                                            ? ::ui::chat_voice::listMessages(
+                                                  voice_projection_buffer_,
+                                                  kVoiceProjectionCapacity)
+                                            : 0U;
+        applySnapshotAndVoiceMessagesToConversation(
+            chat_snapshot_buffer_,
+            voice_projection_buffer_,
+            voice_count,
+            current_conv_,
+            *conversation_,
+            ConversationScrollAnchor::Top);
+        rendered_voice_projection_signature_ = currentVoiceProjectionSignature();
         return;
     }
 #endif
@@ -2251,9 +2690,11 @@ void UiController::handleConversationAction(ChatConversationScreen::ActionIntent
             ::ui::feedback::show_notice("Reply disabled for this protocol", 2000);
             return;
         }
-        if (!team_conv_active_ && !chat_support::supports_local_text_chat())
+        if (!team_conv_active_ &&
+            !supports_text_for_conversation(current_conv_))
         {
-            ::ui::feedback::show_notice(chat_support::local_text_chat_unavailable_message(), 2200);
+            ::ui::feedback::show_notice(
+                text_unavailable_message_for_conversation(current_conv_), 2200);
             return;
         }
         if (team_conv_active_ && !chat_support::supports_team_chat())
@@ -2321,6 +2762,9 @@ void UiController::handleComposeAction(ChatComposeScreen::ActionIntent intent)
     }
     if (intent == ChatComposeScreen::ActionIntent::Cancel)
     {
+        (void)::ui::chat_voice::requestStopRecording();
+        voice_hold_active_ = false;
+        voice_projection_last_poll_ms_ = lv_tick_get() - kVoiceProjectionBusyPollMs;
         switchToConversation(current_conv_);
         return;
     }
@@ -2347,6 +2791,65 @@ void UiController::handleComposeAction(ChatComposeScreen::ActionIntent intent)
         handleComposeSendDone(result.ok, false);
         return;
     }
+
+#if !defined(ARDUINO_T_WATCH_S3)
+    if (intent == ChatComposeScreen::ActionIntent::VoiceStop)
+    {
+        if (!voice_hold_active_)
+        {
+            CHAT_UI_LOG("[ChatUiTrace][VMP] voice release ignored reason=no_active_hold\n");
+            return;
+        }
+        const bool stop_requested = ::ui::chat_voice::requestStopRecording();
+        voice_hold_active_ = false;
+        voice_projection_last_poll_ms_ = lv_tick_get() - kVoiceProjectionBusyPollMs;
+        CHAT_UI_LOG("[ChatUiTrace][VMP] voice release stop_requested=%u; return to timeline\n",
+                    stop_requested ? 1U : 0U);
+        switchToConversation(current_conv_);
+        return;
+    }
+
+    if (intent == ChatComposeScreen::ActionIntent::VoiceStart)
+    {
+        const ::ui::chat_voice::SendRequest request{
+            current_conv_.peer == 0U ? chat::voice::vmp::kBroadcastTargetId
+                                     : current_conv_.peer,
+            static_cast<uint8_t>(chat::infra::normalizeMeshProtocol(
+                current_conv_.protocol)),
+            static_cast<uint8_t>(current_conv_.channel)};
+        switch (::ui::chat_voice::requestRecordAndSend(request))
+        {
+        case ::ui::chat_voice::StartResult::Queued:
+            // Press-to-talk is visible in-place. A notification is neither a
+            // timer nor a reliable release affordance, especially on Pager.
+            voice_hold_active_ = true;
+            voice_hold_started_ms_ = lv_tick_get();
+            voice_hold_last_render_ms_ = voice_hold_started_ms_;
+            compose_->setVoiceButton("Release", true);
+            compose_->setHeaderText(nullptr, "REC 0.0s/5");
+            CHAT_UI_LOG("[ChatUiTrace][VMP] voice press queued target=%08lX\n",
+                        static_cast<unsigned long>(current_conv_.peer));
+            return;
+        case ::ui::chat_voice::StartResult::PrivateContactUnverified:
+            ::ui::feedback::show_notice("Verify contact for private voice", 2400);
+            return;
+        case ::ui::chat_voice::StartResult::Busy:
+            ::ui::feedback::show_notice("Voice busy; wait", 1800);
+            return;
+        case ::ui::chat_voice::StartResult::ResourceUnavailable:
+            CHAT_UI_LOG("[ChatUiTrace][VMP] voice press rejected result=resources\n");
+            ::ui::feedback::show_notice("Voice memory busy; retry", 2000);
+            return;
+        case ::ui::chat_voice::StartResult::Unsupported:
+        default:
+            CHAT_UI_LOG("[ChatUiTrace][VMP] voice press rejected result=unsupported bound=%u send_ready=%u\n",
+                        ::ui::chat_voice::isRuntimeBound() ? 1U : 0U,
+                        ::ui::chat_voice::canRecordAndSend() ? 1U : 0U);
+            ::ui::feedback::show_notice("Voice storage loading; try again", 2000);
+            return;
+        }
+    }
+#endif
 
     if (intent == ChatComposeScreen::ActionIntent::Send)
     {

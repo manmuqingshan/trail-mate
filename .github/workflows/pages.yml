@@ -11,6 +11,7 @@ on:
       - scripts/build_pack_repository.py
       - scripts/prepare_pages_site.py
       - tools/validate_locale_packs.py
+      - tools/unifont_bdf.py
       - scripts/webflash_targets.py
       - tools/generate_binfont_with_lv_font_conv.py
       - tools/fonts/**

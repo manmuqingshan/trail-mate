@@ -62,6 +62,9 @@ void ensure_event_queue()
 
 void apply_effects(const Effects& effects)
 {
+    const bool retain_saver_during_sleep =
+        effects.sleep_display && board.keepsScreenSaverVisibleDuringSleep();
+
     if (effects.sleep_display)
     {
         s_saved_screen_brightness = board.getBrightness();
@@ -72,6 +75,15 @@ void apply_effects(const Effects& effects)
         }
         board.setBrightness(0);
         board.enterScreenSleep();
+
+        if (retain_saver_during_sleep && s_hooks.show_screen_saver)
+        {
+            s_hooks.show_screen_saver();
+        }
+        if (retain_saver_during_sleep && s_hooks.present_screen_saver)
+        {
+            s_hooks.present_screen_saver();
+        }
     }
 
     if (effects.wake_display)
@@ -84,7 +96,7 @@ void apply_effects(const Effects& effects)
         }
     }
 
-    if (effects.hide_saver && s_hooks.hide_screen_saver)
+    if (effects.hide_saver && !retain_saver_during_sleep && s_hooks.hide_screen_saver)
     {
         s_hooks.hide_screen_saver();
     }
@@ -123,14 +135,13 @@ void dispatch_event(Event event)
     }
     effects = s_machine.dispatch(event, now_ms());
     xSemaphoreGive(s_state_mutex);
-    if (event == Event::Input || event == Event::InputRelease)
+    if (event == Event::Input || event == Event::ConfirmInput || event == Event::InputRelease)
     {
         const Snapshot after = s_machine.snapshot();
-        std::printf("[ScreenPower] event=%u state=%u->%u armed=%u effects wake=%u sleep=%u saver=%u menu=%u\n",
+        std::printf("[ScreenPower] event=%u state=%u->%u effects wake=%u sleep=%u saver=%u menu=%u\n",
                     static_cast<unsigned>(event),
                     static_cast<unsigned>(before.state),
                     static_cast<unsigned>(after.state),
-                    after.input_armed ? 1U : 0U,
                     effects.wake_display ? 1U : 0U,
                     effects.sleep_display ? 1U : 0U,
                     effects.show_saver ? 1U : 0U,
@@ -321,6 +332,11 @@ bool is_saver_active()
 void handle_input()
 {
     (void)post_event(Event::Input);
+}
+
+void handle_confirm_input()
+{
+    (void)post_event(Event::ConfirmInput);
 }
 
 void handle_input_release()

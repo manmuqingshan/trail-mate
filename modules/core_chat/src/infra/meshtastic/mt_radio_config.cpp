@@ -89,7 +89,12 @@ const char* channelName(const MeshConfig& config, ChannelId channel)
     return (channel == ChannelId::SECONDARY) ? secondaryChannelName(config) : primaryChannelName(config);
 }
 
-RadioConfig deriveRadioConfig(const MeshConfig& config)
+namespace
+{
+
+RadioConfig deriveRadioConfigImpl(const MeshConfig& config,
+                                  bool force_preset,
+                                  meshtastic_Config_LoRaConfig_ModemPreset forced_preset)
 {
     RadioConfig out{};
 
@@ -106,9 +111,11 @@ RadioConfig deriveRadioConfig(const MeshConfig& config)
         out.region_code = meshtastic_Config_LoRaConfig_RegionCode_CN;
     }
 
-    out.modem_preset =
-        static_cast<meshtastic_Config_LoRaConfig_ModemPreset>(config.modem_preset);
-    out.using_preset = config.use_preset;
+    out.modem_preset = force_preset
+                           ? forced_preset
+                           : static_cast<meshtastic_Config_LoRaConfig_ModemPreset>(
+                                 config.modem_preset);
+    out.using_preset = force_preset || config.use_preset;
     if (out.using_preset)
     {
         modemPresetToParams(out.modem_preset,
@@ -215,6 +222,21 @@ RadioConfig deriveRadioConfig(const MeshConfig& config)
     }
 
     return out;
+}
+
+} // namespace
+
+RadioConfig deriveRadioConfig(const MeshConfig& config)
+{
+    return deriveRadioConfigImpl(
+        config, false, meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST);
+}
+
+RadioConfig deriveRadioConfigForModemPreset(
+    const MeshConfig& config,
+    meshtastic_Config_LoRaConfig_ModemPreset modem_preset)
+{
+    return deriveRadioConfigImpl(config, true, modem_preset);
 }
 
 } // namespace meshtastic

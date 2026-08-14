@@ -7,6 +7,14 @@
 #include "platform/esp/arduino_common/app_runtime_support.h"
 #include "platform/esp/arduino_common/storage/storage_runtime.h"
 #include "platform/esp/boards/board_runtime.h"
+#if defined(ARDUINO_T_DECK_PRO) && defined(TRAIL_MATE_TDECK_PRO_A7682E)
+#include "platform/ui/a7682e_cellular_runtime.h"
+#include "platform/ui/a7682e_cellular_screen_port.h"
+#endif
+#if defined(ARDUINO_T_DECK_PRO)
+#include "platform/ui/screen_240x320_protocol_probe_port.h"
+#include "platform/ui/screen_240x320_runtime_feature_port.h"
+#endif
 #include "platform/ui/screen_runtime.h"
 
 namespace trailmate::apps::esp32_lvgl::arduino_app_runtime_access
@@ -53,6 +61,15 @@ bool initialize(bool use_mock)
 
     s_status.app_context_bound = bootstrap_result.app_context_bound;
 
+#if defined(ARDUINO_T_DECK_PRO)
+    ::platform::ui::install_screen_240x320_runtime_feature_port();
+    ::platform::ui::install_screen_240x320_protocol_probe_port();
+#endif
+
+#if defined(ARDUINO_T_DECK_PRO) && defined(TRAIL_MATE_TDECK_PRO_A7682E)
+    ::platform::ui::a7682e::install_screen_240x320_port();
+#endif
+
     switch (bootstrap_result.background_tasks)
     {
     case platform::esp::arduino_common::BackgroundTaskStartResult::NotSupported:
@@ -84,6 +101,10 @@ void startDeferredStorage()
 void tick()
 {
     platform::esp::arduino_common::storage::tick_deferred_storage();
+#if defined(ARDUINO_T_DECK_PRO) && defined(TRAIL_MATE_TDECK_PRO_A7682E)
+    // Receive call/SMS URCs even while the EPD saver owns the foreground UI.
+    ::platform::ui::a7682e::tick();
+#endif
     const uint32_t now_ms = millis();
     const bool saver_active = platform::ui::screen::is_saver_active();
     if (saver_active)

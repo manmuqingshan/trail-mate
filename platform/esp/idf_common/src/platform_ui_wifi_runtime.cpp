@@ -48,6 +48,7 @@ struct RuntimeState
     ScanResult scan_results[kWifiProfileCapacity] = {};
     std::size_t profile_count = 0;
     std::size_t next_profile_index = 0;
+    std::size_t automatic_profile_attempts = 0;
 };
 
 RuntimeState s_runtime{};
@@ -389,6 +390,23 @@ bool c6_present()
     return c6::get_c6_companion_status().present;
 }
 
+void reset_automatic_profile_attempts()
+{
+    s_runtime.automatic_profile_attempts = 0;
+}
+
+void disable_wifi_after_profile_exhaustion()
+{
+    Config disabled_config = cached_saved_config();
+    disabled_config.enabled = false;
+    const bool persisted = save_saved_config(disabled_config);
+    const bool stopped = apply_enabled(false);
+    std::printf("[WiFi][C6] saved profiles exhausted action=wifi_off persisted=%u stopped=%u\n",
+                persisted ? 1U : 0U,
+                stopped ? 1U : 0U);
+    reset_automatic_profile_attempts();
+}
+
 std::size_t copy_scan_results(ScanResult* out_results,
                               std::size_t capacity,
                               const c6::C6CompanionStatus& c6_status)
@@ -501,6 +519,7 @@ bool find_saved_config(const char* ssid, Config& out)
 
 bool apply_enabled(bool enabled)
 {
+    reset_automatic_profile_attempts();
     Config config = load_saved_config();
     config.enabled = enabled;
     const bool saved = save_saved_config(config);
@@ -514,8 +533,43 @@ bool apply_enabled(bool enabled)
 bool connect(const Config* override_config)
 {
     Config config = override_config ? *override_config : load_saved_config();
+    if (!override_config && !config.enabled)
+    {
+        std::printf("[WiFi][C6] connect rejected reason=wifi_disabled\n");
+        return false;
+    }
+    if (override_config)
+    {
+        reset_automatic_profile_attempts();
+    }
+
+    const auto before = c6::get_c6_companion_status();
+    if (!before.present)
+    {
+        std::printf("[WiFi][C6] connect rejected reason=c6_not_present board_capable=%u "
+                    "started=%u state=%s detail=%s features=0x%08lX\n",
+                    before.board_capable ? 1U : 0U,
+                    before.started ? 1U : 0U,
+                    c6::companion_state_name(before.state),
+                    before.detail ? before.detail : "unknown",
+                    static_cast<unsigned long>(before.supported_features));
+        return false;
+    }
+
     if (!override_config && s_runtime.profile_count > 0)
     {
+        if (before.wifi_connected)
+        {
+            // Once an SSID is connected, only a Wi-Fi association failure may
+            // advance profiles. MQTT and other client failures never do.
+            reset_automatic_profile_attempts();
+            return true;
+        }
+        if (s_runtime.automatic_profile_attempts >= s_runtime.profile_count)
+        {
+            disable_wifi_after_profile_exhaustion();
+            return false;
+        }
         std::size_t index = s_runtime.next_profile_index % s_runtime.profile_count;
         config = s_runtime.profiles[index];
         config.enabled = true;
@@ -524,6 +578,7 @@ bool connect(const Config* override_config)
                     static_cast<unsigned>(s_runtime.profile_count),
                     config.ssid);
         s_runtime.next_profile_index = (index + 1U) % s_runtime.profile_count;
+        ++s_runtime.automatic_profile_attempts;
     }
     config.enabled = true;
     if (override_config && !save_saved_config(config))
@@ -536,18 +591,6 @@ bool connect(const Config* override_config)
     {
         std::printf("[WiFi][C6] connect rejected reason=no_credentials ssid_len=%u\n",
                     static_cast<unsigned>(std::strlen(config.ssid)));
-        return false;
-    }
-    const auto before = c6::get_c6_companion_status();
-    if (!before.present)
-    {
-        std::printf("[WiFi][C6] connect rejected reason=c6_not_present board_capable=%u "
-                    "started=%u state=%s detail=%s features=0x%08lX\n",
-                    before.board_capable ? 1U : 0U,
-                    before.started ? 1U : 0U,
-                    c6::companion_state_name(before.state),
-                    before.detail ? before.detail : "unknown",
-                    static_cast<unsigned long>(before.supported_features));
         return false;
     }
     if (c6_wifi_ready_for_config(before, config))
@@ -618,6 +661,10 @@ Status status()
 {
     const auto c6_status = c6::get_c6_companion_status();
     const Config config = cached_saved_config();
+    if (c6_status.wifi_connected)
+    {
+        reset_automatic_profile_attempts();
+    }
     Status out{};
     out.supported = c6_status.board_capable;
     out.enabled = config.enabled;

@@ -193,6 +193,12 @@ NodeId ReticulumAdapter::getNodeId() const
     return service_->getNodeId();
 }
 
+bool ReticulumAdapter::deriveVmpContactSecret(NodeId peer_id,
+                                              uint8_t out_secret[32])
+{
+    return service_ && service_->deriveVmpContactSecret(peer_id, out_secret);
+}
+
 bool ReticulumAdapter::getReticulumLocalIdentityInfo(ReticulumLocalIdentityInfo* out) const
 {
     return service_->getReticulumLocalIdentityInfo(out);

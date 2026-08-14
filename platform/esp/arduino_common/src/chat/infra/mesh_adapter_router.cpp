@@ -5,6 +5,10 @@
 
 #include "platform/esp/arduino_common/chat/infra/mesh_adapter_router.h"
 
+#include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_adapter.h"
+#include "platform/esp/arduino_common/chat/infra/meshtastic/mt_adapter.h"
+#include "platform/esp/arduino_common/chat/infra/reticulum/reticulum_adapter.h"
+
 namespace chat
 {
 
@@ -68,6 +72,46 @@ const IMeshAdapter* MeshAdapterRouter::backendForProtocol(MeshProtocol protocol)
 {
     LockGuard lock(mutex_);
     return lock.locked() ? core_.backendForProtocol(protocol) : nullptr;
+}
+
+bool MeshAdapterRouter::deriveVmpContactSecret(NodeId peer_id,
+                                               uint8_t out_secret[32])
+{
+    if (!out_secret)
+    {
+        return false;
+    }
+    LockGuard lock(mutex_);
+    if (!lock.locked())
+    {
+        return false;
+    }
+
+    const MeshProtocol protocol = core_.backendProtocol();
+    IMeshAdapter* const backend = core_.backendForProtocol(protocol);
+    if (!backend)
+    {
+        return false;
+    }
+
+    // AppContext installs these concrete production backends. Keeping this
+    // Pager-only bridge here avoids adding a VMP key API to IMeshAdapter.
+    if (protocol == MeshProtocol::Meshtastic)
+    {
+        return static_cast<meshtastic::MtAdapter*>(backend)->deriveVmpContactSecret(
+            peer_id, out_secret);
+    }
+    if (protocol == MeshProtocol::MeshCore)
+    {
+        return static_cast<meshcore::MeshCoreAdapter*>(backend)->deriveVmpContactSecret(
+            peer_id, out_secret);
+    }
+    if (protocol == MeshProtocol::Reticulum)
+    {
+        return static_cast<reticulum::ReticulumAdapter*>(backend)
+            ->deriveVmpContactSecret(peer_id, out_secret);
+    }
+    return false;
 }
 
 MeshCapabilities MeshAdapterRouter::getCapabilities() const

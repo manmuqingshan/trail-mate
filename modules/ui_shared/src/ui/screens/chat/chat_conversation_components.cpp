@@ -9,6 +9,7 @@
 #include "app/app_facade_access.h"
 #include "chat/usecase/contact_service.h"
 #include "ui/assets/fonts/font_utils.h"
+#include "ui/chat_voice_runtime.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
 #include "ui/runtime/ui_feedback.h"
@@ -177,17 +178,28 @@ bool overlay_item_has_valid_point(const ::ui::map::MapOverlayItem& item)
            item.point.lon >= -180.0 && item.point.lon <= 180.0;
 }
 
+double normalize_longitude(double longitude)
+{
+    while (longitude < -180.0)
+    {
+        longitude += 360.0;
+    }
+    while (longitude >= 180.0)
+    {
+        longitude -= 360.0;
+    }
+    return longitude;
+}
+
 bool location_overlay_bounds(const ::ui::map::MapOverlaySnapshot& overlay,
                              double& out_min_lat,
                              double& out_max_lat,
-                             double& out_min_lon,
-                             double& out_max_lon,
+                             double& out_center_lon,
                              std::size_t& out_count)
 {
     out_min_lat = 90.0;
     out_max_lat = -90.0;
-    out_min_lon = 180.0;
-    out_max_lon = -180.0;
+    out_center_lon = 0.0;
     out_count = 0;
 
     if (!overlay.header.valid)
@@ -204,12 +216,55 @@ bool location_overlay_bounds(const ::ui::map::MapOverlaySnapshot& overlay,
         }
         out_min_lat = std::min(out_min_lat, item.point.lat);
         out_max_lat = std::max(out_max_lat, item.point.lat);
-        out_min_lon = std::min(out_min_lon, item.point.lon);
-        out_max_lon = std::max(out_max_lon, item.point.lon);
         ++out_count;
     }
 
-    return out_count > 0;
+    if (out_count == 0)
+    {
+        return false;
+    }
+
+    // Longitudes wrap at +/-180 degrees. Use the complement of the widest
+    // gap so nearby points on opposite sides of the date line stay nearby.
+    double widest_gap_deg = -1.0;
+    double gap_start_lon = 0.0;
+    for (std::size_t i = 0; i < overlay.item_count; ++i)
+    {
+        const auto& item = overlay.items[i];
+        if (!overlay_item_has_valid_point(item))
+        {
+            continue;
+        }
+
+        const double start_lon = normalize_longitude(item.point.lon);
+        double next_gap_deg = 360.0;
+        for (std::size_t j = 0; j < overlay.item_count; ++j)
+        {
+            const auto& candidate = overlay.items[j];
+            if (i == j || !overlay_item_has_valid_point(candidate))
+            {
+                continue;
+            }
+
+            double gap_deg = normalize_longitude(candidate.point.lon) - start_lon;
+            if (gap_deg <= 0.0)
+            {
+                gap_deg += 360.0;
+            }
+            next_gap_deg = std::min(next_gap_deg, gap_deg);
+        }
+
+        if (next_gap_deg > widest_gap_deg)
+        {
+            widest_gap_deg = next_gap_deg;
+            gap_start_lon = start_lon;
+        }
+    }
+
+    const double covered_span_deg = 360.0 - widest_gap_deg;
+    out_center_lon = normalize_longitude(
+        gap_start_lon + widest_gap_deg + covered_span_deg / 2.0);
+    return true;
 }
 
 bool model_fits_location_overlay(lv_obj_t* viewport_root,
@@ -439,6 +494,58 @@ const char* message_ingress_label(::ui::chat::MessageIngressTransport transport)
         break;
     }
     return nullptr;
+}
+
+::ui::chat::MessageDeliveryState voice_delivery_state(
+    ::ui::chat_voice::DeliveryState delivery)
+{
+    switch (delivery)
+    {
+    case ::ui::chat_voice::DeliveryState::Sending:
+        return ::ui::chat::MessageDeliveryState::Sending;
+    case ::ui::chat_voice::DeliveryState::Sent:
+        return ::ui::chat::MessageDeliveryState::Sent;
+    case ::ui::chat_voice::DeliveryState::Failed:
+        return ::ui::chat::MessageDeliveryState::Failed;
+    case ::ui::chat_voice::DeliveryState::Received:
+        break;
+    }
+    return ::ui::chat::MessageDeliveryState::Received;
+}
+
+const char* voice_source_label(const ::ui::chat_voice::MessageSummary& summary)
+{
+    if (summary.outgoing)
+    {
+        return summary.private_message ? "VMP private" : "VMP broadcast";
+    }
+    return summary.source_unverified ? "VMP broadcast (unverified)" : "VMP private";
+}
+
+void format_voice_text(char* out,
+                       std::size_t out_size,
+                       uint16_t duration_ms,
+                       bool playing)
+{
+    if (!out || out_size == 0U)
+    {
+        return;
+    }
+    const uint32_t tenths = (static_cast<uint32_t>(duration_ms) + 50U) / 100U;
+    if (tenths == 0U)
+    {
+        std::snprintf(out,
+                      out_size,
+                      "%s",
+                      playing ? "Playing voice..." : "Voice message - Enter plays");
+        return;
+    }
+    std::snprintf(out,
+                  out_size,
+                  "Voice %lu.%lus%s",
+                  static_cast<unsigned long>(tenths / 10U),
+                  static_cast<unsigned long>(tenths % 10U),
+                  playing ? " - playing" : " - Enter plays");
 }
 } // namespace
 
@@ -711,6 +818,14 @@ void ChatConversationScreen::addMessage(const ::ui::chat::MessageRow& row)
     }
     if (messages_.size() >= MAX_DISPLAY_MESSAGES)
     {
+        if (selected_message_index_ == 0)
+        {
+            setSelectedMessageIndex(-1);
+        }
+        else if (selected_message_index_ > 0)
+        {
+            --selected_message_index_;
+        }
         MessageItem& oldest = messages_[0];
         if (oldest.container)
         {
@@ -728,6 +843,117 @@ void ChatConversationScreen::addMessage(const ::ui::chat::MessageRow& row)
                           static_cast<unsigned long>(lv_tick_elaps(started_ms)));
 }
 
+void ChatConversationScreen::addVoiceMessage(
+    const ::ui::chat_voice::MessageSummary& summary)
+{
+    if (!guard_ || !guard_->alive || !msg_list_ || !lv_obj_is_valid(msg_list_) ||
+        summary.local_id == 0U)
+    {
+        return;
+    }
+    if (messages_.size() >= MAX_DISPLAY_MESSAGES)
+    {
+        if (selected_message_index_ == 0)
+        {
+            setSelectedMessageIndex(-1);
+        }
+        else if (selected_message_index_ > 0)
+        {
+            --selected_message_index_;
+        }
+        MessageItem& oldest = messages_[0];
+        if (oldest.container)
+        {
+            lv_obj_del(oldest.container);
+        }
+        messages_.erase(messages_.begin());
+    }
+
+    MessageItem item{};
+    item.container = chat::ui::layout::create_message_row(msg_list_);
+    chat::ui::conversation::styles::apply_message_row(item.container);
+
+    lv_obj_t* const bubble = chat::ui::layout::create_bubble(item.container);
+    item.bubble = bubble;
+    chat::ui::conversation::styles::apply_bubble(
+        bubble, summary.outgoing, summary.source_unverified);
+    chat::ui::layout::set_bubble_max_width(bubble, kBubbleMaxWidth);
+    lv_obj_add_flag(bubble, LV_OBJ_FLAG_CLICKABLE);
+
+    char sender[16] = {};
+    std::string sender_name;
+    if (summary.outgoing)
+    {
+        sender_name = "You";
+    }
+    else
+    {
+        sender_name = app::messagingFacade().getContactService().getContactName(
+            summary.sender_id);
+        if (sender_name.empty())
+        {
+            std::snprintf(sender,
+                          sizeof(sender),
+                          "%04lX",
+                          static_cast<unsigned long>(summary.sender_id & 0xFFFFU));
+            sender_name = sender;
+        }
+    }
+    const lv_coord_t max_meta_w =
+        std::max<lv_coord_t>(kBubbleMaxWidth - 2 * bubble_pad_x(), 24);
+    item.meta_row = create_meta_row(bubble, max_meta_w, summary.outgoing);
+    item.sender_label = create_meta_chip(
+        item.meta_row, sender_name.c_str(), lv_color_hex(0xF1B75A), max_meta_w);
+    item.source_label = create_meta_chip(
+        item.meta_row,
+        voice_source_label(summary),
+        summary.source_unverified ? lv_color_hex(0xFFB4A2) : lv_color_hex(0xCFE4FF),
+        max_meta_w);
+    char time_buf[24] = {};
+    format_message_time(time_buf,
+                        sizeof(time_buf),
+                        summary.received_at_seconds);
+    item.time_label = create_meta_chip(
+        item.meta_row, time_buf, lv_color_hex(0xD4F0D2), max_meta_w);
+    if (summary.outgoing)
+    {
+        item.status_label = create_meta_chip(
+            item.meta_row,
+            "Sending...",
+            delivery_status_chip_color(voice_delivery_state(summary.delivery)),
+            max_meta_w);
+        update_delivery_status_chip(item.status_label,
+                                    voice_delivery_state(summary.delivery));
+    }
+
+    item.text_label = chat::ui::layout::create_bubble_text(bubble);
+    chat::ui::conversation::styles::apply_bubble_text(item.text_label);
+    char voice_text[40] = {};
+    format_voice_text(voice_text, sizeof(voice_text), summary.duration_ms, false);
+    lv_label_set_text(item.text_label, voice_text);
+    ::ui::fonts::apply_chat_content_font(
+        item.text_label, lv_label_get_text(item.text_label));
+    lv_obj_set_width(item.text_label,
+                     std::max<lv_coord_t>(kBubbleMaxWidth - 2 * bubble_pad_x(), 24));
+    item.voice_playback_ctx.reset(new VoicePlaybackContext{
+        summary.local_id, summary.duration_ms, item.text_label, nullptr});
+    item.voice_playback_ctx->reset_timer = add_timer(
+        voice_playback_reset_cb,
+        1000U,
+        item.voice_playback_ctx.get(),
+        TimerDomain::VoicePlayback);
+    if (item.voice_playback_ctx->reset_timer)
+    {
+        lv_timer_pause(item.voice_playback_ctx->reset_timer);
+    }
+    lv_obj_add_event_cb(bubble,
+                        voice_message_event_cb,
+                        LV_EVENT_CLICKED,
+                        item.voice_playback_ctx.get());
+    chat::ui::layout::align_message_row(item.container, summary.outgoing);
+    messages_.push_back(std::move(item));
+}
+
 void ChatConversationScreen::clearMessages()
 {
     const uint32_t started_ms = lv_tick_get();
@@ -740,6 +966,8 @@ void ChatConversationScreen::clearMessages()
         CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=conversation_clear reject\n");
         return;
     }
+    clear_timers(TimerDomain::VoicePlayback);
+    setSelectedMessageIndex(-1);
     size_t index = 0;
     for (auto& item : messages_)
     {
@@ -755,6 +983,156 @@ void ChatConversationScreen::clearMessages()
     messages_.clear();
     CHAT_CONVERSATION_LOG("[ChatUiTrace] stage=conversation_clear end elapsed_ms=%lu\n",
                           static_cast<unsigned long>(lv_tick_elaps(started_ms)));
+}
+
+bool ChatConversationScreen::selectPreviousMessage()
+{
+    return selectMessageRelative(-1);
+}
+
+bool ChatConversationScreen::selectNextMessage()
+{
+    return selectMessageRelative(1);
+}
+
+bool ChatConversationScreen::activateSelectedMessage()
+{
+    if (selected_message_index_ < 0 ||
+        selected_message_index_ >= static_cast<int>(messages_.size()))
+    {
+        return false;
+    }
+
+    MessageItem& item = messages_[static_cast<size_t>(selected_message_index_)];
+    if (!item.voice_playback_ctx || !item.bubble || !lv_obj_is_valid(item.bubble))
+    {
+        return false;
+    }
+
+    lv_obj_send_event(item.bubble, LV_EVENT_CLICKED, nullptr);
+    // A second press can now leave the list's editing mode and return the
+    // rotary to the fixed Send/Back focus group.
+    setSelectedMessageIndex(-1);
+    return true;
+}
+
+bool ChatConversationScreen::selectMessageRelative(int direction)
+{
+    if (direction == 0 || messages_.empty())
+    {
+        return false;
+    }
+
+    const int newest = static_cast<int>(messages_.size()) - 1;
+    int next = selected_message_index_;
+    if (next < 0 || next > newest)
+    {
+        next = newest;
+    }
+    else
+    {
+        next += direction;
+        if (next < 0 || next > newest)
+        {
+            return false;
+        }
+    }
+
+    setSelectedMessageIndex(next);
+    return true;
+}
+
+void ChatConversationScreen::setSelectedMessageIndex(int index)
+{
+    if (selected_message_index_ >= 0 &&
+        selected_message_index_ < static_cast<int>(messages_.size()))
+    {
+        MessageItem& previous = messages_[static_cast<size_t>(selected_message_index_)];
+        if (previous.bubble && lv_obj_is_valid(previous.bubble))
+        {
+            chat::ui::conversation::styles::set_bubble_selected(previous.bubble, false);
+        }
+    }
+
+    if (index < 0 || index >= static_cast<int>(messages_.size()))
+    {
+        selected_message_index_ = -1;
+        return;
+    }
+
+    selected_message_index_ = index;
+    MessageItem& selected = messages_[static_cast<size_t>(selected_message_index_)];
+    if (selected.bubble && lv_obj_is_valid(selected.bubble))
+    {
+        chat::ui::conversation::styles::set_bubble_selected(selected.bubble, true);
+    }
+    if (selected.container && lv_obj_is_valid(selected.container))
+    {
+        lv_obj_scroll_to_view(selected.container, LV_ANIM_OFF);
+    }
+}
+
+void ChatConversationScreen::voice_message_event_cb(lv_event_t* e)
+{
+    if (!e || lv_event_get_code(e) != LV_EVENT_CLICKED)
+    {
+        return;
+    }
+    auto* context =
+        static_cast<VoicePlaybackContext*>(lv_event_get_user_data(e));
+    if (!context || context->local_id == 0U)
+    {
+        return;
+    }
+    const bool started = ::ui::chat_voice::requestPlayback(context->local_id);
+    if (!started)
+    {
+        ::ui::feedback::show_notice("Voice audio is busy", 1600);
+        return;
+    }
+
+    if (context->text_label && lv_obj_is_valid(context->text_label))
+    {
+        char voice_text[40] = {};
+        format_voice_text(voice_text,
+                          sizeof(voice_text),
+                          context->duration_ms,
+                          true);
+        lv_label_set_text(context->text_label, voice_text);
+        ::ui::fonts::apply_chat_content_font(context->text_label, voice_text);
+    }
+    if (context->reset_timer)
+    {
+        const uint32_t reset_after_ms =
+            std::max<uint32_t>(1000U, static_cast<uint32_t>(context->duration_ms) + 500U);
+        lv_timer_set_period(context->reset_timer, reset_after_ms);
+        lv_timer_reset(context->reset_timer);
+        lv_timer_resume(context->reset_timer);
+    }
+    CHAT_CONVERSATION_LOG("[ChatUiTrace][VMP] playback queued local_id=%llu duration_ms=%u\n",
+                          static_cast<unsigned long long>(context->local_id),
+                          static_cast<unsigned>(context->duration_ms));
+}
+
+void ChatConversationScreen::voice_playback_reset_cb(lv_timer_t* timer)
+{
+    auto* context = timer ? static_cast<VoicePlaybackContext*>(
+                                lv_timer_get_user_data(timer))
+                          : nullptr;
+    if (context && context->text_label && lv_obj_is_valid(context->text_label))
+    {
+        char voice_text[40] = {};
+        format_voice_text(voice_text,
+                          sizeof(voice_text),
+                          context->duration_ms,
+                          false);
+        lv_label_set_text(context->text_label, voice_text);
+        ::ui::fonts::apply_chat_content_font(context->text_label, voice_text);
+    }
+    if (timer)
+    {
+        lv_timer_pause(timer);
+    }
 }
 
 void ChatConversationScreen::scrollToTop()
@@ -957,6 +1335,8 @@ void ChatConversationScreen::toggleShortcutHelp()
 
     static constexpr ::ui::components::shortcut_help_modal::Row rows[] = {
         {"S", nullptr, "Compose message"},
+        {"A/D", nullptr, "Select message"},
+        {"Enter", nullptr, "Play selected voice"},
         {"Up/Down", nullptr, "Scroll messages"},
         {"Prev/Next", nullptr, "Load older/newer"},
         {"Home/End", nullptr, "Top/bottom"},
@@ -978,7 +1358,7 @@ void ChatConversationScreen::toggleShortcutHelp()
     config.rows = rows;
     config.row_count = sizeof(rows) / sizeof(rows[0]);
     config.width = ::ui::page_profile::is_dense() ? 288 : 304;
-    config.height = ::ui::page_profile::is_dense() ? 170 : 186;
+    config.height = ::ui::page_profile::is_dense() ? 192 : 208;
     config.restore_group = lv_group_get_default();
     (void)::ui::components::shortcut_help_modal::open(
         shortcut_help_modal_,
@@ -1196,14 +1576,12 @@ void ChatConversationScreen::refreshLocationMap()
 
     double min_lat = 0.0;
     double max_lat = 0.0;
-    double min_lon = 0.0;
-    double max_lon = 0.0;
+    double center_lon = 0.0;
     std::size_t point_count = 0;
     if (!location_overlay_bounds(location_overlay_,
                                  min_lat,
                                  max_lat,
-                                 min_lon,
-                                 max_lon,
+                                 center_lon,
                                  point_count))
     {
         ::ui::widgets::map::clear(location_map_runtime_);
@@ -1214,7 +1592,7 @@ void ChatConversationScreen::refreshLocationMap()
     const auto layers = ::ui::widgets::map::current_layer_state();
     model.focus_point.valid = true;
     model.focus_point.lat = (min_lat + max_lat) / 2.0;
-    model.focus_point.lon = (min_lon + max_lon) / 2.0;
+    model.focus_point.lon = center_lon;
     model.map_source = layers.map_source;
     model.contour_enabled = layers.contour_enabled;
     model.coord_system = app::configFacade().readConfig().map_coord_system;

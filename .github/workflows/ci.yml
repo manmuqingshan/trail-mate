@@ -21,6 +21,18 @@ jobs:
       - name: Verify shared SPI direct-call boundaries
         run: python3 scripts/check_shared_spi_direct_calls.py
 
+      - name: Verify shared SPI display transaction contract
+        run: python3 scripts/check_shared_spi_display_contract.py
+
+      - name: Verify LVGL SD filesystem transaction boundary
+        run: python3 scripts/check_shared_spi_lvgl_fs_boundary.py
+
+      - name: Verify T-Deck Pro EPD transaction boundary
+        run: python3 scripts/check_shared_spi_tdeck_pro_epd_boundary.py
+
+      - name: Verify USB MSC SD transaction boundary
+        run: python3 scripts/check_shared_spi_usb_msc_boundary.py
+
       - name: Verify ESP stack hygiene
         run: python3 scripts/check_esp_stack_hygiene.py
 
@@ -55,6 +67,7 @@ jobs:
           git ls-files -z '*.c' '*.cpp' '*.h' '*.hpp' ':(exclude)modules/core_chat/generated/**' \
             ':(exclude)modules/ui_shared/include/ui/assets/**' \
             ':(exclude)modules/ui_shared/src/ui/assets/**' \
+            ':(exclude)modules/ui_shared/src/ui/tdeck_pro/font/**' \
             ':(exclude)modules/ui_shared/src/ui/widgets/text_candidate_builtin_emoji_data.h' \
             ':(exclude)platform/nrf52/arduino_common/include/ui/fonts/**' \
             ':(exclude)platform/nrf52/arduino_common/src/ui/fonts/**' \
@@ -461,7 +474,6 @@ jobs:
           body_path: release_changelog.md
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
-          overwrite_files: true
           files: |
             dist/**/*.bin
             dist/**/*.hex

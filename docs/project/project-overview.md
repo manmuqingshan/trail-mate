@@ -78,13 +78,15 @@ Trail Mate 专为无蜂窝网络覆盖的户外场景设计，提供独立于智
 
 - README.md#Walkie Talkie
 
-### Sub-GHz 能量扫描
+### 协议空口参数探测
 
-实时显示 Sub-GHz 频段占用情况，提供信道推荐以辅助现场规划。
+发现承载 MeshCore、Meshtastic 或 Reticulum 真实协议流量的完整 LoRa
+air profile，并在协议允许时取得正向确认；不以 RSSI 或低噪声推荐替代
+协议证据。
 
 ### 证据
 
-- README.md#Energy Sweep
+- README.md#Protocol Probe
 
 ### GNSS 天空图
 

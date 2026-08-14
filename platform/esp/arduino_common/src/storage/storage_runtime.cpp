@@ -438,6 +438,11 @@ bool initial_hydration_pending()
     return s_owner.initialHydrationPending();
 }
 
+bool initial_hydration_ready()
+{
+    return s_owner.initialHydrationReady();
+}
+
 bool consume_hydration_ready()
 {
     return s_owner.consumeHydrationReady();

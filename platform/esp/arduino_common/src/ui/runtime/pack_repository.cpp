@@ -561,6 +561,16 @@ std::string file_entry_name(const char* raw_name)
     return name;
 }
 
+bool ensure_flash_pack_storage_ready(bool allow_format_on_fail)
+{
+#if defined(ARDUINO)
+    return ::ui::fs::ensure_flash_storage_ready(allow_format_on_fail);
+#else
+    return platform::esp::idf_common::flash_storage_runtime::ensure_ready(
+        allow_format_on_fail);
+#endif
+}
+
 bool resolve_storage_binding(const std::string& logical_path,
                              bool allow_format_on_fail,
                              PackStorageBinding& out)
@@ -571,10 +581,9 @@ bool resolve_storage_binding(const std::string& logical_path,
         return false;
     }
 
-#if UI_FS_HAS_FLASH_PACK_STORAGE
     if (is_flash_logical_path(logical_path))
     {
-        if (!::ui::fs::ensure_flash_storage_ready(allow_format_on_fail))
+        if (!ensure_flash_pack_storage_ready(allow_format_on_fail))
         {
             return false;
         }
@@ -584,12 +593,6 @@ bool resolve_storage_binding(const std::string& logical_path,
         out.volume_path = flash_storage_path_from_logical(logical_path);
         return true;
     }
-#else
-    if (is_flash_logical_path(logical_path))
-    {
-        return false;
-    }
-#endif
 
     if (!platform::ui::device::card_ready())
     {
@@ -615,13 +618,11 @@ std::string normalize_pack_path(const std::string& logical_path, bool allow_form
         return {};
     }
 
-#if UI_FS_HAS_FLASH_PACK_STORAGE
     if (is_flash_logical_path(logical_path) &&
-        !::ui::fs::ensure_flash_storage_ready(allow_format_on_fail))
+        !ensure_flash_pack_storage_ready(allow_format_on_fail))
     {
         return {};
     }
-#endif
 
     if (is_flash_logical_path(logical_path))
     {
@@ -1415,25 +1416,72 @@ bool ensure_dir_recursive(const std::string& logical_dir)
     }
 
     std::string host_dir = host_path(logical_dir);
-    std::string current;
-    for (char ch : host_dir)
+    const std::string mount_point = platform::esp::idf_common::flash_storage_runtime::mount_point();
+    if (host_dir.empty() || mount_point.empty() || !starts_with(host_dir, mount_point.c_str()) ||
+        (host_dir.size() > mount_point.size() && host_dir[mount_point.size()] != '/'))
     {
-        current.push_back(ch);
-        if (ch != '/')
-        {
-            continue;
-        }
-        if (current.size() <= 1)
-        {
-            continue;
-        }
-        if (::mkdir(current.c_str(), 0775) != 0 && errno != EEXIST)
-        {
-            return false;
-        }
+        std::printf("[Packs][Storage] mkdir invalid flash path logical=%s host=%s mount=%s\n",
+                    logical_dir.c_str(),
+                    host_dir.c_str(),
+                    mount_point.c_str());
+        return false;
     }
 
-    return ::mkdir(host_dir.c_str(), 0775) == 0 || errno == EEXIST;
+    std::string current = mount_point;
+    std::size_t segment_start = mount_point.size();
+    while (segment_start < host_dir.size())
+    {
+        while (segment_start < host_dir.size() && host_dir[segment_start] == '/')
+        {
+            ++segment_start;
+        }
+        if (segment_start == host_dir.size())
+        {
+            break;
+        }
+
+        const std::size_t segment_end = host_dir.find('/', segment_start);
+        current.push_back('/');
+        current.append(host_dir,
+                       segment_start,
+                       segment_end == std::string::npos ? std::string::npos
+                                                        : segment_end - segment_start);
+
+        errno = 0;
+        if (::mkdir(current.c_str(), 0775) != 0 && errno != EEXIST)
+        {
+            const int error = errno;
+            std::printf("[Packs][Storage] mkdir failed logical=%s host=%s path=%s errno=%d (%s)\n",
+                        logical_dir.c_str(),
+                        host_dir.c_str(),
+                        current.c_str(),
+                        error,
+                        std::strerror(error));
+            return false;
+        }
+
+        struct stat st
+        {
+        };
+        if (::stat(current.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
+        {
+            const int error = errno;
+            std::printf("[Packs][Storage] mkdir path is not a directory logical=%s host=%s path=%s errno=%d (%s)\n",
+                        logical_dir.c_str(),
+                        host_dir.c_str(),
+                        current.c_str(),
+                        error,
+                        std::strerror(error));
+            return false;
+        }
+
+        if (segment_end == std::string::npos)
+        {
+            break;
+        }
+        segment_start = segment_end + 1;
+    }
+    return true;
 }
 
 bool logical_file_exists(const std::string& logical_path)

@@ -23,7 +23,9 @@
                                 "-I../../modules/ui_gps_runtime/include",
                                 "-I../../modules/ui_key_verification_runtime/include",
                                 "-I../../modules/ui_lvgl_core/include",
-                                "-I../../modules/ui_lvgl_ux_packs/include"
+                                "-I../../modules/ui_lvgl_ux_packs/include",
+                                "-I../../modules/ui_mono/include",
+                                "-include ui/tdeck_pro/legacy_font_guard.h"
                             ]
               },
     "dependencies":  [
@@ -44,6 +46,9 @@
                          },
                          {
                              "name":  "ui_lvgl_ux_packs"
+                         },
+                         {
+                             "name":  "ui_mono"
                          }
                      ]
 }

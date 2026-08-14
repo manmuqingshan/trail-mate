@@ -20,6 +20,10 @@
 #include "ui/ui_status.h"
 #include "ui/ui_theme.h"
 
+#if defined(ARDUINO_T_DECK_PRO)
+#include "ui/tdeck_pro/text_shell.h"
+#endif
+
 namespace ui
 {
 namespace menu_layout
@@ -1241,6 +1245,14 @@ void createAppGrid()
 
 void init(const InitOptions& options)
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    ui::tdeck_pro::text_shell::InitOptions text_options{};
+    text_options.apps = options.apps;
+    text_options.set_menu_visible = setMenuVisible;
+    ui::tdeck_pro::text_shell::init(text_options);
+    return;
+#endif
+
     s_init_options = options;
 
     menu_g = lv_group_create();
@@ -1254,11 +1266,54 @@ void init(const InitOptions& options)
 
 lv_obj_t* menuPanel()
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    return ui::tdeck_pro::text_shell::menu_panel();
+#endif
+
     return s_menu_panel;
+}
+
+bool launchAppByStableId(const char* stable_id)
+{
+#if defined(ARDUINO_T_DECK_PRO)
+    return ui::tdeck_pro::text_shell::launch_app_by_stable_id(stable_id);
+#endif
+
+    if (stable_id == nullptr || stable_id[0] == '\0' || s_app_panel == nullptr ||
+        !lv_obj_is_valid(s_app_panel))
+    {
+        return false;
+    }
+
+    const size_t app_count = ui::catalogCount(s_init_options.apps);
+    for (size_t index = 0; index < app_count; ++index)
+    {
+        AppScreen* const app = ui::catalogAt(s_init_options.apps, index);
+        if (app == nullptr || app->stable_id() == nullptr ||
+            std::strcmp(app->stable_id(), stable_id) != 0)
+        {
+            continue;
+        }
+        if (app->launch_mode() != ui::AppLaunchMode::Screen)
+        {
+            return false;
+        }
+
+        set_default_group(nullptr);
+        ui_switch_to_app(app, s_app_panel);
+        menuHidden();
+        return ui_get_active_app() == app;
+    }
+    return false;
 }
 
 void bringContentToFront()
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    ui::tdeck_pro::text_shell::bring_content_to_front();
+    return;
+#endif
+
     if (s_grid_panel != nullptr)
     {
         lv_obj_move_foreground(s_grid_panel);
@@ -1276,6 +1331,11 @@ void bringContentToFront()
 
 void refresh_localized_text()
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    ui::tdeck_pro::text_shell::refresh_localized_text();
+    return;
+#endif
+
     const char* locale = ::ui::i18n::current_locale_id();
     const std::string locale_key = locale ? locale : "";
     const bool locale_changed = locale_key != s_last_refresh_locale;
@@ -1340,31 +1400,63 @@ void refresh_localized_text()
 
 void set_bottom_bar_node_text(const char* text)
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    ui::tdeck_pro::text_shell::set_node_text(text);
+    return;
+#endif
+
     setBottomBarChipText(s_bottom_node_chip, text);
 }
 
 void set_bottom_bar_help_text(const char* text)
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    ui::tdeck_pro::text_shell::set_help_text(text);
+    return;
+#endif
+
     setBottomBarHelpText(text);
 }
 
 void set_bottom_bar_ram_text(const char* text)
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    (void)text;
+    return;
+#endif
+
     setBottomBarChipText(s_bottom_ram_chip, text);
 }
 
 void set_bottom_bar_psram_text(const char* text)
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    (void)text;
+    return;
+#endif
+
     setBottomBarChipText(s_bottom_psram_chip, text);
 }
 
 void set_bottom_bar_psram_visible(bool visible)
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    (void)visible;
+    return;
+#endif
+
     setBottomBarChipVisible(s_bottom_psram_chip, visible);
 }
 
 void setMenuVisible(bool visible)
 {
+#if defined(ARDUINO_T_DECK_PRO)
+    ui::tdeck_pro::text_shell::set_visible(visible);
+    ui::menu_runtime::setMenuActive(visible);
+    ui::status::set_menu_active(visible);
+    return;
+#endif
+
     if (s_menu_panel != nullptr)
     {
         const bool was_visible = !lv_obj_has_flag(s_menu_panel, LV_OBJ_FLAG_HIDDEN);

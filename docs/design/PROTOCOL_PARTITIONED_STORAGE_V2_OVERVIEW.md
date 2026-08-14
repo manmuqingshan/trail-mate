@@ -47,7 +47,8 @@ message and peer writes do not wait for expensive UI-oriented reconstruction.
 aggregate state and sequence invariants. They never represent device I/O
 ownership. The storage service owns file transactions and the repository must
 not hold a device transaction around a sequence of storage calls. The physical
-shared-SPI mechanism is defined only in `docs/spi_bus_architecture.md`.
+shared-SPI mechanism is defined only in
+`docs/specs/SPI_BUS_ARCHITECTURE_SPEC.md`.
 
 ## High-Level Commit Flows
 

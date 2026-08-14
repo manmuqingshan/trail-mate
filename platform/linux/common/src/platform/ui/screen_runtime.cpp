@@ -88,6 +88,11 @@ void handle_input()
     s_machine.dispatch(platform::ui::screen_power::Event::Input, now_ms());
 }
 
+void handle_confirm_input()
+{
+    s_machine.dispatch(platform::ui::screen_power::Event::ConfirmInput, now_ms());
+}
+
 void handle_input_release()
 {
     s_machine.dispatch(platform::ui::screen_power::Event::InputRelease, now_ms());

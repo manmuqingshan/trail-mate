@@ -97,10 +97,12 @@ C2CONST c2const_create(int Fs, float framelength_s) {
 
 \*---------------------------------------------------------------------------*/
 
-void make_analysis_window(C2CONST *c2const, codec2_fft_cfg fft_fwd_cfg, float w[], float W[])
+void make_analysis_window(C2CONST *c2const, codec2_fft_cfg fft_fwd_cfg, float w[], float W[],
+                          COMP scratch[])
 {
   float m;
-  COMP  wshift[FFT_ENC];
+  COMP  *wshift = scratch;
+  COMP  *temp = scratch + FFT_ENC;
   int   i,j;
   int   m_pitch = c2const->m_pitch;
   int   nw      = c2const->nw;
@@ -154,8 +156,6 @@ void make_analysis_window(C2CONST *c2const, codec2_fft_cfg fft_fwd_cfg, float w[
      |---------|     |---------|
        nw/2              nw/2
   */
-
-  COMP temp[FFT_ENC];
 
   for(i=0; i<FFT_ENC; i++) {
     wshift[i].real = 0.0;
@@ -232,7 +232,8 @@ float hpf(float x, float states[])
 // TODO: we can either go for a faster FFT using fftr and some stack usage
 // or we can reduce stack usage to almost zero on STM32 by switching to fft_inplace
 #if 1
-void dft_speech(C2CONST *c2const, codec2_fft_cfg fft_fwd_cfg, COMP Sw[], float Sn[], float w[])
+void dft_speech(C2CONST *c2const, codec2_fft_cfg fft_fwd_cfg, COMP Sw[], float Sn[], float w[],
+                COMP fft_scratch[])
 {
     int  i;
     int  m_pitch = c2const->m_pitch;
@@ -256,7 +257,7 @@ void dft_speech(C2CONST *c2const, codec2_fft_cfg fft_fwd_cfg, COMP Sw[], float S
     for(i=0; i<nw/2; i++)
         Sw[FFT_ENC-nw/2+i].real = Sn[i+m_pitch/2-nw/2]*w[i+m_pitch/2-nw/2];
 
-    codec2_fft_inplace(fft_fwd_cfg, Sw);
+    codec2_fft_inplace_with_scratch(fft_fwd_cfg, Sw, fft_scratch);
 }
 #else
 void dft_speech(codec2_fftr_cfg fftr_fwd_cfg, COMP Sw[], float Sn[], float w[])
@@ -677,4 +678,3 @@ int codec2_rand(void) {
     next = next * 1103515245 + 12345;
     return((unsigned)(next/65536) % 32768);
 }
-

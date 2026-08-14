@@ -1997,9 +1997,6 @@ struct PageRequestProgressSlot
 
 PageCacheLoadState* s_page_cache_load_state = nullptr;
 bool s_page_cache_load_state_allocation_attempted = false;
-StaticTask_t s_page_cache_task_tcb{};
-StackType_t s_page_cache_task_stack[(kPageCacheAsyncTaskStackBytes + sizeof(StackType_t) - 1U) /
-                                    sizeof(StackType_t)]{};
 PageRequestProgressSlot s_request_progress[kPageProgressDepth]{};
 uint32_t s_request_progress_order = 1;
 portMUX_TYPE s_request_progress_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -2494,18 +2491,18 @@ bool start_page_cache_load_task(PageCacheLoadState& state)
     }
     state.task_start_attempted = true;
 
-    state.task = xTaskCreateStatic(page_cache_load_task_entry,
-                                   "rtpg_cache",
-                                   kPageCacheAsyncTaskStackBytes,
-                                   &state,
-                                   kPageCacheAsyncTaskPriority,
-                                   s_page_cache_task_stack,
-                                   &s_page_cache_task_tcb);
-    if (!state.task)
+    const BaseType_t task_ok = xTaskCreate(page_cache_load_task_entry,
+                                           "rtpg_cache",
+                                           kPageCacheAsyncTaskStackBytes,
+                                           &state,
+                                           kPageCacheAsyncTaskPriority,
+                                           &state.task);
+    if (task_ok != pdPASS)
     {
         std::printf("[Reticulum][PageCache] async task_create_failed "
-                    "stack=static_internal bytes=%u internal_free=%u "
+                    "rc=%ld stack=dynamic_internal bytes=%u internal_free=%u "
                     "internal_largest=%u\n",
+                    static_cast<long>(task_ok),
                     static_cast<unsigned>(kPageCacheAsyncTaskStackBytes),
                     static_cast<unsigned>(
                         heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
@@ -2514,7 +2511,7 @@ bool start_page_cache_load_task(PageCacheLoadState& state)
         return false;
     }
     std::printf("[Reticulum][PageCache] async worker started "
-                "stack=static_internal bytes=%u\n",
+                "stack=dynamic_internal bytes=%u\n",
                 static_cast<unsigned>(kPageCacheAsyncTaskStackBytes));
     return true;
 }
