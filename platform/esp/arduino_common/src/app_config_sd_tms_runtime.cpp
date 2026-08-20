@@ -32,6 +32,10 @@ enum class ReplicaState : uint8_t
 {
     NvsCommitted = 1U,
     Synced = 2U,
+    // Factory Reset may occur while the SD card is absent.  Keep a tiny NVS
+    // tombstone until the next SD sync so an old card cannot repopulate a
+    // freshly reset device before its working document is replaced.
+    FactoryResetPending = 3U,
 };
 
 struct ReplicaMeta
@@ -140,7 +144,8 @@ bool metaIsValid(const ReplicaMeta& meta)
 {
     return meta.magic == kReplicaMagic &&
            (meta.state == static_cast<uint8_t>(ReplicaState::NvsCommitted) ||
-            meta.state == static_cast<uint8_t>(ReplicaState::Synced)) &&
+            meta.state == static_cast<uint8_t>(ReplicaState::Synced) ||
+            meta.state == static_cast<uint8_t>(ReplicaState::FactoryResetPending)) &&
            meta.crc == crc32(&meta, sizeof(meta) - sizeof(meta.crc));
 }
 
@@ -279,7 +284,9 @@ bool readDocument(AppConfig* target, FileDigest* digest, tms::DocumentInfo* info
         ok = consumePhysicalLine(decoder, line_length);
     }
     file.close();
-    if (!ok || !decoder.finish())
+    const bool finished = ok && decoder.finish();
+    settings_extension::endRead();
+    if (!finished)
     {
         if (info)
         {
@@ -386,6 +393,11 @@ LoadResult loadWorkingConfig(AppConfig& config)
 
     ReplicaMeta meta{};
     const bool has_meta = readMeta(&meta);
+    if (has_meta && meta.state == static_cast<uint8_t>(ReplicaState::FactoryResetPending))
+    {
+        std::printf("[AppCfg][SD] deferred config.tms after factory reset\n");
+        return LoadResult::DeferredToNvs;
+    }
     if (has_meta && meta.state == static_cast<uint8_t>(ReplicaState::NvsCommitted) &&
         digest.crc == meta.last_sd_crc)
     {
@@ -451,7 +463,14 @@ void serviceWorkingConfig()
 bool markNvsCommitted()
 {
     ReplicaMeta meta{};
-    (void)readMeta(&meta);
+    const bool has_meta = readMeta(&meta);
+    if (has_meta && meta.state == static_cast<uint8_t>(ReplicaState::FactoryResetPending))
+    {
+        // A user may change NVS-backed settings before an absent card returns.
+        // Do not let that ordinary write-ahead transition erase the Factory
+        // Reset tombstone; only a successful SD replacement may do so.
+        return true;
+    }
     meta.magic = kReplicaMagic;
     meta.state = static_cast<uint8_t>(ReplicaState::NvsCommitted);
     return writeMeta(meta);
@@ -541,7 +560,13 @@ bool resetWorkingConfig()
     s_next_sync_attempt_ms = 0U;
     if (!sdAvailable())
     {
-        return true;
+        ReplicaMeta meta{};
+        (void)readMeta(&meta);
+        meta.magic = kReplicaMagic;
+        ++meta.revision;
+        meta.last_sd_crc = 0U;
+        meta.state = static_cast<uint8_t>(ReplicaState::FactoryResetPending);
+        return writeMeta(meta);
     }
     bool ok = true;
     const char* paths[] = {kConfigTempPath, kCommitTempPath, kConfigPath, kCommitPath};

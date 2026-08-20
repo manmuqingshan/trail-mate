@@ -128,7 +128,8 @@ retained for repair and do not partially apply.
 | `AppConfig` domains | SD working document with Preferences/NVS mirror | All persisted fields are read from valid `config.tms` before NVS and are canonically rewritten after sync. |
 | Device and presentation preferences outside `AppConfig` | `settings_store` / NVS mirror | The full supported set is written and validated under typed `ui.*`, `chat.*`, `debug.*`, and `power.*` keys. |
 | Saved Wi-Fi credentials | Wi-Fi runtime / NVS mirror | An ordered exact set of zero through ten SSID/password profiles is validated as a whole before replacement. |
-| A7682E settings | Cellular runtime / NVS mirror | The complete supported cellular block is emitted only on the A7682E product variant and is validated as a whole before application. |
+| A7682E settings | Cellular runtime / NVS mirror | The complete supported cellular block is emitted only on the A7682E product variant, and is mandatory and validated as a whole there before application. |
+| Reticulum interface configuration | Reticulum network-config owner | Its bounded `/trailmate/reticulum/config.json` has a separate interface schema and PSRAM-backed parser. Factory Reset calls that owner, which removes its SD file/cache or retains a tiny reset-pending marker until an absent card returns. |
 | Reticulum groups | `platform::ui::reticulum_groups` SD owner | Purpose-specific group data remains in its own bounded SD file, not in generic configuration or NVS. |
 
 NVS changes use a tiny write-ahead marker. The foreground lifecycle atomically
@@ -139,6 +140,16 @@ for migration and rewritten as a complete schema-3 file on the next successful
 sync. There is no second Settings Backup/Restore schema: another document on
 the same SD card does not protect the NVS-erasure failure mode and would create
 a second source of truth.
+
+### TMS memory budget
+
+TMS is deliberately a streaming format. Each SD read holds one 384-byte line
+buffer and each write holds one shared 192-byte scalar-emission buffer in
+internal RAM. The bounded state required to validate and atomically replace all
+ten Wi-Fi profiles (and the A7682E settings block where present) is allocated
+explicitly from PSRAM only for the active read or write, then released. There
+is no whole-document buffer, JSON DOM, task-stack `AppConfig` copy, or fallback
+of that staging object into internal RAM when PSRAM is unavailable.
 
 ## Edit Boundary And Platform Semantics
 

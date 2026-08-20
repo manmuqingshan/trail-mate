@@ -15,9 +15,11 @@
 namespace app::sd_tms::settings_extension
 {
 
-// The extension state is static, bounded storage.  Begin a fresh two-pass
-// read before feeding records to the core Decoder.
+// Begin a fresh two-pass read before feeding records to the core Decoder.
+// The bounded staging state is allocated only for the active decode and is
+// released by endRead(), so it never becomes a permanent internal-RAM cost.
 void beginRead(bool applying);
+void endRead();
 
 tms::RecordConsumeResult consumeRecord(void* context, const tms::RecordReader& reader);
 bool finishDocument(void* context, bool applying, uint16_t schema_version);

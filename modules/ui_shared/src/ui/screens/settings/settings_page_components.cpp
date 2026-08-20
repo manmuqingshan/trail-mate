@@ -25,6 +25,7 @@
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/firmware_update_runtime.h"
 #include "platform/ui/gps_runtime.h"
+#include "platform/ui/reticulum_network_config_runtime.h"
 #include "platform/ui/screen_brightness_steps.h"
 #include "platform/ui/screen_runtime.h"
 #include "platform/ui/settings_store.h"
@@ -1472,6 +1473,12 @@ static void clear_message_db()
 static bool perform_factory_reset()
 {
 #if defined(ARDUINO_ARCH_ESP32)
+    const app::AppConfig& config = app::appFacade().readConfig();
+    if (!::platform::ui::reticulum_network_config::reset(config.reticulumConfig()))
+    {
+        ::ui::feedback::show_notice(::ui::i18n::tr("Unable to reset Reticulum configuration"), 3500);
+        return false;
+    }
     app::sd_tms::beginWorkingConfigReset();
     if (!app::sd_tms::resetWorkingConfig())
     {

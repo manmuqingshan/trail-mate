@@ -35,6 +35,7 @@ constexpr const char* kConfigTempPath = "/trailmate/reticulum/config.tmp";
 constexpr const char* kSchema = "trail-mate.reticulum";
 constexpr const char* kPreferencesNamespace = "rt_net_cfg";
 constexpr const char* kLastKnownGoodKey = "last_good";
+constexpr const char* kFactoryResetPendingKey = "reset_pending";
 constexpr std::size_t kMaxConfigBytes = 2U * 1024U;
 constexpr std::size_t kConfigBufferBytes = kMaxConfigBytes + 1U;
 constexpr std::size_t kMaxJsonDepth = 5U;
@@ -1142,6 +1143,115 @@ bool write_last_known_good(const char* text, std::size_t len)
 #endif
 }
 
+bool clear_last_known_good()
+{
+#if defined(ARDUINO)
+    Preferences preferences;
+    if (!preferences.begin(kPreferencesNamespace, false))
+    {
+        return false;
+    }
+    const bool removed = !preferences.isKey(kLastKnownGoodKey) ||
+                         preferences.remove(kLastKnownGoodKey);
+    preferences.end();
+    return removed;
+#else
+    nvs_handle_t handle = 0;
+    if (nvs_open(kPreferencesNamespace, NVS_READWRITE, &handle) != ESP_OK)
+    {
+        return false;
+    }
+    const esp_err_t erased = nvs_erase_key(handle, kLastKnownGoodKey);
+    const bool committed = (erased == ESP_OK || erased == ESP_ERR_NVS_NOT_FOUND) &&
+                           nvs_commit(handle) == ESP_OK;
+    nvs_close(handle);
+    return committed;
+#endif
+}
+
+bool factory_reset_pending()
+{
+#if defined(ARDUINO)
+    Preferences preferences;
+    if (!preferences.begin(kPreferencesNamespace, true))
+    {
+        return false;
+    }
+    const bool pending = preferences.getBool(kFactoryResetPendingKey, false);
+    preferences.end();
+    return pending;
+#else
+    nvs_handle_t handle = 0;
+    if (nvs_open(kPreferencesNamespace, NVS_READONLY, &handle) != ESP_OK)
+    {
+        return false;
+    }
+    uint8_t pending = 0U;
+    const bool read = nvs_get_u8(handle, kFactoryResetPendingKey, &pending) == ESP_OK;
+    nvs_close(handle);
+    return read && pending != 0U;
+#endif
+}
+
+bool set_factory_reset_pending(bool pending)
+{
+#if defined(ARDUINO)
+    Preferences preferences;
+    if (!preferences.begin(kPreferencesNamespace, false))
+    {
+        return false;
+    }
+    const bool written = pending
+                             ? preferences.putBool(kFactoryResetPendingKey, true)
+                             : (!preferences.isKey(kFactoryResetPendingKey) ||
+                                preferences.remove(kFactoryResetPendingKey));
+    preferences.end();
+    return written;
+#else
+    nvs_handle_t handle = 0;
+    if (nvs_open(kPreferencesNamespace, NVS_READWRITE, &handle) != ESP_OK)
+    {
+        return false;
+    }
+    const esp_err_t changed = pending
+                                  ? nvs_set_u8(handle, kFactoryResetPendingKey, 1U)
+                                  : nvs_erase_key(handle, kFactoryResetPendingKey);
+    const bool committed = (changed == ESP_OK || (!pending && changed == ESP_ERR_NVS_NOT_FOUND)) &&
+                           nvs_commit(handle) == ESP_OK;
+    nvs_close(handle);
+    return committed;
+#endif
+}
+
+bool remove_working_document()
+{
+    if (!sd_available())
+    {
+        return false;
+    }
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
+    bool removed = true;
+    if (::platform::esp::arduino_common::storage::sd_exists(kConfigTempPath))
+    {
+        removed = ::platform::esp::arduino_common::storage::sd_remove(kConfigTempPath) &&
+                  removed;
+    }
+    if (::platform::esp::arduino_common::storage::sd_exists(kConfigPath))
+    {
+        removed = ::platform::esp::arduino_common::storage::sd_remove(kConfigPath) && removed;
+    }
+    return removed;
+#else
+    char config_path[192] = {};
+    char temporary_path[192] = {};
+    native_path(kConfigPath, config_path, sizeof(config_path));
+    native_path(kConfigTempPath, temporary_path, sizeof(temporary_path));
+    const bool config_removed = std::remove(config_path) == 0 || errno == ENOENT;
+    const bool temporary_removed = std::remove(temporary_path) == 0 || errno == ENOENT;
+    return config_removed && temporary_removed;
+#endif
+}
+
 bool persist_last_known_good(const chat::reticulum::ReticulumNetworkConfig& config)
 {
     if (!ensure_file_buffer())
@@ -1241,6 +1351,11 @@ bool load_sd_config()
         set_status("SD unavailable", kConfigPath);
         return false;
     }
+    if (factory_reset_pending())
+    {
+        set_status("Reticulum reset awaiting SD cleanup", kConfigPath);
+        return false;
+    }
     g_status.file_present = sd_exists(kConfigPath);
     if (!g_status.file_present)
     {
@@ -1287,14 +1402,19 @@ void initialize(const chat::MeshConfig& legacy_config)
     activate(g_parse_scratch, Source::Defaults);
     set_status("Using Reticulum defaults", kConfigPath);
 
+    const bool reset_pending = factory_reset_pending();
     const bool file_buffer_ready = ensure_file_buffer();
     std::size_t len = 0;
     char error[96] = {};
-    if (file_buffer_ready && read_last_known_good(&len) &&
+    if (!reset_pending && file_buffer_ready && read_last_known_good(&len) &&
         parse_document(g_file_buffer, len, error, sizeof(error)))
     {
         activate(g_parse_scratch, Source::LastKnownGood);
         set_status("Using cached Reticulum config", kConfigPath);
+    }
+    else if (reset_pending)
+    {
+        set_status("Reticulum reset awaiting SD", kConfigPath);
     }
     g_initialized = true;
 }
@@ -1331,6 +1451,23 @@ void poll(const chat::MeshConfig& legacy_config)
             return;
         }
         g_sd_checked = true;
+        if (factory_reset_pending())
+        {
+            if (remove_working_document() && set_factory_reset_pending(false))
+            {
+                refresh_default_projection(legacy_config, true);
+                g_status.file_present = false;
+                set_status("Reticulum reset completed", kConfigPath);
+            }
+            else
+            {
+                // Keep probing until the deferred reset can remove the old SD document.
+                // Leaving this true would make a transient filesystem failure permanent.
+                g_sd_checked = false;
+                set_status("Cannot complete Reticulum reset", kConfigPath);
+            }
+            return;
+        }
         if (!load_sd_config() && !g_status.file_present)
         {
             refresh_default_projection(legacy_config, true);
@@ -1359,6 +1496,18 @@ bool reload(const chat::MeshConfig& legacy_config)
         return true;
     }
     g_sd_checked = true;
+    if (factory_reset_pending())
+    {
+        if (!remove_working_document() || !set_factory_reset_pending(false))
+        {
+            set_status("Cannot complete Reticulum reset", kConfigPath);
+            return false;
+        }
+        refresh_default_projection(legacy_config, true);
+        g_status.file_present = false;
+        set_status("Reticulum reset completed", kConfigPath);
+        return true;
+    }
     return load_sd_config();
 }
 
@@ -1381,12 +1530,45 @@ bool export_template(const chat::MeshConfig& legacy_config)
                        write_sd_file_atomic(g_file_buffer,
                                             std::strlen(g_file_buffer));
     cJSON_Delete(root);
-    if (wrote)
+    const bool had_reset_pending = factory_reset_pending();
+    const bool reset_cleared = !had_reset_pending ||
+                               (wrote && set_factory_reset_pending(false));
+    if (wrote && reset_cleared)
     {
         g_status.file_present = true;
         set_status("Reticulum config exported", kConfigPath);
     }
-    return wrote;
+    return wrote && reset_cleared;
+}
+
+bool reset(const chat::MeshConfig& legacy_config)
+{
+    initialize(legacy_config);
+    if (::platform::ui::reticulum_call::resource_preempt_active())
+    {
+        set_status("Reticulum reset deferred until call closes", kConfigPath);
+        return false;
+    }
+
+    const bool sd_present = sd_available();
+    const bool document_removed = !sd_present || remove_working_document();
+    const bool cache_cleared = clear_last_known_good();
+    const bool pending_saved = set_factory_reset_pending(!sd_present);
+    if (!document_removed || !cache_cleared || !pending_saved)
+    {
+        set_status("Cannot reset Reticulum configuration", kConfigPath);
+        return false;
+    }
+
+    g_sd_checked = sd_present;
+    g_reload_deferred = false;
+    g_status.sd_present = sd_present;
+    g_status.file_present = false;
+    refresh_default_projection(legacy_config, true);
+    set_status(sd_present ? "Reticulum configuration reset"
+                          : "Reticulum reset awaiting SD",
+               kConfigPath);
+    return true;
 }
 
 const char* config_path()

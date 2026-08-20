@@ -41,6 +41,10 @@ const chat::reticulum::ReticulumNetworkConfig& active();
 Status status();
 bool reload(const chat::MeshConfig& legacy_config);
 bool export_template(const chat::MeshConfig& legacy_config);
+// Removes the separately owned Reticulum working document and its NVS cache.
+// If no SD card is mounted, a small NVS tombstone defers removal until the
+// card returns so an old document cannot reverse a Factory Reset.
+bool reset(const chat::MeshConfig& legacy_config);
 const char* config_path();
 const char* source_name(Source source);
 

@@ -11,12 +11,14 @@
 #include "platform/ui/a7682e_cellular_runtime.h"
 #endif
 
-#include <cstdio>
-#include <cstring>
-
-#if defined(HAS_PSRAM) && HAS_PSRAM
-#include <esp_attr.h>
+#if defined(ESP_PLATFORM)
+#include <esp_heap_caps.h>
 #endif
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <new>
 
 namespace app::sd_tms::settings_extension
 {
@@ -96,19 +98,84 @@ struct ParseState
 #endif
 };
 
-// This is intentionally static BSS rather than an ESP task-stack allocation.
-// It is the only bounded staging area needed to validate and atomically replace
-// all ten Wi-Fi profiles (and, where present, cellular credentials).
-#if defined(HAS_PSRAM) && HAS_PSRAM
-// Arduino-ESP32 2.x exposes EXT_RAM_ATTR while ESP-IDF 5.x renamed it to
-// EXT_RAM_BSS_ATTR.  Keep this storage declaration portable across the
-// supported Arduino toolchains without changing its static lifetime.
-EXT_RAM_ATTR ParseState s_state{};
+static_assert(sizeof(ParseState) <= 3U * 1024U,
+              "TMS Settings parse state must remain a bounded PSRAM allocation");
+
+// A full document needs all ten Wi-Fi profiles until validation has completed.
+// It must therefore be an atomic staging object, but it is needed only while a
+// document is decoded or emitted.  Allocate it explicitly in PSRAM instead of
+// trusting EXT_RAM_ATTR: the final linked image is the authority on placement.
+ParseState* s_state_storage = nullptr;
+bool s_state_allocation_failed_logged = false;
+
+// Serial emission is sequential.  Locale, base64 strings, and timezone bytes
+// can share one small 192-byte buffer rather than reserving two at all times.
+uint8_t s_write_scratch[kTimezoneTzdefBytes]{};
+
+#define s_state (*s_state_storage)
+
+bool ensure_parse_state()
+{
+    if (s_state_storage)
+    {
+        return true;
+    }
+
+#if defined(ESP_PLATFORM)
+    void* const raw = heap_caps_malloc(sizeof(ParseState),
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 #else
-ParseState s_state{};
+    void* const raw = std::malloc(sizeof(ParseState));
 #endif
-char s_write_text[kEnabledImesBytes]{};
-uint8_t s_write_blob[kTimezoneTzdefBytes]{};
+    s_state_storage = raw ? new (raw) ParseState{} : nullptr;
+    if (s_state_storage)
+    {
+        return true;
+    }
+
+    if (!s_state_allocation_failed_logged)
+    {
+        std::printf("[TMS][Settings] parse_state allocation_failed memory=psram bytes=%u\n",
+                    static_cast<unsigned>(sizeof(ParseState)));
+        s_state_allocation_failed_logged = true;
+    }
+    return false;
+}
+
+void release_parse_state()
+{
+    if (!s_state_storage)
+    {
+        return;
+    }
+    s_state_storage->~ParseState();
+#if defined(ESP_PLATFORM)
+    heap_caps_free(s_state_storage);
+#else
+    std::free(s_state_storage);
+#endif
+    s_state_storage = nullptr;
+}
+
+class ScopedWriteState
+{
+  public:
+    ScopedWriteState()
+        : ready_(ensure_parse_state())
+    {
+        if (ready_)
+        {
+            s_state = ParseState{};
+        }
+    }
+
+    ~ScopedWriteState() { release_parse_state(); }
+
+    bool ready() const { return ready_; }
+
+  private:
+    bool ready_ = false;
+};
 
 bool mark_once(uint32_t bit)
 {
@@ -199,11 +266,11 @@ bool write_blob_setting(tms::RecordWriter& writer,
 {
     std::size_t length = 0U;
     if (!::platform::ui::settings_store::get_blob_into(
-            ns, store_key, s_write_blob, sizeof(s_write_blob), &length))
+            ns, store_key, s_write_scratch, sizeof(s_write_scratch), &length))
     {
         length = 0U;
     }
-    return writer.blob(document_key, s_write_blob, length);
+    return writer.blob(document_key, s_write_scratch, length);
 }
 
 bool write_string_as_blob(tms::RecordWriter& writer,
@@ -212,19 +279,21 @@ bool write_string_as_blob(tms::RecordWriter& writer,
                           const char* store_key,
                           std::size_t maximum_length)
 {
-    if (maximum_length + 1U > sizeof(s_write_text))
+    if (maximum_length + 1U > sizeof(s_write_scratch))
     {
         return false;
     }
     std::size_t length = 0U;
     if (!::platform::ui::settings_store::get_string_into(
-            ns, store_key, s_write_text, maximum_length + 1U, &length))
+            ns,
+            store_key,
+            reinterpret_cast<char*>(s_write_scratch),
+            maximum_length + 1U,
+            &length))
     {
         length = 0U;
     }
-    return writer.blob(document_key,
-                       reinterpret_cast<const uint8_t*>(s_write_text),
-                       length);
+    return writer.blob(document_key, s_write_scratch, length);
 }
 
 bool snapshot_wifi_profile(void*,
@@ -307,12 +376,25 @@ bool write_cellular_records(tms::RecordWriter& writer)
 
 void beginRead(bool applying)
 {
+    if (!ensure_parse_state())
+    {
+        return;
+    }
     s_state = ParseState{};
     s_state.applying = applying;
 }
 
+void endRead()
+{
+    release_parse_state();
+}
+
 tms::RecordConsumeResult consumeRecord(void*, const tms::RecordReader& reader)
 {
+    if (!s_state_storage)
+    {
+        return tms::RecordConsumeResult::Invalid;
+    }
     if (key_equals(reader, "ui.screen.timeout_ms"))
     {
         return mark_once(SeenScreenTimeout) && reader.u32(&s_state.screen_timeout_ms)
@@ -505,6 +587,10 @@ tms::RecordConsumeResult consumeRecord(void*, const tms::RecordReader& reader)
 
 bool finishDocument(void*, bool applying, uint16_t schema_version)
 {
+    if (!s_state_storage)
+    {
+        return false;
+    }
     const bool contains_extension_records = s_state.seen != 0U || s_state.cellular_seen != 0U;
     if (schema_version == 2U && !contains_extension_records)
     {
@@ -528,8 +614,12 @@ bool finishDocument(void*, bool applying, uint16_t schema_version)
         return false;
     }
 #if defined(ARDUINO_T_DECK_PRO) && defined(TRAIL_MATE_TDECK_PRO_A7682E)
-    if (s_state.cellular_seen != 0U &&
-        (s_state.cellular_seen != kRequiredCellular || !valid_cellular_config(s_state.cellular)))
+    // Schema 3 is a complete working document on the hardware that owns this
+    // block.  Accepting a missing cellular block here would silently retain
+    // unrelated NVS values and break the SD-first authority guarantee.  The
+    // schema-2 migration exception above remains intentionally permissive.
+    if (s_state.cellular_seen != kRequiredCellular ||
+        !valid_cellular_config(s_state.cellular))
     {
         return false;
     }
@@ -604,6 +694,11 @@ bool finishDocument(void*, bool applying, uint16_t schema_version)
 
 bool writeRecords(void*, tms::RecordWriter& writer)
 {
+    ScopedWriteState write_state;
+    if (!write_state.ready())
+    {
+        return false;
+    }
     if (!writer.u32("ui.screen.timeout_ms", ::platform::ui::screen::timeout_ms()) ||
         !writer.i32("ui.display.brightness",
                     ::platform::ui::settings_store::get_int(
@@ -619,7 +714,7 @@ bool writeRecords(void*, tms::RecordWriter& writer)
                             "ui.locale",
                             kSettingsNs,
                             "display_locale",
-                            s_write_text,
+                            reinterpret_cast<char*>(s_write_scratch),
                             kLocaleBytes) ||
         !write_string_as_blob(writer,
                               "ui.ime.enabled",
@@ -688,5 +783,7 @@ bool writeRecords(void*, tms::RecordWriter& writer)
 #endif
     return true;
 }
+
+#undef s_state
 
 } // namespace app::sd_tms::settings_extension

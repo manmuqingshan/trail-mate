@@ -49,5 +49,15 @@ int main(int argc, char** argv)
     assert(source.find("bool build_defaults(const chat::MeshConfig& legacy_config)") !=
            std::string::npos);
     assert(source.find("Reticulum config memory unavailable") != std::string::npos);
+
+    // Factory Reset must clear this independently owned configuration as
+    // well. If the card is absent, the small NVS marker prevents the old SD
+    // document or cached projection from becoming authoritative later.
+    assert(source.find("kFactoryResetPendingKey") != std::string::npos);
+    assert(source.find("bool factory_reset_pending()") != std::string::npos);
+    assert(source.find("bool remove_working_document()") != std::string::npos);
+    assert(source.find("bool reset(const chat::MeshConfig& legacy_config)") !=
+           std::string::npos);
+    assert(source.find("Reticulum reset awaiting SD") != std::string::npos);
     return 0;
 }
