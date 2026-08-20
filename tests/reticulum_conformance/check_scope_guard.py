@@ -212,14 +212,9 @@ PRODUCT_RETICULUM_CONFIG_FILES = [
     Path("modules/ui_shared/src/ui/screens/settings/settings_page_components.cpp"),
     Path("platform/esp/arduino_common/include/app/app_context.h"),
     Path("platform/esp/arduino_common/src/app_context.cpp"),
-    Path("platform/esp/arduino_common/src/platform_ui_settings_backup_runtime.cpp"),
     Path("platform/esp/arduino_common/src/rnode_kiss/rnode_kiss_service.cpp"),
     Path("platform/linux/common/src/app/linux_app_services.cpp"),
 ]
-
-ESP_SETTINGS_BACKUP_RUNTIME = Path(
-    "platform/esp/arduino_common/src/platform_ui_settings_backup_runtime.cpp"
-)
 
 RETICULUM_ADAPTER_HEADER = Path(
     "platform/esp/arduino_common/include/platform/esp/arduino_common/"
@@ -370,19 +365,6 @@ def check_product_reticulum_config_accessor_boundary() -> list[str]:
             errors.append(
                 "Product Reticulum paths must use AppConfig::reticulumConfig() "
                 f"instead of direct rnode_config storage access: {relative.as_posix()}"
-            )
-
-    backup = ROOT / ESP_SETTINGS_BACKUP_RUNTIME
-    if backup.is_file():
-        text = backup.read_text(encoding="utf-8")
-        if 'add_mesh_config(object, "rnode"' in text:
-            errors.append(
-                "Settings backup must not write product Reticulum config under "
-                'the legacy "rnode" field'
-            )
-        if 'add_mesh_config(object, "reticulum"' not in text:
-            errors.append(
-                'Settings backup must write product Reticulum config under "reticulum"'
             )
 
     return errors

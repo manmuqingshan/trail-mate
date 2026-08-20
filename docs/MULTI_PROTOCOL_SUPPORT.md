@@ -95,9 +95,9 @@ LVGL Settings are grouped by responsibilities instead of the old "Chat/Network/S
 - `Wi-Fi`: Wi-Fi enable/status/scan/SSID/password/connect/disconnect.
 - `Location`: GPS receiver, position strategy, NMEA export, map source, contours, and track recording.
 - `Device`: locale/IME, screen, speaker, vibration, C6 companion, time zone/date-time, and battery gauge calibration.
-- `Maintenance`: firmware update, settings backup/restore, debug logs, mesh/node/message resets, factory reset.
+- `Maintenance`: firmware update, debug logs, mesh/node/message resets, and factory reset. The full editable configuration is maintained as the SD-first `/trailmate/config.tms` working document rather than through a separate backup/restore action.
 
-Bluetooth is intentionally absent from Settings. For the ESP Arduino firmware profile, `TRAIL_MATE_ENABLE_BLE=0`, the NimBLE dependency is not part of the PlatformIO lib set, and the real ESP `src/ble/` implementation is excluded from the firmware build. Persisted or restored `ble_enabled=true` values are normalized back to `false`.
+Bluetooth is intentionally absent from Settings. For the ESP Arduino firmware profile, `TRAIL_MATE_ENABLE_BLE=0`, the NimBLE dependency is not part of the PlatformIO lib set, and the real ESP `src/ble/` implementation is excluded from the firmware build. Any legacy `ble_enabled=true` value is normalized back to `false`.
 
 ### Settings implementation contract
 
@@ -105,7 +105,7 @@ Settings items are bound through `SettingId` and `settings::ui::spec` instead of
 
 Resource constraints are part of the contract:
 - MT/MC channel key helpers use fixed-size caller-owned buffers and bounded key lengths.
-- SD backup/restore blob handling uses bounded stack buffers instead of dynamic byte vectors.
+- SD working-configuration blob handling uses bounded static/PSRAM scratch storage instead of dynamic byte vectors.
 - Wi-Fi scan fills the Settings page's fixed network slots directly; it does not allocate an intermediate dynamic scan list.
 
 ## 5) Phone Independence Boundary
@@ -116,7 +116,7 @@ The device-side goal is to operate without a phone. The first required channel-m
 - Meshtastic Secondary channel: enabled flag, name, PSK, MQTT uplink/downlink flags.
 - MeshCore channel: slot, name, key.
 
-These settings write into the existing `AppConfig` / `MeshConfig` fields and use the same NVS and SD backup/restore paths as the runtime configuration. Meshtastic PSK generation creates a 16-byte key by default, encoded as 32 uppercase hex characters; manual entry also accepts the existing 16/32-byte Meshtastic PSK formats. MeshCore channel key generation creates a 16-byte key.
+These settings write into the existing `AppConfig` / `MeshConfig` fields and use the same NVS-mirrored, SD-first working-configuration path as the runtime configuration. Meshtastic PSK generation creates a 16-byte key by default, encoded as 32 uppercase hex characters; manual entry also accepts the existing 16/32-byte Meshtastic PSK formats. MeshCore channel key generation creates a 16-byte key.
 
 ## Current implementation status description
 

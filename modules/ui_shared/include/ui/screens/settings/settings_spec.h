@@ -25,7 +25,6 @@ struct VisibilityContext
     bool wifi_supported = false;
     bool has_wifi_networks = false;
     bool firmware_update_supported = false;
-    bool settings_backup_supported = false;
     bool wireless_companion_supported = false;
     bool mt_secondary_enabled = false;
     bool mt_use_preset = false;

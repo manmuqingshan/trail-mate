@@ -73,8 +73,8 @@ The catalogue maps the following stable capability entries to this projection:
   2. **Text and secret settings** — node names, APN/MQTT endpoints and
      credentials. They are never represented as a toggle; a focused editor is
      required, and existing secret values are not echoed into the editor.
-  3. **Maintenance or destructive actions** — firmware update, erase/reset,
-     backup/restore and modem recovery. They must keep their dedicated full
+   3. **Maintenance or destructive actions** — firmware update, erase/reset,
+      modem recovery and factory reset. They must keep their dedicated full
      settings workflow and confirmation model; the compact projection does
      not turn them into one-tap commands.
 - Tracker, Walkie, SSTV and USB Storage: `RuntimeFeaturePort` snapshots and

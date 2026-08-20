@@ -8,6 +8,7 @@ namespace platform::ui::wifi
 
 constexpr std::size_t kMaxSsidLength = 32;
 constexpr std::size_t kMaxPasswordLength = 64;
+constexpr std::size_t kMaxSavedProfileCount = 10;
 constexpr std::size_t kMaxIpLength = 47;
 constexpr std::size_t kMaxStatusMessageLength = 95;
 
@@ -51,10 +52,20 @@ struct ScanResult
     bool requires_password = true;
 };
 
+// Iteration keeps callers from materialising a ten-profile automatic object
+// merely to serialize the persistent network set. `index == 0` is the highest
+// connection priority.
+using SavedProfileVisitor = bool (*)(void* context, std::size_t index, const Config& profile);
+
 bool is_supported();
 bool load_config(Config& out);
 bool save_config(const Config& config);
 bool find_saved_config(const char* ssid, Config& out);
+bool visit_saved_profiles(bool* enabled,
+                          std::size_t* count,
+                          SavedProfileVisitor visitor,
+                          void* context);
+bool replace_saved_profiles(bool enabled, const Config* profiles, std::size_t count);
 bool apply_enabled(bool enabled);
 bool connect(const Config* override_config = nullptr);
 void disconnect();

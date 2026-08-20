@@ -5,7 +5,7 @@
  * The codec deliberately does not own a file, an AppConfig snapshot, or a
  * dynamically sized string.  A platform adapter provides one reusable line
  * scratch buffer and streams it to or from durable storage.  This keeps both
- * normal configuration projection and portable backup/restore out of ESP task
+ * normal configuration projection and platform-owned extensions out of ESP task
  * stacks and avoids a whole-document JSON representation.
  */
 
@@ -20,8 +20,11 @@ namespace app::tms
 {
 
 constexpr std::size_t kMaxLineBytes = 384U;
-constexpr std::size_t kMaxDocumentBytes = 16U * 1024U;
-constexpr uint16_t kSchemaVersion = 2U;
+// The document is streamed a line at a time.  This limit bounds SD-card
+// input without reserving document-sized RAM; it also leaves room for all ten
+// Wi-Fi profiles and optional cellular credentials alongside AppConfig.
+constexpr std::size_t kMaxDocumentBytes = 32U * 1024U;
+constexpr uint16_t kSchemaVersion = 3U;
 
 struct LineScratch
 {
@@ -63,7 +66,7 @@ struct Output
     bool (*write)(void* context, const char* data, std::size_t length) = nullptr;
 };
 
-// A non-owning record emitter used by platform-specific backup extensions.
+// A non-owning record emitter used by platform-specific TMS extensions.
 // It writes through the same bounded scratch as the core document writer.
 class RecordWriter
 {
@@ -89,8 +92,47 @@ class RecordWriter
 
 using RecordExtension = bool (*)(void* context, RecordWriter& writer);
 
+// A non-owning decoded record exposed to platform extensions.  It deliberately
+// reuses the core codec's strict scalar, percent-escaped text, and base64
+// parsers so an extension cannot accidentally create a second TMS grammar.
+class RecordReader
+{
+  public:
+    const char* key() const { return key_; }
+    bool boolean(bool* target = nullptr) const;
+    bool u8(uint8_t* target = nullptr, uint8_t maximum = UINT8_MAX) const;
+    bool u16(uint16_t* target = nullptr, uint16_t maximum = UINT16_MAX) const;
+    bool u32(uint32_t* target = nullptr) const;
+    bool i32(int32_t* target = nullptr) const;
+    bool text(char* target, std::size_t capacity) const;
+    bool blob(uint8_t* target,
+              std::size_t capacity,
+              std::size_t* decoded_length = nullptr) const;
+
+  private:
+    friend class Decoder;
+    RecordReader(const char* key, const char* type, const char* value)
+        : key_(key), type_(type), value_(value)
+    {
+    }
+
+    const char* key_ = nullptr;
+    const char* type_ = nullptr;
+    const char* value_ = nullptr;
+};
+
+enum class RecordConsumeResult : uint8_t
+{
+    Unhandled,
+    Accepted,
+    Invalid,
+};
+
+using RecordConsumer = RecordConsumeResult (*)(void* context, const RecordReader& reader);
+using DocumentFinalizer = bool (*)(void* context, bool applying, uint16_t schema_version);
+
 /**
- * Emits a complete canonical TMSET2 document.  `scratch` is caller-owned and
+ * Emits a complete canonical document for the current TMS schema.  `scratch` is caller-owned and
  * must remain valid only for the call; it is never retained.  Values that can
  * contain arbitrary bytes are base64 encoded, while text values use percent
  * escapes, so every emitted record is one bounded physical line.
@@ -112,7 +154,11 @@ bool writeDocument(const AppConfig& config,
 class Decoder
 {
   public:
-    explicit Decoder(AppConfig* target, DocumentKind expected_kind);
+    explicit Decoder(AppConfig* target,
+                     DocumentKind expected_kind,
+                     RecordConsumer consumer = nullptr,
+                     void* extension_context = nullptr,
+                     DocumentFinalizer finalizer = nullptr);
 
     // `line` must be NUL-terminated, contain no trailing newline, and is
     // mutable because the parser splits key/type/value in place.
@@ -120,13 +166,19 @@ class Decoder
     bool finish();
 
     const DocumentInfo& info() const { return info_; }
+    uint16_t schemaVersion() const { return schema_version_; }
 
   private:
     bool consumeRecord(char* key, char* type, char* value);
 
     AppConfig* target_ = nullptr;
     DocumentKind expected_kind_ = DocumentKind::Working;
+    RecordConsumer consumer_ = nullptr;
+    void* extension_context_ = nullptr;
+    DocumentFinalizer finalizer_ = nullptr;
     DocumentInfo info_{};
+    uint16_t schema_version_ = 0U;
+    uint16_t magic_version_ = 0U;
     bool saw_magic_ = false;
     bool saw_schema_ = false;
     bool saw_kind_ = false;

@@ -149,9 +149,6 @@ constexpr SettingSpec kSpecs[] = {
     {SettingId::FwStatus, "fw_status", DynamicOptionKind::None},
     {SettingId::FwCheck, "fw_check", DynamicOptionKind::None},
     {SettingId::FwInstall, "fw_install", DynamicOptionKind::None},
-    {SettingId::SettingsBackupStatus, "settings_backup_status", DynamicOptionKind::None},
-    {SettingId::SettingsBackup, "settings_backup", DynamicOptionKind::None},
-    {SettingId::SettingsRestore, "settings_restore", DynamicOptionKind::None},
     {SettingId::AdvDebug, "adv_debug", DynamicOptionKind::None},
     {SettingId::ChatResetMesh, "chat_reset_mesh", DynamicOptionKind::None},
     {SettingId::ChatResetNodes, "chat_reset_nodes", DynamicOptionKind::None},
@@ -391,19 +388,6 @@ bool is_firmware_update_setting(SettingId id)
     }
 }
 
-bool is_settings_backup_setting(SettingId id)
-{
-    switch (id)
-    {
-    case SettingId::SettingsBackupStatus:
-    case SettingId::SettingsBackup:
-    case SettingId::SettingsRestore:
-        return true;
-    default:
-        return false;
-    }
-}
-
 bool is_wireless_companion_setting(SettingId id)
 {
     switch (id)
@@ -549,10 +533,6 @@ bool should_show(SettingId id, const VisibilityContext& context)
         return false;
     }
     if (is_firmware_update_setting(id) && !context.firmware_update_supported)
-    {
-        return false;
-    }
-    if (is_settings_backup_setting(id) && !context.settings_backup_supported)
     {
         return false;
     }

@@ -15,6 +15,24 @@ namespace platform::esp::common::settings_store_detail
 
 constexpr std::size_t kMaxNvsKeyLength = 15;
 
+inline ::platform::ui::settings_store::ChangeObserver s_change_observer = nullptr;
+inline void* s_change_observer_context = nullptr;
+inline uint16_t s_change_batch_depth = 0U;
+inline bool s_change_pending = false;
+
+inline void notify_change(const char* ns, const char* key)
+{
+    if (s_change_batch_depth != 0U)
+    {
+        s_change_pending = true;
+        return;
+    }
+    if (s_change_observer)
+    {
+        s_change_observer(s_change_observer_context, ns, key);
+    }
+}
+
 struct StorageKeyAlias
 {
     const char* key;
@@ -143,6 +161,37 @@ inline bool erase_key_if_present(nvs_handle_t handle, const char* storage_key)
 namespace platform::ui::settings_store
 {
 
+void set_change_observer(ChangeObserver observer, void* context)
+{
+    using namespace ::platform::esp::common::settings_store_detail;
+    s_change_observer = observer;
+    s_change_observer_context = context;
+}
+
+void begin_change_batch()
+{
+    using namespace ::platform::esp::common::settings_store_detail;
+    if (s_change_batch_depth != UINT16_MAX)
+    {
+        ++s_change_batch_depth;
+    }
+}
+
+void end_change_batch()
+{
+    using namespace ::platform::esp::common::settings_store_detail;
+    if (s_change_batch_depth == 0U)
+    {
+        return;
+    }
+    --s_change_batch_depth;
+    if (s_change_batch_depth == 0U && s_change_pending)
+    {
+        s_change_pending = false;
+        notify_change(nullptr, nullptr);
+    }
+}
+
 void put_int(const char* ns, const char* key, int value)
 {
     using namespace ::platform::esp::common::settings_store_detail;
@@ -181,6 +230,10 @@ void put_int(const char* ns, const char* key, int value)
          safe_label(storage_key),
          value,
          bool_label(ok));
+    if (ok)
+    {
+        notify_change(ns, key);
+    }
 }
 
 void put_bool(const char* ns, const char* key, bool value)
@@ -221,6 +274,10 @@ void put_bool(const char* ns, const char* key, bool value)
          safe_label(storage_key),
          bool_label(value),
          bool_label(ok));
+    if (ok)
+    {
+        notify_change(ns, key);
+    }
 }
 
 void put_uint(const char* ns, const char* key, uint32_t value)
@@ -261,6 +318,10 @@ void put_uint(const char* ns, const char* key, uint32_t value)
          safe_label(storage_key),
          static_cast<unsigned long>(value),
          bool_label(ok));
+    if (ok)
+    {
+        notify_change(ns, key);
+    }
 }
 
 bool put_string(const char* ns, const char* key, const char* value)
@@ -303,6 +364,10 @@ bool put_string(const char* ns, const char* key, const char* value)
              safe_label(key),
              safe_label(storage_key),
              bool_label(ok));
+        if (ok)
+        {
+            notify_change(ns, key);
+        }
         return ok;
     }
 
@@ -323,6 +388,10 @@ bool put_string(const char* ns, const char* key, const char* value)
          static_cast<unsigned long>(std::strlen(value)),
          ::platform::ui::settings::diagnostic_value(key, value),
          bool_label(ok));
+    if (ok)
+    {
+        notify_change(ns, key);
+    }
     return ok;
 }
 
@@ -366,6 +435,10 @@ bool put_blob(const char* ns, const char* key, const void* data, std::size_t len
              safe_label(key),
              safe_label(storage_key),
              bool_label(ok));
+        if (ok)
+        {
+            notify_change(ns, key);
+        }
         return ok;
     }
 
@@ -385,6 +458,10 @@ bool put_blob(const char* ns, const char* key, const void* data, std::size_t len
          safe_label(storage_key),
          static_cast<unsigned long>(len),
          bool_label(ok));
+    if (ok)
+    {
+        notify_change(ns, key);
+    }
     return ok;
 }
 
@@ -790,6 +867,10 @@ void remove_keys(const char* ns, const char* const* keys, std::size_t key_count)
         {
             logf("[CfgStore][REMOVE][ERR] ns=%s commit=false\n", safe_label(ns));
         }
+        else
+        {
+            notify_change(ns, nullptr);
+        }
         return;
     }
 
@@ -820,6 +901,10 @@ void clear_namespace(const char* ns)
     logf("[CfgStore][CLEAR] ns=%s ok=%s\n",
          safe_label(ns),
          bool_label(ok));
+    if (ok)
+    {
+        notify_change(ns, nullptr);
+    }
 }
 
 } // namespace platform::ui::settings_store

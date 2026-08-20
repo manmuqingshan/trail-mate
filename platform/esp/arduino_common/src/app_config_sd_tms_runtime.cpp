@@ -1,8 +1,11 @@
 #include "platform/esp/arduino_common/app_config_sd_tms_runtime.h"
 
 #include "app/tms_config_codec.h"
+#include "platform/esp/arduino_common/app_config_tms_settings_extension.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/ui/settings_store.h"
 
+#include <Arduino.h>
 #include <Preferences.h>
 
 #include <cstdio>
@@ -69,6 +72,48 @@ struct FileDigest
 // PSRAM; keeping this sub-384 byte parser buffer in BSS also keeps boot usable
 // on ESP variants without PSRAM and avoids a hidden allocator fallback.
 tms::LineScratch s_line_scratch{};
+const AppConfig* s_working_config = nullptr;
+bool s_sync_pending = false;
+bool s_sync_suppressed = false;
+uint32_t s_next_sync_attempt_ms = 0U;
+
+class ScopedSyncSuppression
+{
+  public:
+    ScopedSyncSuppression()
+        : previous_(s_sync_suppressed)
+    {
+        s_sync_suppressed = true;
+    }
+
+    ~ScopedSyncSuppression() { s_sync_suppressed = previous_; }
+
+  private:
+    bool previous_ = false;
+};
+
+bool tracksWorkingSettings(const char* ns)
+{
+    // A batched notification intentionally has no key.  The current ESP
+    // multi-key owners are Wi-Fi and cellular and are both working-config
+    // fields, so it must be retained rather than dropped.
+    return ns == nullptr || std::strcmp(ns, "settings") == 0 ||
+           std::strcmp(ns, "power") == 0 || std::strcmp(ns, "a7682e") == 0;
+}
+
+void onSettingsStoreChanged(void*, const char* ns, const char*)
+{
+    if (s_sync_suppressed || !tracksWorkingSettings(ns))
+    {
+        return;
+    }
+    // This small NVS marker is the write-ahead record.  If power is lost
+    // before the loop can flush SD, boot detects the stale SD replica and
+    // retains the newer NVS settings instead of reversing the user's change.
+    (void)::app::sd_tms::markNvsCommitted();
+    s_sync_pending = true;
+    s_next_sync_attempt_ms = 0U;
+}
 
 uint32_t crc32Update(uint32_t crc, const uint8_t* data, std::size_t length)
 {
@@ -192,7 +237,13 @@ bool readDocument(AppConfig* target, FileDigest* digest, tms::DocumentInfo* info
         return false;
     }
 
-    tms::Decoder decoder(target, tms::DocumentKind::Working);
+    ScopedSyncSuppression suppress_sync;
+    settings_extension::beginRead(target != nullptr);
+    tms::Decoder decoder(target,
+                         tms::DocumentKind::Working,
+                         settings_extension::consumeRecord,
+                         nullptr,
+                         settings_extension::finishDocument);
     uint32_t running_crc = 0xFFFFFFFFUL;
     std::size_t line_length = 0U;
     bool ok = true;
@@ -367,6 +418,36 @@ LoadResult loadWorkingConfig(AppConfig& config)
     return LoadResult::Applied;
 }
 
+void bindWorkingConfig(const AppConfig& config)
+{
+    s_working_config = &config;
+    ::platform::ui::settings_store::set_change_observer(onSettingsStoreChanged, nullptr);
+}
+
+void serviceWorkingConfig()
+{
+    if (!s_sync_pending || !s_working_config)
+    {
+        return;
+    }
+    const uint32_t now_ms = millis();
+    if (s_next_sync_attempt_ms != 0U &&
+        static_cast<int32_t>(now_ms - s_next_sync_attempt_ms) < 0)
+    {
+        return;
+    }
+    if (syncWorkingConfig(*s_working_config))
+    {
+        s_sync_pending = false;
+        s_next_sync_attempt_ms = 0U;
+        return;
+    }
+    // Card insertion/removal and SD contention are expected states.  Retry at
+    // a bounded cadence from the foreground loop rather than from a timer or
+    // a settings-store write call.
+    s_next_sync_attempt_ms = now_ms + 1000U;
+}
+
 bool markNvsCommitted()
 {
     ReplicaMeta meta{};
@@ -378,6 +459,7 @@ bool markNvsCommitted()
 
 bool syncWorkingConfig(const AppConfig& config)
 {
+    ScopedSyncSuppression suppress_sync;
     if (!sdAvailable())
     {
         return false;
@@ -398,7 +480,9 @@ bool syncWorkingConfig(const AppConfig& config)
                                           tms::DocumentKind::Working,
                                           {&output, writeOutput},
                                           s_line_scratch,
-                                          &info);
+                                          &info,
+                                          settings_extension::writeRecords,
+                                          nullptr);
     const bool flushed = file.flush();
     file.close();
     if (!wrote || !flushed)
@@ -434,6 +518,50 @@ bool syncWorkingConfig(const AppConfig& config)
                 static_cast<unsigned long>(meta.revision),
                 static_cast<unsigned long>(meta.last_sd_crc),
                 static_cast<unsigned>(commit.records));
+    s_sync_pending = false;
+    s_next_sync_attempt_ms = 0U;
+    return true;
+}
+
+void beginWorkingConfigReset()
+{
+    s_sync_suppressed = true;
+}
+
+void endWorkingConfigReset()
+{
+    s_sync_suppressed = false;
+    s_sync_pending = false;
+    s_next_sync_attempt_ms = 0U;
+}
+
+bool resetWorkingConfig()
+{
+    s_sync_pending = false;
+    s_next_sync_attempt_ms = 0U;
+    if (!sdAvailable())
+    {
+        return true;
+    }
+    bool ok = true;
+    const char* paths[] = {kConfigTempPath, kCommitTempPath, kConfigPath, kCommitPath};
+    for (const char* path : paths)
+    {
+        if (::platform::esp::arduino_common::storage::sd_exists(path))
+        {
+            ok = ::platform::esp::arduino_common::storage::sd_remove(path) && ok;
+        }
+    }
+    if (!ok)
+    {
+        return false;
+    }
+    Preferences preferences;
+    if (preferences.begin(kReplicaNamespace, false))
+    {
+        (void)preferences.remove(kReplicaKey);
+        preferences.end();
+    }
     return true;
 }
 

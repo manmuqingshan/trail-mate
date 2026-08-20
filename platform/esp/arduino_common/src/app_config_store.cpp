@@ -1609,6 +1609,7 @@ bool loadAppConfig(AppConfig& config)
                           meta_saved ? 1U : 0U,
                           sd_synced ? 1U : 0U);
         }
+        sd_tms::bindWorkingConfig(config);
         return nvs_saved;
     }
 
@@ -1638,11 +1639,13 @@ bool loadAppConfig(AppConfig& config)
         Serial.printf("[AppCfg][SD] startup source=nvs reason=%s\n",
                       sd_tms::loadResultName(sd_result));
     }
+    sd_tms::bindWorkingConfig(config);
     return true;
 }
 
 bool saveAppConfig(const AppConfig& config, AppConfigChangeSet changes)
 {
+    sd_tms::bindWorkingConfig(config);
     Preferences prefs;
     const bool nvs_saved = saveAppConfigToPreferences(config, prefs, changes, true);
     if (!nvs_saved)

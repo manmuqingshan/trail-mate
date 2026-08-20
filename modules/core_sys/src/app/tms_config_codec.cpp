@@ -12,7 +12,8 @@ namespace app::tms
 namespace
 {
 
-constexpr const char* kMagic = "TMSET2";
+constexpr const char* kMagic = "TMSET3";
+constexpr const char* kLegacyMagic = "TMSET2";
 constexpr const char* kWorkingKind = "working";
 constexpr const char* kBackupKind = "backup";
 // The full AppConfig projection currently emits just over two hundred short
@@ -218,6 +219,20 @@ bool assignU32(const char* type, const char* value, uint32_t* target)
 {
     uint32_t parsed = 0U;
     if (!typeIs(type, "u32") || !parseUnsigned(value, &parsed))
+    {
+        return false;
+    }
+    if (target)
+    {
+        *target = parsed;
+    }
+    return true;
+}
+
+bool assignI32(const char* type, const char* value, int32_t* target)
+{
+    int32_t parsed = 0;
+    if (!typeIs(type, "i32") || !parseSigned(value, &parsed))
     {
         return false;
     }
@@ -1014,6 +1029,43 @@ bool parseMeshCoreChannel(const char* key,
 
 } // namespace
 
+bool RecordReader::boolean(bool* target) const
+{
+    return assignBool(type_, value_, target);
+}
+
+bool RecordReader::u8(uint8_t* target, uint8_t maximum) const
+{
+    return assignU8(type_, value_, target, maximum);
+}
+
+bool RecordReader::u16(uint16_t* target, uint16_t maximum) const
+{
+    return assignU16(type_, value_, target, maximum);
+}
+
+bool RecordReader::u32(uint32_t* target) const
+{
+    return assignU32(type_, value_, target);
+}
+
+bool RecordReader::i32(int32_t* target) const
+{
+    return assignI32(type_, value_, target);
+}
+
+bool RecordReader::text(char* target, std::size_t capacity) const
+{
+    return assignText(type_, value_, target, capacity);
+}
+
+bool RecordReader::blob(uint8_t* target,
+                        std::size_t capacity,
+                        std::size_t* decoded_length) const
+{
+    return assignBlob(type_, value_, target, capacity, decoded_length);
+}
+
 RecordWriter::RecordWriter(Output output, LineScratch& scratch, DocumentInfo* info)
     : output_(output), scratch_(scratch), info_(info)
 {
@@ -1104,8 +1156,13 @@ bool writeDocument(const AppConfig& config,
     return (!extension || extension(extension_context, extension_writer)) && encoder.raw("END");
 }
 
-Decoder::Decoder(AppConfig* target, DocumentKind expected_kind)
-    : target_(target), expected_kind_(expected_kind)
+Decoder::Decoder(AppConfig* target,
+                 DocumentKind expected_kind,
+                 RecordConsumer consumer,
+                 void* extension_context,
+                 DocumentFinalizer finalizer)
+    : target_(target), expected_kind_(expected_kind), consumer_(consumer),
+      extension_context_(extension_context), finalizer_(finalizer)
 {
 }
 
@@ -1135,7 +1192,15 @@ bool Decoder::consumeLine(char* line)
     }
     if (!saw_magic_)
     {
-        if (std::strcmp(line, kMagic) != 0)
+        if (std::strcmp(line, kMagic) == 0)
+        {
+            magic_version_ = kSchemaVersion;
+        }
+        else if (std::strcmp(line, kLegacyMagic) == 0)
+        {
+            magic_version_ = 2U;
+        }
+        else
         {
             info_.error = DecodeError::MissingMagic;
             return false;
@@ -1207,6 +1272,11 @@ bool Decoder::finish()
         target_->meshcore_config.meshCoreChannel(0).enabled = true;
         target_->meshcore_config.syncMeshCoreLegacyChannelMirror();
     }
+    if (finalizer_ && !finalizer_(extension_context_, target_ != nullptr, schema_version_))
+    {
+        info_.error = DecodeError::InvalidKnownValue;
+        return false;
+    }
     return true;
 }
 
@@ -1215,11 +1285,14 @@ bool Decoder::consumeRecord(char* key, char* type, char* value)
     if (std::strcmp(key, "schema.version") == 0)
     {
         uint16_t version = 0U;
-        if (!assignU16(type, value, &version) || version != kSchemaVersion)
+        if (!assignU16(type, value, &version) ||
+            (version != 2U && version != kSchemaVersion) ||
+            version != magic_version_)
         {
             info_.error = DecodeError::UnsupportedSchema;
             return false;
         }
+        schema_version_ = version;
         saw_schema_ = true;
         return true;
     }
@@ -1577,6 +1650,17 @@ bool Decoder::consumeRecord(char* key, char* type, char* value)
             info_.error = DecodeError::InvalidKnownValue;
             return false;
         }
+    }
+    if (!known && consumer_)
+    {
+        const RecordConsumeResult extension_result =
+            consumer_(extension_context_, RecordReader(key, type, value));
+        if (extension_result == RecordConsumeResult::Invalid)
+        {
+            info_.error = DecodeError::InvalidKnownValue;
+            return false;
+        }
+        known = extension_result == RecordConsumeResult::Accepted;
     }
     if (!known)
     {

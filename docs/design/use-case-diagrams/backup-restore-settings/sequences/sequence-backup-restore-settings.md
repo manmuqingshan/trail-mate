@@ -1,40 +1,39 @@
-# Sequence:Settings Backup Store
+# Sequence: SD working configuration
 ```mermaid
 sequenceDiagram
- actor U as user
-  participant UI as Settings
-  participant Backup as Settings Backup Runtime
-  participant Config as Config Stores
   participant SD as SD Filesystem
-  U->>UI: Backup
-  UI->>Backup: backup()
-  Backup->>Config: read supported settings
-  Backup->>SD: write temp + fsync/close + replace
-  SD-->>UI: success / error
-  U->>UI: Restore
-  UI->>Backup: restore()
-  Backup->>SD: read backup
-  Backup->>Backup: parse + validate
-  Backup->>Config: apply only after validation
-  Config-->>UI: reinitialize/reboot required
+  participant TMS as TMS Runtime
+  participant Config as Config Stores
+  participant Loop as Foreground lifecycle
+  SD->>TMS: config.tms at boot
+  TMS->>TMS: stream validate complete document
+  TMS->>Config: apply only after validation
+  TMS->>SD: atomically write canonical config.tms
+  Config->>TMS: setting changed notification
+  TMS->>Config: commit small write-ahead marker
+  Loop->>TMS: service pending mirror
+  TMS->>SD: atomically replace config.tms
 ```
 
 ## Scenarios and responsibilities
 
-Settings collects user commands; Backup Runtime defines versioned formats and transactions; Config Stores provides supported fields and atomic applications; SD Filesystem is only responsible for file semantics. The UI does not traverse or overwrite individual configuration files directly.
+The TMS runtime defines one versioned grammar and atomic file replacement. Individual
+configuration owners continue to own their runtime application, but cannot drift from
+the SD projection because their durable write notifications are coalesced through the
+same mirror service.
 
-## Backup sequence
+## Boot and save order
 
-Read supported settings to form an immutable snapshot, write temporary files, flush/fsync/close and then atomic replace. Any stage failure retains old backups. The UI will only display the new backup time after receiving replace successfully.
-
-## Restore order
-
-First complete read, parse, version migration and field verification, and then call Config apply. No owner must be written if validation fails. Apply returns the effective policy for each owner: immediate reinitialize, next startup, or must reboot.
+Boot validates before any application. On a normal save, NVS commits first, then a
+small metadata record makes an interrupted SD projection safely stale. The foreground
+lifecycle performs the SD I/O, so Wi-Fi profile retry timers never access the card.
 
 ## Consistency and sensitive data
 
-Apply across multiple Config Stores requires aggregation of validation and controlled submission; otherwise, a mixed version will be formed if it fails midway. The backup format clearly marks whether sensitive keys are included and avoids outputting values ​​in the error log.
+The document includes all supported sensitive configuration because it is the working
+authority. It is plaintext and must never be logged or shared unredacted.
 
 ## Tests
 
-Cover temp write/close/replace failure, old version migration, unknown fields, cross-Store verification failure, partial apply and reboot-required projections.
+Cover temp write/close/replace failure, schema v2-to-v3 migration, unknown fields,
+cross-owner validation, all ten Wi-Fi profiles, and factory-reset SD removal.

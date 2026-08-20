@@ -3,7 +3,7 @@
 Status date: 2026-07-09
 
 This document defines the next phase of retrofit specifications for Trail Mate settings. It is not a minor UI
- tidying up, but a re-straightening of "what the configuration is, which protocol it belongs to, how to display it, how to persist it, how to restore it from SD, and how it
+ tidying up, but a re-straightening of "what the configuration is, which protocol it belongs to, how to display it, how to persist it as an SD-first working document, and how it
  applies it to the runtime".
 
 This specification will be documented first and the runtime code will not be changed. The actual implementation must be carried out in stages according to this article, and GitNexus impact analysis must be performed according to the warehouse rules before modifying any
@@ -20,8 +20,8 @@ The target user scenario is that Trail Mate can work without a mobile phone:
  configuration must not be automatically changed to enabled when Wi-Fi is on.
 - If a protocol is configured with MQTT and the runtime is using the Wi-Fi MQTT transport, the protocol corresponding
  BLE phone dependency should be suppressed or turned off to avoid users mistakenly thinking that the phone must still be connected.
-- All user configurations must be persistent and restoreable from SD backups.
-- Backup restore cannot sacrifice ESP memory safety for "human readability"; the current whole package JSON/cJSON schema needs to be replaced.
+- All user configuration must be persistent in the SD-first working document and mirrored to NVS.
+- SD configuration cannot sacrifice ESP memory safety for "human readability"; the former whole-package JSON/cJSON schema is replaced by bounded TMS streaming.
 
 ## Distinctions
 
@@ -35,7 +35,7 @@ These concepts must be separated in code and UI, and cannot continue to be mixed
 | Transport | Bearing methods such as LoRa, BLE phone link, Wi-Fi MQTT, Reticulum TCP/UDP | protocol itself |
 | Conversation | Broadcast session, private chat session, contact context in the UI | Meshtastic channel slot or MeshCore channel slot |
 | Device settings | Screen, language, GPS, map, Wi-Fi, owner name, privacy and other cross-protocol settings | Profile of the current active protocol |
-| Persistence | NVS/Preferences/IDF store/SD backup placement fact | UI widget state |
+| Persistence | SD working document/NVS/Preferences/IDF store placement fact | UI widget state |
 | Apply runtime | Apply configuration changes to radio, MQTT, BLE, GPS, privacy policy | Save configuration |
 
 ### Channel, Radio, Broadcast, Private
@@ -70,7 +70,7 @@ This section records the current implementation facts as a baseline before trans
 | GTK settings | `apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp` | There is a prototype of stack/page switching by protocol, which can be used as a reference for the "protocol page" idea, but the GTK widget logic should not be copied directly |
 | Arduino ESP persistence | `platform/esp/arduino_common/src/app_config_store.cpp` | Use Preferences to save by field, a large number of keys already exist, but field coverage relies on handwriting load/save to keep synchronized |
 | IDF persistence | `apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp` | Put the entire `AppConfig` is packaged into raw blob, and the version is determined by `sizeof(AppConfig)`. Once the structure becomes old, the configuration will be rejected |
-| SD settings backup | `platform/esp/arduino_common/src/platform_ui_settings_backup_runtime.cpp` | The current path is `/trailmate/settings-backup.json`, using cJSON Construct/parse the entire tree and read the entire file |
+| SD working configuration | `platform/esp/arduino_common/src/app_config_sd_tms_runtime.cpp` | `/trailmate/config.tms` is a bounded, line-streamed, SD-first configuration authority; it mirrors every supported settings owner to NVS. |
 | Store API | `modules/core_sys/include/platform/ui/settings_store.h` | Also provides `get_blob(std::vector<uint8_t>&)` and `get_blob_into(...)`; new ESP paths should preferentially use the bounded buffer version |
 | Apply facade | `modules/core_sys/include/app/app_facades.h` | UI can be modified directly with `getConfig()`, and then call `saveConfig()`, `applyMeshConfig()`, `applyUserInfo()` and other apply methods |
 
@@ -90,29 +90,30 @@ This section records the current implementation facts as a baseline before trans
 `AppConfig` and `MeshConfig` are currently runtime large objects. They can serve as transitional compatibility layers, but cannot continue to be
 Long-term settings schema. Reason:
 
-- The field ownership is unclear, causing UI, Preferences, SD backup, and protocol apply to each record a copy of the facts.
+- The field ownership is unclear, causing UI, Preferences, the SD working projection, and protocol apply to each record a copy of the facts.
 - ESP stack hygiene has listed `AppConfig` and `MeshConfig` as dangerous automatic local types.
 - When adding a channel list or more protocol profiles, if you continue to stuff these two structs, the memory risk will continue to amplify.
 
 ### 3. Persistence is not schema-driven
 
 Arduino Preferences is currently saved by field, which is more stable than raw blob, but each field requires hand-written load/save, default value, and
-migration logic. When adding a settings field, it is easy to miss SD backup or a certain UI.
+migration logic. When adding a settings field, it is easy to miss the SD working projection or a certain UI.
 
 IDF raw blob uses `sizeof(AppConfig)` as the compatibility condition, which is very fragile to subsequent split structures. Any `AppConfig`
 layout changes may cause the old configuration to fail to load.
 
-### 4. SD JSON backup is too heavy
+### 4. Historical SD JSON backup was too heavy
 
 The advantage of the current JSON solution is that it is readable, but the cost is high on ESP:
 
-- restore needs to read the entire file into memory.
+- JSON restore needed to read the entire file into memory.
 - cJSON parse will construct the entire tree.
-- backup print will generate the complete string.
+- JSON backup print generated the complete string.
  - A combination of `std::string`, `std::vector<uint8_t>`, whole-document parse/print exists in the old code.
 
-This conflicts with the goal of "configuration can be completely dropped to SD and can be restored reliably". The recovery configuration should be a low-memory path, not the path that
-easiest pushes the device to the heap/stack boundary.
+This conflicts with the goal of a complete SD working configuration. The current
+TMS path is line-streamed and bounded, so it does not construct a DOM or a
+whole-document allocation.
 
 ### 5. Apply semantics are scattered
 
@@ -160,7 +161,7 @@ The long-term structure should divide the configuration into these owners:
 | `MeshCoreProfile` | radio profile、channel slot/name/key、public-channel fallback、MeshCore MQTT |
 | `ReticulumProfile` | identity、LoRa interface、Wi-Fi interface、LXMF/announce groups |
 | `ChatPresentationSettings` | active conversation defaults、notification/presentation preferences |
-| `BackupRestoreSettings` | backup version、restore policy、sensitive export policy |
+| `SdWorkingConfiguration` | schema version, SD/NVS authority, sensitive plaintext warning, and migration policy |
 
 These owners can be mapped to the existing `AppConfig` fields first, but the schema naming must be designed according to the owner first to avoid
  continuing to stuff the three protocols back into `Chat` / `Network` in the future.
@@ -201,7 +202,7 @@ The top level of Settings is recommended to be split into:
 - MQTT
 - GPS & Map
 - Privacy
-- Backup & Restore
+- Configuration lifecycle and reset
 - Diagnostics
 
 The contents of `Protocol`, `Channels`, and `MQTT` are determined by the active protocol.
@@ -266,11 +267,11 @@ The default MQTT preset cannot use a personal broker as the default value. The d
 
 The implementation does not hard-code a personal domain name as the default. Personal brokers can exist in custom presets or user configurations.
 
-## SD Backup Format
+## SD Working Configuration Format
 
 ### Decision
 
-The new format does not use JSON by default.
+The working configuration does not use JSON.
 
 Using line-oriented typed key-value format, the goal is:
 
@@ -281,21 +282,22 @@ Using line-oriented typed key-value format, the goal is:
 - No need to read the entire file into `std::string`.
 - No need for `std::vector<uint8_t>` to accept whole blob.
 
-Recommended file name:
+Authoritative file names:
 
 ```text
-/trailmate/settings-backup.tms
-/trailmate/settings-backup.tmp
+/trailmate/config.tms
+/trailmate/config.tms.tmp
 ```
 
-`.json` Old files can be used as legacy restore input during the migration period, but new backups must be written out using `.tms`.
+There is no parallel settings backup/restore file. A second schema on the same SD card
+would not protect the NVS-erasure scenario and would reintroduce consistency drift.
 
 ### Format Sketch
 
 ```text
-TMSET2
-schema.version=u16:2
-created.unix=u32:1783500000
+TMSET3
+schema.version=u16:3
+document.kind=enum:working
 device.owner.long=str:Trail Mate
 device.owner.short=str:TM
 protocol.active=enum:meshtastic
@@ -316,36 +318,39 @@ mc.channel.name=str:public
 mc.channel.key=hex:
 mc.mqtt.enabled=bool:0
 
-checksum.crc32=hex:89ABCDEF
+wifi.enabled=bool:1
+wifi.profile_count=u8:2
+wifi.profile.0.ssid=str:Office
+wifi.profile.0.password=str:secret
 ```
 
 Rules:
 
-- First line is magic: `TMSET2`.
-- Max line length is fixed, initially 256 or 384 bytes. Any longer line is skipped with a diagnostic.
+- First line is magic: `TMSET3`.
+- Max content line length is 383 bytes; max document size is 32 KiB. Any longer line is rejected before apply.
 - Key is ASCII stable storage key.
 - Type prefix is mandatory.
 - Strings are bounded by descriptor metadata.
 - Hex blob max length is bounded by descriptor metadata before decoding.
 - Unknown keys are ignored but counted.
 - Known key with invalid value is rejected and reported, not partially applied.
-- Restore writes through `SettingsTransaction`; it must not directly mutate random globals.
-- Backup write uses temp file + fsync/close + rename where backend supports it.
-- CRC covers all lines before checksum.
+- Validation completes before independent settings owners are written; a static/PSRAM staging area is used only for the ten Wi-Fi profiles.
+- Every normal settings write first commits NVS metadata, then a foreground service uses temp file + flush/close + replace to update `config.tms`.
 
 ### Why Not Binary TLV First
 
 Binary TLV is smaller and faster, but it is harder to inspect and repair on SD. The line KV format is the
 better first target because it keeps manual recovery possible without the cJSON memory cost. A future binary
-TLV export can be added for factory/provisioning use, but it should not be the only user backup format.
+TLV export can be added for factory/provisioning use, but it should not replace the editable user working format.
 
 ### Sensitive Fields
 
-In order to meet "complete recovery from SD", Wi-Fi password, MQTT password, channel PSK should be able to enter the backup. The UI must
-mark these fields as sensitive and provide clear prompts in the manual export/restore interface.
+To make SD the complete working authority, Wi-Fi passwords, MQTT passwords, channel
+PSKs, and cellular credentials are emitted into `config.tms`. The UI and logs must
+continue to treat them as sensitive.
 
-In implementation, sensitive only affects UI rendering and log desensitization, but does not mean that it will not be deleted. When the user selects SD backup, the goal is
-to restore the complete configuration of an offline device.
+The document is plaintext. Sensitivity controls rendering and log redaction; it does
+not encrypt the SD card.
 
 ## Persistence Model
 
@@ -368,19 +373,22 @@ raw `sizeof(AppConfig)` blob can only be used as legacy input. The new path must
 - New saves no longer depend on `sizeof(AppConfig)`.
 - If compact snapshot is retained for startup speed, there must also be independent schema version and field-level fallback.
 
-### SD Backup
+### SD Working Configuration
 
-SD backup is a cross-store restore source, not the only store at runtime. NVS should not be overwritten from SD every time on boot.
-Restore should be an explicit action:
+`/trailmate/config.tms` is the startup authority when complete and valid. It
+is parsed and validated in a streaming pass before any supported independent
+settings owner is modified; the second pass applies it and mirrors values to
+NVS. When the card or file is absent, NVS provides the fallback. A small NVS
+write-ahead marker prevents an interrupted SD mirror write from making a stale
+file overwrite a newer NVS change on the next boot:
 
 ```text
-User chooses Restore
-  -> parse .tms stream
-  -> validate descriptors
-  -> build transaction
-  -> persist to primary store
-  -> apply affected runtimes
-  -> emit UI result
+durable setting change
+  -> commit NVS value
+  -> commit tiny NVS stale-replica marker
+  -> foreground service streams a canonical config.tms temporary file
+  -> flush, replace document and commit sidecar
+  -> mark SD replica synchronized
 ```
 
 ## Memory Budget Rules
@@ -390,7 +398,7 @@ Actual implementation must comply with:
  - Do not create `AppConfig`, `chat::MeshConfig`, protobuf frame, large byte array on ESP task stack.
 - Settings UI edit session does not copy the entire `AppConfig`; only saves the field-level dirty value or active editor
   buffer.
-- SD restore does not read the complete file, does not construct the tree, and does not use `cJSON_ParseWithLength` as the new path.
+- SD working-configuration import does not read the complete file, does not construct the tree, and does not use `cJSON_ParseWithLength`.
  - Do not introduce `std::deque` to ESP BLE/Meshtastic bridge headers.
 - New schema table uses static/constexpr storage.
 - The new channel list uses a fixed upper limit and explicit drop/error policy, and cannot grow without bounds.
@@ -400,11 +408,11 @@ Actual implementation must comply with:
 
 This refactor is delivered as one cohesive feature package, not as user-visible partial phases.
 The steps below are an internal construction sequence only. The final deliverable must include
-schema, protocol-aware UI, persistence, SD backup/restore, runtime apply behavior, tests and
+schema, protocol-aware UI, persistence, SD-first configuration, runtime apply behavior, tests and
 verification together.
 
 No intermediate state should be considered complete if it leaves settings half migrated, exposes
-new protocol pages without matching persistence, or writes a new SD backup format without restore.
+new protocol pages without matching persistence, or creates a second SD configuration authority.
 
 ### Slice 0: Specification and Audit
 
@@ -412,7 +420,7 @@ Deliverables:
 
 - This document.
 - Current settings/persistence/apply code listing.
- - Confirm JSON backup replacement direction.
+ - Confirm SD-first TMS authority and JSON retirement direction.
 
 No runtime behavior change.
 
@@ -454,7 +462,7 @@ Replace `kChatItems` / `kNetworkItems` as primary organization.
 
 Deliverables:
 
-- Device/Connectivity/Protocol/Channels/MQTT/GPS & Map/Privacy/Backup sections.
+- Device/Connectivity/Protocol/Channels/MQTT/GPS & Map/Privacy/Maintenance sections.
 - Active protocol filter from descriptor metadata.
 - Board capability filter from descriptor metadata.
 - No business visibility based on `pref_key` string comparisons.
@@ -465,9 +473,9 @@ Acceptance:
 - Selecting MeshCore shows MeshCore channel/MQTT/radio settings only.
 - Selecting Reticulum shows Reticulum interface/group settings and hides MQTT.
 
-### Slice 4: Lightweight SD Backup
+### Slice 4: Bounded SD Working Configuration
 
-Replace default JSON backup writer/reader with `.tms`.
+Replace the former JSON backup writer/reader with the startup-authoritative `.tms` working document.
 
 Deliverables:
 
@@ -475,14 +483,14 @@ Deliverables:
 - streaming parser.
 - fixed max line length.
 - CRC.
-- descriptor-backed export/restore coverage.
-- legacy `.json` restore either removed or isolated behind explicit compatibility path with strict size cap.
+- descriptor-backed working-TMS coverage.
+- legacy schema v2 import that rewrites a complete schema v3 document after a successful boot.
 
 Acceptance:
 
-- Full settings backup/restore succeeds without whole-file allocation.
+- Full working configuration synchronization succeeds without whole-file allocation.
 - Unknown future keys are ignored safely.
-- Sensitive fields restore correctly and logs are redacted.
+- Sensitive fields import correctly and logs are redacted.
 
 ### Slice 5: Channel Management
 
@@ -508,7 +516,7 @@ After migrations are covered by tests and field store is proven:
 
 - Stop writing raw `AppConfig` blobs.
 - Keep one-way read migration for a bounded release window.
-- Remove legacy keys only after backup/restore and migration tests prove no supported user path is lost.
+- Remove legacy keys only after working-configuration migration tests prove no supported user path is lost.
 
 ### Package Acceptance
 
@@ -517,9 +525,9 @@ The package is not done until all of these are true:
 - Protocol selection changes visible settings, stored settings and runtime apply behavior together.
 - Meshtastic, MeshCore and Reticulum each have their own settings surface; hidden fields are hidden by
   descriptor/capability metadata, not by ad hoc string checks.
-- Meshtastic MQTT and MeshCore MQTT can be configured independently and are persisted/restored.
+- Meshtastic MQTT and MeshCore MQTT can be configured independently and are persisted in the working configuration.
 - Wi-Fi off stops MQTT runtime; Wi-Fi on does not auto-enable MQTT config.
-- SD backup writes `.tms`, restore reads `.tms`, and all user settings covered by descriptors round trip.
+- The SD working configuration writes and reads `.tms`, and all supported settings covered by descriptors round trip.
 - Legacy Preferences/IDF/raw config paths migrate into the new schema without losing existing user settings.
 - Settings UI does not create new large ESP stack objects or whole-config drafts.
 - Tests and stack hygiene checks pass for the touched areas.
@@ -529,7 +537,7 @@ The package is not done until all of these are true:
 Before implementation PR/commit:
 
 - Run GitNexus impact analysis before each edited symbol, and warn before HIGH/CRITICAL edits.
-- Run unit tests for descriptor coverage, migration, transaction diff and backup restore parser.
+- Run unit tests for descriptor coverage, migration, transaction diff and the TMS parser.
 - Run `python3 scripts/check_esp_stack_hygiene.py` when touching settings save/load, ESP BLE,
   Meshtastic bridge, or app config code.
 - For PlatformIO build/upload/monitor, use background process + log polling as required by repo rules.
@@ -543,7 +551,7 @@ Suggested tests:
 | protocol visibility matrix | MT/MC/Reticulum show different settings |
 | legacy Preferences migration | existing NVS keys map to schema fields |
 | IDF raw blob migration | old raw config can migrate once |
-| `.tms` round trip | export -> restore produces equivalent config |
+| `.tms` round trip | export -> boot import produces equivalent configuration |
 | `.tms` malformed input | long line, bad type, bad hex, unknown key, bad CRC handled safely |
 | MQTT policy matrix | Wi-Fi off stops runtime; Wi-Fi on does not enable config; protocol switch stops old runtime |
 | contact projection parity | MQTT receive and LoRa receive update contacts/nearby through same app event path |
@@ -554,7 +562,7 @@ Suggested tests:
  - Do not add TLS for MQTT.
 - Do not disguise Reticulum as MQTT/channel page.
 - Don't force a generic `Channel` type onto three protocols.
- - Don't use whole-document JSON in new backup paths.
+- Don't use whole-document JSON in new SD configuration paths.
 - Discontinue using raw `sizeof(AppConfig)` as the new persistence format.
 - Do not continue to expand the `pref_key` string blacklist for fast UI hiding.
 - Don't stuff a lot of channel or QR/share payloads into `AppConfig`.
@@ -563,12 +571,12 @@ Suggested tests:
 
 | Decision | Recommendation |
 | --- | --- |
-| `.tms` max line length | Start at 256 bytes; allow 384 only if current MQTT/password fields need it |
-| Legacy JSON restore | Keep one release as explicit compatibility restore with strict size cap, then remove |
+| `.tms` max line length | Fixed at 383 content bytes; max document size is 32 KiB |
+| Legacy schema migration | Accept AppConfig-only TMSET2/schema-2 documents once, retain current NVS device preferences, and rewrite canonical TMSET3 |
 | MeshCore public MQTT preset | Verify upstream/community default before hardcoding; otherwise default disabled with preset picker |
 | Meshtastic channel slot count | Implement current primary/secondary first, schema list-ready |
 | IDF protocol support | Current IDF runtime appears Meshtastic-only; full protocol UI must either expose capability limits or implement MC/RT there first |
-| Sensitive backup UX | Default to full restore capability, with explicit warning/redaction rather than silently omitting secrets |
+| Sensitive working-file UX | Keep full capability, with explicit plaintext warning/redaction rather than silently omitting secrets |
 
 ## Implementation Guardrail
 

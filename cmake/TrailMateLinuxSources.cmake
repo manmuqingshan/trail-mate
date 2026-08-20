@@ -167,7 +167,6 @@ set(TRAIL_MATE_LINUX_COMMON_SOURCES
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/screen_runtime.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/reticulum_directory_runtime.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/reticulum_group_config_runtime.cpp"
-    "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/settings_backup_runtime.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/settings_store.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/sstv_runtime.cpp"
     "${TRAIL_MATE_LINUX_COMMON_SRC_ROOT}/platform/ui/team_ui_store_runtime.cpp"

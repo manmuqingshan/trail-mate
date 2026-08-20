@@ -620,7 +620,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 | `platform/esp/arduino_common/src/mesh/esp_preferences_mesh_identity_store.cpp` | `legacy` |
 | `platform/esp/arduino_common/src/platform_ui_firmware_update_runtime.cpp` | `fallback` |
 | `platform/esp/arduino_common/src/platform_ui_hostlink_runtime.cpp` | `bridge` |
-| `platform/esp/arduino_common/src/platform_ui_settings_backup_runtime.cpp` | `fallback`, `probe` |
+| `platform/esp/arduino_common/src/app_config_sd_tms_runtime.cpp` | `fallback`, `probe` |
 | `platform/esp/arduino_common/src/rnode_kiss/rnode_kiss_service.cpp` | `adapter` |
 | `platform/esp/arduino_common/src/sstv/sstv_service.cpp` | `compat` |
 | `platform/esp/arduino_common/src/team/event/team_app_data_event_bus_bridge.cpp` | `bridge` |

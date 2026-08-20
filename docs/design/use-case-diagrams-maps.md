@@ -22,7 +22,7 @@ Design Explorer organizes content by "what the user wants to accomplish, what th
 | Communications, media and delivery | 5 | Messages, real-time calls, Walkie, and SSTV all have independent behaviors and failure paths |
 | Maps, positioning and on-site awareness | 5 | Maps, GNSS, trajectories, and spectrum have been implemented; route navigation rules are still in the UI runtime |
 | Team collaboration | 2 | Pairing, keys and shared messages exist; member lifecycle model is still incomplete |
-| Device maintenance and data ownership | 4 | Package, Firmware, Backup, USB all have resource/commit boundaries |
+| Device maintenance and data ownership | 4 | Package, Firmware, SD configuration lifecycle, and USB all have resource/commit boundaries |
 | External application and host integration | 2 | HostLink and Phone BLE are two different sets of integration contracts |
 
 ## Use Case Diagram Index
@@ -46,7 +46,7 @@ Use-case:connect-wifi-services
 | use-case:share-team-situation | [Share team location, waypoints, tracks and chat](use-case-diagrams/share-team-situation.md) | [HTML](use-case-diagrams/share-team-situation.html) | 2 | Trail Mate / Team collaboration | confirmed | high | source-audit | 2026-07-23 |
 | use-case:manage-extension-packages | [Install, update, or uninstall extension packages](use-case-diagrams/manage-extension-packages.md) | [HTML](use-case-diagrams/manage-extension-packages.html) | 3 | Trail Mate / Device Maintenance and Data Ownership | confirmed | high | source-audit | 2026-07-23 |
 | use-case:update-device-firmware | [Check and install device firmware updates](use-case-diagrams/update-device-firmware.md) | [HTML](use-case-diagrams/update-device-firmware.html) | 3 | Trail Mate / Device Maintenance and Data Ownership | confirmed | high | source-audit | 2026-07-23 |
-| use-case:backup-restore-settings | [Backup, restore, or reset device settings](use-case-diagrams/backup-restore-settings.md) | [HTML](use-case-diagrams/backup-restore-settings.html) | 2 | Trail Mate / Device maintenance and data ownership | confirmed | high | source-audit | 2026-07-23 |
+| use-case:backup-restore-settings | [Maintain or reset the SD working configuration](use-case-diagrams/backup-restore-settings.md) | Rendered copy retired | 2 | Trail Mate / Device maintenance and data ownership | implemented | high | source-audit | 2026-08-20 |
 | use-case:expose-usb-storage | [Leave device storage security to the USB host](use-case-diagrams/expose-usb-storage.md) | [HTML](use-case-diagrams/expose-usb-storage.html) | 3 | Trail Mate / Device maintenance and data ownership | confirmed | high | source-audit | 2026-07-23 |
 | use-case:hostlink-data-exchange | [Exchange application data with external hosts through HostLink](use-case-diagrams/hostlink-data-exchange.md) | [HTML](use-case-diagrams/hostlink-data-exchange.html) | 3 | Trail Mate / External application and host integration | confirmed | high | source-audit | 2026-07-23 |
 | use-case:sync-phone-application | [Provide protocol compatibility services to mobile applications](use-case-diagrams/sync-phone-application.md) | [HTML](use-case-diagrams/sync-phone-application.html) | 3 | Trail Mate / External application and host integration | confirmed | high | source-audit | 2026-07-23 |

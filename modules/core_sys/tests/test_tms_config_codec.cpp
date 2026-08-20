@@ -124,6 +124,71 @@ void testLongPhysicalLineIsRejected()
     assert(decoder.info().error == app::tms::DecodeError::MalformedRecord);
 }
 
+struct ExtensionState
+{
+    bool seen = false;
+    bool finalized = false;
+    int32_t value = 0;
+};
+
+app::tms::RecordConsumeResult consumeExtension(void* context,
+                                               const app::tms::RecordReader& reader)
+{
+    auto* state = static_cast<ExtensionState*>(context);
+    if (!state || std::strcmp(reader.key(), "extension.example") != 0)
+    {
+        return app::tms::RecordConsumeResult::Unhandled;
+    }
+    if (state->seen || !reader.i32(&state->value))
+    {
+        return app::tms::RecordConsumeResult::Invalid;
+    }
+    state->seen = true;
+    return app::tms::RecordConsumeResult::Accepted;
+}
+
+bool finishExtension(void* context, bool applying, uint16_t schema_version)
+{
+    auto* state = static_cast<ExtensionState*>(context);
+    if (!state || !state->seen || schema_version != app::tms::kSchemaVersion)
+    {
+        return false;
+    }
+    state->finalized = applying;
+    return true;
+}
+
+void testCurrentSchemaConsumesPlatformExtension()
+{
+    const std::string document =
+        "TMSET3\n"
+        "schema.version=u16:3\n"
+        "document.kind=enum:working\n"
+        "extension.example=i32:-42\n"
+        "END\n";
+    ExtensionState validation_state{};
+    app::tms::Decoder validation(nullptr,
+                                 app::tms::DocumentKind::Working,
+                                 consumeExtension,
+                                 &validation_state,
+                                 finishExtension);
+    assert(decodeDocument(document, validation));
+    assert(validation_state.value == -42);
+    assert(!validation_state.finalized);
+    assert(validation.info().unknown_records == 0U);
+
+    ExtensionState applying_state{};
+    app::AppConfig target;
+    app::tms::Decoder applying(&target,
+                               app::tms::DocumentKind::Working,
+                               consumeExtension,
+                               &applying_state,
+                               finishExtension);
+    assert(decodeDocument(document, applying));
+    assert(applying_state.value == -42);
+    assert(applying_state.finalized);
+}
+
 } // namespace
 
 int main()
@@ -132,5 +197,6 @@ int main()
     testInvalidPskCannotPartiallyApply();
     testUnknownFutureKeyIsIgnored();
     testLongPhysicalLineIsRejected();
+    testCurrentSchemaConsumesPlatformExtension();
     return 0;
 }

@@ -108,44 +108,37 @@ by the same mechanism:
 | `AppConfig::chat_policy.max_channels` | AppConfig / `chat` section | Persisted as part of `Channels` |
 | `AppConfig::reticulumConfig().reticulum_groups` | Reticulum group storage | Runtime mirror only; loaded and saved by its own SD-backed owner |
 | `AppConfig::ble_enabled` | BLE runtime policy | Not an AppConfig persistence field on ESP Arduino; the backend currently keeps it disabled |
-| Settings backup JSON | Settings backup service | Separate full backup/restore format, not the async NVS section writer |
+| `/trailmate/config.tms` working projection | SD-first configuration owner | Complete persisted `AppConfig`, NVS-backed settings, saved Wi-Fi profiles, and supported cellular settings; NVS is its durable mirror and fallback |
 
 Adding a field to `AppConfig` does not make it persistent automatically. The
 field must be assigned to a domain, included in change detection, and handled
 by the owning adapter, or explicitly documented as runtime-only.
 
-## Portable Settings Backup (ESP)
+## SD Working Configuration (ESP)
 
-Normal operation and portable backup deliberately have different roles:
+`/trailmate/config.tms` is the only editable working configuration. It is a
+bounded, line-streamed TMS document—not JSON and not a whole-file object. On
+startup, a valid document is applied before Preferences/NVS; its AppConfig and
+independent settings values are then mirrored to NVS. If the card is absent or
+the document is absent, NVS supplies the fallback values. Invalid documents are
+retained for repair and do not partially apply.
 
-| Concern | Active owner | Backup behavior |
+| Concern | Active owner | Working-document behavior |
 | --- | --- | --- |
-| `AppConfig` domains | Preferences/NVS | The complete persisted `AppConfig` projection is exported to the SD backup document. |
-| Device and presentation preferences outside `AppConfig` | Preferences/NVS through `settings_store` | Every supported key is exported with its logical name and an explicit presence state, then restored through `settings_store`, so NVS key aliases remain an implementation detail. |
-| Reticulum groups | `platform::ui::reticulum_groups` SD owner | The group list is embedded in the backup and restored through the group owner; restore does not report success until that owner has completed its physical SD write. |
+| `AppConfig` domains | SD working document with Preferences/NVS mirror | All persisted fields are read from valid `config.tms` before NVS and are canonically rewritten after sync. |
+| Device and presentation preferences outside `AppConfig` | `settings_store` / NVS mirror | The full supported set is written and validated under typed `ui.*`, `chat.*`, `debug.*`, and `power.*` keys. |
+| Saved Wi-Fi credentials | Wi-Fi runtime / NVS mirror | An ordered exact set of zero through ten SSID/password profiles is validated as a whole before replacement. |
+| A7682E settings | Cellular runtime / NVS mirror | The complete supported cellular block is emitted only on the A7682E product variant and is validated as a whole before application. |
+| Reticulum groups | `platform::ui::reticulum_groups` SD owner | Purpose-specific group data remains in its own bounded SD file, not in generic configuration or NVS. |
 
-This separation is intentional: an absent, replaced, or failed SD card must
-not prevent the device from loading its active settings at boot. It does **not**
-permit a partial portable backup. The settings backup is the aggregate boundary
-for all user-configurable persistence owners listed above; messages, node
-databases, map tiles, and diagnostic logs remain data stores rather than
-settings and are outside this backup.
-
-The current JSON schema is version 2. Version 1 documents remain importable:
-fields added in version 2 are optional during restore and retain their current
-value when absent, avoiding destructive resets from an older backup. Version 2
-adds the Meshtastic channel presentation settings, Reticulum location-request
-policy, Reticulum group owner, and presence markers for `settings_store`
-preferences to the portable snapshot. A v2 `present: false` marker clears the
-target-side logical key, returning it to the same code-defined default used by
-the source device. An omitted key in a v1 document remains non-destructive for
-backward compatibility.
-
-During restore, the Reticulum group owner completes its physical SD write
-before NVS preferences and `AppConfig` are committed. Therefore an SD group
-write failure leaves those NVS owners untouched. This is deliberate failure
-ordering, not a cross-owner transaction: a later NVS failure still cannot be
-rolled back across independent owners.
+NVS changes use a tiny write-ahead marker. The foreground lifecycle atomically
+rewrites `config.tms` after the NVS write; a card removal or power loss between
+those steps cannot make an older SD copy overwrite the newer NVS state at boot.
+The document uses schema 3, while schema-2 AppConfig-only documents are loaded
+for migration and rewritten as a complete schema-3 file on the next successful
+sync. There is no second Settings Backup/Restore schema: another document on
+the same SD card does not protect the NVS-erasure failure mode and would create
+a second source of truth.
 
 ## Edit Boundary And Platform Semantics
 
