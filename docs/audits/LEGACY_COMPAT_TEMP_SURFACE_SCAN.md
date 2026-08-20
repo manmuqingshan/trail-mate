@@ -890,7 +890,7 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `docs/Best Practices/GAT562_STATUS_SNAPSHOT.md:30`: - GAT562 app facade still implements Team-related interface slots only as compatibility stubs returning `nullptr`, so Team capability stays structurally excluded instead of half-en
 - `docs/C6.md:563`: 1. Meshtastic-compatible BLE facade
 - `docs/C6.md:564`: 2. MeshCore-compatible BLE facade
-- `docs/C6.md:1217`: 1. C6 暴露 Meshtastic-compatible BLE profile。
+- `docs/C6.md:1217`: 1. C6 exposes Meshtastic-compatible BLE profile.
 - ... 645 additional matches omitted
 
 ### `compatibility`
@@ -1374,21 +1374,21 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `docs/Best Practices/GAT562_IMPLEMENTATION_MAP.md:91`: - `platform/nrf52/arduino_common/include/platform/nrf52/arduino_common/self_identity_bridge.h`
 - `docs/Best Practices/GAT562_IMPLEMENTATION_MAP.md:92`: - `platform/nrf52/arduino_common/src/self_identity_bridge.cpp`
 - `docs/Best Practices/GAT562_IMPLEMENTATION_MAP.md:254`: - identity bridge
-- `docs/Best Practices/new_hardware_adaptation_prompt.md:30`: - 能通过新增 `board` / `env` / `bridge` / `provider` 解决的，不要去污染现有业务核心。
-- `docs/Best Practices/new_hardware_adaptation_prompt.md:112`: - platform-specific identity bridge；
-- `docs/Best Practices/new_hardware_adaptation_prompt.md:136`: - 某块板子的设备 runtime bridge
-- `docs/Best Practices/new_hardware_adaptation_prompt.md:250`: ## 3.3 Bridge 模式
+- `docs/Best Practices/new_hardware_adaptation_prompt.md:30`: - It can be solved by adding `board` / `env` / `bridge` / `provider`, but do not pollute the existing business core.
+- `docs/Best Practices/new_hardware_adaptation_prompt.md:112`: - platform-specific identity bridge;
+- `docs/Best Practices/new_hardware_adaptation_prompt.md:136`: - Device runtime bridge of a certain board
+- `docs/Best Practices/new_hardware_adaptation_prompt.md:250`: ## 3.3 Bridge mode
 - `docs/Best Practices/new_hardware_adaptation_prompt.md:259`: - `platform/nrf52/self_identity_bridge`
 - `docs/Best Practices/new_hardware_adaptation_prompt.md:309`: - `platform/nrf52/self_identity_bridge`
-- `docs/Best Practices/new_hardware_adaptation_prompt.md:321`: - platform 只能提供 bridge 和 runtime 适配。
-- `docs/Best Practices/new_hardware_adaptation_prompt.md:407`: ## Step 4：优先接 platform bridge，再接 app
-- `docs/Best Practices/new_hardware_adaptation_prompt.md:411`: - 先做 bridge
-- `docs/Best Practices/new_hardware_adaptation_prompt.md:519`: - 统一经由 bridge / provider 暴露。
-- `docs/Best Practices/new_hardware_adaptation_prompt.md:568`: - 哪些逻辑从 settings/runtime 收敛到了 bridge/provider
-- `docs/Best Practices/new_hardware_adaptation_prompt.md:577`: - [ ] 平台读取真值统一走 bridge/provider
-- `docs/Best Practices/new_hardware_adaptation_prompt.md:592`: - `platform/`：平台 runtime 与 bridge
-- `docs/Best Practices/new_hardware_adaptation_prompt.md:622`: - `platform` 层可以保留 runtime / bridge / adapter，但不能长期把同一板级真值分散在多个 runtime 里各自维护
-- `docs/Best Practices/new_hardware_adaptation_prompt.md:649`: - `platform/<chip>/` ɸõƽ̨ջ繲 `BleManager` BLE service radio transport ӿڡƽ̨ bridge
+- `docs/Best Practices/new_hardware_adaptation_prompt.md:321`: - platform can only provide bridge and runtime adaptation.
+- `docs/Best Practices/new_hardware_adaptation_prompt.md:407`: ## Step 4: Connect to platform bridge first, then app
+- `docs/Best Practices/new_hardware_adaptation_prompt.md:411`: - Do bridge first
+- `docs/Best Practices/new_hardware_adaptation_prompt.md:519`: - Unified via bridge / provider.
+- `docs/Best Practices/new_hardware_adaptation_prompt.md:568`: - What logic is converged from settings/runtime to bridge/provider
+- `docs/Best Practices/new_hardware_adaptation_prompt.md:577`: - [ ] The platform reads the true value uniformly through bridge/provider
+- `docs/Best Practices/new_hardware_adaptation_prompt.md:592`: - `platform/`: platform runtime and bridge
+- `docs/Best Practices/new_hardware_adaptation_prompt.md:622`: - The `platform` layer can retain runtime / bridge / adapter, but the same board-level truth value cannot be dispersed in multiple runtimes for long-term maintenance
+-
 - `docs/Best Practices/new_hardware_adaptation_prompt.md:652`: - `settings` ֵֻһ owner runtime Ҫȡʱͨ bridge/provider  BLE / radio / UI / host config á
 - `docs/C6.md:42`: - Wi-Fi data server or general TCP/UDP business bridge.
 - `docs/C6.md:200`: C6BleBridge.hpp
@@ -1397,11 +1397,11 @@ must be interpreted through `LEGACY_COMPAT_TEMP_SURFACE_INVENTORY.md`.
 - `docs/C6.md:203`: C6EspNowBridge.cpp
 - `docs/C6.md:204`: C6WifiBridge.hpp
 - `docs/C6.md:205`: C6WifiBridge.cpp
-- `docs/C6.md:641`: C6 只做 MeshCore companion transport bridge，不实现 MeshCore mesh 逻辑。
-- `docs/C6.md:789`: 可选实现 TCP/UDP bridge 或 HTTP diagnostic server。
-- `docs/C6.md:965`: ### 10.4 P4 新增 ESP-NOW Team Mode bridge
+- `docs/C6.md:641`: C6 only MeshCore companion transport bridge does not implement MeshCore mesh logic.
+- `docs/C6.md:789`: Optional implementation of TCP/UDP bridge or HTTP diagnostic server.
+- `docs/C6.md:965`: ### 10.4 P4 adds ESP-NOW Team Mode bridge
 - `docs/C6.md:970`: class TeamModeNearFieldBridge {
-- `docs/LINUX_ADAPTATION_GUIDE.md:212`: | 开发体验 | 较好 | Windows PowerShell、Linux shell、WSL validate、Docker dev container 脚本齐全 | 本地环境变量和 path bridge 还在演进；不同 host 的路径/权限策略需要统一文档化 |
+- `docs/LINUX_ADAPTATION_GUIDE.md:212`: | Development experience | Better | Windows PowerShell, Linux shell, WSL validate, Docker dev container scripts are complete | Local environment variables and path bridge are still evolving; the path/permission policies of different hosts need to be documented uniformly |
 - `docs/LINUX_ADAPTATION_GUIDE.md:773`: - event bus bridge
 - `docs/REPOSITORY_MIGRATION_PLAN.md:193`: - a legacy bridge under `src/chat/infra` translates that hook back into `sys::EventBus` events for the current app shell
 - `docs/REPOSITORY_MIGRATION_PLAN.md:293`: - legacy event-bus publishing for unknown app-data now lives in a bridge under `src/team/infra/event`

@@ -1,10 +1,10 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：消息提交与发送</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/send-text-message/activity.md"><h1>消息提交与发送</h1><pre class="mermaid">flowchart TD
-Compose["提交文本"] --> Validate{"目标与密钥有效?"}
-Validate -- 否 --> Reject["拒绝"]
-Validate -- 是 --> Queue["消息身份 + Queued"]
-Queue --> Encode["协议编码"]
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Activity: Message submission and sending</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/send-text-message/activity.md"><h1>Message submission and sending</h1><pre class="mermaid">flowchart TD
+Compose["Submit text"] --> Validate{"}
+Validate -- No--> Reject["Reject"]
+Validate -- Yes--> Queue["Message identity + Queued"]
+Queue --> Encode["Protocol encoding"]
 Encode --> Radio["radio queue"]
 Radio --> Sent["Sent"]
 Sent --> Ack{"ACK?"}
-Ack -- 是 --> Delivered["Delivered"]
-Ack -- 超时 --> Failed["Failed"]</pre></main></body></html>
+Ack -- Yes--> Delivered["Delivered"]
+Ack -- Timeout--> Failed["Failed"]</pre></main></body></html>

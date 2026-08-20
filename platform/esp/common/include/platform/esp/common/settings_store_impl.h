@@ -564,6 +564,63 @@ bool get_string(const char* ns, const char* key, std::string& out)
     return true;
 }
 
+bool get_string_into(const char* ns,
+                     const char* key,
+                     char* out,
+                     std::size_t capacity,
+                     std::size_t* out_len)
+{
+    using namespace ::platform::esp::common::settings_store_detail;
+
+    if (out_len)
+    {
+        *out_len = 0U;
+    }
+    if (!key || !out || capacity == 0U)
+    {
+        return false;
+    }
+    out[0] = '\0';
+    const char* storage_key = resolve_storage_key(key);
+    if (!validate_storage_key("READ", ns, key, storage_key))
+    {
+        return false;
+    }
+
+    nvs_handle_t handle = 0;
+    if (!open_namespace(ns, true, &handle))
+    {
+        log_open_failure("READ", ns, key, storage_key);
+        return false;
+    }
+    std::size_t stored_size = 0U;
+    if (nvs_get_str(handle, storage_key, nullptr, &stored_size) != ESP_OK || stored_size == 0U ||
+        stored_size > capacity)
+    {
+        nvs_close(handle);
+        return false;
+    }
+    std::size_t read_size = stored_size;
+    const bool ok = nvs_get_str(handle, storage_key, out, &read_size) == ESP_OK &&
+                    read_size == stored_size && out[stored_size - 1U] == '\0';
+    nvs_close(handle);
+    if (!ok)
+    {
+        out[0] = '\0';
+        return false;
+    }
+    if (out_len)
+    {
+        *out_len = stored_size - 1U;
+    }
+    logf("[CfgStore][READ] ns=%s key=%s storage_key=%s type=string source=stored len=%lu ok=true\n",
+         safe_label(ns),
+         safe_label(key),
+         safe_label(storage_key),
+         static_cast<unsigned long>(stored_size - 1U));
+    return true;
+}
+
 bool get_blob(const char* ns, const char* key, std::vector<uint8_t>& out)
 {
     using namespace ::platform::esp::common::settings_store_detail;

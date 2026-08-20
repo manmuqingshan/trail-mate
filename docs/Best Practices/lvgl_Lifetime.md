@@ -1,179 +1,179 @@
-### 📌 背景与目标
+### 📌 Background and Objectives
 
-你正在为 **LVGL（C/C++，嵌入式，非 GC）** 设计 UI 界面代码。
-LVGL **没有自动生命周期管理**，任何 timer / event / callback / service 指针在对象销毁后继续运行，都会导致严重的悬垂访问问题。
+You are designing UI interface code for **LVGL (C/C++, embedded, non-GC)**.
+LVGL **has no automatic life cycle management**, any timer / event / callback / service pointer that continues to run after the object is destroyed will cause serious dangling access problems.
 
-**目标**：
-生成的所有界面代码，必须具备**可解释、可演化、可证明安全**的生命周期管理方式。
-
----
-
-## 一、【硬性约束｜禁止事项】
-
-以下行为 **一律禁止**，若需求暗示这些做法，必须主动规避并给出安全替代方案：
-
-1. ❌ **禁止在析构后仍可能触发回调**
-
-   * 禁止 timer / async / event 在 screen 已销毁后仍可访问其成员
-   * 禁止依赖“LVGL 会自动清理”的隐式假设
-
-2. ❌ **禁止在 timer / event 回调中直接触发可能销毁自身的回调**
-
-   * 例如：在 timer 回调里调用外部 `done_cb`，而该回调可能切屏 / delete 当前 screen
-   * 必须先完成内部清场，并将回调视为“生命周期边界”
-
-3. ❌ **禁止裸用 `lv_timer_create`**
-
-   * 所有 timer 必须托管（可集中管理、可统一删除）
-   * 不允许“忘删 timer 也能跑”的实现
-
-4. ❌ **禁止依赖 UI 结构判断业务语义**
-
-   * 不允许用 `target == send_btn` 之类的方式区分动作
-   * UI 结构变化不应影响业务逻辑
-
-5. ❌ **禁止生命周期所有权不清晰**
-
-   * 禁止持有“可能比 screen 先死”的裸指针（如 service）
-   * 必须明确：谁拥有谁、谁必须活得更久
-
-6. ❌ **禁止隐式状态堆叠**
-
-   * 不允许用多个布尔变量拼凑状态机（如 `send_ok/send_finished/send_timeout`）
-   * 状态转移必须显式、可枚举
-
-7. ❌ 禁止在 `LV_EVENT_DELETE` 回调内释放/销毁 C++ 自身内存（delete this / delete impl 等）**
-
-   * Delete Hook 只允许做：标记 dead、断开依赖、停止异步资源（timer/anim/async）、清空回调指针
-   * 释放 C++ 内存必须在 **显式销毁路径** 中完成（如析构函数 / destroy()），或通过 `lv_async_call` 延后到 LVGL 删除栈之外
-
-8. ❌ 禁止 “删除某个功能 timer” 时清空全部 timer（全量 clear）**
-
-   * Timer 托管必须支持 **按句柄删除** 或 **按组/域删除**（例如 SendTimers / UiTimers / TelemetryTimers）
-   * 不允许为了停止一个流程（如 send）而误删页面中其它无关 timer
+**Goal**:
+All generated interface codes must have a life cycle management method that is **interpretable, evolvable, and provably safe**.
 
 ---
 
-## 二、【强制要求｜必须具备】
+## 1. [Hard Constraints | Prohibited Matters]
 
-生成的界面代码 **必须显式体现以下模式**：
+The following behaviors are **all prohibited**. If requirements imply these practices, they must be proactively avoided and given safe alternatives:
 
-### 1 明确的“生死标记”（Hard Guard）
+1. ❌ **Prohibited from triggering callbacks after destruction**
 
-* screen / controller 必须有 **唯一可判定的“已死”状态**
-* 析构时必须 **第一时间切断所有回调可达路径**
-* 所有 LVGL 回调入口必须先检查该状态
+ * Prohibited timer / async / event from still accessing its members after the screen has been destroyed
+ * Prohibited from relying on "LVGL" Implicit assumption that it will be automatically cleaned up
 
-> 例：`if (!screen || !screen->impl_) return;`
+2. ❌ **It is forbidden to directly trigger callbacks that may destroy itself in timer / event callbacks**
 
----
+ * For example: calling external `done_cb` in timer callbacks, and this callback may cut the screen / delete the current screen
+ * Internal cleanup must be completed first and callbacks are regarded as "life cycle boundaries"
 
-### 2 统一清场点（Delete Hook）
+3. ❌ **Naked use of `lv_timer_create`** is prohibited
 
-* 必须在 root container 上注册 `LV_EVENT_DELETE`
-* 在该回调中完成：
+ * All timers must be managed (can be managed centrally and deleted uniformly)
+ * "Forgetting to delete timers" is not allowed Implementation of "can also run"
 
-  * timer 删除
-  * 外部回调指针清空
-  * service / IME / group 等外部依赖断开
-* 析构函数不得分散清理逻辑
+4. ❌ **It is forbidden to rely on the UI structure to determine business semantics**
 
----
+ * It is not allowed to use methods such as `target == send_btn` to distinguish actions
+* UI structural changes should not affect business logic
 
-### 3 Timer 必须集中托管
+5. ❌ **Prohibition of unclear lifecycle ownership**
 
-* 必须有明确的 timer 管理策略（如 TimerBag / 列表）
-* 生命周期结束时，所有 timer 必须一次性删除
-* 禁止 timer 持有不安全的 user_data
+* It is forbidden to hold bare pointers (such as services) that "may die before screen"
+* It must be clear: who owns whom and who must live longer
 
----
+6. ❌ **Disable implicit state stacking**
 
-### 4 回调 = 生命周期边界
+* It is not allowed to use multiple Boolean variables to piece together a state machine (such as `send_ok/send_finished/send_timeout`)
+ * State transfer must be explicit and enumerable
 
-* 外部回调（如 `done_cb / action_cb`）必须被视为：
+7. ❌ It is forbidden to release/destroy C++'s own memory (delete this / delete impl, etc.) within the `LV_EVENT_DELETE` callback **
 
-  > “调用后，本对象可能立即死亡”
-* 调用外部回调前：
+ * Delete Hook is only allowed to do: mark dead, disconnect dependencies, stop asynchronous resources (timer/anim/async), clear callback pointers
+ * Releasing C++ memory must be completed in the **explicit destruction path** (such as destructor/destroy()), or delayed outside the LVGL deletion stack through `lv_async_call`
 
-  * 必须完成全部内部清理
-* 调用后：
+8. ❌ "Delete a function timer" is prohibited Clear all timers (full clear)**
 
-  * 不得再访问任何成员
-
-（必要时使用 `lv_async_call`）
+ * Timer hosting must support **Delete by handle** or **Delete by group/domain** (such as SendTimers / UiTimers / TelemetryTimers)
+ * It is not allowed to accidentally delete other irrelevant timers in the page in order to stop a process (such as send)
 
 ---
 
-### 5 行为语义必须显式建模
+## 2. [Mandatory requirement | Must have]
 
-* 所有用户动作必须通过 **枚举 / 意图类型** 表达
-* UI 只负责触发意图，不负责解释意图
+The generated interface code **must explicitly reflect the following mode**:
 
----
+### 1 Clear "life and death mark" (Hard Guard)
 
-### 6 异步流程必须是显式状态机
+* screen / controller There must be **the only identifiable "dead" state**
+* During destruction, all callback reachable paths must be cut off immediately**
+* All LVGL callback entries must check this status first
 
-* 使用 `enum class` 表达阶段（如 Idle / Waiting / Done）
-* 明确允许的状态转移
-* timer / event 只驱动状态转移，不混杂业务判断
-
----
-
-### 7 Delete Hook 的职责边界必须明确（只清场，不释放自身）**
-
-* 必须显式声明：Delete Hook 只负责终止与清理，不负责释放 C++ 结构体内存
-* 若需要在 hook 中触发释放，必须通过 `lv_async_call` 或延迟机制移出 LVGL 删除调用栈
+> Example: `if (!screen || !screen->impl_) return;`
 
 ---
 
-### 8 Timer 管理必须具备粒度（Timer Domains）**
+### 2 Unified clearing point (Delete Hook)
 
-* 必须存在明确的 timer 域或标签（至少区分：SendFlow vs ScreenGeneral）
-* 停止某个域的 timer 时，不得影响其它域
-* 任何 `clear_all_timers()` 只能在“页面彻底销毁”时使用
+* `LV_EVENT_DELETE` must be registered on the root container
+* Completed in this callback:
 
----
-
-### 9 必须输出一段“生命周期职责表” **
-* 列出每类资源（root obj / timers / async payload / external callbacks / services）的 Owner、创建点、销毁点、以及“是否允许在 delete hook 中处理”。
-
----
-
-## 三、【设计导向｜应该怎么做】
-
-在满足上述约束的前提下：
-
-* **优先使用组合（composition）而非继承**
-* 不推荐引入复杂父类 / 虚函数，除非能显著减少重复且不降低可读性
-* 生命周期相关逻辑应集中在：
-
-  * Lifetime / Guard / Manager 类
-  * 而非散落在业务函数中
-
-目标是让：
-
-> “按规范写 = 最省事”
-> “不按规范写 = 很难写 / 一写就暴露问题”
+ * timer delete
+ * Clear the external callback pointer
+ * Disconnect external dependencies such as service / IME / group
+* The destructor must not disperse the cleanup logic
 
 ---
 
-## 四、【输出要求】
+### 3 Timer must be centrally managed
 
-在生成或修改代码时，**必须**：
-
-1. 主动指出：该设计如何满足生命周期安全
-2. 明确说明：
-
-   * 哪些地方是生命周期边界
-   * 哪些地方防止了回调重入 / 悬垂访问
-3. 若存在权衡，必须说明理由
+* There must be a clear timer management strategy (such as TimerBag / list)
+* At the end of the life cycle, all timers must be deleted at once
+* Disable timer from holding unsafe user_data
 
 ---
 
-## 三、可选：严格模式（Debug / 审计用）
+### 4 callback = life cycle boundary
 
-如果你想再狠一点，可以在 Prompt 最后加一句：
+* External callbacks (such as `done_cb / action_cb`) must be treated as:
 
-> **Debug 模式开启**：
-> 所有违反生命周期约束的潜在路径，必须显式指出并给出修正方案；
-> 若无法在当前结构下保证安全，必须拒绝生成代码并说明原因。
+ > "After the call, this object may die immediately"
+* Before calling the external callback:
+
+ * All internal cleanup must be completed
+* After the call:
+
+ * No members shall be accessed again
+
+ (use `lv_async_call` if necessary)
+
+---
+
+### 5 Behavioral semantics must be modeled explicitly
+
+* All user actions must be expressed through **enum/intent types**
+* UI Only responsible for triggering intentions, not explaining intentions
+
+---
+
+### 6 Asynchronous processes must be explicit state machines
+
+* Use `enum class` to express stages (such as Idle / Waiting / Done)
+* Explicitly allowed state transfers
+* timer / event only drives state transfers and does not mix business judgments
+
+---
+
+### 7 Delete Hook The boundaries of responsibilities must be clear (only clean up, not release itself) **
+
+* Must be explicitly stated: Delete Hook is only responsible for termination and cleanup, not responsible for releasing C++ structure memory
+* If you need to trigger the release in the hook, you must move out of the LVGL deletion call stack through `lv_async_call` or the delay mechanism
+
+---
+
+### 8 Timer management must have granularity (Timer Domains)**
+
+* There must be a clear timer domain or label (at least distinguish: SendFlow vs ScreenGeneral)
+* When stopping the timer of a domain, it must not affect other domains
+* Any `clear_all_timers()` can only be used when "the page is completely destroyed"
+
+---
+
+### 9 A "life cycle responsibility table" must be output **
+* List the Owner, creation point, destruction point, and "whether processing in delete hook is allowed" for each type of resource (root obj / timers / async payload / external callbacks / services).
+
+---
+
+## 3. [Design Orientation | What should be done]
+
+Under the premise of meeting the above constraints:
+
+* **Prefer using composition rather than inheritance**
+* It is not recommended to introduce complex parent classes/virtual functions unless it can significantly reduce duplication without reducing readability
+* Life cycle related logic should be concentrated on:
+
+ * Lifetime / Guard / Manager classes
+ * rather than scattered in business functions
+
+The goal is to make:
+
+> "Write according to specifications = the most trouble-free"
+> "Write not according to specifications = difficult to write / problems will be exposed as soon as you write"
+
+---
+
+## 4. [Output requirements]
+
+When generating or modifying code, **must**:
+
+1. Actively point out: how the design meets life cycle safety
+2. Clearly state:
+
+ * Where are the life cycle boundaries
+ * Where callback reentrancy / dangling access is prevented
+3. If there is a trade-off, the reasons must be explained
+
+---
+
+## 3. Optional: Strict mode (for Debug/audit)
+
+If you want to be more ruthless, you can add a sentence at the end of Prompt:
+
+> **Debug mode is on**:
+> All potential paths that violate life cycle constraints must be explicitly pointed out and correction plans given;
+> If security cannot be guaranteed under the current structure, code generation must be refused and the reasons must be stated.

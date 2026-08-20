@@ -1,4 +1,4 @@
-# State Machine：Pairing 与本地成员投影
+# State Machine: Pairing and local member projections
 ```mermaid
 stateDiagram-v2
   [*] --> NoTeam
@@ -13,31 +13,31 @@ stateDiagram-v2
   TeamActive --> TeamActive: leader transfer
 ```
 
-`TeamActive` 是当前本地投影，不代表代码已经拥有完整、revisioned 的 TeamMember 聚合。
+`TeamActive` is the current local projection and does not mean that the code already has a complete, revised TeamMember aggregate.
 
-## 当前状态 owner
+## Current state owner
 
-PairingCoordinator 持有临时配对阶段，Key Store/Team UI 投影持有本机是否已具备 TeamId、role 和有效 keys。由于没有完整 TeamMember aggregate，本状态机只描述本机团队模式，不表达整个团队的一致成员列表。
+PairingCoordinator holds the temporary pairing stage, Key Store/Team UI projection holds whether the machine already has TeamId, role and valid keys. Since there is no complete TeamMember aggregate, this state machine only describes the native team pattern and does not express a consistent member list for the entire team.
 
-## Transition 与 guard
+## Transition and guard
 
-| 当前状态 | 事件/guard | 提交 | 下一状态 |
+| Current state | Event/guard | Submit | Next state |
 | --- | --- | --- | --- |
-| NoTeam | create + keys valid | 保存 leader role/team keys | LeaderPairing |
-| NoTeam | verified request | 保存临时 pairing session | MemberPairing |
-| LeaderPairing | confirm + KeyDist accepted | 本地 roster 投影 | TeamActive |
-| MemberPairing | 用户确认 + keys stored | 保存 member role/team keys | TeamActive |
-| Pairing | cancel/timeout/invalid | 清理临时 key material | NoTeam |
-| TeamActive | self kicked/leave/reset | 撤销本地 keys 和 role | NoTeam |
+| NoTeam | create + keys valid | save leader role/team keys | LeaderPairing |
+| NoTeam | verified request | Save temporary pairing session | MemberPairing |
+| LeaderPairing | confirm + KeyDist accepted | local roster projection | TeamActive |
+| MemberPairing | User confirmation + keys stored | Save member role/team keys | TeamActive |
+| Pairing | cancel/timeout/invalid | Clean up temporary key material | NoTeam |
+| TeamActive | self kicked/leave/reset | Revoke local keys and roles | NoTeam |
 
-## 不能由本图回答的问题
+## Questions that cannot be answered by this picture
 
-远端某成员是否已持久化、leader transfer 的全局 revision、kick 与离线设备冲突、成员身份跨协议稳定映射均没有闭合 owner。这些留在 Review Queue，不能把 TeamActive 写成全团队共识。
+Whether a remote member has been persisted, the global revision of leader transfer, the conflict between kick and offline devices, and the stable mapping of membership identities across protocols have not closed the owner. These remain in the Review Queue and TeamActive cannot be written as a consensus of the whole team.
 
-## 重放与幂等
+## Replay and idempotent
 
-pairing session nonce、TeamId 和 key version 共同识别消息。旧 KeyDist、重复 confirm 和旧 leader transfer 不得倒退本机状态。NoTeam 后迟到管理消息不自动恢复 keys。
+pairing session nonce, TeamId and key version together to identify the message. Old KeyDist, duplicate confirm, and old leader transfer must not revert to native state. NoTeam keys are not automatically restored after late management messages.
 
-## 测试
+## Testing
 
-覆盖双方状态不一致、超时、旧 key、重复消息、自我被 kick、reset 和 leader transfer 竞争。
+ Covers status inconsistencies between both parties, timeouts, old keys, duplicate messages, self being kicked, reset and leader transfer competition.

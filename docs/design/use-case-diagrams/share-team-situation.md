@@ -1,25 +1,25 @@
-# Use Case：共享团队位置、航点、轨迹与聊天
+# Use Case: Share team position, waypoint, trajectory and chat
 
-状态：**confirmed behavior**
-业务边界：团队协作
+Status: **confirmed behavior**
+Business boundary: team collaboration
 
-## 用户目标
+## User goal
 
-在已经持有有效 Team keys 的前提下，把位置、航点、轨迹片段或聊天作为 Team 业务消息发送给成员，并在接收端更新相应地图/聊天投影。
+On the premise that valid Team keys are already held, the position, waypoint, trajectory segment or chat are sent to members as Team business messages, and the corresponding map/chat projection is updated on the receiving end.
 
-## 主场景
+## Main scene
 
-1. 用户选择 share position/waypoint/track/chat，或 TeamTrackSampler 到达采样时机。
-2. TeamService 校验 keys、payload 类型、目标/频道、是否请求业务响应。
-3. Team codec 编码独立 payload，Team crypto 认证加密后交给活动 mesh transport。
-4. 接收端先做 Team envelope/key 验证，再按 Position、Waypoint、Track、Chat、Status 分派事件。
-5. EventBus/UI reducer 更新地图或聊天；delivery ACK 与 Team `want_response` 保持分离。
+1. The user selects share position/waypoint/track/chat, or TeamTrackSampler reaches the sampling time.
+2. TeamService verifies keys, payload type, target/channel, and whether to request a business response.
+3. Team codec encodes the independent payload, Team crypto authenticates and encrypts it and then delivers it to the active mesh transport.
+4. The receiving end first performs Team envelope/key verification, and then dispatches events according to Position, Waypoint, Track, Chat, and Status.
+5. EventBus/UI reducer updates map or chat; delivery ACK remains separate from Team `want_response`.
 
-失败：无 keys、加密失败、transport unavailable、payload invalid 不产生“已共享”；接收验证失败不更新地图/聊天。
+Failure: no keys, encryption failed, transport unavailable, payload invalid does not generate "shared"; failure to receive verification does not update the map/chat.
 
-源码：`modules/core_team/src/usecase/team_service.cpp`、`modules/core_team/src/usecase/team_track_sampler.cpp`、`apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp`。
+Source code: `modules/core_team/src/usecase/team_service.cpp`, `modules/core_team/src/usecase/team_track_sampler.cpp`, `apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp`.
 
-## 下钻
+## Drill down
 
 - [Activity](share-team-situation/activity.md)
 - [Sequence](share-team-situation/sequences/sequence-share-team-situation.md)

@@ -1,4 +1,4 @@
-# Sequence：Phone Protocol Core 到 App Facade
+# Sequence: Phone Protocol Core to App Facade
 ```mermaid
 sequenceDiagram
   actor Phone as Phone App
@@ -17,22 +17,22 @@ sequenceDiagram
   Core-->>Phone: BLE notification/response
 ```
 
-## 场景与责任
+## Scenarios and responsibilities
 
-BLE Runtime 管理连接和固定槽；Protocol Core 拥有各自 wire contract；Facade 提供协议中立应用接口；Chat/Contact/Config/GPS Service 拥有业务状态。依赖方向只能从协议 Core 指向 Facade。
+BLE Runtime manages connections and fixed slots; Protocol Core has its own wire contract; Facade provides protocol-neutral application interfaces; Chat/Contact/Config/GPS Service has business status. The dependency direction can only be from the protocol Core to the Facade.
 
-## Frame 生命周期
+## Frame life cycle
 
-RX frame 写入固定槽并关联 connection generation。Core 在槽有效期内 decode，提取紧凑命令后释放/复用槽；不得把大 protobuf 或 frame 作为深调用栈的值对象传递。
+RX frame is written to the fixed slot and associated with the connection generation. Core decodes within the validity period of the slot and releases/reuses the slot after extracting compact commands; large protobufs or frames must not be passed as value objects in deep call stacks.
 
-## 提交与响应
+## Submission and response
 
-只读请求可以直接返回快照；副作用请求必须等待 App committed result。Facade 返回 protocol-neutral result/error，Core 再映射为本协议 response。应用 error 不能泄漏另一协议的枚举或 wire 类型。
+Read-only requests can return snapshots directly; side-effect requests must wait for App committed result. Facade returns protocol-neutral result/error, and Core maps it to this protocol response. An application error cannot leak an enumeration or wire type of another protocol.
 
-## 通知与断连
+## Notification and disconnection
 
-异步 App event 经过 Facade/订阅映射到当前 Core 的 native notification。断连取消订阅并使 pending generation 失效；业务已提交但响应丢失时由 request identity 支持手机安全重试。
+Asynchronous App events are mapped to the native notification of the current Core through Facade/subscription. Disconnect the subscription and invalidate the pending generation; when the business has been submitted but the response is lost, the request identity supports mobile phone safe retry.
 
-## 测试
+## Testing
 
-分别覆盖 Meshtastic 与 MeshCore 的握手、frame 解码、Facade error 映射、重复副作用、通知背压、断连迟到和协议隔离。
+ Covers the handshake, frame decoding, Facade error mapping, repeated side effects, notification backpressure, late disconnection and protocol isolation of Meshtastic and MeshCore respectively.

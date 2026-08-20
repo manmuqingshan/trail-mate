@@ -155,7 +155,7 @@ This keeps interaction logic independent of visuals.
 
 ---
 
-## 3. Eliminate “Style Noise”
+## 3. Eliminate "Style Noise"
 
 ### Rule 1: Direct `set_style_*` Is Technical Debt
 

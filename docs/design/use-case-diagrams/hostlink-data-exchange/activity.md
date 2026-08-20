@@ -1,40 +1,40 @@
-# Activity：HostLink Frame 处理
+# Activity: HostLink Frame processing
 ```mermaid
 flowchart TD
   Connect --> Handshake{"handshake complete?"}
-  Handshake -- 否 --> Wait
-  Handshake -- 是 --> Frame["receive frame"]
+ Handshake -- No --> Wait
+ Handshake -- Yes --> Frame["receive frame"]
   Frame --> Codec{"magic/length/type/sequence valid?"}
-  Codec -- 否 --> Error["error frame / close session"]
-  Codec -- 是 --> Route{"known command + capability?"}
-  Route -- 否 --> Error
-  Route -- 是 --> Handle["bounded status/GPS/config/app-data service"]
+ Codec -- No --> Error["error frame / close session"]
+ Codec -- Yes --> Route{"known command + capability?"}
+ Route -- No --> Error
+ Route -- Yes --> Handle["bounded status/GPS/config/app-data service"]
   Handle --> Result{"success?"}
-  Result -- 是 --> Response["encode response/event"]
-  Result -- 否 --> Error
+ Result -- Yes --> Response["encode response/event"]
+ Result -- No --> Error
   Response --> Frame
 ```
 
-## 本图回答的问题
+## Questions answered by this picture
 
-外部主机完成 HostLink 握手后，帧如何经过 codec、序号、命令路由和 capability 检查，调用有界应用服务并生成同一会话内的响应。
+After the external host completes the HostLink handshake, how does the frame pass through the codec, sequence number, command routing and capability Check, call the bounded application service and generate the response within the same session.
 
-## 会话与 framing
+## Session and framing
 
-握手建立协议版本、capability 和 session generation。每个帧验证 magic、长度、类型、序号和大小上限；无效长度不能继续等待任意字节，也不能分配声明大小的无界 buffer。
+The handshake establishes protocol version, capability and session generation. Each frame verifies magic, length, type, sequence number, and size limit; invalid lengths cannot continue to wait for any bytes, nor can an unbounded buffer of the declared size be allocated.
 
-## 命令路由
+## Command routing
 
-Router 只把已知命令交给明确 handler。状态/GPS 查询、配置命令和 app-data 各有独立 schema、权限与副作用。未知命令返回稳定错误；capability 不允许时不能依赖 handler 自己拒绝。
+Router only delivers known commands to explicit handlers. Status/GPS queries, configuration commands, and app-data each have independent schemas, permissions, and side effects. Unknown commands return a stable error; the handler cannot be relied upon to reject it when capability does not allow it.
 
-## 序号与幂等
+## Serial number and idempotence
 
-请求序号在 session 内关联 response。重复只读请求可重新响应；有副作用命令需要 request identity/commit result，避免主机重试造成两次配置或消息发送。新 handshake generation 使旧会话迟到帧失效。
+The request sequence number is associated with the response within the session. Repeated read-only requests can be re-responded; side-effect commands require request identity/commit result to avoid configuration or message sending caused by host retries. The new handshake generation invalidates late frames from the old session.
 
-## 错误策略
+## Error strategy
 
-可归因的命令错误返回 error frame 并保持会话；破坏 framing、持续超限或版本不兼容可关闭会话。handler 超时要有界，并释放占用的应用资源。
+Attributable command errors return an error frame and keep the session; broken framing, persistent overruns, or version incompatibilities close the session. The handler timeout should be bounded and the occupied application resources should be released.
 
-## 测试
+## Tests
 
-覆盖半帧、粘包、超长、未知类型、重复序号、旧 session 帧、capability 拒绝、handler timeout 和 response 编码失败。
+ Covers half-frame, sticky packet, over-length, unknown type, repeated sequence number, old session frame, capability rejection, handler timeout and response encoding failure.

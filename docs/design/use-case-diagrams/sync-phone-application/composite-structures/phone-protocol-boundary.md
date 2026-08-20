@@ -1,4 +1,4 @@
-# Composite Structure：Phone Protocol Boundary
+# Composite Structure:Phone Protocol Boundary
 ```mermaid
 flowchart LR
   Phone["Phone App"] --> BLE["BLE Transport"]
@@ -13,27 +13,27 @@ flowchart LR
   Facade --> Backend["Active Mesh Backend"]
 ```
 
-两个 protocol core 共享 facade，但不互相读取或编码对方的帧；active backend 仍由设备应用拥有。
+The two protocol cores share the facade, but do not read or encode each other's frames; the active backend is still owned by the device application.
 
-## 结构职责
+## Structural responsibilities
 
-BLE Transport 提供连接、characteristic 和固定容量帧槽；Meshtastic/MeshCore Core 分别拥有自己的 handshake、codec、队列和错误语义；`IPhoneAppFacade` 暴露协议中立用例；下游服务拥有真实业务状态。
+BLE Transport provides connection, characteristic and fixed-capacity frame slots; Meshtastic/MeshCore Core has its own handshake, codec, queue and error semantics respectively; `IPhoneAppFacade` exposes protocol-neutral use cases; downstream services have real business status.
 
-## 端口契约
+## Port Contract
 
-Facade 输入使用稳定 command/value DTO，不包含 protobuf、MeshCore frame 或 BLE handle。输出区分 committed result、read snapshot 和 subscription event。协议 Core 负责把这些结果映射回本协议 wire contract。
+Facade input uses stable command/value DTO and does not contain protobuf, MeshCore frame or BLE handle. The output distinguishes between committed result, read snapshot, and subscription event. The protocol Core is responsible for mapping these results back to this protocol wire contract.
 
-## 隔离不变量
+## Isolation invariant
 
-- 两个 Core 不能互相导入、读取或转码对方 frame。
-- Facade 不根据协议类型决定业务规则。
-- Active Mesh Backend 由设备应用选择，手机协议不能暗中替换它。
-- Chat、Directory、Config、GPS 的 owner 不因 BLE 连接而转移。
+- Two Cores cannot import, read, or transcode each other's frames.
+- Facade does not determine business rules based on protocol type.
+- Active Mesh Backend is selected by the device application and the mobile protocol cannot override it implicitly.
+- The owners of Chat, Directory, Config, and GPS are not transferred due to BLE connection.
 
-## 内存与并发
+## Memory and concurrency
 
-每个连接使用 generation 和固定深度 RX/TX ring。大 protobuf/config/frame 使用成员 scratch 或 caller storage，禁止自动局部大对象。断连使订阅和旧 callback 失效。
+Each connection uses generation and fixed depth RX/TX ring. Large protobuf/config/frame uses member scratch or caller storage, disabling automatic local large objects. Disconnection invalidates subscriptions and old callbacks.
 
-## 替换与测试
+## Replacement and Testing
 
-可以替换 BLE adapter 或其中一个 Protocol Core，而无需改变 Facade/业务服务。契约测试对两套 Core 运行同一业务案例，再分别断言 native wire response、错误映射、背压和协议隔离。
+The BLE adapter or one of the Protocol Cores can be replaced without changing the Facade/Business Services. The contract test runs the same business case on both sets of Cores, and then asserts native wire response, error mapping, backpressure and protocol isolation respectively.

@@ -70,7 +70,7 @@ state their evidence level.
 | Configured first candidate and mount attempts | Common fallback helper | Show configured MHz and count of distinct candidates attempted; this compact snapshot intentionally does not retain an unbounded path/history |
 | Optional bounded read/write benchmark | Explicit user-triggered diagnostic | `Measured throughput`; include sample size and time, never infer from init clock |
 | Display requests/completed/deferred/busy/failed | Coordinator + LVGL integration | Counters and a clear/reset-at-boot scope |
-| Maximum frame wait and bus hold | Coordinator/integration | Milliseconds with “since boot” scope |
+| Maximum frame wait and bus hold | Coordinator/integration | Milliseconds with "since boot" scope |
 | Bus active, owner class, and held time | Coordinator scalar snapshot | Live snapshot; intentionally excludes owner/task strings so the UI does not copy unsafe pointer metadata |
 | Release mismatches | Coordinator | Diagnostic warning; nonzero is actionable |
 

@@ -1,45 +1,45 @@
-# Activity Diagram：协议切换与提交
+# Activity Diagram: Protocol switching and submission
 
 ```mermaid
 flowchart TD
-  Edit["用户编辑协议与无线配置"] --> Validate{"目标能力和参数有效?"}
-  Validate -- 否 --> Reject["保留旧协议并解释错误"]
-  Validate -- 是 --> Stop["停止旧 backend / 释放 radio"]
-  Stop --> Load["加载新协议分区身份、频道与密钥"]
-  Load --> Create{"创建并启动新 backend 成功?"}
-  Create -- 否 --> Safe["保持 stopped/error；不提交新协议"]
-  Create -- 是 --> Persist{"保存完整配置成功?"}
-  Persist -- 否 --> Unsaved["标记运行中但未保存；允许重试"]
-  Persist -- 是 --> Commit["提交 active protocol 并刷新投影"]
+ Edit["User edit protocol and wireless configuration"] --> Validate{"Target capabilities and parameters are valid?"}
+ Validate -- No --> Reject["Keep the old protocol and explain the error"]
+ Validate -- Yes --> Stop["Stop the old backend / release radio"]
+ Stop --> Load["Load new protocol partition identity, channel and key"]
+ Load --> Create{"Create and start new backend successfully?"}
+ Create -- No --> Safe["Keep stopped/error; do not commit new protocol"]
+ Create -- Yes --> Persist{"Save complete configuration successfully?"}
+ Persist -- No --> Unsaved["Mark running but not saved; allow retry"]
+ Persist -- Yes --> Commit["Submit active protocol And refresh the projection"]
 ```
 
-## 本图回答的问题
+## Questions answered by this picture
 
-用户改变协议或无线参数时，系统如何避免“界面显示已经切换，但 radio 仍运行旧 backend”的半提交状态。本活动从完整候选配置进入验证开始，到运行态与持久化状态都得到明确结果为止。
+When the user changes the protocol or wireless parameters, how can the system avoid the semi-commit state of "the interface display has been switched, but the radio is still running the old backend". This activity starts with the complete candidate configuration entering verification and ends with clear results in both running and persistent states.
 
-## 输入、输出与责任边界
+## Input, output and responsibility boundaries
 
-| 项目 | 设计含义 |
+| Project | Design implications |
 | --- | --- |
-| 输入 | 目标协议、频率/带宽/扩频参数，以及该协议分区中的身份、频道和密钥 |
-| 验证 owner | 配置应用层；同时检查目标硬件能力和协议参数约束 |
-| 运行态 owner | `MeshAdapterRouter` 与 radio backend |
-| 持久化 owner | `AppConfig / ConfigFacade` 及协议分区存储 |
-| 成功输出 | 新 backend 已启动，完整配置已保存，活动协议投影已更新 |
+| Input | Target protocol, frequency/bandwidth/spread spectrum parameters, and identity, channel and key in the protocol partition |
+| Verify owner | Configure application layer; check target hardware capabilities and protocol parameter constraints at the same time |
+| Running state owner | `MeshAdapterRouter` and radio backend |
+| Persistence owner | `AppConfig / ConfigFacade` and protocol partition storage |
+| Successful output | The new backend has been started, the complete configuration has been saved, and the active protocol projection has been updated |
 
-## 分支规则
+## Branching rules
 
-1. 参数或目标能力无效时不能停止旧 backend；拒绝必须携带可定位到字段的错误。
-2. 旧 backend 停止后，新 backend 启动失败时不能回写活动协议。系统进入显式 `stopped/error`，而不是伪装成旧协议仍然可用。
-3. 新 backend 已启动但保存失败属于“运行态成功、持久化失败”。界面必须显示未保存并允许原样重试，不能静默宣称完成。
-4. 协议切换加载的是目标协议自己的身份、频道和 peer 分区；相同显示名不构成跨协议合并依据。
+1. The old backend cannot be stopped when the parameters or target capabilities are invalid; rejection must carry an error that can be located in the field.
+2. After the old backend stops, the new backend cannot write back the active protocol if it fails to start. The system goes into an explicit `stopped/error` instead of pretending that the old protocol is still available.
+3. The new backend has been started but failed to save, which belongs to "success in running state and failure in persistence". The interface must show that it is not saved and allow retries as is, and cannot silently declare completion.
+4. Protocol switching loads the identity, channel and peer partition of the target protocol; the same display name does not constitute the basis for cross-protocol merging.
 
-## 提交与补偿
+## Submission and compensation
 
-这里有两个不同提交点：radio 启动是运行态提交，配置原子保存是持久化提交。只有两者都成功才刷新稳定的活动协议投影。启动后的保存失败不能自动回滚 radio，因为回滚同样可能失败；因此以可见的 `running-unsaved` 状态保留事实，并阻止用户误以为重启后仍会使用当前配置。
+There are two different submission points here: radio startup is a running submission, and configuration atomic saving is a persistent submission. The stable active protocol projection is refreshed only if both succeed. Failure to save after startup does not automatically rollback the radio, since rollbacks can also fail; thus preserving the fact in a visible `running-unsaved` state and preventing users from mistakenly thinking that the current configuration will still be used after restarting.
 
-## 源码证据与测试关注点
+## Source code evidence and testing concerns
 
-- backend 创建和安装位于 `IdfAppFacadeRuntime::createMeshBackend`、`create_mesh_backend` 与 `MeshAdapterRouter` 协作边界。
-- 每个失败出口都要验证旧/new backend 所有权和 radio 释放状态。
-- 测试至少覆盖：验证失败、stop 成功但 start 失败、start 成功但 persist 失败，以及相同配置的幂等重试。
+- Backend creation and installation are located at the collaboration boundary of `IdfAppFacadeRuntime::createMeshBackend`, `create_mesh_backend` and `MeshAdapterRouter`.
+- Each failed exit verifies old/new backend ownership and radio release status.
+- Tests cover at least: validation failure, stop succeeds but start fails, start succeeds but persist fails, and idempotent retries of the same configuration.

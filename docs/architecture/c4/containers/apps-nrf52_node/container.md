@@ -1,46 +1,46 @@
-# 容器边界：apps/nrf52_node
+# Container boundary: apps/nrf52_node
 
-C4 层级：Container
-状态：candidate
-置信度：high
-项目版本：0.1.30-alpha
-Git：34aad0bffa2f / main / dirty
-更新于：2026-06-25T09:19:32.800Z
+C4 level: Container
+Status: candidate
+Confidence: high
+Project version: 0.1.30-alpha
+Git:34aad0bffa2f / main / dirty
+Updated on: 2026-06-25T09:19:32.800Z
 
-## 定位
+## Positioning
 
-apps/nrf52_node 是 C4 Container 层候选边界：它必须表现为应用、服务、数据存储、可运行单元或可独立部署/执行的系统部分，而不是普通目录、代码分层或共享工具集合。
+apps/nrf52_node is a candidate boundary for the C4 Container layer: it must behave as an application, service, data store, runnable unit, or part of a system that can be deployed/executed independently, rather than as a normal directory, code layering, or collection of shared tools.
 
-## C4 层级路径
+## C4 hierarchy path
 
-- 当前层：Container，解释目标系统内部一个可独立理解的应用、服务、数据存储或运行单元。
-- 上层：System Context，说明该 Container 属于哪个目标软件系统。
-- 下层：Component，解释该 Container 内部的入口、接口、编排、适配、契约或共享对象。
+- Current layer: Container, which explains an independently understandable application, service, data storage or running unit within the target system.
+- Upper layer: System Context, indicating which target software system the Container belongs to.
+- Lower layer: Component, explaining the entrance, interface, orchestration, adaptation, contract or shared object inside the Container.
 
-## 责任
+## Responsibility
 
-apps/nrf52_node 是应用级 Container 候选：仓库证据显示它靠近可运行入口、桌面/前端/后端应用壳或用户可感知的系统能力。
+apps/nrf52_node is an application-level Container candidate: repository evidence shows it is close to a runnable portal, desktop/frontend/backend application shell, or user-perceivable system capabilities.
 
-## 边界
+## Boundary
 
-边界来自仓库路径 apps/nrf52_node。C4 Container 不等于任意 package 或代码 layer；只有具备应用、服务、数据存储、运行入口、部署单元、对外接口或独立执行语义的边界才进入本层。普通配置文件、文档目录、CI 目录、仓库治理文件和纯代码分层只能作为证据或软件结构模型对象，不作为 Container。
+The boundary comes from the warehouse path apps/nrf52_node. C4 Container is not equal to any package or code layer; only boundaries with applications, services, data storage, runtime portals, deployment units, external interfaces or independent execution semantics enter this layer. Ordinary configuration files, document directories, CI directories, warehouse management files and pure code layering can only be used as evidence or software structure model objects, not as Containers.
 
-## 关系
+## Relationships
 
-- 依赖其他 Container：apps/esp32_lvgl、apps/linux_uconsole_gtk、apps/linux_cardputer_zero。
-- 包含 14 个候选组件视图对象、0 条运行/协作链路、0 个运行或构建节点。
+- Depends on other Containers: apps/esp32_lvgl, apps/linux_uconsole_gtk, apps/linux_cardputer_zero.
+ - Contains 14 candidate component view objects, 0 run/collaboration links, 0 run or build nodes.
 
-## 与业务复杂度的关联
+## Correlation with business complexity
 
-- 这个 Container 不是业务用例本身；它只解释业务能力进入或通过哪个软件系统内部应用/服务/数据存储/运行单元。
-- 如果组织/过程模型中的 Use Case 引用该边界，应在 Use Case 下钻文档中说明它如何进入这个 Container，而不是把业务流程写进 C4 Container 图。
+- This Container is not the business use case itself; it only explains the internal application/service/data storage/operation unit of the software system through which the business capability enters or passes.
+- If the Use Case in the organization/process model refers to this boundary, how it enters this Container should be explained in the Use Case drill-down document instead of writing the business process into the C4 Container diagram.
 
-## 与技术复杂度的关联
+## Correlation with technical complexity
 
-- 对应软件结构模型 Package Diagram：docs/engineering/package-diagrams/apps-nrf52_node/package-diagram.html。
-- 继续进入软件结构模型可以查看下钻 UML、结构协作、运行链路和复杂度候选点。
+- Corresponding software structure model Package Diagram: docs/engineering/package-diagrams/apps-nrf52_node/package-diagram.html.
+- Continue into the software structure model to view drill-down UML, structural collaborations, operational links, and complexity candidates.
 
-## C4 Container 图
+## C4 Container diagram
 
 ```mermaid
 flowchart LR
@@ -53,19 +53,19 @@ flowchart LR
   container --> dependency_3
 ```
 
-## 图内元素解释
+## Explanation of elements in the diagram
 
 ### apps/nrf52_node
 
-- 层级：container
-- 说明：图中这个节点代表 apps/nrf52_node 这个 C4 Container；当前文档记录 14 个组件下钻入口、0 条运行协作线索和 0 个运行或构建节点。
-- 责任：apps/nrf52_node 是应用级 Container 候选：仓库证据显示它靠近可运行入口、桌面/前端/后端应用壳或用户可感知的系统能力。
-- 边界：边界来自仓库路径 apps/nrf52_node；该路径下的入口、服务接口、应用代码、运行配置和部署证据共同支撑它进入 Container 层，普通配置文件、文档目录或纯代码分层不会单独形成 Container。
-- 关系意义：图中从 apps/nrf52_node 指向外部边界，表示这个可运行边界会调用、引用或依赖其他 Container；这些关系用于判断部署、接口和变更影响。
-- 为什么属于该层：该节点进入 Container 层，是因为本地仓库证据显示它具备应用、服务、数据存储、运行入口、部署单元、对外接口或独立执行语义；不是因为它只是一个目录或 package。
-- 下钻意图：从 apps/nrf52_node 下钻到 Component，用来查看边界内部的职责分解。
-- 置信度：high
-- 证据：
+ - Level: container
+- Note: This node in the figure represents the C4 Container apps/nrf52_node; the current document records 14 component drill-down entries, 0 running collaboration threads, and 0 running or build nodes.
+- Responsibility: apps/nrf52_node is an application-level Container Candidate: Repository evidence shows it is close to a runnable entry, desktop/frontend/backend application shell, or user-perceivable system capabilities.
+- Boundary: The boundary comes from the warehouse path apps/nrf52_node; the entry, service interface, application code, running configuration and deployment evidence under this path jointly support it to enter the Container layer. Ordinary configuration files, document directories or pure code layers will not form a Container alone.
+- Relationship meaning: The figure points from apps/nrf52_node to the external boundary, indicating that this runnable boundary will call, reference or depend on other Containers; these relationships are used to determine deployment, interfaces and change impacts.
+- Why it belongs to this layer: This node enters the Container layer because the local warehouse evidence shows that it has applications, services, data storage, running portals, deployment units, external interfaces or independent execution semantics; not because it is just a directory or package.
+- Drill down intention: Drill down from apps/nrf52_node to Component to view the decomposition of responsibilities within the boundary.
+- Confidence: high
+- Evidence:
   - apps/nrf52_node/APP_SHELL_MANIFEST.md
   - apps/nrf52_node/library.json
   - apps/nrf52_node/README.md
@@ -74,59 +74,59 @@ flowchart LR
   - apps/nrf52_node/src/nrf52_node_app_runtime_access.cpp
   - apps/nrf52_node/src/nrf52_node_app_runtime_access.h
   - apps/nrf52_node/src/nrf52_node_app_shell.cpp
-- 可下钻：
-  - [组件职责：apps/nrf52_node](../../components/apps-nrf52_node/component.md) - 进入 组件职责：apps/nrf52_node 可以回答“容器边界：apps/nrf52_node 由哪些内部组件承载”。重点看入口、编排、适配、契约和共享对象，而不是浏览全量文件。
-  - [代码锚点：apps/nrf52_node](../../code/apps-nrf52_node/code.md) - 进入 代码锚点：apps/nrf52_node 是为了把 容器边界：apps/nrf52_node 的架构职责追溯到具体文件/符号锚点；只有需要判断实现入口或变更影响面时才应下钻到 Code。
+ - Drill down:
+ - [Component Responsibility: apps/nrf52_node](../../components/apps-nrf52_node/component.md) - Enter Component Responsibility: apps/nrf52_node to answer "Container Boundary: apps/nrf52_node is hosted by which internal components". Focus on portals, orchestration, adaptation, contracts, and shared objects rather than browsing the entire file.
+ - [Code Anchor: apps/nrf52_node](../../code/apps-nrf52_node/code.md) - Entering the code anchor: apps/nrf52_node is to put the container boundary: apps/nrf52_node The architectural responsibilities can be traced back to specific files/symbol anchors; you should drill down to Code only when you need to determine the implementation entry or the impact of changes.
 
 ### apps/esp32_lvgl
 
-- 层级：container
-- 说明：apps/nrf52_node 依赖 apps/esp32_lvgl。
-- 责任：apps/nrf52_node 依赖 apps/esp32_lvgl。
-- 边界：apps/esp32_lvgl 不属于 apps/nrf52_node 的内部边界；它在当前图中只是被依赖的相邻模块。
-- 关系意义：apps/nrf52_node -> apps/esp32_lvgl 表示本地仓库证据中存在跨边界调用、引用或配置依赖；它说明技术协作方向，但不能单独证明业务流程关系。
-- 为什么属于该层：apps/esp32_lvgl 按路径归属被投影为相邻 Container 候选，而不是 apps/nrf52_node 内部 Component。
-- 下钻意图：进入 apps/esp32_lvgl 的独立 Container 文档，可以查看它自己的职责和证据；如果没有独立文档，则只把它当作外部依赖事实。
-- 置信度：medium
-- 证据：
+ - Level: container
+- Description: apps/nrf52_node depends on apps/esp32_lvgl.
+- Responsibility: apps/nrf52_node depends on apps/esp32_lvgl.
+ - Boundary: apps/esp32_lvgl does not belong to the internal bounds of apps/nrf52_node; it is just a dependent adjacent module in the current graph.
+- Relationship meaning: apps/nrf52_node -> apps/esp32_lvgl indicates the existence of cross-boundary calls, references or configuration dependencies in the local warehouse evidence; it illustrates the direction of technical collaboration, but cannot independently prove the business process relationship.
+- Why it belongs to this layer: apps/esp32_lvgl is projected as an adjacent Container candidate by path instead of the apps/nrf52_node internal Component.
+- Drill-down intention: Go into the independent Container document of apps/esp32_lvgl to view its own responsibilities and evidence; if there is no independent document, it will only be regarded as an external dependency fact.
+- Confidence: medium
+- Evidence:
   - dependency edge: apps/nrf52_node -> apps/esp32_lvgl
 
 ### apps/linux_uconsole_gtk
 
-- 层级：container
-- 说明：apps/nrf52_node 依赖 apps/linux_uconsole_gtk。
-- 责任：apps/nrf52_node 依赖 apps/linux_uconsole_gtk。
-- 边界：apps/linux_uconsole_gtk 不属于 apps/nrf52_node 的内部边界；它在当前图中只是被依赖的相邻模块。
-- 关系意义：apps/nrf52_node -> apps/linux_uconsole_gtk 表示本地仓库证据中存在跨边界调用、引用或配置依赖；它说明技术协作方向，但不能单独证明业务流程关系。
-- 为什么属于该层：apps/linux_uconsole_gtk 按路径归属被投影为相邻 Container 候选，而不是 apps/nrf52_node 内部 Component。
-- 下钻意图：进入 apps/linux_uconsole_gtk 的独立 Container 文档，可以查看它自己的职责和证据；如果没有独立文档，则只把它当作外部依赖事实。
-- 置信度：medium
-- 证据：
+ - Level: container
+- Description: apps/nrf52_node depends on apps/linux_uconsole_gtk.
+- Responsibility: apps/nrf52_node depends on apps/linux_uconsole_gtk.
+ - Bounds: apps/linux_uconsole_gtk does not belong to the internal bounds of apps/nrf52_node; it is just a dependent adjacent module in the current graph.
+- Relationship meaning: apps/nrf52_node -> apps/linux_uconsole_gtk indicates that there are cross-boundary calls, references or configuration dependencies in the local warehouse evidence; it illustrates the direction of technical collaboration, but cannot independently prove the business process relationship.
+- Why it belongs to this layer: apps/linux_uconsole_gtk is projected as an adjacent Container candidate by path instead of the apps/nrf52_node internal Component.
+- Drill down intent: Go into the standalone Container document of apps/linux_uconsole_gtk to view its own responsibilities and evidence; if there is no independent document, it will only be treated as an external dependency fact.
+- Confidence: medium
+- Evidence:
   - dependency edge: apps/nrf52_node -> apps/linux_uconsole_gtk
 
 ### apps/linux_cardputer_zero
 
-- 层级：container
-- 说明：apps/nrf52_node 依赖 apps/linux_cardputer_zero。
-- 责任：apps/nrf52_node 依赖 apps/linux_cardputer_zero。
-- 边界：apps/linux_cardputer_zero 不属于 apps/nrf52_node 的内部边界；它在当前图中只是被依赖的相邻模块。
-- 关系意义：apps/nrf52_node -> apps/linux_cardputer_zero 表示本地仓库证据中存在跨边界调用、引用或配置依赖；它说明技术协作方向，但不能单独证明业务流程关系。
-- 为什么属于该层：apps/linux_cardputer_zero 按路径归属被投影为相邻 Container 候选，而不是 apps/nrf52_node 内部 Component。
-- 下钻意图：进入 apps/linux_cardputer_zero 的独立 Container 文档，可以查看它自己的职责和证据；如果没有独立文档，则只把它当作外部依赖事实。
-- 置信度：medium
-- 证据：
+ - Level: container
+- Description: apps/nrf52_node depends on apps/linux_cardputer_zero.
+- Responsibility: apps/nrf52_node depends on apps/linux_cardputer_zero.
+ - Boundary: apps/linux_cardputer_zero is not part of the internal bounds of apps/nrf52_node; it is just a dependent adjacent module in the current graph.
+- Relationship meaning: apps/nrf52_node -> apps/linux_cardputer_zero indicates that there are cross-boundary calls, references or configuration dependencies in the local warehouse evidence; it illustrates the direction of technical collaboration, but cannot independently prove the business process relationship.
+- Why it belongs to this layer: apps/linux_cardputer_zero is projected as an adjacent Container candidate by path instead of apps/nrf52_node internal Component.
+- Drill-down intention: Go into the independent Container document of apps/linux_cardputer_zero to view its own responsibilities and evidence; if there is no independent document, it will only be regarded as an external dependency fact.
+- Confidence: medium
+- Evidence:
   - dependency edge: apps/nrf52_node -> apps/linux_cardputer_zero
 
-## 可下钻 C4
+## Can be drilled into C4
 
-- [组件职责：apps/nrf52_node](../../components/apps-nrf52_node/component.md) - 进入 组件职责：apps/nrf52_node 可以回答“容器边界：apps/nrf52_node 由哪些内部组件承载”。重点看入口、编排、适配、契约和共享对象，而不是浏览全量文件。
-- [代码锚点：apps/nrf52_node](../../code/apps-nrf52_node/code.md) - 进入 代码锚点：apps/nrf52_node 是为了把 容器边界：apps/nrf52_node 的架构职责追溯到具体文件/符号锚点；只有需要判断实现入口或变更影响面时才应下钻到 Code。
+ - [Component Responsibility: apps/nrf52_node](../../components/apps-nrf52_node/component.md) - Enter Component Responsibility: apps/nrf52_node to answer "Container Boundary: apps/nrf52_node is hosted by which internal components". Focus on portals, orchestration, adaptation, contracts, and shared objects rather than browsing the entire file.
+- [Code Anchor: apps/nrf52_node](../../code/apps-nrf52_node/code.md) - Entering the code anchor: apps/nrf52_node is to put the container boundary: apps/nrf52_node The architectural responsibilities can be traced back to specific files/symbol anchors; you should drill down to Code only when you need to determine the implementation entry or the impact of changes.
 
-## 关联软件结构模型
+## Associated Software Structural Model
 
-- [apps/nrf52_node Package Diagram](../../../../engineering/package-diagrams/apps-nrf52_node/package-diagram.md) - 查看该 Container 所属软件结构 package/module 的边界、依赖和复杂度候选点。
+- [apps/nrf52_node Package Diagram](../../../../engineering/package-diagrams/apps-nrf52_node/package-diagram.md) - View the boundaries, dependencies and complexity candidates of the software structure package/module to which the Container belongs.
 
-## 证据
+## Evidence
 
 - apps/nrf52_node/APP_SHELL_MANIFEST.md
 - apps/nrf52_node/library.json
@@ -137,13 +137,13 @@ flowchart LR
 - apps/nrf52_node/src/nrf52_node_app_runtime_access.h
 - apps/nrf52_node/src/nrf52_node_app_shell.cpp
 
-## 判定依据
+## Judgment basis
 
-- 该边界必须由运行入口、构建/部署配置、服务接口、应用入口、数据存储或独立执行证据支撑；仅靠目录名、文件数量或依赖数量不足以成立。
-- 缺少运行、部署、接口或数据存储证据时，生成流程会降低置信度或不生成独立 Container。
+- This boundary must be supported by a run entry, build/deployment configuration, service interface, application entry, data storage or independent execution evidence; directory name, number of files or number of dependencies alone are not sufficient.
+- When evidence of operation, deployment, interface, or data storage is missing, the build process reduces confidence or does not build standalone Containers.
 
-## 变更记录
+## Change Record
 
 ### 0.1.30-alpha - 2026-06-25T09:19:32.800Z
 
-- 基于本地仓库证据重新生成 容器边界：apps/nrf52_node。
+ - Regenerate container boundary based on local repository evidence: apps/nrf52_node.

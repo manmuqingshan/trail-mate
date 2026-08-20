@@ -1,54 +1,54 @@
 # Protocol Adapter Parity Specification
 
-本规格约束同一协议在不同平台 adapter 中的行为一致性。它不是 UI 规格，也不是
-板级硬件能力表。它定义的是：当 Trail Mate 声称某个平台实现了 Meshtastic 或
-MeshCore adapter 时，哪些协议语义必须由共享 core 统一拥有，哪些平台差异必须
-显式暴露为 capability，哪些行为禁止静默降级。
+This specification governs the consistent behavior of the same protocol in different platform adapters. It's not a UI spec, nor is it
+Board level hardware capability table. What it defines is: when Trail Mate claims that a platform implements Meshtastic or
+MeshCore adapter, which protocol semantics must be uniformly owned by the shared core, and which platform differences must
+Explicitly exposed as capabilities, which behaviors disable silent downgrades.
 
-本规格的核心立场是：协议业务规则只能有一个实现。ESP32 与 nRF adapter 不应各自
-维护一套 NodeInfo / Position / TraceRoute / ACK / PKI 状态机。平台 adapter 只能拥有
+The core position of this specification is that there can only be one implementation of a protocol business rule. ESP32 and nRF adapter should not each
+Maintain a set of NodeInfo/Position/TraceRoute/ACK/PKI state machines. Platform adapters can only have
 radio IO、SDK binding、storage binding、clock/random、queue scheduling、buffer
-placement 等平台问题。
+placement and other platform issues.
 
-Meshtastic Android App 的 BLE 连接、`ToRadio`/`FromRadio`/`FromNum` drain、
-config snapshot、Admin response-drain-before-save、以及 `Nodes(0)`/`Module config received`
-诊断边界，见 `MESHTASTIC_ANDROID_BLE_CONNECTION_SPEC.md`。该专规是手机 BLE
-连接问题的优先解释基线。
+Meshtastic Android App's BLE connection, `ToRadio`/`FromRadio`/`FromNum` drain,
+config snapshot, Admin response-drain-before-save, and `Nodes(0)`/`Module config received`
+Diagnostic boundaries, see `MESHTASTIC_ANDROID_BLE_CONNECTION_SPEC.md`. This specification is the priority interpretation baseline for mobile phone BLE
+connection issues.
 
-Meshtastic 纯业务规则的共享 owner 见
-`MESHTASTIC_PROTOCOL_POLICY_SPEC.md`。当某个 Meshtastic 判断可以表达为无副作用
-policy，平台 adapter/runtime 必须消费该共享 policy，而不是在 ESP32/nRF52 分支中复制条件。
+See the shared owner of Meshtastic pure business rules
+`MESHTASTIC_PROTOCOL_POLICY_SPEC.md`. When a certain Meshtastic judgment can be expressed as having no side effects
+policy, the platform adapter/runtime must consume this shared policy instead of replicating conditions in the ESP32/nRF52 branch.
 
 ## Core Distinctions
 
 ### Protocol Behavior
 
-Protocol behavior 是协议层事实，例如：
+Protocol behavior is a protocol layer fact, such as:
 
-- Meshtastic `NODEINFO_APP` 的 `want_response` reply；
-- Meshtastic 收到 peer NodeInfo 后的 self NodeInfo reannounce；
-- Meshtastic `TRACEROUTE_APP` 的 `want_response` 与 unicast `want_ack`；
-- MeshCore `PAYLOAD_TYPE_TRACE` 与 direct path/SNR collection；
-- MeshCore NodeInfo query/info control frame。
+- Meshtastic `NODEINFO_APP`'s `want_response` reply;
+- Meshtastic self NodeInfo reannounce after receiving peer NodeInfo;
+- Meshtastic `TRACEROUTE_APP`'s `want_response` and unicast `want_ack`;
+- MeshCore `PAYLOAD_TYPE_TRACE` and direct path/SNR collection;
+- MeshCore NodeInfo query/info control frame.
 
-同一协议的 protocol behavior 默认必须跨平台一致。
+The protocol behavior of the same protocol must be consistent across platforms by default.
 
-Protocol behavior 属于 shared protocol core，不属于 `platform/esp` 或 `platform/nrf52`
-adapter。若某个规则需要在两个平台文件中复制，默认视为架构漂移。
+Protocol behavior belongs to shared protocol core, not `platform/esp` or `platform/nrf52`
+adapter. If a rule needs to be copied in two platform files, it is regarded as architecture drift by default.
 
 ### Platform Capability
 
-Platform capability 是某个 adapter 当前能否安全提供某个行为。资源、硬件或工程阶段
-限制可以导致 capability 不同，但不得让调用方误以为行为已经存在。
+Platform capability is whether an adapter can currently provide a certain behavior safely. Resource, hardware or engineering phase
+Restrictions can cause capabilities to differ, but must not fool the caller into thinking that the behavior already exists.
 
-如果某个平台缺少某个 protocol behavior，必须满足至少一个条件：
+If a platform lacks a certain protocol behavior, at least one condition must be met:
 
-- `MeshCapabilities` 明确不声明该能力；
-- 专用 capability 字段明确标识缺失；
-- 调用接口返回失败，并且上层 UI/用例不把失败解释成协议成功。
+- `MeshCapabilities` explicitly does not declare the capability;
+- The dedicated capability field clearly identifies the absence;
+- The calling interface returns failure, and the upper-layer UI/use case does not interpret the failure as protocol success.
 
-Capability 只能描述共享 core 暴露的能力在某个平台是否可用，不能把一套平台私有
-协议规则包装成“能力差异”。
+Capability can only describe whether the capabilities exposed by the shared core are available on a certain platform, and cannot wrap a set of platform-private
+ protocol rules into "capability differences".
 
 ### Adapter Boundary
 
@@ -75,8 +75,8 @@ These belong in shared protocol core with platform adapters supplying IO ports.
 
 ### Product UX
 
-Product UX 只能消费 protocol behavior 或 capability。UX 不得根据平台名字猜测协议
-语义，也不得把 Meshtastic portnum 映射到 MeshCore payload type。
+Product UX can only consume protocol behavior or capability. UX must not guess protocol
+semantics based on the platform name, nor map Meshtastic portnum to MeshCore payload type.
 
 ## Required Parity Rules
 
@@ -91,39 +91,39 @@ platform IO glue.
 
 ### R2 Same Protocol, Same Semantics
 
-ESP32 Meshtastic adapter 与 nRF Meshtastic adapter 必须调用同一 Meshtastic core 语义。
-ESP32 MeshCore adapter 与 nRF MeshCore adapter 如果都声明某项 MeshCore capability，
-也必须调用同一 MeshCore core 语义。
+ESP32 Meshtastic adapter and nRF Meshtastic adapter must call the same Meshtastic core semantics.
+If ESP32 MeshCore adapter and nRF MeshCore adapter both declare a certain MeshCore capability,
+ they must also call the same MeshCore core semantics.
 
 ### R3 Capability Before UI
 
-任何 UI 菜单、自动回复、诊断状态或 app-facing action，都必须由 capability 或协议
-模式授权。不能因为某个平台 adapter 恰好接受某个函数调用，就显示对应动作。
+Any UI menu, automatic reply, diagnostic status or app-facing action must be defined by a capability or protocol
+Mode authorization. Just because a platform adapter happens to accept a certain function call, the corresponding action cannot be displayed.
 
 ### R4 No Silent Downgrade
 
-接口参数不得被静默丢弃，除非规格明确允许。例如：
+Interface parameters must not be silently discarded unless explicitly allowed by the specification. For example:
 
-- `want_response` 被协议支持时必须进入 wire/data 层；
-- 如果 adapter 不支持 `want_response`，必须通过 capability 或返回值暴露；
-- request-style empty payload 必须按协议语义处理，不能被普通 payload 校验误杀。
+- `want_response` must enter the wire/data layer when supported by the protocol;
+- If the adapter does not support `want_response`, it must be exposed through capability or return value;
+- Request-style empty payload must be processed according to the protocol semantics and cannot be accidentally killed by ordinary payload verification.
 
 ### R5 Broadcast Semantics Are Protocol Semantics
 
-Broadcast 是否允许 `want_response` 是协议语义，不是平台策略。Meshtastic 官方 Position
-broadcast 可以携带 request-replies 语义。因此 adapter 不能在没有规格依据时清除
-broadcast `want_response`。
+Whether Broadcast allows `want_response` is a matter of protocol semantics, not a platform policy. Meshtastic Official Position
+broadcast can carry request-replies semantics. Therefore adapter cannot be cleared when there is no specification basis
+broadcast `want_response`.
 
 ### R6 Drift Requires A Ledger Entry
 
-任何以下改动都必须更新 drift ledger 或 parity matrix：
+Any of the following changes must update the drift ledger or parity matrix:
 
-- 新增或修改 `IMeshAdapter` 行为；
-- 修改 ESP32 或 nRF 任一协议 adapter 的 NodeInfo / Position / TraceRoute / ACK /
-  PKI / discovery / app-data 语义；
-- 在 UI 中新增协议相关动作；
-- 改变 `MeshCapabilities`；
-- 将某个 protocol behavior 标为暂不支持。
+- Add or modify `IMeshAdapter` behavior;
+- Modify NodeInfo / Position / TraceRoute / ACK / of either ESP32 or nRF protocol adapter
+PKI/discovery/app-data semantics;
+- Added protocol-related actions in the UI;
+- Change `MeshCapabilities`;
+- Mark a protocol behavior as not supported yet.
 
 ## Meshtastic Required Behavior Matrix
 

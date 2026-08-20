@@ -1,296 +1,296 @@
-# GAT562 需求文档
+# GAT562 requirements document
 
-## 1. 文档目的
+## 1. Document purpose
 
-本文档定义 `gat562_mesh_evb_pro` 固件的产品目标、能力边界、功能需求、非功能要求与验收标准。
+This document defines the product goals, capability boundaries, functional requirements, non-functional requirements and acceptance criteria of the `gat562_mesh_evb_pro` firmware.
 
-目标不是做“能编译的演示固件”，而是做一个：
+The goal is not to make a "demo firmware that can be compiled", but to make one:
 
-- 能稳定启动
-- 能稳定交互
-- 能真实承接 LoRa / BLE / GNSS / 本地设置
-- 能作为后续更多硬件适配参考模板
+- capable of stable startup
+- capable of stable interaction
+- Can truly undertake LoRa / BLE / GNSS / local settings
+- Can be used as a formal hardware environment for more subsequent hardware adaptation reference templates
 
-的正式硬件环境。
-
----
-
-## 2. 产品定位
-
-`GAT562` 是一个：
-
-- 小屏设备
-- 输入能力有限
-- 无触摸
-- 无全键盘
-- 无中文输入
-- 无大屏复杂 UI
-- 但具备真实无线通信与身份能力
-
-的手持节点。
-
-它的核心价值不是复杂交互，而是：
-
-- 作为真实 Meshtastic / MeshCore 双协议节点
-- 作为 BLE 手机配对与配置入口
-- 作为 LoRa 空口节点
-- 作为具备基础本地 UI 的独立设备
+.
 
 ---
 
-## 3. 总体目标
+## 2. Product positioning
 
-`gat562_mesh_evb_pro` 固件必须满足以下总体目标：
+`GAT562` is a:
 
-1. 启动稳定，不得随机卡死、卡屏、卡在某个初始化阶段
-2. 主循环稳定，不得因 UI / LoRa / BLE / GNSS / 文件系统任务互相抢占而失活
-3. UI 不是空壳，页面入口必须对应真实能力
-4. Settings 中的可改项必须真实生效，且可持久化落盘
-5. LoRa、BLE、GNSS、身份广播必须是实际业务能力，不是 mock / no-op
-6. 保持 `GAT562` 自身边界清晰，不引入不适合该硬件形态的功能
+- small screen device
+- Limited input capabilities
+- No touch
+- No full keyboard
+- No Chinese input
+- No large-screen complex UI
+- But with real wireless communication and identity capabilities
+
+'s handheld node.
+
+ Its core value is not complex interaction, but:
+
+- As a real Meshtastic / MeshCore dual-protocol node
+- As a BLE mobile phone pairing and configuration entrance
+- As a LoRa air interface node
+- As an independent device with basic local UI
 
 ---
 
-## 4. 产品边界
+## 3. Overall goals
 
-### 4.1 必须支持的能力
+`gat562_mesh_evb_pro` firmware must meet the following overall goals:
 
-- Meshtastic 真实能力
-- MeshCore 真实能力
-- BLE 手机连接与基本配置能力
-- LoRa 收发能力
-- GNSS 基础能力
-- 本机身份显示
-- 本机设置管理
-- 屏保 / 主菜单 / 关键业务页面
+1. Stable startup, no random freezes, screen freezes, or stuck in a certain initialization stage
+2. Main loop stability, no UI / LoRa / BLE / GNSS / File system tasks compete with each other and become inactive
+3. The UI is not an empty shell, and the page entry must correspond to the real capabilities
+4. The changeable items in Settings must be truly effective and can be persisted to disk
+5. LoRa, BLE, GNSS, and identity broadcast must be actual business capabilities, not mock / no-op
+6. Keep the boundaries of `GAT562` clear and do not introduce functions that are not suitable for the hardware form
 
-### 4.2 明确不支持的能力
+---
 
-以下能力不属于 `GAT562` 范围，后续实现时必须排除：
+## 4. Product boundaries
 
-- Team 相关全部能力
+### 4.1 Capabilities that must be supported
+
+- Meshtastic real capabilities
+- MeshCore real capabilities
+- BLE mobile phone connection and basic configuration capabilities
+- LoRa transceiver capabilities
+- GNSS basic capabilities
+- Local identity display
+- Local setting management
+-Screens saver/main menu/key business page
+
+### 4.2 Clearly unsupported capabilities
+
+The following capabilities do not belong to the scope of `GAT562` and must be excluded during subsequent implementation:
+
+- All Team-related capabilities
 - HostLink / PC Link
-- SD / Card 能力
-- 中文输入法
-- 拼音输入
-- 中文字库 / CJK 字库路径
-- 复杂大屏页面
-- 不适合有限输入设备的重交互流程
+- SD / Card capabilities
+- Chinese input method
+- Pinyin input
+- Chinese font / CJK font path
+- Complex large screen page
+- Heavy interaction process not suitable for limited input devices
 
-### 4.3 输入边界
+### 4.3 Input boundary
 
-`GAT562` 只需要支持：
+`GAT562` only needs to support:
 
-- 英文
-- 数字
-- 符号
+- English
+-Numbers
+-Symbols
 
-不需要支持：
+No need to support:
 
-- 中文输入
-- 拼音候选
-- 手写 / 触摸输入
-
----
-
-## 5. 架构原则
-
-### 5.1 基本原则
-
-后续所有实现必须遵守以下原则：
-
-- 行为优先，抽象第二
-- 稳定环境优先，共享模块第二
-- 先保证板级运行链可靠，再做跨平台抽象
-- 不允许一次同时改 owner / lifecycle / startup order / shared boundary
-
-### 5.2 模块边界原则
-
-共享模块 `modules/*` 应只承载：
-
-- 协议逻辑
-- 纯业务逻辑
-- 与具体硬件无关的 runtime core
-
-板级或平台层应承载：
-
-- 引脚
-- 上电顺序
-- 总线初始化
-- 芯片协调
-- 设备生命周期
-- 中断与轮询节奏
-- 与具体外设绑定的 host/context/runtime
-
-### 5.3 硬件适配原则
-
-新增或改造硬件环境时：
-
-- 不允许把一个不稳定板级环境当成共享抽象验证基准
-- 必须先有一个稳定参考环境
-- 对 `GAT562` 的改动不得顺手破坏 ESP 环境
-- 对 shared modules 的改动必须先验证至少一个 ESP 环境可编译通过
+-Chinese input
+-Pinyin candidates
+-Handwriting/touch input
 
 ---
 
-## 6. 启动与运行时需求
+## 5. Architecture Principles
 
-### 6.1 启动需求
+### 5.1 Basic Principles
 
-设备上电后应完成以下流程：
+All subsequent implementations must abide by the following principles:
 
-1. 基础硬件上电
-2. 显示可工作
-3. 启动日志可见
-4. 板级初始化依次推进
-5. 成功进入屏保页或主界面
+- Behavior first, abstraction second
+- Stable environment first, shared modules second
+- Ensure the board-level operation chain is reliable first, and then do cross-platform abstraction
+- It is not allowed to change owner / lifecycle / startup order / shared boundary at the same time
 
-不得出现：
+### 5.2 Module boundary principle
 
-- 卡在 `lora ok`
-- 卡在 `gnss ok`
-- 卡在屏保页但时间不更新
-- 卡在屏保页且摇杆无响应
-- 进入某页后主循环停摆
+Shared module `modules/*` should only carry:
 
-### 6.2 启动日志需求
+- Protocol logic
+- Pure business logic
+- Runtime independent of specific hardware core
 
-启动日志必须：
+The board level or platform layer should carry:
 
-- 能反映当前初始化阶段
-- 能帮助判断卡在哪个模块
-- 不依赖 logo 才可观察
+-Pins
+-Power-on sequence
+-Bus initialization
+-Chip coordination
+-Device life cycle
+- Interrupt and polling rhythm
+- Host/context/runtime bound to specific peripherals
 
-用户偏好要求：
+### 5.3 Hardware adaptation principles
 
-- 开机只保留滚动日志
-- 不要显示不相关 logo
+When adding or modifying the hardware environment:
 
-### 6.3 主循环需求
+- It is not allowed to use an unstable board-level environment as a shared abstract verification baseline
+- You must first have a stable reference environment
+- Changes to `GAT562` must not damage the ESP environment
+- Changes to shared modules must first verify that at least one ESP environment can be compiled and passed
 
-主循环必须持续运行，且能同时支撑：
+---
+
+## 6. Startup and runtime requirements
+
+### 6.1 Startup requirements
+
+After the device is powered on, the following process should be completed:
+
+1. Power on the basic hardware
+2. Displayed as working
+3. The startup log is visible
+4. The board-level initialization is advanced in sequence
+5. Successfully enter the screensaver page or the main interface
+
+Do not appear:
+
+-Stuck in `lora ok`
+-Stuck on `gnss ok`
+-Stuck on the screensaver page but the time does not update
+-Stuck on the screensaver page and the joystick does not respond
+-The main loop stops after entering a certain page
+
+### 6.2 Startup log requirements
+
+Startup logs must:
+
+- Can reflect the current initialization stage
+- Can help determine which module is stuck
+- Can be observed without relying on the logo
+
+User preference requirements:
+
+- Only keep rolling logs when booting
+- Do not display irrelevant logos
+
+### 6.3 Main loop requirements
+
+The main loop must run continuously and be able to support at the same time:
 
 - board runtime
 - input poll
-- UI 刷新
+- UI refresh
 - LoRa poll
 - BLE poll
 - GNSS poll
-- 设置 / 状态维护
+- Settings/status maintenance
 
-主循环不得因为任一模块：
+The main loop must not be blocked for a long time due to any module:
 
-- 长时间阻塞
-- 死锁
-- 饥饿
-- 占满总线
+- Long-term blocking
+- Deadlock
+- Starvation
+- Full bus
 
-而导致全局失活。
+ leading to global deactivation.
 
-### 6.4 IC 协调需求
+### 6.4 IC coordination requirements
 
-必须显式考虑以下芯片与总线协调：
+The following chip and bus coordination must be explicitly considered:
 
 - OLED / I2C
 - GNSS / UART
 - LoRa / SPI
 - BLE / SoftDevice / Bluefruit
 - InternalFS / Flash
-- 输入 GPIO
+- Input GPIO
 - LED GPIO
 
-要求：
+Requirements:
 
-- 引脚用途明确，不允许冲突
-- 初始化顺序明确
-- 轮询频率合理
-- 避免 I2C / SPI / Flash 与 UI 渲染形成长期阻塞
-
----
-
-## 7. UI 需求
-
-### 7.1 UI 总体要求
-
-UI 必须是“有限但真实”的 UI：
-
-- 页面数量可少
-- 页面能力不能空
-- 入口必须能走通
-- 页面背后必须有真实能力承接
-
-### 7.2 启动页
-
-要求：
-
-- 支持滚动日志
-- 不显示多余 logo
-- 启动完成后自动转入屏保
-
-### 7.3 屏保页
-
-屏保页必须支持：
-
-- 当前时间显示
-- 时间持续更新
-- 年月日与星期显示
-- 顶栏左侧显示协议简写：`mt` / `mc`
-- 顶栏右侧显示当前 LoRa 频率，带单位 `MHz`
-- 频率显示必须正确处理小数，例如 `478.875MHz`
-- 顶部横线通栏显示
-
-交互要求：
-
-- 从屏保页可通过摇杆进入主菜单
-- 不得卡死
-- 不得时间停住
-
-### 7.4 主菜单
-
-要求：
-
-- 可从屏保页进入
-- 各菜单入口有效
-- 无死入口
-- 不得进入 no-op 页面后没有反馈
-
-### 7.5 Settings 页面
-
-要求：
-
-- 从主菜单可进入
-- 分类清晰
-- 所有展示项要么真实生效，要么明确不在本硬件范围内并隐藏
-- 不允许放大量空壳项
-
-### 7.6 字体与排版
-
-用户偏好要求：
-
-- 页面头部标题字体尽量小
-- 行与行之间间隔尽量小
-- 小屏信息密度优先
+- The pins have clear uses and no conflicts are allowed
+- The initialization sequence is clear
+- The polling frequency is reasonable
+- Avoid long-term blocking between I2C/SPI/Flash and UI rendering
 
 ---
 
-## 8. Settings 功能需求
+## 7. UI requirements
 
-## 8.1 System 类
+### 7.1 Overall UI requirements
 
-System 中每个设置项都必须满足：
+UI must be a "limited but real" UI:
 
-- 有明确来源
-- 有真实当前值
-- 改动后可生效
-- 可落盘
+-The number of pages can be small
+-The page capacity cannot be empty
+-The entrance must be accessible
+- There must be real capabilities behind the page
 
-不允许只是展示静态占位文案。
+### 7.2 Startup page
 
-## 8.2 Chat 类
+Requirements:
 
-Chat 设置必须按“真实接入，不做空壳”的要求实现。
+- Support rolling logs
+- Do not display redundant logos
+- Automatically switch to the screen saver after startup is completed
 
-要求覆盖以下能力：
+### 7.3 Screensaver page
+
+Screen saver page must support:
+
+- Current time display
+- Time continuous update
+- Year, month, day and week display
+- Display protocol abbreviation on the left side of the top bar: `mt` / `mc`
+- The current LoRa frequency is displayed on the right side of the top bar, with the unit `MHz`
+- The frequency display must handle decimals correctly, such as `478.875MHz`
+- The top horizontal bar displays
+
+Interaction requirements:
+
+- From the screensaver page, you can use the joystick to enter the main menu
+-no stuck
+- No time freeze allowed
+
+### 7.4 Main menu
+
+Requirements:
+
+- Can be entered from the screensaver page
+- Each menu entry is valid
+- No dead entry
+- No feedback after entering the no-op page
+
+### 7.5 Settings page
+
+Requirements:
+
+- Accessible from the main menu
+- Clear classification
+- All displayed items are either truly effective, or clearly not within the scope of this hardware and hidden
+- A large number of empty shell items are not allowed
+
+### 7.6 Font and typesetting
+
+User preference requirements:
+
+- Keep the font size of the page header as small as possible
+- Keep the spacing between rows as small as possible
+- Small screen information density is given priority
+
+---
+
+## 8. Settings functional requirements
+
+## 8.1 System class
+
+Each setting item in System must meet:
+
+- Have a clear source
+- Have a real current value
+- Changes can take effect
+- Can be placed on the disk
+
+ It is not allowed to only display static placeholder copy.
+
+## 8.2 Chat class
+
+Chat settings must be implemented according to the requirements of "real access, not empty shells".
+
+The following capabilities are required:
 
 1. Protocol
 2. TX
@@ -304,340 +304,340 @@ Chat 设置必须按“真实接入，不做空壳”的要求实现。
 
 ### 8.2.1 Protocol
 
-要求：
+Requirements:
 
-- 可切换当前聊天协议
-- 至少覆盖 Meshtastic / MeshCore
-- 切换后 UI / runtime / LoRa 使用的协议一致
+- The current chat protocol can be switched
+- At least Meshtastic / MeshCore
+- The protocol used by UI / runtime / LoRa after switching is consistent
 
 ### 8.2.2 TX
 
-要求：
+Requirements:
 
-- 可配置发射相关参数
-- 配置项必须真实作用于 LoRa 配置
+- Configurable launch-related parameters
+- Configuration items must actually apply to LoRa configuration
 
 ### 8.2.3 Region / Preset / Channel
 
-要求：
+Requirements:
 
-- 必须真实驱动无线配置
-- 改动后影响当前协议无线参数
-- 显示值与实际生效值一致
+- Must actually drive the wireless configuration
+- Changes will affect the current protocol wireless parameters
+- The displayed value is consistent with the actual effective value
 
 ### 8.2.4 User Name / Short Name
 
-要求：
+Requirements:
 
-- 不是只改 BLE 名称
-- 必须联动本机显示文案
-- 必须联动 Meshtastic nodeinfo
-- 必须联动 MeshCore 身份相关展示与空口广播
+- Not just change the BLE name
+- Must be linked to local display copy
+- Must be linked to Meshtastic nodeinfo
+- Must be linked to MeshCore identity-related display and air interface broadcast
 
-即：
+That is:
 
-- 本机 UI 看见的身份
-- BLE 广播/设备名称
-- LoRa 空口中的身份信息
+- Identity seen by the local UI
+- BLE broadcast/device name
+- Identity information in LoRa air interface
 
-必须一致或按明确规则派生。
+ must be consistent or derived according to clear rules.
 
 ### 8.2.5 PSK / Encrypt
 
-要求：
+Requirements:
 
-- 不能只是 UI 勾选项
-- 必须真实影响协议收发
-- 必须可持久化
+- It can't just be a UI check box
+- It must actually affect the protocol sending and receiving
+- It must be persistent
 
 ---
 
-## 9. 通信需求
+## 9. Communication requirements
 
 ### 9.1 Meshtastic
 
-必须支持真实 Meshtastic 业务能力，包括但不限于：
+Must support real Meshtastic business capabilities, including but not limited to:
 
-- 基本 LoRa 收发
-- 节点身份广播
-- Channel 相关配置
-- 与手机的 BLE 数据通路
-- NodeInfo 同步
+-Basic LoRa transceiver
+-Node identity broadcast
+-Channel related configuration
+-BLE data path with mobile phones
+- NodeInfo synchronization
 
 ### 9.2 MeshCore
 
-必须支持真实 MeshCore 业务能力，包括但不限于：
+Must support real MeshCore business capabilities, including but not limited to:
 
-- 身份广播
-- 本机身份展示
-- 空口身份联动
-- LoRa 数据通路
+-Identity broadcast
+-Native identity display
+-Air interface identity linkage
+-LoRa data path
 
-### 9.3 双协议边界
+### 9.3 Dual protocol boundary
 
-要求：
+Requirements:
 
-- `GAT562` 支持 Meshtastic / MeshCore
-- 屏保页只需显示当前协议简写
-- Team 相关能力不在范围内
-
----
-
-## 10. LoRa 需求
-
-### 10.1 基础收发
-
-必须支持：
-
-- LoRa 初始化
-- 接收数据
-- 发送数据
-- 根据协议选择参数
-
-### 10.2 无线参数展示
-
-必须支持：
-
-- 当前频率显示
-- 与实际配置一致
-- 小数位精确显示，不得粗暴四舍五入成错误值
-
-### 10.3 后台处理
-
-必须支持：
-
-- 接收轮询
-- 消息入站
-- 对应协议处理
-- 发射恢复接收
+- `GAT562` supports Meshtastic / MeshCore
+- The screensaver page only needs to display the current protocol abbreviation
+- Team related capabilities are not within the scope
 
 ---
 
-## 11. BLE 需求
+## 10. LoRa requirements
 
-### 11.1 基础能力
+### 10.1 Basic transceiver
 
-必须支持：
+Must support:
 
-- 手机连接
-- 正常广播
-- 设备名正确
-- 基本收发链路可用
+- LoRa initialization
+-Receive data
+-Send data
+-Select parameters according to protocol
 
-### 11.2 身份联动
+### 10.2 Wireless parameter display
 
-BLE 名称不能孤立管理，必须服从本机身份策略。
+Must support:
 
-### 11.3 稳定性
+- Current frequency display
+- Consistent with the actual configuration
+- Decimal places are displayed accurately, and no rough rounding into wrong values ​​is allowed
 
-BLE 不得：
+### 10.3 Background processing
 
-- 抢占主循环导致 UI 卡死
-- 导致启动死锁
-- 导致 LoRa / GNSS 失活
+Must support:
 
----
-
-## 12. GNSS 需求
-
-必须支持：
-
-- GNSS 初始化
-- 基本定位数据读取
-- 定时任务运行
-- 时间校准相关能力
-
-不得：
-
-- 只初始化一次然后无后续调度
-- 导致主循环被 GNSS 任务拖住
+- Receive polling
+- Message inbound
+- Corresponding protocol processing
+- Transmit and resume reception
 
 ---
 
-## 13. 身份与广播需求
+## 11. BLE requirements
 
-### 13.1 本机身份
+### 11.1 Basic capabilities
 
-本机必须存在统一身份来源，至少包括：
+Must support:
+
+- Mobile phone connection
+- Normal broadcast
+- The device name is correct
+- Basic transceiver links are available
+
+### 11.2 Identity linkage
+
+BLE names cannot be managed in isolation and must obey the local identity policy.
+
+### 11.3 Stability
+
+BLE must not:
+
+- Seize the main loop and cause the UI to freeze
+- Cause a startup deadlock
+- Causes LoRa / GNSS deactivation
+
+---
+
+## 12. GNSS requirements
+
+Must support:
+
+- GNSS initialization
+-Basic positioning data reading
+- Scheduled task running
+- Time calibration related capabilities
+
+Must not:
+
+- Only initialize once and then have no subsequent scheduling
+- Cause the main loop to be dragged by the GNSS task
+
+---
+
+## 13. Identity and broadcast requirements
+
+### 13.1 Native identity
+
+This machine must have a unified identity source, including at least:
 
 - long name
 - short name
 - node id
 
-### 13.2 屏保显示
+### 13.2 Screen saver display
 
-用户偏好要求：
+User preference requirements:
 
-- 屏保 / 展示页只需要显示短的 `node id`
+- Screen saver/display page only needs to display a short `node id`
 
-### 13.3 空口联动
+### 13.3 Air interface linkage
 
-必须支持：
+Must support:
 
-- Meshtastic 身份广播
-- MeshCore 身份广播
-- 本机显示文案联动
+- Meshtastic Identity Broadcast
+- MeshCore Identity Broadcast
+- Native display copywriting linkage
 
-要求：
+Requirements:
 
-- 设置修改后，身份广播与本机显示保持一致
-
----
-
-## 14. 输入需求
-
-### 14.1 摇杆 / 按键
-
-必须支持：
-
-- 上下左右中键
-- 输入消抖
-- 活动检测
-- 从屏保唤醒
-- 菜单导航
-
-### 14.2 输入调试要求
-
-在问题排查阶段，输入层应可输出：
-
-- 原始引脚状态
-- 消抖后的方向事件
-- 活动时间戳
-
-但正式版本不应长期保留高频噪声日志。
+- After the settings are modified, the identity broadcast will remain consistent with the native display
 
 ---
 
-## 15. 文件系统与持久化需求
+## 14. Input requirements
 
-必须支持：
+### 14.1 Joystick/Buttons
 
-- 设置持久化
-- 消息持久化
-- Peer 信息持久化
+Must support:
 
-要求：
+- Up, down, left, and right middle buttons
+- Input debounce
+- Activity detection
+- Wake up from screensaver
+- Menu navigation
 
-- 文件系统损坏时有恢复策略
-- 恢复策略不能导致无穷重启或长期卡死
-- 持久化路径不能把主循环拖停
+### 14.2 Input debugging requirements
+
+During the troubleshooting phase, the input layer should be able to output:
+
+-Original pin status
+-Direction event after debouncing
+-Activity timestamp
+
+But the official version should not keep high-frequency noise logs for a long time.
 
 ---
 
-## 16. 体积与资源要求
+## 15. File system and persistence requirements
+
+Must support:
+
+- Setting up persistence
+- Message persistence
+- Peer information persistence
+
+Requirements:
+
+- There is a recovery strategy when the file system is damaged
+- The recovery strategy cannot cause endless restarts or long-term freezes
+- The persistence path cannot stop the main loop
+
+---
+
+## 16. Volume and resource requirements
 
 ### 16.1 Flash
 
-要求：
+Requirements:
 
-- 固件必须能稳定烧录
-- 不仅仅是“编译未满 100%”
-- 实际 UF2 / bootloader 兼容性也必须满足
+- Firmware must be stable for burning
+- Not just "compilation is not 100%"
+- Actual UF2/bootloader compatibility must also be met
 
 ### 16.2 RAM
 
-要求：
+Requirements:
 
-- 不允许因为 UI / 协议 / 文件系统组合后耗尽 RAM 导致卡死
-- 必须关注运行时峰值，而不只是静态编译数据
+- It is not allowed to freeze due to exhaustion of RAM after UI/protocol/file system combination
+- Must pay attention to runtime peaks, not just static compiled data
 
-### 16.3 精简要求
+### 16.3 Streamlining requirements
 
-为了控制体积，必须移除：
+In order to control the size, it is necessary to remove:
 
-- 拼音输入
-- 中文输入法
-- 中文字库 / CJK 路径
-
----
-
-## 17. 验收标准
-
-`GAT562` 环境至少满足以下标准，才算进入“可继续演进”的状态。
-
-### 17.1 启动验收
-
-- 可成功烧录
-- 上电可见滚动日志
-- 不会卡在启动中间状态
-- 能进入屏保页
-
-### 17.2 UI 验收
-
-- 屏保时间持续更新
-- 日期 / 星期显示正常
-- 协议简写显示正常
-- 频率显示准确
-- 可从屏保进入主菜单
-- 菜单可正常导航
-
-### 17.3 Settings 验收
-
-- 设置项不是空壳
-- 可改项可真实生效
-- 可持久化
-- 重启后保持
-
-### 17.4 通信验收
-
-- BLE 可连接
-- LoRa 可收发
-- Meshtastic 可广播身份
-- MeshCore 可广播身份
-- User Name / Short Name 对本机显示与空口身份联动生效
-
-### 17.5 稳定性验收
-
-- 连续运行不因单个模块导致主循环停摆
-- UI 不会进入静止假死状态
-- 摇杆不会失活
-- 日志不会停在固定阶段而系统无响应
+- Pinyin input
+- Chinese input method
+- Chinese font library/CJK path
 
 ---
 
-## 18. 开发顺序建议
+## 17. Acceptance criteria
 
-后续恢复和开发，建议严格按以下顺序推进：
+`GAT562` The environment must meet at least the following standards before it can enter the "continuously evolveable" state.
 
-1. 稳定启动链
-2. 稳定输入链
-3. 稳定 UI 基础页
-4. 稳定 LoRa 收发
-5. 稳定 BLE 连接
-6. 稳定 GNSS 定时任务
-7. 接入真实 Settings
-8. 接入真实身份联动
-9. 完成 Meshtastic / MeshCore 双协议业务闭环
+### 17.1 Startup acceptance
 
-禁止反向顺序，例如：
+- Can be burned successfully
+- The rolling log can be seen after power-on
+- Will not be stuck in the startup state
+- Can enter the screen saver page
 
-- 在启动链不稳定时先抽 shared modules
-- 在输入失活时先堆页面
-- 在 LoRa / BLE 还没跑稳时先做高层抽象
+### 17.2 UI Acceptance
+
+- The screen saver time is continuously updated
+- The date/week is displayed normally
+- The protocol abbreviation is displayed normally
+- The frequency display is accurate
+- The main menu can be entered from the screen saver
+- The menu can be navigated normally
+
+### 17.3 Settings acceptance
+
+- The setting items are not empty shells
+- The changeable items can actually take effect
+- It can be persisted
+- It will be maintained after restarting
+
+### 17.4 Communication acceptance
+
+- BLE can be connected
+- LoRa can send and receive
+- Meshtastic can broadcast identity
+- MeshCore can broadcast identity
+- User Name / Short Name is effective for local display and air interface identity linkage
+
+### 17.5 Stability acceptance
+
+-Continuous operation will not cause the main loop to stop due to a single module
+-The UI will not enter a static state of suspended animation
+-The joystick will not be deactivated
+-The log will not stop at a fixed stage and the system will become unresponsive
 
 ---
 
-## 19. 结论
+## 18. Development sequence suggestions
 
-`GAT562` 的目标不是做成“大而全”的多媒体终端，而是做成一个：
+For subsequent recovery and development, it is recommended to proceed strictly in the following order:
 
-- 小屏
-- 有限输入
-- 无 Team
-- 无中文输入
-- 无 SD
-- 无 HostLink
+1. Stable startup chain
+2. Stable input chain
+3. Stable UI basic page
+4. Stable LoRa transceiver
+5. Stable BLE connection
+6. Stabilize GNSS scheduled tasks
+7. Access real Settings
+8. Access real identity linkage
+9. Complete Meshtastic / MeshCore dual-protocol business closed loop
 
-但具备真实：
+Reverse order is prohibited, for example:
+
+- Pump shared first when the startup chain is unstable modules
+- Stack pages first when the input is deactivated
+- Do high-level abstraction before LoRa/BLE is running smoothly
+
+---
+
+## 19. Conclusion
+
+The goal of `GAT562` is not to make a "large and comprehensive" multimedia terminal, but to make one:
+
+- Small screen
+- Limited input
+- No Team
+- No Chinese input
+- No SD
+- No HostLink
+
+But with real:
 
 - Meshtastic
 - MeshCore
 - BLE
 - LoRa
 - GNSS
-- 本机设置
-- 身份联动
+- Native Settings
+- Stable device environment for identity linkage
 
-能力的稳定设备环境。
+ capability.
 
-后续所有实现、重构、共享模块抽取，都必须服从这个目标与边界。
+All subsequent implementation, reconstruction, and shared module extraction must obey this goal and boundary.

@@ -1,29 +1,29 @@
-# Use Case：检查并安装设备固件更新
+# Use Case: Check and install device firmware updates
 
-状态：**confirmed behavior / model classification pending**
-业务边界：设备维护与数据所有权
+Status: **confirmed behavior / model classification pending**
+Business boundary: device maintenance and data ownership
 
-## 用户目标
+## User goal
 
-检查当前目标是否有兼容更新，在明确确认后安全下载、安装并重启；设备在网络、验证或写入失败时保持现有可启动固件。
+Check if there are compatible updates for the current target, safely download, install and restart after explicit confirmation; device maintains existing bootable firmware when network, verification or writing fails.
 
-## 主场景
+## Main scene
 
-1. Settings 显示 current version，用户触发 Check。
-2. Firmware runtime 获取 Wi-Fi metadata lease，读取 release metadata 并比较 target/profile/version。
-3. 有更新时显示 latest version 和 UpdateAvailable；没有时显示 UpToDate。
-4. 用户触发 Install，runtime 取得 OTA download/exclusive ownership，下载并验证 image。
-5. 写入 inactive OTA target，完成后标记 boot partition，进入 Rebooting。
+1. Settings displays the current version, and the user triggers Check.
+2. Firmware runtime obtains Wi-Fi metadata lease, reads release metadata and compares target/profile/version.
+3. Display latest version and UpdateAvailable when there are updates; display UpToDate when there are no updates.
+4. The user triggers Install, the runtime obtains OTA download/exclusive ownership, downloads and verifies the image.
+5. Write the inactive OTA target, mark the boot partition after completion, and enter Rebooting.
 
-## 失败与恢复
+#
 
-- unsupported target、无网络、metadata invalid、版本不兼容、下载中断、image 验证失败和 OTA write 失败进入 Error。
-- 不能在验证完成前修改 boot target。
-- 安装期间 Wi-Fi/flash 为不可抢占活动，实时通话和其他 HTTP 请求得到具体拒绝原因。
+- Unsupported target, no network, metadata invalid, version incompatibility, download interruption, image verification failure and OTA write failure enter Error.
+- The boot target cannot be modified before verification is complete.
+ - Wi-Fi/flash is a non-preemptible activity during installation, live calls and other HTTP requests get specific rejection reasons.
 
-源码：`modules/core_sys/include/platform/ui/firmware_update_runtime.h`、`platform/esp/arduino_common/src/platform_ui_firmware_update_runtime.cpp`、Settings firmware actions。
+Source code: `modules/core_sys/include/platform/ui/firmware_update_runtime.h`, `platform/esp/arduino_common/src/platform_ui_firmware_update_runtime.cpp`, Settings firmware actions.
 
-## 下钻
+## Drill down
 
 - [Activity](update-device-firmware/activity.md)
 - [Sequence](update-device-firmware/sequences/sequence-update-device-firmware.md)

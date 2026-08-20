@@ -1,7 +1,7 @@
-# Sequence：Protocol Probe 与 Radio Owner
+# Sequence: Protocol Probe and Radio Owner
 ```mermaid
 sequenceDiagram
-  actor U as 用户
+ actor U as user
   participant UI as Protocol Probe
   participant Plan as Candidate Profile Queue
   participant Radio as LoRa Runtime
@@ -29,22 +29,22 @@ sequenceDiagram
   UI->>Radio: release on exit
 ```
 
-## 场景与责任
+## Scenarios and responsibilities
 
-Candidate Profile Queue 负责有限、可解释的完整 PHY 假设，Protocol Probe 编排证据和协议专属验证，Radio Runtime 拥有硬件配置和接收。用户选择 profile 后的应用是独立提交。
+Candidate Profile Queue is responsible for limited, interpretable complete PHY assumptions, Protocol Probe orchestrates evidence and protocol-specific verification, and Radio Runtime owns hardware configuration and reception. The application after the user selects the profile is submitted independently.
 
-## 获取与恢复
+## Acquisition and recovery
 
-`acquire` 返回 lease 和进入前配置快照；未取得 lease 不调用 configure。退出、取消、错误或应用前先停止探测，再恢复需要保留的 radio 配置并 release。
+`acquire` returns the lease and the configuration snapshot before entry; configure is not called if the lease is not acquired. Stop detection before exiting, canceling, error or applying, then restore the radio configuration that needs to be retained and release.
 
-## 采样顺序
+## Sampling order
 
-每项先 configure，等待硬件 settle，再进入 RX。原始帧必须属于当前 candidate generation，迟到帧不能计入下一 profile。主动包发送后，scheduler 必须停留在同一 profile 完整接收响应；未返回的 ACK 不能当作否定证据。RT 没有主动 Probe，也没有此页中的 Proof 等待窗口。
+Configure each item first, wait for the hardware to settle, and then enter RX. The original frame must belong to the current candidate generation, and late frames cannot be counted in the next profile. After the unsolicited packet is sent, the scheduler must stay in the same profile to receive the complete response; unreturned ACK cannot be used as negative evidence. RT does not have an active Probe, nor does it have a Proof waiting window on this page.
 
-## 应用选择
+## Apply Selection
 
-不存在 AUTO/noise/hot 选择。只有 E2/E3 profile 可触发 Set，且必须通过确认 dialog。目标协议的持久化映射成功后才更新配置投影；失败保留旧配置。
+There is no AUTO/noise/hot selection. Only E2/E3 profiles can trigger Set and must pass the confirmation dialog. The configuration projection is updated only after the persistent mapping of the target protocol is successful; the old configuration is retained if it fails.
 
-## 测试
+## test
 
-覆盖 settle、迟到帧、协议解析失败、MC/MT 的正/负验证、RT 被动观察、响应窗口、partial result、无可应用 profile、apply 失败、资源抢占和 release 后配置。
+ Covers settle, late frames, protocol parsing failure, positive/negative verification of MC/MT, RT passive observation, response window, partial result, no applicable profile, apply failure, resource preemption and post-release configuration.

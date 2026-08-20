@@ -1,4 +1,5 @@
 #include "platform/esp/arduino_common/app_config_store.h"
+#include "platform/esp/arduino_common/app_config_sd_tms_runtime.h"
 
 #include <Arduino.h>
 #include <Preferences.h>
@@ -1589,14 +1590,77 @@ uint8_t loadMessageToneVolume()
 
 bool loadAppConfig(AppConfig& config)
 {
+    // `config` is still factory-initialized at this point.  A valid working
+    // file therefore has real SD priority; Preferences are only opened as the
+    // fallback baseline when the card is absent, missing its projection, or
+    // explicitly known to be stale after an interrupted SD mirror write.
+    const sd_tms::LoadResult sd_result = sd_tms::loadWorkingConfig(config);
+    if (sd_result == sd_tms::LoadResult::Applied)
+    {
+        Preferences preferences;
+        const bool nvs_saved = saveAppConfigToPreferences(
+            config, preferences, AppConfigChangeSet::allPersisted(), true);
+        if (nvs_saved)
+        {
+            const bool meta_saved = sd_tms::markNvsCommitted();
+            const bool sd_synced = sd_tms::syncWorkingConfig(config);
+            Serial.printf("[AppCfg][SD] startup source=sd nvs_mirror=%u meta=%u canonical=%u\n",
+                          nvs_saved ? 1U : 0U,
+                          meta_saved ? 1U : 0U,
+                          sd_synced ? 1U : 0U);
+        }
+        return nvs_saved;
+    }
+
     Preferences prefs;
-    return loadAppConfigFromPreferences(config, prefs, true);
+    const bool nvs_loaded = loadAppConfigFromPreferences(config, prefs, true);
+    if (!nvs_loaded)
+    {
+        return false;
+    }
+
+    // A missing projection is materialized from NVS.  An invalid hand-edited
+    // file is intentionally preserved for diagnosis; it is never silently
+    // overwritten at boot.  A deferred file is a known old replica, so it is
+    // safe to repair from the primary NVS state.
+    if (sd_result == sd_tms::LoadResult::Missing ||
+        sd_result == sd_tms::LoadResult::DeferredToNvs)
+    {
+        const bool meta_saved = sd_tms::markNvsCommitted();
+        const bool sd_synced = sd_tms::syncWorkingConfig(config);
+        Serial.printf("[AppCfg][SD] startup source=nvs reason=%s meta=%u sync=%u\n",
+                      sd_tms::loadResultName(sd_result),
+                      meta_saved ? 1U : 0U,
+                      sd_synced ? 1U : 0U);
+    }
+    else
+    {
+        Serial.printf("[AppCfg][SD] startup source=nvs reason=%s\n",
+                      sd_tms::loadResultName(sd_result));
+    }
+    return true;
 }
 
 bool saveAppConfig(const AppConfig& config, AppConfigChangeSet changes)
 {
     Preferences prefs;
-    return saveAppConfigToPreferences(config, prefs, changes, true);
+    const bool nvs_saved = saveAppConfigToPreferences(config, prefs, changes, true);
+    if (!nvs_saved)
+    {
+        return false;
+    }
+
+    // NVS remains the write-ahead primary store.  The small replica state is
+    // persisted before the SD replacement so power loss/card removal cannot
+    // make an old valid SD file reverse a newer NVS edit on the next boot.
+    const bool meta_saved = sd_tms::markNvsCommitted();
+    const bool sd_synced = sd_tms::syncWorkingConfig(config);
+    Serial.printf("[AppCfg][SD] save nvs=1 meta=%u sync=%u\n",
+                  meta_saved ? 1U : 0U,
+                  sd_synced ? 1U : 0U);
+    // SD is a durable, repairable projection.  A missing/removed card must
+    // not make the already-successful NVS transaction retry indefinitely.
+    return true;
 }
 
 } // namespace app

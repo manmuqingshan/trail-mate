@@ -1,32 +1,32 @@
 # Node Info Layer Popup Addendum
 
-本文件是 [node_info_page.md](C:/Users/VicLi/Documents/Projects/trail-mate/docs/uiux/pages/node_info_page.md) 的增补约束，只收敛 `Node Info` 页中的图层弹窗，不重新定义整页布局。
+This file is an additional constraint of [node_info_page.md](C:/Users/VicLi/Documents/Projects/trail-mate/docs/uiux/pages/node_info_page.md). It only converges the layer pop-ups in the `Node Info` page and does not redefine the entire page layout.
 
 ## 1. Scope
 
-1. 本增补只约束 `Node Info` 页底部 `Layer` 按钮打开的图层弹窗。
-2. 页面壳层可以决定弹窗出现位置、承载容器、关闭触发方式与焦点切换。
-3. 页面壳层不拥有图层语义本身，不得重新定义图层名称、状态摘要或缺图提示。
+1. This supplement only constrains the layer pop-up window opened by the `Layer` button at the bottom of the `Node Info` page.
+2. The page shell can determine the pop-up window's location, container, closing trigger method and focus switching.
+3. The page shell does not own the layer semantics itself and cannot redefine the layer name, status summary or missing image prompt.
 
 ## 2. Copy Contract
 
-1. `Node Info` 页图层弹窗中的地图专有文案必须复用共享地图组件语义，不得在页面内直接写死另一套英文或页面私有叫法。
-2. 至少以下文本必须与共享地图组件保持同义且可本地化：
+1. The map-specific copy in the `Node Info` page layer pop-up must reuse the semantics of the shared map component, and cannot directly write another set of English or page-private names in the page.
+2. At least the following text must remain synonymous with the shared map component and be localizable:
    - `Map Layer`
    - `Base: <Source>`
    - `OSM / Terrain / Satellite`
    - `Contour: ON / OFF`
-   - 图层缺失提示
-   - 等高线数据缺失提示
-3. 通用关闭动作允许继续复用全局公共文案键，例如 `Close`，但仍必须经过 i18n 处理。
+ - Layer missing prompt
+ - Contour data missing prompt
+3. The universal closing action allows the continued reuse of global public text keys, such as `Close`, but must still be processed by i18n.
 
 ## 3. Small-Screen Operability
 
-1. 在 `320x240` 基线下，图层弹窗首次打开时必须保证 `OSM / Terrain / Satellite / Contour / Close` 五个动作项一次完整可见。
-2. `Close` 动作项必须完整可见、完整可点，不允许被屏幕边缘、遮罩、父容器或超高按钮裁切。
-3. 如果小屏空间不足，优先收紧弹窗内部间距、按钮高度与定位策略，不允许把最后一个动作项挤成半截露出。
+1. Under the `320x240` baseline, the five action items of `OSM / Terrain / Satellite / Contour / Close` must be fully visible when the layer pop-up window is opened for the first time.
+2. The `Close` action item must be completely visible and clickable, and is not allowed to be clipped by the edge of the screen, mask, parent container or super-tall button.
+3. If the small screen space is insufficient, priority should be given to tightening the internal spacing, button height and positioning strategy of the pop-up window. It is not allowed to squeeze the last action item into half and expose it.
 
 ## 4. Consequence
 
-1. 以后如果 `GPS / 地图` 页调整图层名称、摘要格式或缺图提示，`Node Info` 页必须跟随共享语义一起调整。
-2. 以后如果 `Node Info` 页只改了弹窗外壳而没有改共享语义层，则视为合法页面实现。
+1. If the `GPS/Map` page adjusts the layer name, summary format or missing image prompt in the future, the `Node Info` page must be adjusted along with the shared semantics.
+2. In the future, if the `Node Info` page only changes the pop-up shell without changing the shared semantic layer, it will be regarded as a legal page implementation.

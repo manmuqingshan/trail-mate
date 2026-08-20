@@ -1,302 +1,302 @@
-# 新硬件适配开发规范（Trail-Mate）
+# New hardware adaptation development specifications (Trail-Mate)
 
-本文档不是一次性的 Prompt 备忘录，而是 Trail-Mate 后续适配新硬件时必须遵守的工程规范。
+This document is not a one-time prompt memo, but an engineering specification that Trail-Mate must abide by when adapting to new hardware in the future.
 
-目标不是“先跑起来”，而是：
+The goal is not to "run first", but:
 
-1. 新硬件可以持续接入；
-2. 旧硬件不被破坏；
-3. 能力边界长期清晰；
-4. 业务逻辑不因为换板子而四处复制；
-5. 后续任何人接手，都能快速判断代码该写在哪一层。
-
----
-
-## 1. 核心设计原则
-
-后续所有新硬件接入，都必须同时满足下面几个原则。
-
-### 1.1 单一职责
-
-- `modules/` 负责可复用业务能力、共享策略、共享控制器、共享协议核心。
-- `platform/` 负责芯片/平台相关能力适配，例如 ESP、nRF52、BLE、LoRa、文件系统、系统时钟、平台桥接。
-- `boards/` 负责具体硬件板卡差异、板级引脚、板级设备组合、板级 profile。
-- `apps/` 负责具体产品/设备运行时装配，只做 startup / loop / assemble，不持有可复用业务资产本体。
-- `variants/` 负责编译环境、宏、参数、`build_src_filter`、目标板环境隔离。
-
-### 1.2 开闭原则
-
-- 新硬件接入优先通过“新增实现”完成，而不是修改旧板行为。
-- 能通过新增 `board` / `env` / `bridge` / `provider` 解决的，不要去污染现有业务核心。
-- 修改旧代码时，只允许做：
-  - 抽象上提；
-  - 重复逻辑收敛；
-  - 兼容性修复；
-  - 命名澄清。
-
-### 1.3 能力消费优先，禁止上层直连板级细节
-
-- 上层只能依赖抽象能力，不能依赖具体板类、具体驱动实例、具体引脚。
-- 禁止在 `apps/`、`modules/`、UI controller、chat service 中写板卡特判。
-- 禁止用 `dynamic_cast<具体板类*>` 作为主路径。
-
-### 1.4 配置单一事实来源
-
-- 板级参数来自 `variants/*/envs/*.ini` 与 `boards/*/board_profile.*`。
-- 运行时设置来自 settings runtime / app config / platform config owner。
-- 不允许同一份配置在多个层级各自存一套“真值”。
-
-### 1.5 共享逻辑必须向 `modules/` 汇聚
-
-凡是满足下面任一条件，就不应该继续留在 app 或 platform 层：
-
-- ESP 与 nRF52 都会用到；
-- 同一协议在多个设备上都会复用；
-- 同一 UI 控制器会被多块设备复用；
-- 同一 identity / announcement / settings / protocol 规则会跨环境复用。
+1. New hardware can be continuously connected;
+2. Old hardware will not be destroyed;
+3. Capability boundaries will be clear for a long time;
+4. Business logic will not be copied everywhere because of changing boards;
+5. Anyone who takes over in the future can quickly determine which layer the code should be written on.
 
 ---
 
-## 2. 目录分层规范
+## 1. Core design principles
 
-这是当前项目后续长期遵守的目录语义。
+All subsequent new hardware connections must meet the following principles at the same time.
+
+### 1.1 Single responsibility
+
+- `modules/` is responsible for reusable business capabilities, shared strategies, shared controllers, and shared protocol cores.
+- `platform/` is responsible for chip/platform related capability adaptation, such as ESP, nRF52, BLE, LoRa, file system, system clock, and platform bridging.
+- `boards/` is responsible for specific hardware board differences, board-level pins, board-level device combinations, and board-level profiles.
+- `apps/` is responsible for the runtime assembly of specific products/devices. It only does startup / loop / assemble and does not hold reusable business assets.
+- `variants/` is responsible for the compilation environment, macros, parameters, `build_src_filter`, and target board environment isolation.
+
+### 1.2 Opening and Closing Principle
+
+- New hardware access is first completed through "new implementation" instead of modifying the behavior of the old board.
+- What can be solved by adding `board` / `env` / `bridge` / `provider` should not pollute the existing business core.
+- When modifying old code, only the following are allowed:
+ - Abstraction lifting;
+ - Repeated logic convergence;
+ - Compatibility fixes;
+ - Naming clarification.
+
+### 1.3 Prioritize capacity consumption and prohibit direct connection of upper layers to board-level details
+
+- The upper layers can only rely on abstract capabilities and cannot rely on specific board types, specific driver instances, and specific pins.
+- It is forbidden to write board judgment in `apps/`, `modules/`, UI controller, chat service.
+- It is forbidden to use `dynamic_cast<specific board class*>` as the main path.
+
+### 1.4 Configuring a single source of truth
+
+- Board-level parameters come from `variants/*/envs/*.ini` and `boards/*/board_profile.*`.
+- Runtime settings come from settings runtime/app config/platform config owner.
+- The same configuration is not allowed to store a set of "true values" at multiple levels.
+
+### 1.5 Shared logic must be converged to `modules/`
+
+Anyone that meets any of the following conditions should not remain in the app or platform layer:
+
+- Both ESP and nRF52 will be used;
+- The same protocol will be reused on multiple devices;
+- The same UI controller will be reused by multiple devices;
+- The same identity / announcement / settings / protocol rules will be reused across environments.
+
+---
+
+## 2. Directory hierarchy specification
+
+This is the directory semantics that the current project will abide by for a long time.
 
 ## 2.1 `modules/`
 
-`modules/` 是共享业务与共享能力的归属地。
+`modules/` is the home of shared services and shared capabilities.
 
-适合放入 `modules/` 的内容：
+Suitable content for `modules/`:
 
-- 协议核心；
-- 共享 controller；
-- 共享 page model；
-- 共享 UI 渲染抽象；
-- identity policy；
-- self-announcement policy；
-- team/chat/contact/core runtime；
-- 不依赖具体板卡的显示抽象；
-- 不依赖具体平台的业务状态机。
+- Protocol core;
+- Shared controller;
+- Shared page model;
+- Shared UI rendering abstraction;
+- identity policy;
+- self-announcement policy;
+- team/chat/contact/core runtime;
+- Display abstraction that does not depend on specific boards;
+- Business state machine that does not depend on specific platforms.
 
-不应该放入 `modules/` 的内容：
+Contents that should not be placed in `modules/`:
 
-- 具体引脚；
-- 具体 SPI/I2C/UART 实例；
-- 某个板子的按键编号；
-- 某个板子的 OLED 地址；
-- 某个板子的电池 ADC 换算；
-- 某个板子的 RadioLib 初始化序列。
+-Specific pin;
+-Specific SPI/I2C/UART instance;
+-Button number of a certain board;
+-OLED address of a certain board;
+-Battery of a certain board ADC conversion;
+- RadioLib initialization sequence for a certain board.
 
-### 当前已经确认的共享模块方向
+### Currently confirmed shared module direction
 
 - `modules/core_chat`
   - identity policy
-  - self identity provider 抽象
+ - self identity provider abstraction
   - self announcement core
-  - Meshtastic / MeshCore 自宣核心
+ - Meshtastic / MeshCore self-declared core
 - `modules/ui_mono_128x64`
-  - 128x64 单色屏共享 UI/controller/page/display 抽象
+ - 128x64 monochrome screen sharing UI/controller/page/display abstraction
 
 ## 2.2 `platform/`
 
-`platform/` 不是“具体设备层”，而是“平台/芯片/系统能力适配层”。
+`platform/` It is not the "specific device layer", but the "platform/chip/system capability adaptation layer".
 
-例如：
+For example:
 
 - `platform/esp/*`
 - `platform/nrf52/*`
 
-适合放入 `platform/` 的内容：
+Content suitable for `platform/`:
 
-- BLE runtime；
-- LoRa runtime；
-- platform-specific identity bridge；
-- 平台消息泵；
-- 平台文件系统封装；
-- 平台 radio context；
-- 平台协议 backend 适配；
-- 平台侧对 shared modules 的桥接。
+- BLE runtime;
+- LoRa runtime;
+- platform-specific identity bridge;
+- platform message pump;
+- platform file system encapsulation;
+- platform radio context;
+- platform protocol backend adaptation;
+- Platform-side bridging of shared modules.
 
-不适合放入 `platform/` 的内容：
+Contents not suitable for `platform/`:
 
-- 某块具体板子的产品 UI 资产本体；
-- 某块具体设备专属业务菜单结构；
-- 某块板子的 startup 文案；
-- 具体产品装配逻辑。
+- The product UI asset ontology of a specific board;
+- The exclusive business menu structure of a specific device;
+- The startup copy of a certain board;
+- Specific product assembly logic.
 
 ## 2.3 `boards/`
 
-`boards/` 是具体硬件板卡层。
+`boards/` is the specific hardware board layer.
 
-适合放入 `boards/` 的内容：
+Content suitable for `boards/`:
 
 - `board_profile.h`
 - PinMap / BleProfile / LoraProfile / InputProfile / BatteryProfile
-- 板级专属 binding
-- 板级 capability 组合
-- 某块板子的设备 runtime bridge
+- Board-level binding
+- Board-level capability combination
+- Device runtime bridge of a certain board
 
-命名必须反映真实板卡，而不是模糊缩写。
+The naming must reflect the real board, not an ambiguous abbreviation.
 
-推荐：
+Recommended:
 
 - `boards/gat562_mesh_evb_pro`
 
-不推荐：
+Not recommended:
 
 - `boards/gat562`
 
-原因：
+Reason:
 
-- `gat562` 更像系列名，不像具体板名；
-- 后续同系列多板并存时会混乱；
-- 目录名必须对应真实硬件适配对象。
+- `gat562` is more like a series name than a specific board name;
+- It will be confusing when multiple boards of the same series coexist in the future;
+- The directory name must correspond to the real hardware adaptation object.
 
 ## 2.4 `apps/`
 
-`apps/` 是具体产品/设备运行时的装配层。
+`apps/` is the assembly layer for specific products/devices to run.
 
-适合放入 `apps/` 的内容：
+Content suitable for `apps/`:
 
 - startup runtime
 - loop runtime
 - app context / runtime assembly
-- provider / port 的实例装配
-- 生命周期触发
-- 各模块之间的最终 wiring
+- Instance assembly of provider / port
+- Life cycle trigger
+- Final wiring between modules
 
-不适合放入 `apps/` 的内容：
+Content not suitable for `apps/`:
 
-- 协议包拼装规则；
-- identity fallback 规则；
-- 共享 UI 资产本体；
-- Meshtastic / MeshCore 自宣业务核心；
-- 通用 settings controller 逻辑；
-- 通用屏保页面逻辑。
+- Protocol package assembly rules;
+- Identity fallback rules;
+- Shared UI asset ontology;
+- Meshtastic / MeshCore self-declared business core;
+- General settings controller logic;
+- General screensaver page logic.
 
-一句话：
+One sentence:
 
-- `apps/` 只负责“把已有模块拼起来”，不负责“重新发明模块”。
+- `apps/` is only responsible for "putting together existing modules" and is not responsible for "reinventing modules".
 
 ## 2.5 `variants/`
 
-`variants/` 只负责环境和编译隔离。
+`variants/` is only responsible for environment and compilation isolation.
 
-必须放在这里的内容：
+Content that must be placed here:
 
 - `build_flags`
 - `build_src_filter`
-- board 宏
-- 屏幕尺寸
-- 板级 include path
-- 目标环境名称
+- board macro
+- screen size
+-Board-level include path
+-Target environment name
 
-禁止把这些配置散落到代码里做兜底默认值。
+It is forbidden to scatter these configurations into the code to make default values.
 
-例如屏幕尺寸：
+For example, screen size:
 
-- 正确：在 env 用 `-DSCREEN_WIDTH=128 -DSCREEN_HEIGHT=64`
-- 错误：代码里偷偷默认 `128x64`
+- Correct: Use `-DSCREEN_WIDTH=128 -DSCREEN_HEIGHT=64` in env
+- Wrong: Secretly default to `128x64` in the code
 
 ---
 
-## 3. 推荐设计模式
+## 3. Recommended design patterns
 
-以下模式已经在本工程中验证有效，后续硬件适配优先沿用。
+The following patterns have been verified to be effective in this project, and will be used first for subsequent hardware adaptation.
 
-## 3.1 Provider 模式
+## 3.1 Provider mode
 
-适用场景：
+Applicable scenarios:
 
-- 某类共享逻辑需要读取“当前运行时状态”，但不应该依赖某个 app / board / platform 细节。
+- A certain type of shared logic needs to read the "current runtime status", but should not rely on a certain app / board / platform details.
 
-典型例子：
+Typical example:
 
 - `SelfIdentityProvider`
 
-职责：
+Responsibilities:
 
-- 只提供数据；
-- 不做业务；
-- 不做持久化；
-- 不做 UI；
-- 不做协议发包。
+- Only provide data;
+- No business;
+- No persistence;
+- No UI;
+- No protocol contracting.
 
-适合 provider 的数据：
+Data suitable for provider:
 
-- 当前 node id
-- 当前 configured long/short name
-- 当前默认前缀
-- 当前 BLE 默认名
-- 当前 active mesh config
+- Current node id
+- Current configured long/short name
+- Current default prefix
+- Current BLE default name
+- Current active mesh config
 
-## 3.2 Port + Core 模式
+## 3.2 Port + Core mode
 
-适用场景：
+Applicable scenarios:
 
-- 共享业务核心需要调用平台能力，但不应该直接依赖硬件。
+- Shared business core needs to call platform capabilities, but should not directly rely on hardware.
 
-典型例子：
+Typical example:
 
 - `MeshtasticSelfAnnouncementCore` + `MeshtasticSelfAnnouncementPort`
 - `MeshCoreSelfAnnouncementCore` + `MeshCoreSelfAnnouncementPort`
 
-规范：
+Specification:
 
-- `Core` 放在 `modules/`
-- `Port` 接口放在 `modules/`
-- `Port` 实现放在 `apps/` 或 `platform/`
-- `Core` 不得 include 具体板驱动头文件
+- `Core` is placed in `modules/`
+- The `Port` interface is placed in `modules/`
+- The `Port` implementation is placed in `apps/` or `platform/`
+- `Core` must not include specific board driver header files
 
-## 3.3 Bridge 模式
+## 3.3 Bridge mode
 
-适用场景：
+Applicable scenarios:
 
-- 平台层内部仍有多个 runtime 需要读取同一类平台状态；
-- 但又不希望所有 runtime 直接依赖 settings/runtime 细节。
+- There are still multiple runtimes inside the platform layer Need to read the same type of platform status;
+- But you don't want all runtime to depend directly on settings/runtime details.
 
-典型例子：
+Typical example:
 
 - `platform/nrf52/self_identity_bridge`
 
-职责：
+Responsibilities:
 
-- 统一暴露平台内部身份读取接口；
-- 隔离 `settings_runtime` 细节；
-- 给 BLE、radio context、host config 等平台 runtime 使用。
+- Unified exposure platform internal identity reading interface;
+- Isolate `settings_runtime` details;
+- Used by platform runtimes such as BLE, radio context, host config, etc.
 
-## 3.4 Composition Root 模式
+## 3.4 Composition Root mode
 
-适用场景：
+Applicable scenarios:
 
-- 一个环境需要最终决定“装什么实现、连什么 provider、走什么 controller”。
+- An environment needs to ultimately decide "what implementation to install, what provider to connect, and what controller to use."
 
-典型位置：
+Typical positions:
 
 - `apps/esp_pio`
 - `apps/gat562_mesh_evb_pro`
 
-职责：
+Responsibilities:
 
-- 只装配，不造轮子。
+- Only assembly, not wheel building.
 
-## 3.5 Adapter 模式
+## 3.5 Adapter mode
 
-适用场景：
+Applicable scenarios:
 
-- 平台已有 runtime / backend / 驱动接口，与共享模块接口不一致。
+- The platform already has runtime / backend / driver interface, which is inconsistent with the shared module interface.
 
-例如：
+For example:
 
-- 平台 radio context 对 shared mesh adapter 的桥接；
-- 板级 OLED 驱动对 `MonoDisplay` 的桥接。
+- Platform radio context bridging shared mesh adapter;
+- Board-level OLED driver bridging `MonoDisplay`.
 
 ---
 
-## 4. 当前已经确立的架构结论
+## 4. The currently established architecture conclusion
 
 ## 4.1 Identity / Self-Announcement
 
-现在这条链路的最终归属已经明确：
+The final ownership of this link is now clear:
 
 - `modules/core_chat`
   - `SelfIdentityPolicy`
@@ -305,91 +305,91 @@
   - `MeshtasticSelfAnnouncementCore`
   - `MeshCoreSelfAnnouncementCore`
 - `platform/nrf52/settings_runtime`
-  - nRF52 本地 identity 配置真值
+ - nRF52 local identity configuration true value
 - `platform/nrf52/self_identity_bridge`
-  - nRF52 平台统一 identity 读取桥
+ - nRF52 platform unified identity read bridge
 - `apps/esp_pio`
-  - ESP provider 装配
+ - ESP provider assembly
 - `apps/gat562_mesh_evb_pro`
-  - GAT562 provider 与自宣 port 装配
+ - GAT562 provider Assembled with self-declaring port
 
-结论：
+Conclusion:
 
-- identity fallback 规则不能写在 app 里；
-- protocol self-announcement 规则不能写在 app 里；
-- app 只能提供 provider 和 port；
-- platform 只能提供 bridge 和 runtime 适配。
+- Identity fallback rules cannot be written in the app;
+- Protocol self-announcement rules cannot be written in the app;
+- App can only provide provider and port;
+- Platform can only provide bridge and runtime adaptation.
 
 ## 4.2 UI
 
-单色 128x64 OLED UI 的归属规则：
+Attribution rules for monochrome 128x64 OLED UI:
 
-- 显示抽象、controller、page、flow 在 `modules/ui_mono_128x64`
-- `platform` 只保留屏幕 backend / runtime 适配
-- `boards` 提供板级 display profile / pin / wiring
-- `apps` 只装配 UI runtime
+- Display abstraction, controller, page, flow in `modules/ui_mono_128x64`
+- `platform` only retains screen backend / runtime adaptation
+- `boards` provides board-level display profile / pin / wiring
+- `apps` only assembles UI runtime
 
-结论：
+Conclusion:
 
-- “屏保页 / 主菜单页 / settings page 业务控制器”不属于 app
-- app 只决定：
-  - 是否启用这个 UI
-  - 用什么显示 backend
-  - 用什么数据 provider
+- "Screen saver page/main menu page/settings page business controller" does not belong to app
+- The app only decides:
+ - Whether to enable this UI
+ - What to display backend
+ - What data provider to use
 
 ## 4.3 Meshtastic / MeshCore
 
-协议规则必须尽量回到 shared modules：
+The protocol rules must be returned to shared modules as much as possible:
 
-- 协议 packet shaping
-- NodeInfo 组装
-- peer/event/payload 处理
+- Protocol packet shaping
+- NodeInfo assembly
+- peer/event/payload processing
 - identity derivation
 
-平台层只做：
+The platform layer only does:
 
 - radio transport
 - protocol backend runtime
-- driver / filesystem / BLE / UART / crypto 接线
+- driver / filesystem / BLE / UART / crypto wiring
 
 ---
 
-## 5. 新硬件适配的标准流程
+## 5. Standard process for new hardware adaptation
 
-后续任何新板接入，都按这个顺序做。
+Any subsequent new board connection will be done in this order.
 
-## Step 1：先做结构审视
+## Step 1: Do a structural review first
 
-在改代码前先回答 4 个问题：
+Answer 4 questions before changing the code:
 
-1. 这是新板卡问题，还是共享模块边界问题？
-2. 这段逻辑未来会不会被第二块板复用？
-3. 这段逻辑属于 `modules`、`platform`、`boards` 还是 `apps`？
-4. 这次修改会不会让旧板行为漂移？
+1. Is this a new board problem or a shared module boundary problem?
+2. Will this logic be reused by the second board in the future?
+3. Does this logic belong to `modules`, `platform`, `boards` or `apps`?
+4. Will this modification cause the behavior of the old board to drift?
 
-如果 2 的答案是“会复用”，优先进入 `modules/`。
+If the answer to 2 is "will be reused", enter `modules/` first.
 
-## Step 2：新增环境，不污染旧环境
+## Step 2: Add new environment without polluting the old environment
 
-必须先新增：
+Must add first:
 
 - `variants/<board>/envs/<board>.ini`
 
-必须显式配置：
+Must be explicitly configured:
 
 - board
 - `build_flags`
 - `build_src_filter`
 - variant include path
 
-必须保证：
+Must ensure:
 
-- 新板环境只编译新板所需源文件；
-- 旧板环境不误编译新板源文件。
+- The new board environment only compiles the source files required for the new board;
+- The old board environment does not compile the new board source files by mistake.
 
-## Step 3：补齐 board profile
+## Step 3: Complete board profile
 
-必须在 `boards/<board>/` 补齐板级 profile：
+Board-level profile must be completed in `boards/<board>/`:
 
 - PinMap
 - InputProfile
@@ -398,65 +398,65 @@
 - BatteryProfile
 - AudioProfile
 
-规则：
+Rules:
 
-- 板级参数不许散落在 runtime `.cpp` 里；
-- runtime 只能引用 board profile；
-- board profile 不做业务决策。
+- Board-level parameters are not allowed to be scattered in runtime `.cpp`;
+- Runtime can only reference board profile;
+- board profile does not make business decisions.
 
-## Step 4：优先接 platform bridge，再接 app
+## Step 4: Connect platform bridge first, then app
 
-如果某能力会被多个 runtime 读取：
+If a certain capability will be read by multiple runtimes:
 
-- 先做 bridge
-- 再让 BLE / radio / settings / host config 共用
+- Make bridge first
+- Then let BLE / radio / settings / host config share
 
-不要直接在多个 runtime 中各自读取 settings / config 真值。
+Do not directly read settings / config true values ​​in multiple runtimes.
 
-## Step 5：app 只做 assemble
+## Step 5: app only does assemble
 
-在 `apps/<device>/` 中只允许做：
+Only allowed in `apps/<device>/`:
 
-- provider 实现
-- port 实现
+- provider implementation
+- port implementation
 - runtime startup / loop
-- controller 装配
+- controller assembly
 
-不允许做：
+Not allowed:
 
-- 业务协议核心；
-- 通用 controller；
-- 通用 page；
-- 可复用状态机。
+- Business protocol core;
+- Universal controller;
+- Universal page;
+- Reusable state machine.
 
-## Step 6：双环境回归编译
+## Step 6: Dual environment regression compilation
 
-所有共享改造必须至少验证：
+All shared transformations must at least verify:
 
-- 受影响的 ESP 环境；
-- 受影响的 nRF52 环境。
+-Affected ESP environments;
+-Affected nRF52 environments.
 
-当前最低回归标准：
+Current minimum regression standard:
 
 - `platformio run -e tdeck`
 - `platformio run -e gat562_mesh_evb_pro`
 
 ---
 
-## 6. 命名规范
+## 6. Naming convention
 
-## 6.1 目录命名
+## 6.1 Directory naming
 
-- 板级目录必须用真实板名：
+-Board-level directories must use real board names:
   - `boards/gat562_mesh_evb_pro`
-- 禁止用模糊系列名充当具体板目录：
-  - 不推荐 `boards/gat562`
+- It is forbidden to use ambiguous series names as specific board directories:
+ - `boards/gat562` is not recommended
 
-## 6.2 API 命名
+## 6.2 API naming
 
-命名必须体现语义，不要模糊。
+The naming must reflect semantics and not be ambiguous.
 
-推荐：
+Recommended:
 
 - `applyUserIdentity`
 - `fillSelfIdentityPolicyArgs`
@@ -464,18 +464,18 @@
 - `buildBleVisibleName`
 - `broadcast(...)`
 
-不推荐：
+Not recommended:
 
-- `setUserInfo` 用来表示“持久化 + apply + runtime 生效”
+- `setUserInfo` is used to express "persistence + apply + runtime takes effect"
 
-说明：
+Note:
 
-- `setXxx` 更像简单 setter；
-- 如果有持久化、广播、副作用，应该用 `apply` / `persist` / `broadcast` / `refresh` 这类动词。
+- `setXxx` is more like a simple setter;
+- If there are persistence, broadcast, and side effects, verbs such as `apply` / `persist` / `broadcast` / `refresh` should be used.
 
-## 6.3 文件命名
+## 6.3 File Naming
 
-共享策略文件应直接体现职责：
+Sharing policy files should directly reflect responsibilities:
 
 - `self_identity_policy.*`
 - `self_identity_provider.*`
@@ -483,7 +483,7 @@
 - `meshtastic_self_announcement_core.*`
 - `meshcore_self_announcement_core.*`
 
-不要用：
+Do not use:
 
 - `helper2`
 - `runtime_misc`
@@ -492,162 +492,162 @@
 
 ---
 
-## 7. 反模式清单
+## 7. Anti-pattern list
 
-下面这些做法后续一律视为需要重构。
+The following practices will all be considered as requiring refactoring in the future.
 
-## 7.1 在 app 中手搓共享业务逻辑
+## 7.1 Sharing business logic in the app
 
-例如：
+For example:
 
-- app 里自己组 Meshtastic `PhoneUserArgs`
-- app 里自己拼 MeshCore NodeInfo 包
-- app 里自己写 identity fallback
+- Create your own Meshtastic `PhoneUserArgs` in the app
+- Write the MeshCore NodeInfo package yourself in the app
+- Write the identity fallback yourself in the app
 
-这些都应该回到 `modules/`。
+These should be returned to `modules/`.
 
-## 7.2 在多个 runtime 里各自读取 settings 真值
+## 7.2 Read the true value of settings in multiple runtimes
 
-例如：
+For example:
 
-- BLE runtime 自己读 user_name
-- radio context 自己读 short_name
-- host config 自己读一遍 user_name
+- BLE runtime reads user_name by itself
+- Read the radio context yourself short_name
+- Read the host config yourself user_name
 
-正确做法：
+Correct approach:
 
-- 统一经由 bridge / provider 暴露。
+- Expose via bridge / provider.
 
-## 7.3 用“兼容临时代码”长期占位
+## 7.3 Use "compatible temporary code" long-term placeholder
 
-允许短期兼容包装，但必须满足：
+Short-term compatible packaging is allowed, but must meet:
 
-- 只作为迁移桥；
-- 不新增重复逻辑；
-- 后续可清理；
-- 命名能看出它是兼容层。
+- Only used as a migration bridge;
+- No duplicate logic added;
+- Can be cleaned up later;
+- The name shows that it is a compatibility layer.
 
-如果兼容层开始承载新逻辑，就说明边界错了。
+If the compatibility layer starts to carry new logic, it means the boundary is wrong.
 
-## 7.4 在 platform 层持有产品 UI 资产
+## 7.4 Hold product UI assets in the platform layer
 
-例如：
+For example:
 
-- 屏保页面文案
-- 主菜单结构
-- settings 页面项定义
+- Screen saver page copy
+- Main menu structure
+- Settings page item definition
 
-这类内容应该放共享 UI 模块或 app 装配层，不应埋在平台 runtime 里。
+This type of content should be placed in the shared UI module or app assembly layer, and should not be buried in the platform runtime.
 
-## 7.5 编译环境不隔离
+## 7.5 compilation environment is not isolated
 
-出现以下任一情况，说明 env 设计不合格：
+If any of the following situations occurs, it means that the env design is unqualified:
 
-- ESP 环境误编译 nRF52 `src/*.cpp`
-- 新板环境误编译旧板 board 文件
-- 通过 `#ifdef` 到处兜底掩盖环境边界错误
+- ESP environment miscompiles nRF52 `src/*.cpp`
+- New board environment miscompiles old board board files
+- Use `#ifdef` to hide environment boundary errors everywhere
 
-必须优先修正 `build_src_filter`。
-
----
-
-## 8. 新硬件适配时的输出要求
-
-当一次新硬件适配或架构改造完成后，输出必须包含：
-
-1. 接入策略摘要
-2. 实际修改文件列表
-3. 分层归属说明
-4. 为什么符合解耦原则
-5. 编译验证结果
-6. 后续遗留项
-
-如果涉及共享边界调整，还必须明确说明：
-
-- 哪些逻辑从 app 移到了 modules
-- 哪些逻辑从 settings/runtime 收敛到了 bridge/provider
-- 哪些兼容入口仍然保留，未来何时清理
+Must be corrected first `build_src_filter`.
 
 ---
 
-## 9. 提交前检查清单
+## 8. Output requirements when adapting to new hardware
 
-- [ ] 新逻辑放在正确层级
-- [ ] 共享逻辑优先进入 `modules/`
-- [ ] 平台读取真值统一走 bridge/provider
-- [ ] app 只做装配，不持有共享业务核心
-- [ ] 没有新增板卡特判污染上层模块
-- [ ] 没有用临时兜底掩盖 env 配置缺失
-- [ ] 受影响 ESP 环境编译通过
-- [ ] 受影响 nRF52 环境编译通过
-- [ ] 文档同步更新
+When a new hardware adaptation or architecture transformation is completed, the output must include:
+
+1. Access policy summary
+2. Actual modified file list
+3. Hierarchical ownership description
+4. Why it complies with the decoupling principle
+5. Compilation verification results
+6. Subsequent legacy items
+
+If shared boundary adjustment is involved, it must also be clearly stated:
+
+- Which logic has been moved from app to modules
+- Which logic has been converged from settings/runtime to bridge/provider
+- Which compatible entries are still retained and when they will be cleaned up in the future
 
 ---
 
-## 10. 当前项目的长期落地结论
+## 9. Pre-submission checklist
 
-对 Trail-Mate 来说，后续适配更多硬件时，应该长期坚持下面这套工程结构：
+- [ ] New logic is placed at the correct level
+- [ ] Shared logic enters `modules/`
+- [ ] The platform reads the true value uniformly through bridge/provider
+- [ ] The app only does assembly and does not hold the shared business core
+- [ ] There is no new board to judge the pollution of the upper module
+- [ ] No temporary cover is used to cover up the missing env configuration
+- [ ] Affected ESP environment compilation passed
+- [ ] Affected nRF52 environment compilation passed
+- [ ] Document synchronization update
 
-- `modules/`：共享业务、共享协议、共享 UI、共享策略
-- `platform/`：平台 runtime 与 bridge
-- `boards/`：具体板卡 profile 与板级能力绑定
-- `apps/`：具体设备运行时装配
-- `variants/`：编译环境与参数事实来源
-
-如果某段代码的归属不确定，按下面顺序判断：
-
-1. 两个平台都会复用吗？是的话进 `modules/`
-2. 这是平台能力差异吗？是的话进 `platform/`
-3. 这是具体板卡引脚/器件差异吗？是的话进 `boards/`
-4. 这是设备级启动/循环/装配吗？是的话进 `apps/`
-5. 这是编译隔离和参数吗？进 `variants/`
-
-这就是后续新硬件适配的标准答案。
 ---
 
-## 11. Board Class 与总线锁强制约束（新增）
+## 10. Long-term implementation conclusion of the current project
 
-以下规则后续必须长期执行，不能再遗漏：
+To Trail-Mate Generally speaking, when adapting to more hardware in the future, you should stick to the following project structure for a long time:
 
-### 11.1 `board_profile` 不是 `Board` 类的替代品
+- `modules/`: shared business, shared protocol, shared UI, shared strategy
+- `platform/`: platform runtime and bridge profile
+- `boards/`: specific board cards Bound with board-level capabilities
+- `apps/`: specific device runtime assembly
+- `variants/`: compilation environment and parameter source of fact
 
-- 每个具体硬件目录都必须提供真实的板级类，至少继承 `BoardBase`
-- `board_profile.*` 只负责静态引脚、能力边界、器件地址、硬件常量
-- `board_profile.*` 不负责承载电源管理、亮度、电池、RTC、提示音、总线协同等动态行为
-- `apps/<device>` 中的 facade/runtime 不能长期返回空的 `getBoard()`
+If the ownership of a certain piece of code is uncertain, judge in the following order:
 
-### 11.2 板级能力必须统一收口到真实 `Board` 类
+1. Will both platforms be reused? If yes, enter `modules/`
+2. Is this a difference in platform capabilities? If yes, go to `platform/`
+3. Is this a specific board pin/device difference? If yes, go to `boards/`
+4. Is this device-level startup/loop/assembly? If yes, go to `apps/`
+5. Is this compilation isolation and parameters? Enter `variants/`
 
-- GPIO 初始化、外设上电、LED、亮度、电池、RTC、输入设备、提示音等板级能力，应优先由具体 `Board` 类统一收口
-- `platform` 层可以保留 runtime / bridge / adapter，但不能长期把同一板级真值分散在多个 runtime 里各自维护
-- `apps` 只负责装配，不直接承担板级外设编排
+This is the standard answer for subsequent new hardware adaptation.
+---
 
-### 11.3 共享 `I2C` / `SPI` 总线必须显式加锁
+## 11. Board Class and bus lock mandatory constraints (new)
 
-- 只要一块板上有多个 IC 共享同一条 `I2C` 或 `SPI` 总线，就必须提供统一总线协调器
-- 至少要提供显式 `lock()/unlock()` 或 RAII guard，不能默认假设“单线程所以不会冲突”
-- OLED、RTC、PMU、键盘控制器、触摸、传感器、音频 codec 等共线设备都必须走同一总线入口
-- 禁止在多个 runtime 中各自直接 `Wire.begin()`、`Wire.setClock()`、`Wire` 读写而没有统一锁
+The following rules must be implemented for a long time and cannot be missed again:
 
-### 11.4 新板适配的板级检查项
+### 11.1 `board_profile` is not a replacement for the `Board` class
 
-- 是否已经补齐真实 `Board` 类，而不是只有 `board_profile`
-- `getBoard()` 是否返回真实实例
-- 是否已经建立统一 `I2C` 入口与 guard
-- 显示驱动是否通过共享总线协调器访问 `Wire`
-- 新增 RTC / PMU / 传感器 / 键盘时，是否继续复用同一把总线锁
+- Each specific hardware directory must provide a real board-level class, at least inheriting `BoardBase`
+- `board_profile.*` Only responsible for static pins, capability boundaries, device addresses, hardware constants
+- `board_profile.*` is not responsible for carrying dynamic behaviors such as power management, brightness, battery, RTC, prompts, bus coordination, etc.
+- The facade/runtime in `apps/<device>` cannot return empty `getBoard()` for a long time
 
-### 11.5 参考实现要求
+### 11.2 Board-level capabilities must be unified into the real `Board` class
 
-- `tdeck` 与 `pager` 的板级实现是当前参考样式
-- 新板适配前，必须先查看参考板的 `BoardBase` 收口方式与总线锁策略
-- 如果新板缺少这些层，先补板级抽象和总线协调，再继续叠业务能力
+- GPIO initialization, peripheral power-on, LED, brightness, battery, RTC, input device, prompt sound and other board-level capabilities should be unified into the specific `Board` class first
+- The `platform` layer can retain runtime / bridge / adapter, but the same board-level truth value cannot be dispersed in multiple runtimes for long-term maintenance
+- `apps` is only responsible for assembly, not directly responsible for board-level peripheral arrangement
 
-## 12. BLE / LoRa / Settings �߽�ǿ��Լ����������
+### 11.3 Shared `I2C` / `SPI` bus must be explicitly locked
 
-- `boards/<board>/` ����弶Ӳ�� owner�����š���Դ�ſء�����ʵ����������������������������������ڡ�
-- `platform/<chip>/` ���������ɸ��õ�ƽ̨ջ�����繲�� `BleManager`������ BLE service������ radio transport �ӿڡ�ƽ̨ bridge��
-- `apps/<device>/` ֻ���� composition root���� board owner��platform manager��shared modules �����������ø���һ�ݰ�ר�� BLE/LoRa/settings runtime��
-- ��������ܹ��� BLE �߼���ǰ������ǡ�ƽ̨ջ�������弶�����ѱ� board owner ���ա�app ֻ�� wiring��������ͨ���� app �︴�� manager ��ɡ����湲������
-- `settings` ��ֵֻ����һ�� owner����� runtime ��Ҫ��ȡʱ��������ͨ�� bridge/provider ���������� BLE / radio / UI / host config ���á�
-- �弶������ֻ�ǡ�Ĭ���� / fallback ǰ׺ / Ӳ��չʾ�� / Ĭ�Ϲ㲥���������Ʒ������������ app �� board ע�룬��ֹ�� shared module �� platform shared runtime ��д�� `GAT562` ֮�������
+- As long as there are multiple ICs on one board sharing the same `I2C` or `SPI` bus, you must provide a unified bus coordinator
+- At least explicit `lock()/unlock()` or RAII guard must be provided, and "single-threaded so no conflict" cannot be assumed by default
+- OLED, RTC, PMU, keyboard controller, touch, sensor, audio codec and other collinear devices must use the same bus entrance
+- It is forbidden to directly use each other in multiple runtimes `Wire.begin()`, `Wire.setClock()`, `Wire` read and write without unified lock
+
+### 11.4 Board-level check items for new board adaptation
+
+- Whether the real `Board` class has been completed, instead of only `board_profile`
+- `getBoard()` Whether to return the real instance
+- Whether the unified `I2C` entrance and guard have been established
+- Display whether the driver accesses `Wire` through the shared bus coordinator
+- When adding RTC / PMU / sensor / keyboard, whether to continue to reuse the same bus lock
+
+### 11.5 Reference implementation requirements
+
+- The board-level implementation of `tdeck` and `pager` is the current reference style
+- Before adapting to the new board, you must first check the `BoardBase` closing method and bus lock strategy of the reference board
+- If the new board lacks these layers, first supplement the board-level abstraction and bus coordination, and then continue to stack business capabilities
+
+## 12. BLE / LoRa / Settings boundary enforcement constraints (new)
+
+- `boards/<board>/` is responsible for the board-level hardware owner: pins, power gating, bus instances, shared bus locks, and specific peripheral object life cycles.
+- `platform/<chip>/` is responsible for a truly reusable platform stack: such as shared `BleManager`, shared BLE service, shared radio transport interface, and platform bridge.
+- `apps/<device>/` is only responsible for the composition root: connect the board owner, platform manager, and shared modules, and do not copy the board-specific BLE/LoRa/settings runtime.
+- If two boards can share BLE logic, the prerequisite must be "platform stack sharing, board-level differences have been absorbed by the board owner, and the app only does wiring"; "surface sharing" cannot be achieved by copying the manager in the app.
+- The true value of `settings` can only have one owner; when multiple runtimes need to be read, they must first be converged through bridge/provider and then reused by BLE/radio/UI/host config.
+- If the board-level difference is only product parameters such as "default name/fallback prefix/hardware display name/default broadcast name", they must be injected by the app or board. It is prohibited to hard-code board names such as `GAT562` in shared module or platform shared runtime.

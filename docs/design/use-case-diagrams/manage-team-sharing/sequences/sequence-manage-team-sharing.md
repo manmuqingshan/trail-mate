@@ -1,11 +1,11 @@
-# Sequence：Leader 与 Candidate 配对
+# Sequence: Leader and Candidate pairing
 ```mermaid
 sequenceDiagram
-  actor L as Leader 用户
+ actor L as Leader user
   participant LP as Leader PairingCoordinator
   participant Transport as Active Mesh Transport
   participant MP as Member PairingCoordinator
-  actor M as Candidate 用户
+ actor M as Candidate user
   participant Store as Team UI/Key Store
   L->>LP: start pairing
   LP->>Transport: PairRequest(team,proof)
@@ -20,22 +20,20 @@ sequenceDiagram
   Store-->>M: Team active
 ```
 
-## 场景与责任
+## Scenarios and responsibilities
 
-Leader/Member PairingCoordinator 各自拥有本地 pairing phase；Transport 只承载已验证消息；Candidate 用户确认加入意图；Key Store 是本地 TeamId、keys 和 role 的持久化边界。
+Leader/Member PairingCoordinator each has a local pairing phase; Transport only carries verified messages; Candidate user confirms joining intention; Key Store is the persistence boundary of local TeamId, keys and role.
 
-## 顺序与认证
+## Sequence and Authentication
 
-PairRequest 必须带团队和 leader proof；Member 展示可验证信息后才接受确认。PairConfirm 关联原 request nonce/session。KeyDist 只发给已确认 candidate，并使用适合的保护上下文，不能把团队共享 key 明文放入普通广播。
+PairRequest must bring team and leader proof; Member will only accept confirmation after displaying verifiable information. PairConfirm is associated with the original request nonce/session. KeyDist is only sent to confirmed candidates and uses the appropriate protection context. The plain text of the team shared key cannot be put into ordinary broadcast.
 
-## 提交语义
+## Submission semantics
 
-Leader 收到 confirm 不等于 Member 已 active。Member 只有在 key material 验证和 Store 提交成功后进入 Team active。Leader 的 roster 投影何时加入成员需要独立 ACK/revision；当前实现对此仍不完整。
+Leader receiving confirm does not mean that Member is active. Members can only enter Team active after key material verification and Store submission are successful. The Leader's roster projection of when members are added requires independent ACK/revision; the current implementation is still incomplete for this.
 
-## 重复、超时与撤销
+## Repeat, timeout and revocation
 
-重复 request/confirm/keyDist 按 pairing session 幂等。超时清除临时 key material，不创建成员。Leader 取消或 candidate 拒绝后，迟到消息不能恢复 session。旧 key version 不能覆盖新团队状态。
+Repeat request/confirm/keyDist by pairing session idempotent. Timeout clears temporary key material and does not create members. After leader cancellation or candidate rejection, late messages cannot restore the session. Old key versions cannot overwrite new team status.
 
-## 测试
-
-覆盖伪造 proof、用户拒绝、confirm 丢失、重复 KeyDist、Store 失败、两次并发 pairing 和 leader/member 状态不一致。
+## test

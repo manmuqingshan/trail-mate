@@ -4,11 +4,11 @@
 docs/specification/CROSS_PLATFORM_PRODUCT_ARCHITECTURE_SPEC.md
 ```
 
-# 1. 核心问题重新定义
+# 1. Core problem redefined
 
-Trail Mate 不是单一固件，也不是单一 Linux app。它是一个跨平台户外通信/导航产品族。
+Trail Mate is not a single firmware, nor is it a single Linux app. It is a cross-platform outdoor communication/navigation product family.
 
-它面对的变体不是一维的。
+The variants it faces are not one-dimensional.
 
 ```text
 ESP32
@@ -17,14 +17,14 @@ ESP32
   - T-Deck Pro
   - T-Watch S3
   - Cardputer Zero
-  - 其他 SX1262 / SX127x / GPS / 屏幕组合
+ - Other SX1262 / SX127x / GPS / screen combination
 
 nRF52
   - GAT562
   - RNode-like endpoint
   - BLE phone host
   - LoRa coprocessor
-  - 独立低功耗 Mesh 节点
+ - Independent low-power Mesh node
 
 Linux
   - uConsole AIO2
@@ -34,7 +34,7 @@ Linux
   - headless daemon
 ```
 
-同时 UI 也不是一种：
+At the same time, the UI is not the same:
 
 ```text
 - LVGL embedded UI
@@ -45,17 +45,17 @@ Linux
 - Web / remote control future shell
 ```
 
-所以规格的目标不是“把代码分成 core/platform/app”这么简单，而是要保证：
+So the goal of the specification is not as simple as "dividing the code into core/platform/app", but to ensure that:
 
 ```text
-同一个业务语义不因板子、芯片、OS、UI 技术栈、调度模型而漂移。
+The same business semantics will not drift due to the board, chip, OS, UI technology stack, and scheduling model.
 ```
 
 ------
 
-# 2. 总分层模型
+# 2. Total layered model
 
-完整架构应该是：
+The complete architecture should be:
 
 ```text
 Target Manifest
@@ -69,7 +69,7 @@ Presentation Models
 Shell / Renderer
 ```
 
-并行支撑层：
+Parallel support layer:
 
 ```text
 Board Package
@@ -80,34 +80,34 @@ Storage Backends
 Concurrency Policy
 ```
 
-更具体：
+More specific:
 
 ```text
 docs/targets/*.yaml
-    声明产品目标
+ Declare product goals
 
 boards/*
 platform/*/boards/*
-    声明硬件事实
+ Declare hardware facts
 
 platform/*
-    提供平台能力适配
+ Provide platform capability adaptation
 
 modules/core_*
-    提供共享领域、协议、用例、表现模型
+ Provide shared areas, protocols, use cases, performance models
 
 apps/*
-    组合目标产品
+ Combine target products
 
-shells 或 apps/*/ui/*
-    具体 UI 技术栈
+shells or apps/*/ui/*
+ Specific UI technology stack
 ```
 
 ------
 
-# 3. 必须引入 Target / Board / Platform 三重区分
+# 3. The triple distinction of Target / Board / Platform must be introduced
 
-之前我们混用了：
+We mixed them before:
 
 ```text
 ESP32 target
@@ -115,15 +115,15 @@ ESP32 platform
 ESP32 board
 ```
 
-这三个不能再混。
+These three cannot be mixed anymore.
 
 ------
 
 ## 3.1 Platform
 
-Platform 是芯片/OS/运行环境。
+Platform is the chip/OS/running environment.
 
-例如：
+For example:
 
 ```text
 esp32
@@ -133,36 +133,36 @@ test
 simulator
 ```
 
-Platform 决定：
+Platform decision:
 
 ```text
-- 可用 SDK
-- 线程/task 模型
-- ISR 模型
-- 存储 API
-- 随机数 API
-- 时间 API
+- Available SDK
+- Thread/task model
+- ISR model
+- Storage API
+- Random number API
+- Time API
 - BLE stack
-- filesystem 能力
-- 构建工具链
+- Filesystem capabilities
+- Build toolchain
 ```
 
-Platform 不决定：
+Platform does not decide:
 
 ```text
-- 哪个 LoRa 芯片接在哪个 pin
-- 哪个屏幕分辨率
-- 产品 UI 形态
-- 用户看到哪些功能
+- Which LoRa chip is connected to which pin
+- Which screen resolution
+- Product UI shape
+- What features users see
 ```
 
 ------
 
 ## 3.2 Board Variant
 
-Board 是具体硬件变体。
+Boards are specific hardware variants.
 
-例如：
+For example:
 
 ```text
 t_lora_pager
@@ -174,10 +174,10 @@ uconsole_aio2
 cardputer_zero
 ```
 
-Board 决定硬件事实：
+Board determines the hardware facts:
 
 ```text
-- LoRa chip 型号
+- LoRa chip model
 - LoRa SPI bus / reset / busy / dio1 / tx_en
 - GPS UART / power pin / PPS
 - display driver / resolution / rotation
@@ -187,23 +187,23 @@ Board 决定硬件事实：
 - BLE antenna / coexistence constraints
 ```
 
-Board 不决定：
+Board does not decide:
 
 ```text
-- direct message 怎么发
-- Meshtastic BLE 怎么响应
-- MeshCore command 怎么解释
-- ChatService 怎么存消息
-- UI 页面怎么布局
+- How to send direct message
+- How to respond to Meshtastic BLE
+- How to interpret MeshCore command
+- How to store messages in ChatService
+- How to lay out UI page
 ```
 
 ------
 
 ## 3.3 Target
 
-Target 是产品构成。
+Target is the product component.
 
-例如：
+For example:
 
 ```text
 trailmate-tpager-esp32
@@ -217,26 +217,26 @@ trailmate-linux-gtk
 trailmate-esp32-lvgl
 ```
 
-Target 决定：
+Target determines:
 
 ```text
-- 用哪个 platform
-- 用哪个 board
-- 哪些 capability 启用
-- 状态权威在哪里
-- 使用哪个 UI shell
-- 使用哪个 storage backend
-- 使用哪个 concurrency policy
-- 使用哪个 protocol profile
+- Which platform to use
+- Which board to use
+- Which capabilities are enabled
+- Where is the state authority?
+- Which UI shell to use
+- Which storage backend to use
+- Which concurrency policy to use
+- Which protocol profile to use
 ```
 
-Target 必须有 manifest。
+Target must have a manifest.
 
 ------
 
-# 4. Target Manifest 必须升级
+# 4. Target Manifest must be upgraded
 
-之前的 manifest 只覆盖 capability/authority。现在要覆盖：
+The previous manifest only covered capability/authority. Now to cover:
 
 ```text
 platform
@@ -254,7 +254,7 @@ build features
 race policy
 ```
 
-建议模板：
+Suggested template:
 
 ```yaml
 target: "trailmate-tpager-esp32"
@@ -399,19 +399,19 @@ build:
 
 ------
 
-# 5. Board Package 规格
+# 5. Board Package specification
 
-必须新增一份板级规格：
+A new board level specification must be added:
 
 ```text
 docs/specification/BOARD_PACKAGE_SPEC.md
 ```
 
-## 5.1 Board Package 职责
+## 5.1 Board Package Responsibilities
 
-Board package 只拥有硬件事实和板级 bring-up。
+Board package only has hardware facts and board level bring-up.
 
-允许：
+Allow:
 
 ```text
 - pin map
@@ -426,7 +426,7 @@ Board package 只拥有硬件事实和板级 bring-up。
 - board sleep/wake hooks
 ```
 
-禁止：
+Forbidden:
 
 ```text
 - ChatService
@@ -434,14 +434,14 @@ Board package 只拥有硬件事实和板级 bring-up。
 - DirectMessageService
 - MeshtasticPhoneCore
 - MeshCorePhoneCore
-- ConfigService 业务解释
-- UI 页面状态
+- ConfigService business explanation
+- UI page status
 - BLE phone protocol
-- GPS 业务策略
-- LoRa packet 语义
+- GPS business policy
+- LoRa packet semantics
 ```
 
-## 5.2 Board Package 结构
+## 5.2 Board Package structure
 
 ```text
 platform/
@@ -473,7 +473,7 @@ platform/
 
 ## 5.3 Board Manifest
 
-每个板子必须有：
+Each board must have:
 
 ```yaml
 board: "t_lora_pager"
@@ -513,28 +513,28 @@ facts:
     charger: true
 ```
 
-这和 target manifest 不同：
+This is different from the target manifest:
 
 ```text
-board_manifest.yaml 说明硬件有什么。
-target_manifest.yaml 说明产品怎么使用这些硬件。
+board_manifest.yaml explains what the hardware has.
+target_manifest.yaml describes how the product uses these hardware.
 ```
 
 ------
 
-# 6. Runtime / Concurrency 规格
+# 6. Runtime / Concurrency specifications
 
-这是你刚才指出的重点：不同 ESP32 板子、nRF52、Linux 都会面对不同竞态。
+This is the key point you just pointed out: different ESP32 boards, nRF52, and Linux will face different race conditions.
 
-必须新增：
+Must add:
 
 ```text
 docs/specification/RUNTIME_CONCURRENCY_SPEC.md
 ```
 
-## 6.1 竞态来源
+## 6.1 Race sources
 
-Trail Mate 至少有这些并发源：
+Trail Mate has at least these concurrent sources:
 
 ```text
 - Radio IRQ
@@ -555,32 +555,32 @@ Trail Mate 至少有这些并发源：
 - Timer / retry / ACK timeout
 ```
 
-这些如果不规格化，会导致：
+If these are not standardized, they will lead to:
 
 ```text
-- UI 在非 UI 线程更新
-- BLE callback 直接改 ChatService
-- radio IRQ 直接触发业务
-- GPS parser 和 UI 同时读写 location
-- config 更新和 radio apply 并发
-- sleep 时 radio/gps/ble 还在访问硬件
-- SQLite/NVS/flash 并发写
+- UI is updated in non-UI thread
+- BLE callback directly changes ChatService
+- radio IRQ directly triggers business
+- GPS parser and UI read and write location at the same time
+- Concurrent config update and radio apply
+- radio/gps/ble when sleeping Still accessing hardware
+- SQLite/NVS/flash concurrent writing
 ```
 
 ------
 
-## 6.2 总规则：外部输入全部转成事件
+## 6.2 General rules: all external inputs are converted into events
 
-禁止：
+Forbidden:
 
 ```text
-ISR -> 直接业务
-BLE callback -> 直接业务
-UART callback -> 直接业务
-UI callback -> 直接改底层 driver
+ISR -> direct business
+BLE callback -> direct business
+UART callback -> direct business
+UI callback -> Directly change the underlying driver
 ```
 
-必须：
+Required:
 
 ```text
 ISR / callback / transport
@@ -593,9 +593,9 @@ ISR / callback / transport
 
 ------
 
-## 6.3 单 owner 规则
+## 6.3 Single owner rule
 
-每个 mutable service 必须有 owner context。
+Each mutable service must have an owner context.
 
 ```text
 ChatService owner: app service context
@@ -606,15 +606,15 @@ DeviceStatus owner: device service context
 UI State owner: UI context
 ```
 
-其他线程/task 不能直接改，只能投递 command/event。
+Other threads/tasks cannot be modified directly and can only deliver command/event.
 
 ------
 
-## 6.4 Snapshot 规则
+## 6.4 Snapshot Rules
 
-UI 不应该直接读 mutable service 内部对象。
+UI should not read mutable service internal objects directly.
 
-应该：
+Should:
 
 ```text
 App Service
@@ -623,7 +623,7 @@ App Service
             -> Shell Renderer
 ```
 
-例如：
+For example:
 
 ```cpp
 struct ChatListSnapshot {
@@ -633,58 +633,58 @@ struct ChatListSnapshot {
 };
 ```
 
-UI 获取 snapshot 后渲染。
-后台继续更新不会破坏 UI。
+Render the UI after obtaining the snapshot.
+Continuing updates in the background will not destroy the UI.
 
 ------
 
-## 6.5 UI Thread Only 规则
+## 6.5 UI Thread Only Rules
 
-不同 UI 技术栈都要遵守“UI 只能在自己的 UI context 更新”。
+Different UI technology stacks must comply with "UI can only be updated in its own UI context".
 
 ### LVGL
 
 ```text
-- lv_obj_* 只能在 LVGL owner task/thread 调用
-- 其他 task 只能投递 UI command
-- 不能从 BLE/radio/GPS callback 直接改 LVGL object
+- lv_obj_* can only be called in LVGL owner task/thread
+- Other tasks can only deliver UI commands
+- The LVGL object cannot be changed directly from BLE/radio/GPS callback
 ```
 
 ### GTK
 
 ```text
-- GTK widget 只能在 GTK main loop 更新
-- 后台线程通过 idle/source/channel 投递更新
+- GTK widget can only be called in GTK main loop Update
+- The background thread delivers updates through idle/source/channel
 ```
 
 ### ASCII / TUI
 
 ```text
-- terminal buffer 有单一 renderer owner
-- 输入线程和刷新线程不能同时写 stdout
-- 后台事件只更新 model 或提交 render request
+- The terminal buffer has a single renderer owner
+- The input thread and the refresh thread cannot write stdout at the same time
+- Background events only update the model or submit render request
 ```
 
 ### Headless
 
 ```text
-- 不存在 UI thread
-- 只导出 snapshot / logs / API
+- There is no UI thread
+- Only export snapshot / logs / API
 ```
 
 ------
 
-## 6.6 ISR 规则
+## 6.6 ISR Rules
 
-ISR 只能：
+ISR can only:
 
 ```text
-- 清中断
-- 记录最小标志
-- 投递 lightweight event
+- Clear interrupt
+- Record minimum flag
+- Deliver lightweight event
 ```
 
-ISR 禁止：
+ISR prohibits:
 
 ```text
 - malloc/free
@@ -698,9 +698,9 @@ ISR 禁止：
 
 ------
 
-## 6.7 Storage 并发规则
+## 6.7 Storage Concurrency Rules
 
-Storage backend 必须声明：
+Storage backend must declare:
 
 ```text
 - single writer
@@ -710,7 +710,7 @@ Storage backend 必须声明：
 - erase/write blocking behavior
 ```
 
-ESP32 NVS、nRF52 flash、SQLite 完全不同：
+ESP32 NVS, nRF52 flash, SQLite are completely different:
 
 ```text
 ESP32 NVS:
@@ -723,13 +723,13 @@ SQLite:
   transaction, file lock, can support stronger consistency but must avoid UI thread blocking
 ```
 
-所以 store port 不能只是：
+So the store port cannot be just:
 
 ```cpp
 bool save(...)
 ```
 
-至少要有：
+At least:
 
 ```cpp
 StoreResult
@@ -739,12 +739,12 @@ StoreConcurrencyPolicy
 
 ------
 
-# 7. UI 架构必须拆成 Presentation Model + Renderer
+# 7. The UI architecture must be split into Presentation Model + Renderer
 
-你说的 ASCII/LVGL/GTK 是关键。
-不能让业务层为了 LVGL 组织状态，也不能让 GTK 复用 LVGL 页面。
+What you said ASCII/LVGL/GTK is key.
+The business layer cannot be allowed to organize state for LVGL, nor can GTK be allowed to reuse LVGL pages.
 
-必须新增：
+Must add:
 
 ```text
 docs/specification/UI_PRESENTATION_ARCHITECTURE_SPEC.md
@@ -752,14 +752,14 @@ docs/specification/UI_PRESENTATION_ARCHITECTURE_SPEC.md
 
 ------
 
-## 7.1 三层 UI
+## 7.1 Three-layer UI
 
 ```text
 App Service
-    业务状态与动作
+ Business status and actions
 
 Presentation Model
-    UI 无关的页面/工作区状态与动作
+ UI-independent page/workspace status and actions
 
 Shell / Renderer
     LVGL / ASCII / GTK / CLI / Headless
@@ -769,7 +769,7 @@ Shell / Renderer
 
 ## 7.2 App Service
 
-例如：
+For example:
 
 ```text
 ChatService
@@ -781,7 +781,7 @@ ConfigService
 DeviceStatusService
 ```
 
-不允许知道：
+Not allowed to know:
 
 ```text
 LVGL
@@ -797,9 +797,9 @@ layout
 
 ## 7.3 Presentation Model
 
-Presentation Model 负责把 App Service 变成“可展示状态”。
+The Presentation Model is responsible for turning the App Service into a "presentable state".
 
-例如：
+For example:
 
 ```text
 ChatWorkspaceModel
@@ -810,18 +810,18 @@ GpsStatusModel
 MeshStatusModel
 ```
 
-它可以知道：
+It can know:
 
 ```text
-- 当前选中哪个 conversation
-- 当前列表滚动位置的抽象 cursor
-- 当前 workspace 的 actions
-- 字段格式化
-- 行/列/面板概念
-- compact / desktop / terminal 的 presentation profile
+- Which conversation is currently selected
+- The abstract cursor of the current list scroll position
+- Actions of the current workspace
+- Field formatting
+- Row/column/panel concepts
+- Compact/desktop/terminal presentation profile
 ```
 
-但不能知道：
+But you cannot know:
 
 ```text
 lv_obj_t
@@ -835,7 +835,7 @@ framebuffer
 
 ## 7.4 Renderer / Shell
 
-Renderer 才知道具体技术。
+Renderer only knows the specific technology.
 
 ```text
 LVGL renderer:
@@ -853,20 +853,20 @@ CLI renderer:
 
 ------
 
-## 7.5 UI 技术栈不允许拥有业务
+## 7.5 UI technology stack does not allow business operations
 
-禁止：
+Forbidden:
 
 ```text
-lvgl_chat_page.cpp 里直接实现 message dedup
-gtk_map_page.cpp 里直接解析 GPS NMEA
-ascii_mesh_view.cpp 里直接读 peer key store
+Message dedup is directly implemented in lvgl_chat_page.cpp
+Gtk_map_page.cpp is used to directly parse GPS NMEA
+ascii_mesh_view.cpp is used to directly read peer key store
 ```
 
-允许：
+Allow:
 
 ```text
-renderer 调用 presentation model action:
+Renderer calls presentation model action:
   sendMessage()
   selectContact()
   toggleLayer()
@@ -877,7 +877,7 @@ renderer 调用 presentation model action:
 
 # 8. UI Target Profile
 
-不同 UI 应该有 profile，而不是靠 ifdef 到处判断。
+Different UIs should have profiles instead of relying on ifdef to judge everywhere.
 
 ```yaml
 ui:
@@ -893,7 +893,7 @@ ui:
     text_input: "limited"
 ```
 
-ASCII：
+ASCII:
 
 ```yaml
 ui:
@@ -908,7 +908,7 @@ ui:
     primary: "keyboard"
 ```
 
-GTK：
+GTK:
 
 ```yaml
 ui:
@@ -922,7 +922,7 @@ ui:
     primary: "keyboard_pointer"
 ```
 
-Headless：
+Headless:
 
 ```yaml
 ui:
@@ -933,27 +933,27 @@ ui:
 
 ------
 
-# 9. Board Variant 与 UI 的关系
+# 9. The relationship between Board Variant and UI
 
-Board 可以告诉你：
-
-```text
-屏幕尺寸、输入设备、旋转方向
-```
-
-但 Board 不能决定：
+Board can tell you:
 
 ```text
-使用哪个页面布局
+Screen size, input device, rotation direction
 ```
 
-Target 决定：
+But Board cannot decide:
 
 ```text
-这个板子上的产品用哪个 shell/profile
+Which page layout to use
 ```
 
-例如同一个 Linux：
+Target determines:
+
+```text
+Which shell/profile to use for the products on this board
+```
+
+For example, the same Linux:
 
 ```text
 linux_uconsole_gtk
@@ -961,19 +961,19 @@ linux_uconsole_ascii
 linux_headless
 ```
 
-可以共享同一套 AppService 和 PresentationModel，但 Shell 不同。
+ can share the same set of AppService and PresentationModel, but the Shell is different.
 
 ------
 
-# 10. Capability 规格需要增加 Board Binding
+# 10. Capability specifications need to add Board Binding
 
-之前 capability 只说 endpoint_host。现在要增加：
+Previously the capability only said endpoint_host. Now add:
 
 ```text
 capability binding
 ```
 
-因为同样是 ESP32，不同板子的 LoRa/GPS 接线不同。
+Because it is also ESP32, the LoRa/GPS wiring of different boards is different.
 
 ```yaml
 capability_bindings:
@@ -1001,20 +1001,20 @@ capability_bindings:
     event_target: "ui_command_queue"
 ```
 
-这样能避免：
+This can avoid:
 
 ```text
-AppContext 直接知道 T-LoRa Pager 的 GPS pin
-BLE service 直接知道 GAT562 board
-UI 直接读 board display rotation
+AppContext directly knows the GPS pin of T-LoRa Pager
+BLE service directly knows the GAT562 board
+UI directly reads board display rotation
 ```
 
 ------
 
-# 11. 产品组合层 Product Composition
+# 11. Product Composition Layer Product Composition
 
-Apps 层不能无限膨胀成上帝对象。
-应该定义 Product Composition Root。
+The Apps layer cannot expand infinitely into a God object.
+Product Composition Root should be defined.
 
 ```text
 apps/<target>/
@@ -1027,44 +1027,44 @@ apps/<target>/
   capability_composition.cpp
 ```
 
-职责：
+Responsibilities:
 
 ```text
-- 读取/引用 target manifest
-- 创建 board facts provider
-- 创建 platform drivers
-- 创建 stores
-- 创建 protocol cores
-- 创建 app services
-- 创建 presentation models
-- 创建 shell renderer
-- 连接 event queues
+- Read/reference target manifest
+- Create board facts provider
+- Create platform drivers
+- Create stores
+- Create protocol cores
+- Create app services
+- Create presentation models
+- Create shell renderer
+- Connect event queues
 ```
 
-禁止：
+Forbidden:
 
 ```text
-- 在 composition root 里写 direct message 业务
-- 在 composition root 里解析 BLE phone protocol
-- 在 composition root 里解析 NMEA
-- 在 composition root 里拼 UI 业务数据
+- Write direct message business in composition root
+- Parse BLE phone protocol in composition root
+- Parse NMEA in composition root
+- Write UI business data in composition root
 ```
 
 ------
 
-# 12. Event Bus / Command Bus 规格
+# 12. Event Bus / Command Bus specifications
 
-跨平台共享时，事件模型必须明确。
+When sharing across platforms, the event model must be clear.
 
-建议新增：
+It is recommended to add:
 
 ```text
 modules/core_runtime
 ```
 
-或者先作为规格定义。
+or define it as a specification first.
 
-## 12.1 事件类型分层
+## 12.1 Event type layering
 
 ```text
 HardwareEvent
@@ -1100,7 +1100,7 @@ ShellEvent
   WindowResized
 ```
 
-禁止低层事件越级：
+Prohibit low-level event skipping:
 
 ```text
 HardwareEvent -> UI
@@ -1110,7 +1110,7 @@ Radio IRQ -> ContactService
 
 ------
 
-## 12.2 Command 类型分层
+## 12.2 Command type layering
 
 ```text
 UiCommand
@@ -1133,24 +1133,24 @@ DriverCommand
   SetGpio
 ```
 
-UI 只能发 `UiCommand` 或调用 presentation action。
-PresentationModel 转成 AppCommand。
-AppService 再转 CapabilityCommand。
+UI can only send `UiCommand` or call presentation action.
+PresentationModel is converted to AppCommand.
+AppService then transfers to CapabilityCommand.
 
 ------
 
-# 13. 配置系统必须区分三类配置
+# 13. The configuration system must distinguish three types of configurations
 
-很多跨平台漂移来自 config 混在一起。
+A lot of cross-platform drift comes from config being mixed together.
 
-必须区分：
+Must distinguish:
 
 ## 13.1 Product Config
 
-用户意义配置：
+User meaning configuration:
 
 ```text
-- 当前协议 Meshtastic/MeshCore
+-Current protocol Meshtastic/MeshCore
 - region
 - modem preset
 - screen timeout
@@ -1158,7 +1158,7 @@ AppService 再转 CapabilityCommand。
 - team mode
 ```
 
-归属：
+Ownership:
 
 ```text
 core_config + AppService
@@ -1166,7 +1166,7 @@ core_config + AppService
 
 ## 13.2 Platform Config
 
-平台运行配置：
+Platform operation configuration:
 
 ```text
 - Linux data root
@@ -1176,7 +1176,7 @@ core_config + AppService
 - GTK window size
 ```
 
-归属：
+Ownership:
 
 ```text
 platform/app target
@@ -1184,7 +1184,7 @@ platform/app target
 
 ## 13.3 Board Facts
 
-硬件事实：
+Hardware Facts:
 
 ```text
 - pins
@@ -1193,22 +1193,22 @@ platform/app target
 - GPS UART
 ```
 
-归属：
+Ownership:
 
 ```text
 board package
 ```
 
-禁止把 Board Facts 放进 Product Config。
-禁止让用户 UI 修改 board pin。
-禁止让 Meshtastic BLE config 写 Linux path。
-禁止让 GTK settings 直接改 radio driver without ConfigService。
+It is forbidden to put Board Facts into Product Config.
+Do not allow the user UI to modify the board pin.
+Disable Meshtastic BLE config from writing Linux path.
+It is forbidden to directly change the radio driver without ConfigService in GTK settings.
 
 ------
 
-# 14. Shared Core 代码规则要进一步严格
+# 14. Shared Core code rules must be further stricted
 
-因为要支持 nRF52 + ESP32 + Linux + 多 UI，共享模块要分等级。
+Because nRF52 + ESP32 + Linux + multiple UIs must be supported, shared modules must be hierarchical.
 
 ## 14.1 Core Portable Level
 
@@ -1216,7 +1216,7 @@ board package
 core_portable
 ```
 
-允许：
+Allow:
 
 ```text
 - fixed buffer
@@ -1227,7 +1227,7 @@ core_portable
 - explicit capacity
 ```
 
-用于：
+Used for:
 
 ```text
 core_mesh
@@ -1242,7 +1242,7 @@ core_config schema
 core_rich
 ```
 
-允许更丰富结构，但不能进 MCU 必需路径：
+Allows richer structure, but cannot enter MCU. Required path:
 
 ```text
 - std::vector
@@ -1252,7 +1252,7 @@ core_rich
 - Linux-friendly projection
 ```
 
-用于：
+Used for:
 
 ```text
 Linux search
@@ -1261,15 +1261,15 @@ map package index
 diagnostics
 ```
 
-Target manifest 要声明能用哪个 level。
+Target manifest declares which level can be used.
 
 ------
 
-# 15. Presentation Model 也要分 portable/rich
+# 15. Presentation Model should also be divided into portable/rich
 
-嵌入式和 Linux UI 不同，不应该强行共用一个巨大的 presentation model。
+Embedded and Linux UI are different, and they should not be forced to share a huge presentation model.
 
-建议：
+Suggestions:
 
 ```text
 modules/ui_presentation/
@@ -1284,15 +1284,15 @@ modules/ui_presentation/
       device_status_model.h
 ```
 
-规则：
+Rules:
 
 ```text
-- compact model 可用于 LVGL/ASCII/小屏
-- workbench model 可用于 GTK/uConsole
-- 两者共享 AppService，不共享布局对象
+- compact model can be used for LVGL/ASCII/small screens
+- workbench model can be used in GTK/uConsole
+- The two share AppService, not layout objects
 ```
 
-例子：
+Example:
 
 ```text
 ChatSummaryModel:
@@ -1309,24 +1309,24 @@ ChatWorkbenchModel:
   search/filter
 ```
 
-LVGL 不必吃 GTK 的 workspace model。
-GTK 不必复用 LVGL 页面。
+LVGL does not have to eat GTK's workspace model.
+GTK does not have to reuse LVGL pages.
 
 ------
 
-# 16. ASCII UI 特别规则
+# 16. ASCII UI special rules
 
-ASCII/TUI 不是“简单日志输出”，它也是 Shell。
+ASCII/TUI is not "simple log output", it is also a shell.
 
-需要约束：
+Required constraints:
 
 ```text
-ASCII renderer 只能消费 presentation model。
-不能直接读 service/store。
-不能直接访问 radio/GPS/BLE。
+ASCII renderer can only consume presentation model.
+Service/store cannot be read directly.
+Cannot access radio/GPS/BLE directly.
 ```
 
-ASCII renderer 输出应通过：
+ASCII renderer output should pass:
 
 ```text
 AsciiCanvas
@@ -1335,7 +1335,7 @@ AsciiTheme
 TerminalInputAdapter
 ```
 
-而不是业务代码里到处 `printf()`。
+Instead of `printf()` everywhere in the business code.
 
 ```cpp
 class AsciiCanvas {
@@ -1346,36 +1346,36 @@ public:
 };
 ```
 
-这样以后 CLI/TUI 也能保持架构边界。
+In this way, CLI/TUI can also maintain architectural boundaries in the future.
 
 ------
 
-# 17. LVGL 特别规则
+# 17. LVGL special rules
 
-LVGL 页面必须变薄。
+LVGL pages must be thinned.
 
-禁止：
+Forbidden:
 
 ```text
-lvgl page 直接:
-- 读写 store
-- 解析协议
-- 访问 board
-- 访问 radio driver
-- 访问 gps driver
-- 修改 config backend
+lvgl page directly:
+- read and write store
+- parse protocol
+- access board
+- access radio driver
+- access gps driver
+- modify config backend
 ```
 
-允许：
+Allow:
 
 ```text
 lvgl page:
-- 绑定 presentation model
-- 渲染 snapshot
-- 发送 UI action
+- Bind presentation model
+- Render snapshot
+- Send UI action
 ```
 
-推荐结构：
+Recommended structure:
 
 ```text
 platform/esp/.../ui/lvgl_shell/
@@ -1391,30 +1391,30 @@ modules/ui_presentation/
 
 ------
 
-# 18. GTK 特别规则
+# 18. GTK special rules
 
-GTK 是 desktop shell，不是 Linux 业务层。
+GTK is a desktop shell, not a Linux business layer.
 
-禁止：
-
-```text
-gtk page:
-- 自己维护 ContactService
-- 自己解析 Meshtastic node info
-- 自己拼 device status
-- 自己读 SQLite 表绕过 AppService
-```
-
-允许：
+Forbidden:
 
 ```text
 gtk page:
-- 显示 richer presentation model
-- 发 action
-- 处理 keyboard/mouse/window
+- Maintain ContactService by yourself
+- Parse Meshtastic node info by yourself
+- Spell device status by yourself
+- Read SQLite table by yourself and bypass AppService
 ```
 
-GTK 主线程规则必须写死：
+Allow:
+
+```text
+gtk page:
+- Display richer presentation model
+- Send action
+- Process keyboard/mouse/window
+```
+
+GTK main thread rules must be hard-coded:
 
 ```text
 All GtkWidget mutations must happen on GTK main loop.
@@ -1423,12 +1423,12 @@ Background services publish snapshots/events only.
 
 ------
 
-# 19. Headless / CLI 规则
+# 19. Headless/CLI rules
 
-Linux 可能有 daemon 或 CLI。
-它不能变成“绕过架构的调试捷径”。
+Linux may have a daemon or CLI.
+It cannot be turned into a "debugging shortcut to bypass the architecture".
 
-CLI 命令也必须走 AppService：
+CLI commands must also go through AppService:
 
 ```text
 trailmate send --to ...
@@ -1437,24 +1437,24 @@ trailmate send --to ...
             -> DirectMessageService
 ```
 
-禁止：
+Forbidden:
 
 ```text
-CLI 直接打开 SQLite 改 peer key
-CLI 直接调用 radio driver 发包
+CLI directly opens SQLite and changes the peer key
+CLI directly calls the radio driver to send the package
 ```
 
-除非命令明确是低层诊断命令，并放在 diagnostics capability 下。
+Unless the command is explicitly a low-level diagnostic command and placed under diagnostics capability.
 
 ------
 
-# 20. 多 ESP32 板子类的具体约束
+# 20. Specific constraints on multiple ESP32 board subclasses
 
-你特别指出不同 ESP32 有不同板子类。这里必须具体化。
+You specifically pointed out that different ESP32s have different board subclasses. Things have to be concrete here.
 
-## 20.1 不允许 `#ifdef BOARD_X` 扩散
+## 20.1 Do not allow `#ifdef BOARD_X` to spread
 
-禁止：
+Forbidden:
 
 ```cpp
 #ifdef BOARD_T_DECK
@@ -1464,9 +1464,9 @@ CLI 直接调用 radio driver 发包
 #endif
 ```
 
-散落在业务、UI、协议代码中。
+ scattered in business, UI, and protocol codes.
 
-允许它集中在：
+Allow it to focus on:
 
 ```text
 board package
@@ -1478,7 +1478,7 @@ build config
 
 ## 20.2 Board Facade
 
-每个 board 实现统一接口：
+Each board implements a unified interface:
 
 ```cpp
 class IBoardPackage {
@@ -1492,7 +1492,7 @@ public:
 };
 ```
 
-Board-specific 类可以很多：
+Board-specific classes can be many:
 
 ```text
 TLoraPagerBoard
@@ -1502,13 +1502,13 @@ Gat562Board
 UConsoleAio2Board
 ```
 
-但上层只看 `IBoardPackage`。
+But the upper layer only looks at `IBoardPackage`.
 
 ------
 
 ## 20.3 Board Runtime Hooks
 
-板子可以有 runtime hook：
+Boards can have runtime hooks:
 
 ```cpp
 class IBoardRuntimeHooks {
@@ -1519,13 +1519,13 @@ public:
 };
 ```
 
-但 hook 不允许调用业务服务，只能处理硬件状态。
+But hooks do not allow calling business services and can only handle hardware status.
 
 ------
 
 # 21. Race Policy Manifest
 
-每个 target 必须声明竞态策略：
+Each target must declare a race strategy:
 
 ```yaml
 race_policy:
@@ -1551,13 +1551,13 @@ race_policy:
     - "ui_thread -> blocking storage write"
 ```
 
-这个比抽象讲“注意线程安全”有用得多。
+This is much more useful than abstractly talking about "pay attention to thread safety".
 
 ------
 
-# 22. 新增规格文档清单
+# 22. New specification document list
 
-最终建议新增这些：
+Finally, it is recommended to add these:
 
 ```text
 docs/specification/
@@ -1571,11 +1571,11 @@ docs/specification/
   EVENT_COMMAND_FLOW_SPEC.md
 ```
 
-不是一次全写到极致，但 Phase 1 至少要把文件和核心规则立起来。
+It is not all written at once, but Phase 1 should at least establish the documents and core rules.
 
 ------
 
-# 23. 目录结构建议
+# 23. Directory structure suggestions
 
 ```text
 modules/
@@ -1645,61 +1645,61 @@ apps/
 
 ------
 
-# 附录1:实现细则
+# Appendix 1: Implementation details
 
 ```text
-业务稳定以后，跨平台改造的目标不是重新设计业务，
-而是把已经稳定的业务语义从平台、板级、UI、协议通道、运行时细节中剥离出来，
-让它成为可复用、可测试、可替换宿主的应用核心。
+After the business is stable, the goal of cross-platform transformation is not to redesign the business.
+It is to separate the already stable business semantics from the platform, board level, UI, protocol channel, and runtime details,
+to make it a reusable, testable, and replaceable host application core.
 ```
 
-对应工程原则：
+Corresponding engineering principles:
 
 ```text
-Domain 定义事实；
-UseCase 编排业务；
-ProtocolCore 解释协议；
-CapabilityPort 描述所需能力；
-PlatformAdapter 提供能力；
-BoardPackage 描述硬件事实；
-RuntimeContext 处理调度和并发；
-PresentationModel 投影界面状态；
-Renderer 只负责绘制；
-CompositionRoot 负责组装。
+Domain defines facts;
+UseCase orchestrates business;
+ProtocolCore explains the protocol;
+CapabilityPort describes the required capabilities;
+PlatformAdapter provides capabilities;
+BoardPackage describes hardware facts;
+RuntimeContext handles scheduling and concurrency;
+PresentationModel projects the interface state;
+Renderer is only responsible for drawing;
+CompositionRoot is responsible for assembly.
 ```
 
 ------
 
-# 1. 分层总览与设计模式对应
+# 1. The hierarchical overview corresponds to the design pattern
 
-先给全局映射。
+First give the global mapping.
 
-| 层                            | 责任                 | 主要设计模式                                        | 目的                                      |
+| Layers | Responsibilities | Main design patterns | Purpose |
 | ----------------------------- | -------------------- | --------------------------------------------------- | ----------------------------------------- |
-| Domain                        | 定义业务事实和值对象 | Value Object、Entity                                | 去平台化，统一语义                        |
-| UseCase / Application Service | 编排业务流程         | Application Service、Command Handler、State Machine | 稳定业务唯一实现                          |
-| Protocol Core                 | 解释外部协议         | Strategy、Codec、State Machine、Mapper              | Meshtastic/MeshCore/BLE/HostLink 协议复用 |
-| Capability Ports              | 定义所需能力         | Ports and Adapters、Repository Interface            | 隔离平台能力                              |
-| Platform Adapters             | 实现能力             | Adapter、Repository、Proxy、Null Object             | ESP32/nRF52/Linux 可替换                  |
-| Board Package                 | 描述硬件事实         | Abstract Factory、Provider                          | 隔离不同板子                              |
-| Runtime Context               | 处理并发调度         | Active Object、Reactor、Command Queue、Event Queue  | 消解竞态                                  |
-| Config Core                   | 管理配置语义         | Schema、Patch、Validator、Repository                | 多入口统一改配置                          |
-| Device Core                   | 聚合能力状态         | Snapshot、Projection、Facade                        | UI/BLE/HostLink 共享设备状态              |
-| Presentation Model            | UI 无关状态          | MVVM、Presenter、CQRS Read Model                    | LVGL/ASCII/GTK 复用                       |
-| Renderer / Shell              | 绘制与输入           | Renderer、Adapter、Command                          | UI 技术栈隔离                             |
-| Composition Root              | 组装对象             | Dependency Injection、Abstract Factory、Builder     | 控制依赖方向                              |
+| Domain | Define business facts and value objects | Value Object, Entity | De-platform, unify semantics |
+| UseCase / Application Service | Orchestrate business processes | Application Service, Command Handler, State Machine | The only implementation of stable business |
+| Protocol Core | Interpret external protocols | Strategy, Codec, State Machine, Mapper | Meshtastic/MeshCore/BLE/HostLink protocol reuse |
+| Capability Ports | Define required capabilities | Ports and Adapters, Repository Interface | Isolate platform capabilities |
+| Platform Adapters | Implement capabilities | Adapter, Repository, Proxy, Null Object | ESP32/nRF52/Linux Replaceable |
+| Board Package | Describe hardware facts | Abstract Factory, Provider | Isolate different boards |
+| Runtime Context | Handling concurrent scheduling | Active Object, Reactor, Command Queue, Event Queue | Resolving race conditions |
+| Config Core | Management configuration semantics | Schema, Patch, Validator, Repository | Unified configuration changes for multiple entries |
+| Device Core | Aggregation capability status | Snapshot, Projection, Facade | UI/BLE/HostLink shared device status |
+| Presentation Model | UI state-independent | MVVM, Presenter, CQRS Read Model | LVGL/ASCII/GTK reuse |
+| Renderer / Shell | Drawing and input | Renderer, Adapter, Command | UI technology stack isolation |
+| Composition Root | Assembly object | Dependency Injection, Abstract Factory, Builder | Control dependency direction |
 
-这不是“模式堆砌”。每个模式对应一个具体结构性问题。
+This is not "pattern stuffing". Each pattern corresponds to a specific structural problem.
 
 ------
 
-# 2. Domain 层：稳定业务语义的原子层
+# 2. Domain layer: the atomic layer that stabilizes business semantics
 
-## 2.1 目标
+## 2.1 Goal
 
-Domain 层只定义业务中的“事实”和“值”。
+The Domain layer only defines "facts" and "values" in the business.
 
-例如：
+For example:
 
 ```text
 NodeId
@@ -1715,13 +1715,13 @@ DeviceCapability
 ConfigValue
 ```
 
-它不做 I/O，不调平台 API，不知道 UI。
+It does not do I/O, does not adjust the platform API, and does not know the UI.
 
-## 2.2 使用模式
+## 2.2 Usage mode
 
 ### Value Object
 
-用于不可变业务值：
+For immutable business values:
 
 ```cpp
 namespace domain {
@@ -1750,13 +1750,13 @@ struct Timestamp {
 }
 ```
 
-目的：
+Purpose:
 
 ```text
-把“节点 ID”“消息 ID”“时间戳”这些语义从 uint32_t / uint64_t 中解放出来。
+Free the semantics of "node ID", "message ID" and "timestamp" from uint32_t / uint64_t.
 ```
 
-避免：
+Avoid:
 
 ```cpp
 uint32_t node;
@@ -1765,13 +1765,13 @@ uint32_t id;
 uint32_t from;
 ```
 
-到处混。
+Humbling around.
 
 ------
 
 ### Entity
 
-用于有身份、有生命周期的业务对象：
+Used for business objects with identity and life cycle:
 
 ```cpp
 namespace chat {
@@ -1797,17 +1797,17 @@ struct Contact {
 }
 ```
 
-目的：
+Purpose:
 
 ```text
-让消息、联系人、节点等业务对象在所有平台上语义一致。
+Make business objects such as messages, contacts, nodes, etc. semantically consistent on all platforms.
 ```
 
 ------
 
-## 2.3 Domain 层禁止事项
+## 2.3 Domain layer prohibitions
 
-Domain 禁止 include：
+Domain prohibition include:
 
 ```cpp
 Arduino.h
@@ -1821,43 +1821,43 @@ lvgl.h
 gtk/...
 ```
 
-Domain 禁止：
+Domain prohibition:
 
 ```text
-- 访问 NVS / SQLite / Flash
-- 发 LoRa packet
-- 解析 BLE characteristic
-- 访问 GPS UART
-- 更新 UI
-- 加锁
-- 起线程
+- Access NVS / SQLite / Flash
+- Send LoRa packet
+- Analyze BLE characteristic
+- Access GPS UART
+- Update UI
+- Lock
+- Starting thread
 ```
 
 ------
 
-# 3. UseCase 层：稳定业务的唯一实现
+# 3. UseCase layer: the only realization of stable business
 
-业务已经稳定，所以 UseCase 层要做的是：
-
-```text
-把稳定业务流程固化为唯一实现。
-```
-
-例如：
+The business has been stabilized, so what the UseCase layer needs to do is:
 
 ```text
-发送直连消息
-收到 Mesh packet
-更新联系人
-GPS fix 更新
-BLE phone command 处理
-配置变更
-设备状态聚合
+Consolidate the stable business process into the only realization.
 ```
 
-## 3.1 使用模式：Application Service
+For example:
 
-例如 DirectMessageService：
+```text
+Send direct message
+Receive Mesh packet
+Update contacts
+GPS fix update
+BLE phone command processing
+Configuration changes
+Device status aggregation
+```
+
+## 3.1 Usage mode: Application Service
+
+For example, DirectMessageService:
 
 ```cpp
 class DirectMessageService {
@@ -1922,13 +1922,13 @@ private:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-ESP32、nRF52、Linux 发直连消息时，走同一个 DirectMessageService。
+ESP32, nRF52, and Linux use the same DirectMessageService when sending direct messages.
 ```
 
-平台差异只在：
+The only platform differences are:
 
 ```text
 IPacketRadio
@@ -1940,9 +1940,9 @@ IRandom
 
 ------
 
-## 3.2 使用模式：Command Handler
+## 3.2 Usage mode: Command Handler
 
-对于 UI、BLE、HostLink、CLI 进来的操作，不应该直接调用底层服务，而应该统一成 Command。
+For operations coming from UI, BLE, HostLink, and CLI, the underlying services should not be called directly, but should be unified into Commands.
 
 ```cpp
 struct SendDirectMessageCommand {
@@ -1963,7 +1963,7 @@ using AppCommand = Variant<
 >;
 ```
 
-统一处理：
+Unified processing:
 
 ```cpp
 class AppCommandHandler {
@@ -1992,19 +1992,19 @@ private:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-UI / BLE / HostLink / CLI 都只发命令，不直接操纵业务内部对象。
+UI / BLE / HostLink / CLI only issue commands and do not directly manipulate internal business objects.
 ```
 
 ------
 
-## 3.3 使用模式：State Machine
+## 3.3 Usage mode: State Machine
 
-MeshSession、BLE phone session、GPS runtime、HostLink session 都应该是显式状态机。
+MeshSession, BLE phone session, GPS runtime, and HostLink session should all be explicit state machines.
 
-例如 MeshSession：
+For example, MeshSession:
 
 ```cpp
 enum class MeshSessionState {
@@ -2028,10 +2028,10 @@ private:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-避免一堆 bool：
+Avoid a bunch of bools:
 radioReady
 meshStarted
 gpsSynced
@@ -2039,7 +2039,7 @@ bleConnected
 configApplied
 ```
 
-状态机可以精确表达：
+The state machine can accurately express:
 
 ```text
 Stopped -> Starting -> Ready -> Degraded -> Error
@@ -2047,11 +2047,11 @@ Stopped -> Starting -> Ready -> Degraded -> Error
 
 ------
 
-# 4. Protocol Core 层：协议语义和 transport 分离
+# 4. Protocol Core layer: separation of protocol semantics and transport
 
-这是 BLE/Meshtastic/MeshCore 里最容易混的地方。
+This is the most confusing place in BLE/Meshtastic/MeshCore.
 
-## 4.1 协议核心分四类
+## 4.1 The protocol core is divided into four categories
 
 ```text
 core_mesh/protocol/meshtastic
@@ -2061,7 +2061,7 @@ core_phone/protocol/meshcore
 core_hostlink
 ```
 
-区别：
+Difference:
 
 ```text
 Meshtastic radio protocol:
@@ -2080,13 +2080,13 @@ HostLink protocol:
   USB/Serial frame / command / event
 ```
 
-这些不应该混在 BLE host 或 radio adapter 里。
+These should not be mixed in the BLE host or radio adapter.
 
 ------
 
-## 4.2 使用模式：Strategy
+## 4.2 Usage mode: Strategy
 
-Meshtastic 和 MeshCore 是不同协议策略。
+Meshtastic and MeshCore are different protocol strategies.
 
 ```cpp
 class MeshProtocolStrategy {
@@ -2113,7 +2113,7 @@ public:
 };
 ```
 
-实现：
+Implementation:
 
 ```cpp
 class MeshtasticProtocolStrategy final : public MeshProtocolStrategy {
@@ -2125,18 +2125,18 @@ class MeshCoreProtocolStrategy final : public MeshProtocolStrategy {
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-上层 DirectMessageService 不关心当前是 Meshtastic 还是 MeshCore。
-切协议只替换 strategy。
+The upper DirectMessageService does not care whether it is Meshtastic or MeshCore.
+The protocol only replaces strategy.
 ```
 
 ------
 
-## 4.3 使用模式：Codec
+## 4.3 Usage mode: Codec
 
-Codec 只做编码/解码，不做业务决策。
+Codec only does encoding/decoding and does not make business decisions.
 
 ```cpp
 class MeshtasticPacketCodec {
@@ -2146,21 +2146,21 @@ public:
 };
 ```
 
-Codec 禁止：
+Codec prohibited:
 
 ```text
-- 查 peer key
-- 决定是否发送
-- 决定是否更新 contact
-- 访问 radio
-- 访问 storage
+- Check peer key
+- Decide whether to send
+- Decide whether to update contact
+- Access radio
+- Access storage
 ```
 
 ------
 
-## 4.4 使用模式：Mapper / Translator
+## 4.4 Usage mode: Mapper / Translator
 
-BLE phone protocol 与 AppCommand 之间要用 Mapper。
+Mapper is required between BLE phone protocol and AppCommand.
 
 ```cpp
 class MeshtasticPhoneCommandMapper {
@@ -2177,23 +2177,23 @@ public:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-Meshtastic BLE 的 ToRadio/FromRadio 是外部协议对象。
-AppCommand/AppEvent 是内部业务对象。
-两者不能互相污染。
+Meshtastic BLE's ToRadio/FromRadio are external protocol objects.
+AppCommand/AppEvent are internal business objects.
+The two cannot contaminate each other.
 ```
 
 ------
 
-# 5. Capability Ports：能力接口
+# 5. Capability Ports: Capability interface
 
-这一层是 Hexagonal Architecture / Ports and Adapters 的核心。
+This layer is the core of Hexagonal Architecture / Ports and Adapters.
 
-## 5.1 使用模式：Port Interface
+## 5.1 Usage mode: Port Interface
 
-业务需要什么能力，就定义 port。
+Define the port according to the capabilities required by the business.
 
 ### Radio
 
@@ -2260,19 +2260,19 @@ public:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-UseCase 不知道 NVS / SQLite / nRF52 flash。
-ProtocolCore 不知道 Bluefruit / NimBLE / BlueZ。
-LocationService 不知道 UART / Linux fd。
+UseCase doesn't know about NVS / SQLite / nRF52 flash.
+ProtocolCore doesn't know about Bluefruit / NimBLE / BlueZ.
+LocationService does not know UART/Linux fd.
 ```
 
 ------
 
-## 5.2 使用模式：Repository
+## 5.2 Usage mode: Repository
 
-Store port 用 Repository 模式。
+Store port uses Repository mode.
 
 ```cpp
 class IMessageRepository {
@@ -2287,7 +2287,7 @@ public:
 };
 ```
 
-实现：
+Implementation:
 
 ```text
 EspNvsPeerKeyStore
@@ -2296,25 +2296,25 @@ SqlitePeerKeyStore
 FakePeerKeyStore
 ```
 
-目的：
+Purpose:
 
 ```text
-同一业务服务可以在不同存储后端运行。
+The same business service can run on different storage backends.
 ```
 
 ------
 
-## 5.3 使用模式：Null Object
+## 5.3 Usage mode: Null Object
 
-某些 target 没有某能力，例如 headless 没有 display，Linux 当前不支持 BLE。
+Some targets do not have certain capabilities, such as headless without display, and Linux currently does not support BLE.
 
-不要到处写：
+Don't write everywhere:
 
 ```cpp
 if (ble != nullptr) ...
 ```
 
-使用 Null Object：
+Use Null Object:
 
 ```cpp
 class NullBleGattHost final : public IBleGattHost {
@@ -2333,19 +2333,19 @@ public:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-能力不存在也是一种明确对象，而不是 null 分支。
+The ability not to exist is also an explicit object, not a null branch.
 ```
 
 ------
 
-# 6. Platform Adapter 层：把平台 API 包起来
+# 6. Platform Adapter layer: Wrapping the platform API
 
-## 6.1 使用模式：Adapter
+## 6.1 Usage mode: Adapter
 
-ESP32：
+ESP32:
 
 ```cpp
 class EspSx1262PacketRadio final : public IPacketRadio {
@@ -2366,7 +2366,7 @@ public:
 };
 ```
 
-nRF52：
+nRF52:
 
 ```cpp
 class Nrf52Sx1262PacketRadio final : public IPacketRadio {
@@ -2374,7 +2374,7 @@ class Nrf52Sx1262PacketRadio final : public IPacketRadio {
 };
 ```
 
-Linux：
+Linux:
 
 ```cpp
 class LinuxAio2Sx1262PacketRadio final : public IPacketRadio {
@@ -2382,27 +2382,27 @@ class LinuxAio2Sx1262PacketRadio final : public IPacketRadio {
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-平台 API 的不一致性在 Adapter 内收敛。
+The inconsistency of the platform API is converged in the Adapter.
 ```
 
-Adapter 禁止：
+Adapter prohibits:
 
 ```text
-- direct message 业务
-- peer key 逻辑
+- direct message business
+- peer key logic
 - BLE phone protocol
-- GPS 业务策略
-- UI 状态
+- GPS business policy
+- UI status
 ```
 
 ------
 
-## 6.2 使用模式：Proxy
+## 6.2 Usage mode: Proxy
 
-Linux + nRF52 radio endpoint 时，Linux 的 `IPacketRadio` 实现不是本机 radio，而是 proxy。
+Linux + nRF52 radio endpoint, Linux's `IPacketRadio` implementation is not a native radio, but a proxy.
 
 ```cpp
 class SerialPacketRadioProxy final : public IPacketRadio {
@@ -2427,20 +2427,20 @@ private:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-Linux 仍然运行 Mesh 业务核心；
-nRF52 只是 packet radio endpoint。
+Linux still runs the Mesh business core;
+nRF52 is just a packet radio endpoint.
 ```
 
-这和 command proxy 不同。
+This is different from command proxy.
 
 ------
 
 ## 6.3 Command Proxy
 
-如果 nRF52 是 smart coprocessor，则 Linux 不运行 DirectMessageService，而是发命令。
+If nRF52 is a smart coprocessor, Linux does not run DirectMessageService but sends commands.
 
 ```cpp
 class RemoteMeshCommandClient {
@@ -2451,26 +2451,26 @@ public:
 };
 ```
 
-这时：
+At this time:
 
 ```text
-DirectMessageService 在 nRF52；
-Linux 只有 RemoteMeshCommandClient。
+DirectMessageService in nRF52;
+Linux only has RemoteMeshCommandClient.
 ```
 
-目的：
+Purpose:
 
 ```text
-防止同一个用户动作被 Linux 和 nRF52 两个业务核心同时处理。
+Prevent the same user action from being processed by the two business cores of Linux and nRF52 at the same time.
 ```
 
 ------
 
-# 7. Board Package 层：多 ESP32 板子变体
+# 7. Board Package layer: Multiple ESP32 board variants
 
-## 7.1 使用模式：Provider / Abstract Factory
+## 7.1 Usage mode: Provider / Abstract Factory
 
-每个板子提供 `IBoardPackage`。
+Each board provides `IBoardPackage`.
 
 ```cpp
 class IBoardPackage {
@@ -2487,7 +2487,7 @@ public:
 };
 ```
 
-T-LoRa Pager：
+T-LoRa Pager:
 
 ```cpp
 class TLoraPagerBoard final : public IBoardPackage {
@@ -2516,7 +2516,7 @@ public:
 };
 ```
 
-T-Deck：
+T-Deck:
 
 ```cpp
 class TDeckBoard final : public IBoardPackage {
@@ -2524,18 +2524,18 @@ class TDeckBoard final : public IBoardPackage {
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-不同 ESP32 板子的差异只在 board package 和 composition root。
-业务、协议、UI model 不出现 BOARD_T_DECK / BOARD_TPAGER 分支。
+The only differences between different ESP32 boards are board package and composition root.
+The BOARD_T_DECK / BOARD_TPAGER branches do not appear in business, protocol, and UI models.
 ```
 
 ------
 
-## 7.2 使用模式：Abstract Factory
+## 7.2 Usage mode: Abstract Factory
 
-Platform 根据 board facts 创建 driver。
+Platform creates a driver based on board facts.
 
 ```cpp
 class EspCapabilityFactory {
@@ -2570,25 +2570,25 @@ private:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-board 只描述事实；
-factory 才根据事实创建平台驱动；
-业务层完全无感。
+Board only describes facts;
+factory creates platform drivers based on facts;
+The business layer is completely indifferent.
 ```
 
 ------
 
-# 8. Runtime / Concurrency 层：竞态问题结构化
+# 8. Runtime/Concurrency layer: race problem structuring
 
-这是嵌入式和 Linux 差异最大的地方。
+This is the biggest difference between embedded and Linux.
 
-不能靠“注意线程安全”。必须设计通信模式。
+You cannot rely on "pay attention to thread safety". Communication patterns must be designed.
 
-## 8.1 使用模式：Active Object
+## 8.1 Usage mode: Active Object
 
-每个 mutable service 有 owner context。
+Each mutable service has owner context.
 
 ```text
 RadioContext
@@ -2599,7 +2599,7 @@ UiContext
 StorageContext
 ```
 
-每个 context 有自己的队列：
+Each context has its own queue:
 
 ```cpp
 class IRuntimeQueue {
@@ -2609,7 +2609,7 @@ public:
 };
 ```
 
-例如：
+For example:
 
 ```text
 Radio IRQ
@@ -2620,17 +2620,17 @@ Radio IRQ
           -> UiContext snapshot event
 ```
 
-目的：
+Purpose:
 
 ```text
-跨 task / thread / callback 不直接共享 mutable state。
+ Mutable state is not directly shared across tasks / threads / callbacks.
 ```
 
 ------
 
-## 8.2 使用模式：Command Queue
+## 8.2 Usage mode: Command Queue
 
-UI / BLE / HostLink 都不能直接改业务，只投递命令。
+UI / BLE / HostLink cannot directly change the service, only deliver commands.
 
 ```cpp
 class AppCommandQueue {
@@ -2640,7 +2640,7 @@ public:
 };
 ```
 
-BLE callback：
+BLE callback:
 
 ```cpp
 void MeshtasticBleHost::onWrite(ByteView bytes) {
@@ -2652,7 +2652,7 @@ void MeshtasticBleHost::onWrite(ByteView bytes) {
 }
 ```
 
-PhoneCore context：
+PhoneCore context:
 
 ```cpp
 void PhoneRuntime::tick() {
@@ -2664,17 +2664,17 @@ void PhoneRuntime::tick() {
 }
 ```
 
-目的：
+Purpose:
 
 ```text
-BLE stack callback 不直接进入 ChatService / ConfigService / GPS。
+BLE stack callback does not directly enter ChatService / ConfigService / GPS.
 ```
 
 ------
 
-## 8.3 使用模式：Event Queue
+## 8.3 Usage mode: Event Queue
 
-业务结果通过事件发布。
+Business results are published through events.
 
 ```cpp
 struct AppEvent {
@@ -2684,7 +2684,7 @@ struct AppEvent {
 };
 ```
 
-例如：
+For example:
 
 ```text
 MessageReceived
@@ -2694,13 +2694,13 @@ ConfigChanged
 DeviceStatusChanged
 ```
 
-UI 收到后不直接读内部对象，而是请求 snapshot。
+After receiving it, the UI does not read the internal object directly, but requests a snapshot.
 
 ------
 
-## 8.4 使用模式：Immutable Snapshot
+## 8.4 Usage mode: Immutable Snapshot
 
-UI 不直接读 mutable service。
+The UI does not read the mutable service directly.
 
 ```cpp
 struct DeviceStatusSnapshot {
@@ -2719,7 +2719,7 @@ struct ChatListSnapshot {
 };
 ```
 
-AppService 生成 snapshot：
+AppService generates snapshot:
 
 ```cpp
 class ChatProjectionService {
@@ -2728,17 +2728,17 @@ public:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-LVGL / GTK / ASCII 都渲染快照，不持有业务内部引用。
+LVGL/GTK/ASCII all render snapshots and do not hold business internal references.
 ```
 
 ------
 
-## 8.5 ISR 规则
+## 8.5 ISR rules
 
-ISR 只做 defer。
+ISR only defers.
 
 ```cpp
 void IRAM_ATTR radioDio1Isr() {
@@ -2746,10 +2746,10 @@ void IRAM_ATTR radioDio1Isr() {
 }
 ```
 
-禁止：
+Forbidden:
 
 ```text
-ISR 内：
+In ISR:
 - protobuf decode
 - packet decrypt
 - storage write
@@ -2775,7 +2775,7 @@ void UiRuntime::tick() {
 }
 ```
 
-所有 `lv_obj_*` 只在 UI runtime。
+All `lv_obj_*` are only in UI runtime.
 
 ### GTK
 
@@ -2799,17 +2799,17 @@ void AsciiShell::render(const AppSnapshot& snapshot) {
 }
 ```
 
-目的：
+Purpose:
 
 ```text
-每种 UI 技术栈都有自己的线程/循环约束，但业务层不需要知道。
+Each UI technology stack has its own thread/loop constraints, but the business layer does not need to know.
 ```
 
 ------
 
-# 9. Config Core：多入口统一配置
+# 9. Config Core: Multi-entry unified configuration
 
-配置会从这些入口修改：
+The configuration will be modified from these entries:
 
 ```text
 LVGL Settings
@@ -2818,12 +2818,12 @@ ASCII/CLI
 Meshtastic BLE Admin
 MeshCore BLE Command
 HostLink
-配置文件
+Configuration file
 ```
 
-如果各自直接写存储，必然漂移。
+If they write directly to the storage, they will inevitably drift.
 
-## 9.1 使用模式：Schema + Patch + Validator
+## 9.1 Usage mode: Schema + Patch + Validator
 
 ```cpp
 struct ConfigPatch {
@@ -2844,7 +2844,7 @@ public:
 };
 ```
 
-ConfigService：
+ConfigService:
 
 ```cpp
 class ConfigService {
@@ -2877,22 +2877,22 @@ private:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-所有入口都走同一个 ConfigService。
-Meshtastic BLE Admin 不直接改 NVS。
-GTK Settings 不直接改 SQLite。
-HostLink 不直接改 AppContext 内部字段。
+All entrances use the same ConfigService.
+Meshtastic BLE Admin does not change NVS directly.
+GTK Settings does not directly change SQLite.
+HostLink does not directly change the internal fields of AppContext.
 ```
 
 ------
 
-# 10. Device Core：能力状态聚合
+# 10. Device Core: Capability status aggregation
 
-BLE/HostLink/UI 都需要设备状态。不能各自拼。
+BLE/HostLink/UI all require device status. We cannot fight each other.
 
-## 10.1 使用模式：Facade + Projection
+## 10.1 Usage mode: Facade + Projection
 
 ```cpp
 class DeviceStatusService {
@@ -2916,17 +2916,17 @@ private:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-MeshtasticPhoneCore、MeshCorePhoneCore、HostLink、LVGL、GTK、ASCII 都消费同一份 DeviceStatusSnapshot。
+MeshtasticPhoneCore, MeshCorePhoneCore, HostLink, LVGL, GTK, and ASCII all consume the same DeviceStatusSnapshot.
 ```
 
 ------
 
-# 11. BLE 架构：Transport Host + Phone Core
+# 11. BLE architecture: Transport Host + Phone Core
 
-这是必须拆清楚的一块。
+This is a piece that must be dismantled.
 
 ## 11.1 BLE Host
 
@@ -2952,7 +2952,7 @@ private:
 };
 ```
 
-BLE Host 只做：
+BLE Host only does:
 
 ```text
 advertising
@@ -2997,11 +2997,11 @@ private:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-Meshtastic phone API 语义在 shared core。
-ESP32/nRF52 BLE 文件只负责 BLE transport。
+Meshtastic phone API semantics in shared core.
+ESP32/nRF52 BLE file is only responsible for BLE transport.
 ```
 
 ------
@@ -3028,20 +3028,20 @@ private:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-MeshCore BLE/NUS 命令解释在 shared core。
-BLE host 不拼 contact/status/device info。
+MeshCore BLE/NUS commands are explained in shared core.
+BLE host does not spell contact/status/device info.
 ```
 
 ------
 
-# 12. GPS 架构：ByteStream + Parser + LocationService + TimeAuthority
+# 12. GPS architecture: ByteStream + Parser + LocationService + TimeAuthority
 
 ## 12.1 GnssByteStream
 
-平台相关：
+Platform related:
 
 ```cpp
 class EspUartGnssByteStream final : public IGnssByteStream {
@@ -3049,7 +3049,7 @@ class EspUartGnssByteStream final : public IGnssByteStream {
 };
 ```
 
-Linux：
+Linux:
 
 ```cpp
 class LinuxSerialGnssByteStream final : public IGnssByteStream {
@@ -3057,7 +3057,7 @@ class LinuxSerialGnssByteStream final : public IGnssByteStream {
 };
 ```
 
-nRF52：
+nRF52:
 
 ```cpp
 class Nrf52UartGnssByteStream final : public IGnssByteStream {
@@ -3069,7 +3069,7 @@ class Nrf52UartGnssByteStream final : public IGnssByteStream {
 
 ## 12.2 NMEA Parser
 
-共享：
+Sharing:
 
 ```cpp
 class NmeaParser {
@@ -3118,17 +3118,17 @@ private:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-BLE / Mesh / HostLink / UI 不再直接读 GPS driver。
+BLE/Mesh/HostLink/UI no longer reads GPS driver directly.
 ```
 
 ------
 
-# 13. UI 架构：Presentation Model + Renderer
+# 13. UI architecture: Presentation Model + Renderer
 
-## 13.1 AppService 不知道 UI
+## 13.1 AppService does not know UI
 
 ```cpp
 class ChatService {
@@ -3139,7 +3139,7 @@ public:
 };
 ```
 
-不要出现：
+Do not appear:
 
 ```cpp
 lv_obj_t*
@@ -3179,11 +3179,11 @@ private:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-LVGL / ASCII / GTK 都可以消费 ChatWorkspaceModel，
-但不共享布局实现。
+LVGL / ASCII / GTK can consume ChatWorkspaceModel,
+But layout implementation is not shared.
 ```
 
 ------
@@ -3249,17 +3249,17 @@ private:
 };
 ```
 
-目的：
+Purpose:
 
 ```text
-UI 技术栈之间复用 presentation model，不复用 widget/page。
+Reuse the presentation model between UI technology stacks, but not the widget/page.
 ```
 
 ------
 
-# 14. App Composition Root：依赖注入
+# 14. App Composition Root: Dependency Injection
 
-最终每个 app 只做组装。
+In the end, each app only does assembly.
 
 ## 14.1 ESP32 T-Pager LVGL
 
@@ -3353,18 +3353,18 @@ public:
 };
 ```
 
-业务对象相同。
-替换的是 adapter、store、runtime、renderer。
+The business objects are the same.
+Replaces adapter, store, runtime, renderer.
 
 ------
 
-# 15. 自证方式：这套架构如何证明自己正确
+# 15. Self-certification method: How this architecture proves that it is correct
 
-这点很重要。架构不能只靠解释，要能被测试证明。
+This is very important. Architecture cannot rely solely on explanation, it must be proven by testing.
 
 ## 15.1 Contract Test
 
-每个 port 都有 contract test。
+Each port has a contract test.
 
 ```cpp
 void runPeerKeyStoreContract(IPeerKeyStore& store) {
@@ -3381,7 +3381,7 @@ void runPeerKeyStoreContract(IPeerKeyStore& store) {
 }
 ```
 
-同一测试跑：
+Run the same test:
 
 ```text
 FakePeerKeyStore
@@ -3390,7 +3390,7 @@ Nrf52FlashPeerKeyStore
 SqlitePeerKeyStore
 ```
 
-如果都通过，说明业务层真的不关心存储后端。
+If they all pass, it means that the business layer really does not care about the storage backend.
 
 ------
 
@@ -3417,38 +3417,38 @@ TEST("DirectMessageService sends via any packet radio") {
 }
 ```
 
-这个测试不需要 ESP32，不需要 Linux，不需要 nRF52。
-说明业务核心可独立运行。
+This test does not require ESP32, does not require Linux, does not require nRF52.
+Indicates that the business core can run independently.
 
 ------
 
 ## 15.3 Renderer Test
 
-同一个 snapshot：
+Same snapshot:
 
 ```cpp
 ChatWorkspaceSnapshot snapshot = makeChatSnapshot();
 ```
 
-分别测试：
+Tested separately:
 
 ```text
-LvglChatRenderer 不改业务
-AsciiChatRenderer 输出稳定文本
-GtkChatWorkspace 只更新 widget model
+LvglChatRenderer does not change the business
+AsciiChatRenderer outputs stable text
+GtkChatWorkspace only updates the widget model
 ```
 
-目的：
+Purpose:
 
 ```text
-UI 渲染不拥有业务状态。
+UI rendering does not have business state.
 ```
 
 ------
 
 ## 15.4 Race Test
 
-用 fake runtime 模拟事件顺序：
+Use fake runtime to simulate the sequence of events:
 
 ```text
 BLE write
@@ -3458,18 +3458,18 @@ Config patch
 UI refresh
 ```
 
-验证：
+Verification:
 
 ```text
-不会直接跨线程改 service
-所有变化通过 queue/snapshot
+Service will not be changed directly across threads
+All changes pass queue/snapshot
 ```
 
 ------
 
-# 16. 最终依赖方向
+# 16. Final dependency direction
 
-必须始终满足：
+Must always satisfy:
 
 ```text
 Renderer
@@ -3481,7 +3481,7 @@ Renderer
           <- PlatformAdapter
 ```
 
-Board 只被 Factory / CompositionRoot 使用：
+Board is only used by Factory / CompositionRoot:
 
 ```text
 CompositionRoot
@@ -3489,7 +3489,7 @@ CompositionRoot
   -> PlatformFactory
 ```
 
-协议：
+Protocol:
 
 ```text
 UseCase
@@ -3497,7 +3497,7 @@ UseCase
     -> Codec / CryptoFlow / Mapper
 ```
 
-BLE：
+BLE:
 
 ```text
 BleHost
@@ -3505,7 +3505,7 @@ BleHost
     -> AppFacade / AppCommandSink
 ```
 
-GPS：
+GPS:
 
 ```text
 GnssDriver
@@ -3514,7 +3514,7 @@ GnssDriver
       -> TimeAuthority / AppEvent
 ```
 
-UI：
+UI:
 
 ```text
 AppService
@@ -3525,31 +3525,31 @@ AppService
 
 ------
 
-# 17. 架构核心模式总结
+# 17. Summary of architectural core patterns
 
-最后把模式和目的再压缩一下。
+Finally, condense the mode and purpose again.
 
-| 模式                      | 用在哪里                      | 解决什么                        |
+| Mode | Where to use | What to solve |
 | ------------------------- | ----------------------------- | ------------------------------- |
-| Hexagonal Architecture    | 整体结构                      | 业务和平台分离                  |
-| Ports and Adapters        | Capability 接口               | ESP32/nRF52/Linux 替换实现      |
-| Repository                | Store                         | NVS/Flash/SQLite 统一           |
-| Strategy                  | Meshtastic/MeshCore           | 协议切换                        |
-| Codec                     | 协议编解码                    | 协议字节和业务分离              |
-| Mapper                    | 外部协议 ↔ 内部命令           | 防止 ToRadio/FromRadio 污染业务 |
-| Application Service       | UseCase                       | 稳定业务唯一实现                |
-| Command Handler           | UI/BLE/HostLink 输入          | 多入口统一动作                  |
-| State Machine             | Mesh/BLE/GPS/HostLink session | 状态显式化                      |
-| Facade                    | Phone/App/DeviceStatus        | 降低跨模块耦合                  |
-| Adapter                   | 平台驱动                      | 包装 SDK/API                    |
-| Proxy                     | Linux+nRF52 endpoint          | 远端能力本地化                  |
-| Null Object               | 不支持能力                    | 消除 null 分支                  |
-| Abstract Factory          | Board → Driver                | 板级变体隔离                    |
-| Active Object             | Runtime context               | 消解竞态                        |
-| Event Queue               | 异步事件                      | 跨线程安全                      |
-| Command Queue             | 用户/协议命令                 | 多入口统一                      |
-| Immutable Snapshot        | UI 状态                       | 防止 UI 读 mutable service      |
-| MVVM / Presentation Model | UI 复用                       | LVGL/ASCII/GTK 分离             |
-| Renderer                  | UI 绘制                       | 技术栈隔离                      |
-| Composition Root          | apps                          | 集中依赖注入                    |
+| Hexagonal Architecture | Overall structure | Separation of business and platform |
+| Ports and Adapters | Capability interface | ESP32/nRF52/Linux replacement implementation |
+| Repository | Store | NVS/Flash/SQLite unification |
+| Strategy | Meshtastic/MeshCore | Protocol switching |
+| Codec | Protocol encoding and decoding | Separation of protocol bytes and services |
+| Mapper | External protocol ↔ Internal command | Prevent ToRadio/FromRadio from polluting the business |
+| Application Service | UseCase | The only realization of stable business |
+| Command Handler | UI/BLE/HostLink input | Multi-entry unified action |
+| State Machine | Mesh/BLE/GPS/HostLink session | State explicit |
+| Facade | Phone/App/DeviceStatus | Reduce cross-module coupling |
+| Adapter | Platform driver | Packaging SDK/API |
+| Proxy | Linux+nRF52 endpoint | Remote capability localization |
+| Null Object | Unsupported capabilities | Eliminate null branches |
+| Abstract Factory | Board → Driver | Board level variant isolation |
+| Active Object | Runtime context | Eliminate race conditions |
+| Event Queue | Asynchronous events | Cross-thread safety |
+| Command Queue | User/protocol command | Multi-entry unification |
+| Immutable Snapshot | UI status | Prevent UI from reading mutable service |
+| MVVM / Presentation Model | UI reuse | LVGL/ASCII/GTK separation |
+| Renderer | UI drawing | Technology stack isolation |
+| Composition Root | apps | Centralized dependency injection |
 | ------------------------- | ----------------------------- | ------------------------------- |

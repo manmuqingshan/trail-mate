@@ -1,8 +1,7 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Sequence：通话资源独占</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/realtime-audio-call/sequences/sequence-realtime-audio-call.md"><h1>接听与资源独占</h1><pre class="mermaid">sequenceDiagram
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sequence: Call resource exclusive</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/realtime-audio-call/sequences/sequence-realtime-audio-call.md"><h1>Answering and resource exclusive</h1><pre class="mermaid">sequenceDiagram
 participant L as LXST
 participant C as Call Runtime
-actor U as 用户
-participant A as Resource Access
+actor U as Uparticipant A as Resource Access
 participant M as Audio Engine
 L->>C: incoming + ringing
 C->>A: soft preempt

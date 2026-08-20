@@ -1,46 +1,46 @@
-# Activity：离线态势组装
+# Activity: Offline Situation Assembly
 ```mermaid
 flowchart TD
-  Open --> Viewport["恢复视口"]
-  Viewport --> Fix{"可信 GNSS fix?"}
-  Fix -- 是 --> Offer["允许用户居中"]
-  Fix -- 否 --> Last["last-known / unknown"]
+ Open --> Viewport["Restore Viewport"]
+ Viewport --> Fix{"Trusted GNSS fix?"}
+ Fix -- Yes --> Offer["Allow user to center"]
+ Fix -- No --> Last["last-known / unknown"]
   Offer --> Tiles
-  Last --> Tiles["读取本地瓦片"]
-  Tiles --> TileState{"瓦片存在?"}
-  TileState -- 否 --> Base["坐标背景 + 缺瓦片状态"]
-  TileState -- 是 --> Base["离线底图"]
-  Base --> Overlay["节点/团队/航点/路线/轨迹投影"]
-  Overlay --> Fresh["按来源和时间标记新鲜度"]
-  Fresh --> Interact["平移/缩放/查看详情"]
+ Last --> Tiles["Read local tiles"]
+ Tiles --> TileState{"Tiles exist?"}
+ TileState -- No --> Base["Coordinate background + missing tile status"]
+ TileState -- Yes --> Base["Offline base map"]
+ Base --> Overlay["Node/Team/Waypoint/Route/Trajectory Projection"]
+ Overlay --> Fresh["Mark freshness by source and time"]
+ Fresh --> Interact["Pan/Zoom/View Details"]
 ```
 
-## 本图回答的问题
+## Questions answered by this picture
 
-设备在无网络、无当前 fix 或缺少部分瓦片时，如何仍然构造诚实的现场态势。地图活动不把“能画出来”当成“数据仍有效”，每个底图和叠加对象都保留来源与新鲜度。
+How to create an honest on-site situation when the device has no network, no current fix, or some missing tiles. Map activities do not treat "can be drawn" as "the data is still valid", and each basemap and overlay object retains its source and freshness.
 
-## 数据层与 owner
+## The data layer and owner
 
-视口属于用户界面偏好；GNSS fix 属于定位服务；瓦片属于本地地图存储；节点、团队成员、航点、路线和轨迹来自各自业务投影。Map model 只组合和渲染，不获得这些事实的写权限。
+The viewport belongs to the user interface preference; the GNSS fix belongs to the positioning service; the tiles belong to the local map storage; nodes, team members, waypoints, routes and trajectories come from their respective business projections. The Map model only composes and renders, and does not get write access to these facts.
 
-## 分支规则
+## Branching rules
 
-| 条件 | 地图行为 |
+| Conditions | Map behavior |
 | --- | --- |
-| 有可信当前 fix | 允许用户主动居中，不强制抢回视口 |
-| 只有 last-known | 显示来源时间和陈旧标识 |
-| 无位置 | 保留用户视口，不制造默认“当前位置” |
-| 瓦片缺失 | 显示坐标背景与缺瓦片状态 |
-| 存储忙 | 保留已显示瓦片并标记加载暂停 |
+| There is a trusted current fix | Allow users to actively center without forcing the viewport back |
+| Only last-known | Show source time and stale identification |
+| No position | Keep user viewport, do not create a default "current position" |
+| Missing tiles | Display coordinate background and missing tile status |
+| Storage busy | Keep the displayed tiles and mark the loading pause |
 
-## 叠加对象语义
+## Overlay object semantics
 
-不同来源使用不同类型、标识和时间。协议节点不是联系人，联系人不是团队成员，路线不是已记录轨迹。点击详情沿 source owner 下钻，不能在地图层直接改写对方聚合。
+Different sources use different types, identifiers, and times. Protocol nodes are not contacts, contacts are not team members, and routes are not recorded tracks. Click the details to drill down along the source owner. You cannot directly overwrite the other aggregation on the map layer.
 
-## 并发与性能
+## Concurrency and performance
 
-视口变化、fix 更新和瓦片读取可以并发。每次异步瓦片结果携带 viewport generation，迟到结果不能覆盖新视口。叠加更新采用快照/差异投影，避免在 UI 线程读取可变共享容器。
+Viewport changes, fix updates and tile reading can be concurrent. Each asynchronous tile result carries the viewport generation, and late results cannot cover the new viewport. Overlay updates use snapshot/difference projection to avoid reading mutable shared containers on the UI thread.
 
-## 测试
+## Testing
 
-覆盖无 fix、last-known、缺瓦片、存储忙、快速平移导致迟到瓦片、过期团队位置和相同坐标的不同对象类型。
+ Covers different object types with no fix, last-known, missing tiles, storage busy, late tiles caused by fast panning, expired team positions and the same coordinates.

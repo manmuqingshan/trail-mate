@@ -1,11 +1,9 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Sequence：Settings 到活动 backend</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/configure-radio-parameters/sequences/sequence-configure-radio-parameters.md"><h1>Settings 到活动 backend</h1><pre class="mermaid">sequenceDiagram
-actor U as 用户
-participant S as Settings
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sequence: Settings to activity backend</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/configure-radio-parameters/sequences/sequence-configure-radio-parameters.md"><h1>Settings to activity backend</h1><pre class="mermaid">sequenceDiagram
+actor U as Userparticipant S as Settings
 participant C as AppConfig
 participant R as MeshAdapterRouter
-participant P as 协议分区存储
-participant Radio as Radio owner
-U->>S: 保存配置
+participant P as Protocol partition storageparticipant Radio as Radio owner
+U->>S: S
 S->>C: validate
 S->>R: installBackend
 R->>Radio: stop old

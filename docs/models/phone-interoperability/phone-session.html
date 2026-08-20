@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>IPhoneAppFacade 到协议 core</title></head><body><main data-praxis-anchor="diagram:phone-session" data-praxis-kind="uml_diagram"><h1>IPhoneAppFacade 到协议 core</h1><pre class="mermaid">sequenceDiagram
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>IPhoneAppFacade to protocol core</title></head><body><main data-praxis-anchor="diagram:phone-session" data-praxis-kind="uml_diagram"><h1>IPhoneAppFacade to protocol core</h1><pre class="mermaid">sequenceDiagram
 participant App as Phone application adapter
 participant Facade as IPhoneAppFacade
 participant Core as Selected phone protocol core
@@ -9,4 +9,4 @@ App-&gt;&gt;Facade: applyConfigPatch or submitCommand
 Facade-&gt;&gt;Core: map application intent
 Core-&gt;&gt;Transport: protocol-specific bounded frame
 Transport--&gt;&gt;Core: response or event
-Core--&gt;&gt;Facade: typed result</pre><p>共同 Facade 不意味着两种协议拥有相同 wire semantics。</p></main></body></html>
+Core--&gt;&gt;Facade: typed result</pre><p>Common Facade does not mean that two protocols have the same wire semantics.</p></main></body></html>

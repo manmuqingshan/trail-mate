@@ -1,36 +1,36 @@
-# Trail Mate 项目时间线
+# Trail Mate project timeline
 
 <!-- praxis:project-timeline:start -->
 
-- 项目版本：0.1.30-alpha
-- Git：34aad0bffa2f / main / dirty
-- 更新于：2026-06-25T09:10:47.794Z
+- Project version: 0.1.30-alpha
+- Git:34aad0bffa2f / main / dirty
+- Updated on: 2026-06-25T09:10:47.794Z
 
-## 时间线
+## Timeline
 
-### 2026-06-24 v0.1.30-alpha 发布
+### 2026-06-24 v0.1.30-alpha released
 
-新增 T-Echo Lite 支持、nRF52 MeshCore 发现入口、Emoji 及符号输入、西里尔语言包；重构协议运行时与存储层。
+Added T-Echo Lite support, nRF52 MeshCore discovery portal, Emoji and symbol input, Cyrillic language package; reconstructed protocol runtime and storage layer.
 
-来源：CHANGELOG.md#[0.1.30-alpha]
+Source: CHANGELOG.md#[0.1.30-alpha]
 
-## 当前进度
+## Current progress
 
-- **T-LoRa-Pager 固件**（done）：当前主要验证设备，支持全部核心功能。
-  - 证据：README.md#设备支持表
-- **T-Deck 固件**（done）：键盘和聊天功能已适配，是第二个主要验证平台。
-  - 证据：README.md#设备支持表
-- **LoRa 聊天（Meshtastic/MeshCore）**（done）：文本消息、联系人列表、位置分享等功能已实现，兼容两个主流协议。
-  - 证据：README.md#LoRa Chat
-  - 证据：CHANGELOG.md#0.1.30-alpha
-- **离线地图基础功能**（done）：OSM、地形、卫星底图及等高线叠加可用，缩放和层切换正常。
-  - 证据：README.md#GPS Map
-- **nRF52 类设备初步支持**（in_progress）：已添加 MeshCore 发现入口和基本 UI 适配，但完整功能（如聊天、地图）尚在开发。
-  - 证据：CHANGELOG.md#0.1.30-alpha
-  - 证据：README.md#Planned Supported Devices
-- **多语言与本地化**（in_progress）：中文、西里尔文等扩展语言包已引入，但覆盖面和输入法支持仍需完善。
-  - 证据：CHANGELOG.md#0.1.30-alpha
-## 来源文档
+- **T-LoRa-Pager firmware** (done): Currently the main verification device, supporting all core functions.
+ - Evidence: README.md#Device Support Matrix
+ - **T-Deck Firmware** (done): Keyboard and chat functions adapted, second major verification platform.
+ - Evidence: README.md#Device Support Table
+- **LoRa Chat (Meshtastic/MeshCore)** (done): Text messaging, contact list, location sharing and other functions have been implemented, compatible with two mainstream protocols.
+ - Evidence: README.md#LoRa Chat
+ - Evidence: CHANGELOG.md#0.1.30-alpha
+ - **Offline map basic functions** (done): OSM, terrain, satellite basemap and contour overlay are available, zooming and layer switching are normal.
+ - Evidence: README.md #GPS Map
+ - **nRF52 class device preliminary support** (in_progress): MeshCore discovery portal and basic UI adaptation have been added, but full functionality (such as chat, map) is still under development.
+ - Evidence: CHANGELOG.md#0.1.30-alpha
+ - Evidence: README.md#Planned Supported Devices
+- **Multi-language and localization** (in_progress): Extended language packs such as Chinese and Cyrillic have been introduced, but coverage and input method support still need to be improved.
+ - Evidence: CHANGELOG.md#0.1.30-alpha
+## Source document
 
 - README.md
 - CHANGELOG.md

@@ -667,6 +667,39 @@ bool get_string(const char* ns, const char* key, std::string& out)
     return true;
 }
 
+bool get_string_into(const char* ns,
+                     const char* key,
+                     char* out,
+                     std::size_t capacity,
+                     std::size_t* out_len)
+{
+    if (out_len)
+    {
+        *out_len = 0U;
+    }
+    if (!key || !out || capacity == 0U)
+    {
+        return false;
+    }
+    out[0] = '\0';
+    ensureLoaded();
+    const auto it = stringStore().find(makeScopedKey(ns, key));
+    if (it == stringStore().end() || it->second.size() >= capacity)
+    {
+        return false;
+    }
+    if (!it->second.empty())
+    {
+        std::memcpy(out, it->second.data(), it->second.size());
+    }
+    out[it->second.size()] = '\0';
+    if (out_len)
+    {
+        *out_len = it->second.size();
+    }
+    return true;
+}
+
 bool get_blob(const char* ns, const char* key, std::vector<uint8_t>& out)
 {
     out.clear();

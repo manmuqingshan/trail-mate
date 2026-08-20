@@ -1,27 +1,27 @@
-# P2 · 【候选待裁决】系统与媒体 Runtime 尚未完成 Model-or-Projection 分类
+# P2 · [Candidate pending] System and Media Runtime Not yet completed Model-or-Projection classification
 
-状态：**acknowledged**
-类别：**架构边界 / 模型完整性**
+Status: **acknowledged**
+Category: **Architectural Boundaries/Model Completeness**
 
-## 结论
+## Conclusion
 
-当前九个 Registry 模型不是“已经足够”的结论。源码中至少还有四组具有稳定状态语言和生命周期的候选边界，但它们主要位于 `platform/ui` 或 UI runtime，尚不能仅凭类型数量断言为独立领域模型：
+Conclusion that the current nine Registry models are not "enough". There are at least four groups of candidate boundaries with stable state languages ​​and life cycles in the source code, but they are mainly located in `platform/ui` or UI runtime, and cannot yet be asserted as independent domain models based on the number of types alone: ​​
 
-1. Reticulum 实时通话：`State`、`RealtimePhase`、`Peer`、`Snapshot`、接听/拒绝/挂断与音频队列。
-2. 内容包安装：`PackageRecord`、`InstalledPackageRecord`、`PackageInstallPhase`、安装/卸载与兼容性判断。
-3. 固件更新：`Phase`、`Status`、检查、下载、安装和重启生命周期。
-4. Wi-Fi 资源仲裁：`Request`、`Lease`、`Decision`、`ExclusiveOwner`、抢占阶段与流量预算。
+1. Reticulum real-time calls: `State`, `RealtimePhase`, `Peer`, `Snapshot`, answer/reject/hang-up and audio queue.
+2. Content package installation: `PackageRecord`, `InstalledPackageRecord`, `PackageInstallPhase`, installation/uninstallation and compatibility judgment.
+3. Firmware update: `Phase`, `Status`, check, download, install and restart life cycle.
+4. Wi-Fi resource arbitration: `Request`, `Lease`, `Decision`, `ExclusiveOwner`, preemption phase and traffic budget.
 
-这些候选不能继续在完整性评审中隐身；也不能为了增加 Explorer 数量，直接把 runtime 数据结构包装成领域模型。当前正确状态是“候选待裁决”。
+These candidates cannot continue to be invisible in the integrity review; nor can they directly package the runtime data structure into a domain model in order to increase the number of Explorers. The current correct status is "Candidate Pending Adjudication".
 
-## 为什么还不能直接登记为四个模型
+## Why can't it be directly registered as four models?
 
-- 实时通话同时包含业务会话、协议互操作、设备媒体和资源抢占；聚合边界尚未明确。
-- 包安装与固件更新有生命周期，但可能属于 Device/Capability 的 application service，也可能形成独立的更新/内容管理模型。
-- Wi-Fi lease 有清晰策略，却更像跨能力资源调度模型；其 owner 目前仍是平台 runtime。
-- 四组 API 都以全局 runtime 状态和自由函数为主，缺少与 UI 解耦的端口、领域测试和明确持久化边界。
+- Real-time calls also include business sessions, protocol interoperation, device media and resource preemption; the aggregation boundary has not yet been clarified.
+- Package installation and firmware updates have a life cycle, but they may belong to the application service of Device/Capability, or they may form an independent update/content management model.
+- Wi-Fi lease has a clear policy, but it is more like a cross-capability resource scheduling model; its owner is still the platform runtime.
+- The four groups of APIs are mainly based on global runtime state and free functions, lacking ports decoupled from the UI, domain testing and clear persistence boundaries.
 
-## 源码证据
+## Source code evidence
 
 - `modules/core_sys/include/platform/ui/reticulum_call_runtime.h`
 - `modules/core_sys/src/platform/ui/reticulum_call_runtime.cpp`
@@ -31,13 +31,13 @@
 - `modules/core_sys/include/platform/ui/wifi_access_runtime.h`
 - `platform/esp/arduino_common/src/platform_ui_wifi_access_runtime.cpp`
 
-## 需要作者裁决的问题
+## Questions that require the author's decision
 
-1. 实时通话的业务会话是否跨 Reticulum 与未来其他传输协议，还是仅为 Phone/Reticulum 集成投影？
-2. Package 与 Firmware 是否共享一个“设备内容与升级”模型，还是两个独立 application workflow？
-3. Wi-Fi lease 的优先级、独占和抢占规则是否属于产品级资源治理，应由 Device/Capability 模型拥有？
-4. 哪些状态需要持久化、审计或跨重启恢复？只存在于一次 UI 会话的状态不应自动升级为领域实体。
+1. Will the business session of the real-time call span Reticulum and other future transport protocols, or will it only be projected for Phone/Reticulum integration?
+2. Do Package and Firmware share a "device content and upgrade" model, or are they two independent application workflows?
+3. Are the priority, exclusivity and preemption rules of Wi-Fi lease belong to product-level resource governance and should be owned by the Device/Capability model?
+4. Which states require persistence, auditing, or recovery across restarts? State that only exists in one UI session should not be automatically promoted to a domain entity.
 
-## 关闭准则
+## Closing Criteria
 
-逐项给出 `independent model`、`element of existing model`、`application workflow`、`integration projection` 四选一结论，并记录 owner、不变量、端口和测试证据。只有被裁决为独立模型且实现边界已经形成的候选，才进入 Model Explorer。
+Give the conclusion of one of the four choices of `independent model`, `element of existing model`, `application workflow`, `integration projection` item by item, and record the owner, invariant, port and test evidence. Only candidates that are adjudicated as independent models and whose implementation boundaries have been formed enter the Model Explorer.

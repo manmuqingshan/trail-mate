@@ -1,4 +1,4 @@
-# IPhoneAppFacade 到协议 core
+# IPhoneAppFacade to protocol core
 
 ```mermaid
 sequenceDiagram
@@ -19,4 +19,4 @@ sequenceDiagram
   Core-->>Facade: typed result
 ```
 
-共同 Facade 不意味着两个 protocol core 拥有相同的 wire commands、queue 或配置字段。
+Common Facade does not mean that two protocol cores have the same wire commands, queues, or configuration fields.

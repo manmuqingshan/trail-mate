@@ -407,6 +407,39 @@ bool get_string(const char* ns, const char* key, std::string& out)
     return true;
 }
 
+bool get_string_into(const char* ns,
+                     const char* key,
+                     char* out,
+                     std::size_t capacity,
+                     std::size_t* out_len)
+{
+    if (out_len)
+    {
+        *out_len = 0U;
+    }
+    if (!out || capacity == 0U)
+    {
+        return false;
+    }
+    out[0] = '\0';
+    std::lock_guard<std::mutex> lock(s_store_mutex);
+    std::vector<uint8_t> payload;
+    if (!load_value(ns, key, ValueKind::String, payload) || payload.size() >= capacity)
+    {
+        return false;
+    }
+    if (!payload.empty())
+    {
+        std::memcpy(out, payload.data(), payload.size());
+    }
+    out[payload.size()] = '\0';
+    if (out_len)
+    {
+        *out_len = payload.size();
+    }
+    return true;
+}
+
 bool get_blob(const char* ns, const char* key, std::vector<uint8_t>& out)
 {
     std::lock_guard<std::mutex> lock(s_store_mutex);

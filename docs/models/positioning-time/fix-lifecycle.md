@@ -1,4 +1,4 @@
-# GNSS revision 处理链
+# GNSS revision processing chain
 
 ```mermaid
 sequenceDiagram
@@ -21,4 +21,4 @@ sequenceDiagram
   end
 ```
 
-这不是 `NoFix / Valid / Stale` 状态机；当前模型以 revision、filter 与输出端口为事实。
+This is not a `NoFix / Valid / Stale` state machine; the current model uses revision, filter and output ports as facts.

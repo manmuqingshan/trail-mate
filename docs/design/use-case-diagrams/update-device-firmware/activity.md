@@ -1,44 +1,44 @@
-# Activity：固件检查与安装
+# Activity: Firmware Check and Installation
 ```mermaid
 flowchart TD
-  Check --> Meta{"metadata 有效且目标匹配?"}
-  Meta -- 否 --> Error
-  Meta -- 是 --> Version{"newer version?"}
-  Version -- 否 --> Current["UpToDate"]
-  Version -- 是 --> Offer["UpdateAvailable"]
-  Offer --> Confirm{"用户安装?"}
-  Confirm -- 否 --> Idle
-  Confirm -- 是 --> Exclusive{"取得 OTA exclusive?"}
-  Exclusive -- 否 --> Error
-  Exclusive -- 是 --> Download
+ Check --> Meta{"metadata valid and target matching?"}
+ Meta -- No --> Error
+ Meta -- Yes --> Version{"newer version?"}
+ Version -- No --> Current["UpToDate"]
+ Version -- Yes --> Offer["UpdateAvailable"]
+ Offer --> Confirm{"User installation?"}
+ Confirm -- No --> Idle
+ Confirm -- Yes --> Exclusive{"Get OTA exclusive?"}
+ Exclusive -- No --> Error
+ Exclusive -- Yes --> Download
   Download --> Verify{"image valid?"}
-  Verify -- 否 --> Error
-  Verify -- 是 --> Write{"inactive partition write success?"}
-  Write -- 否 --> Error
-  Write -- 是 --> Boot["mark boot partition"]
+ Verify -- No -->Error
+ Verify -- Yes --> Write{"inactive partition write success?"}
+ Write -- No --> Error
+ Write -- Yes --> Boot["mark boot partition"]
   Boot --> Reboot
 ```
 
-## 本图回答的问题
+## Questions answered by this picture
 
-设备如何判断更新是否适用，在取得独占资源后验证并写入 inactive partition，并且只在完整成功时改变下次启动目标。
+How does the device determine whether the update is applicable, verify and write to the inactive partition after obtaining exclusive resources, and only change the next boot target if it is completely successful.
 
-## 元数据与目标匹配
+## Metadata matches target
 
-metadata 至少验证签名/来源、设备 target、硬件 profile、版本、镜像大小和摘要。版本比较必须使用明确规则；同版本、降级和开发版本是否允许由策略决定，不能只比较字符串。
+metadata verifies at least signature/source, device target, hardware profile, version, image size and digest. Version comparison must use clear rules; whether the same version, downgraded and development versions are allowed is determined by policy and cannot just compare strings.
 
-## 不可逆边界
+## Irreversible Boundary
 
-下载和镜像验证仍可安全取消。写 inactive partition 后可以放弃但需要清理；`mark boot partition` 是关键提交点，只有所有写入和 image 校验成功后才能执行。标记成功后 UI 必须进入待重启状态，不再启动冲突任务。
+Downloads and image verification can still be safely canceled. You can give up after writing the inactive partition but need to clean it up; `mark boot partition` is the key submission point and can only be executed after all writes and image verification are successful. After the marking is successful, the UI must enter the state to be restarted and no more conflicting tasks will be started.
 
-## 独占与功耗
+## Exclusivity and power consumption
 
-OTA 取得 Wi-Fi/storage/flash 独占，并阻止 Call、Package 和会破坏 flash/供电稳定的任务。获取失败明确返回 Busy/ExclusiveOwner；不得绕过 Access Runtime 直接开始下载。
+OTA obtains Wi-Fi/storage/flash exclusive and blocks Call, Package and tasks that will destroy flash/power supply stability. Acquisition failure explicitly returns Busy/ExclusiveOwner; the Access Runtime must not be bypassed to start the download directly.
 
-## 失败与启动恢复
+## Failure and startup recovery
 
-任何校验或写入失败都保持当前 boot partition。重启后 bootloader 验证失败的回滚结果必须被应用读取并展示，不能仅在串口日志中出现。掉电恢复依赖平台 OTA contract，不假设最后一次写调用成功。
+Any verification or write failure keeps the current boot partition. The rollback result of bootloader verification failure after restart must be read and displayed by the application and cannot only appear in the serial port log. Power failure recovery relies on the platform OTA contract and does not assume that the last write call was successful.
 
-## 测试
+## test
 
-覆盖错误 target/profile、同版本、hash/signature 错误、短写、断电点、mark boot 失败、回滚启动和资源撤销。
+Covering errors in target/profile, same version, hash/signature errors, shorthand, power outage points, mark boot failure, rollback startup and resource revocation.

@@ -11,11 +11,11 @@
   The `?variant=palette`, `?variant=rail`, and `?variant=dashboard`
   query parameters select an architecture directly.
 -->
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Trail Mate 表情候选器 — 分类 + 分页原型</title>
+    <title>Trail Mate Emoticon Candidate - Classification + Pagination Prototype</title>
     <style>
       :root {
         /* Mirrors ui::theme plus the current text-candidate picker palette. */
@@ -363,41 +363,41 @@
   <body>
     <main class="page">
       <section class="intro">
-        <h1>表情候选器：分类 + 分页</h1>
+        <h1>Emotion Candidate: Classification + Pagination</h1>
         <p>
-          这是为约 300 项户外、无线电、导航与求生语义表情准备的交互原型。
-          分类决定“去哪里找”，分页保证任一时刻只渲染一屏候选项；二者分别解决查找和资源约束。
+ This is an interactive prototype for about 300 outdoor, radio, navigation and survival semantic emoticons.
+ Classification determines "where to look", and paging ensures that only one screen of candidates is rendered at any time; the two solve search and resource constraints respectively.
         </p>
-        <div class="principle">300 项目录 → 8 个语义分类 → 每屏固定 20–24 格 → 分类内翻页</div>
+        <div class="principle">300 project catalog → 8 semantic categories → fixed 20–24 cells per screen → page turning within categories</div>
       </section>
 
-      <section class="prototype-shell" aria-label="可交互候选界面原型">
+      <section class="prototype-shell" aria-label="Interactive candidate interface prototype">
         <div class="prototype-bar">
-          <span class="device-label">概念验证 · 320–720 px 横向设备屏幕</span>
-          <nav class="variant-switcher" aria-label="候选信息架构">
-            <button type="button" data-variant="palette" aria-pressed="true">A 推荐：分类面板</button>
-            <button type="button" data-variant="rail" aria-pressed="false">B 常驻分类栏</button>
-            <button type="button" data-variant="dashboard" aria-pressed="false">C 分类首页</button>
+          <span class="device-label">Proof of concept · 320–720 px landscape device screen</span>
+          <nav class="variant-switcher" aria-label="Candidate information architecture">
+            <button type="button" data-variant="palette" aria-pressed="true">A Recommendation: Category panel</button>
+            <button type="button" data-variant="rail" aria-pressed="false">B Resident category bar</button>
+            <button type="button" data-variant="dashboard" aria-pressed="false">C Category homepage</button>
           </nav>
         </div>
         <div id="prototype"></div>
       </section>
 
-      <section class="comparison" aria-label="候选方案比较">
+      <section class="comparison" aria-label="Comparison of candidate solutions">
         <article class="recommended">
-          <h2>A. 分类面板（推荐）</h2>
-          <p>主界面将空间完全留给固定数量的候选格；点“分类”时才弹出 2×4 分类面板。</p>
-          <span class="tradeoff">最适合小屏与硬件按键：日常选取只需分类 + 翻页 + 确认。</span>
+          <h2>A. Classification panel (recommended)</h2>
+          <p>The main interface leaves space completely for a fixed number of candidate cells; the 2×4 classification panel pops up only when "Classification" is clicked.</p>
+          <span class="tradeoff">Most suitable for small screens and hardware buttons: daily selection only requires classification + page turning + confirmation.</span>
         </article>
         <article>
-          <h2>B. 常驻分类栏</h2>
-          <p>分类随时可见，切换最快；但持续占用窄屏宽度，候选格会缩小且每页可容纳数量下降。</p>
-          <span class="tradeoff">适合较大横屏，不建议作为 320 px 设备的默认方案。</span>
+          <h2>B. Permanent category bar</h2>
+          <p>Categories are visible at any time and can be switched the fastest; but if they continue to occupy a narrow screen width, the candidate grid will shrink and the number that can be accommodated on each page will decrease.</p>
+          <span class="tradeoff">Suitable for larger horizontal screens and not recommended as the default solution for 320 px devices.</span>
         </article>
         <article>
-          <h2>C. 分类首页</h2>
-          <p>打开表情先进入“任务语义首页”，再进入分类的分页网格，层级最清楚。</p>
-          <span class="tradeoff">适合新用户理解目录；高频连续选表情时多一次返回/进入。</span>
+          <h2>C. Category homepage</h2>
+          <p>Open the emoticon and enter the "Task Semantic Homepage" first, and then enter the paging grid of the category, where the hierarchy is clearest.</p>
+          <span class="tradeoff">Suitable for new users to understand the catalog; one more time to return/enter when selecting emoticons frequently.</span>
         </article>
       </section>
     </main>
@@ -405,14 +405,14 @@
     <script>
       // Display-only sample data. Production needs a separate Unicode/font coverage review.
       const CATEGORIES = [
-        { id: "common", icon: "✅", name: "常用状态", items: [["✅", "收到"], ["❌", "否"], ["⚠️", "警告"], ["🆘", "求救"], ["📍", "位置"], ["🚩", "标记"], ["⏳", "等待"], ["🔄", "重复"], ["👍", "确认"], ["👎", "拒绝"], ["❓", "询问"], ["💬", "消息"], ["👀", "观察"], ["🕒", "延迟"], ["📢", "通告"], ["🚫", "禁止"], ["🟢", "安全"], ["🟡", "注意"], ["🔴", "危险"], ["🛑", "停止"], ["↩️", "返回"], ["➡️", "前进"], ["🆗", "好的"], ["🤝", "协作"], ["✳️", "要点"], ["📌", "置点"], ["☑️", "已办"], ["🔒", "保密"], ["🔓", "解锁"], ["📝", "记录"], ["🔔", "提醒"], ["📨", "已发"], ["📥", "收到"], ["🧭", "方向"], ["🏁", "结束"], ["🔋", "电量"]] },
-        { id: "radio", icon: "📡", name: "无线电", items: [["📡", "信号"], ["📻", "电台"], ["🎙️", "发射"], ["🔊", "扬声"], ["🔇", "静音"], ["📶", "强度"], ["📳", "呼叫"], ["📴", "离线"], ["🔋", "电池"], ["🪫", "低电"], ["🔌", "充电"], ["⚡", "电源"], ["🛰️", "卫星"], ["📱", "终端"], ["⌚", "定时"], ["🔁", "中继"], ["↔️", "双向"], ["🔀", "路由"], ["👂", "守听"], ["🗣️", "通话"], ["📞", "联络"], ["🔔", "呼入"], ["🔕", "免扰"], ["📣", "广播"], ["🔍", "搜台"], ["📈", "增强"], ["📉", "衰弱"], ["🧲", "天线"], ["🪢", "架设"], ["🔧", "检修"], ["🧰", "工具"], ["💾", "存档"], ["🔐", "加密"], ["🔑", "密钥"], ["🌐", "网络"], ["🧪", "测试"], ["♻️", "重连"], ["🆘", "紧急呼叫"], ["⛔", "无信号"], ["🟰", "频道"]] },
-        { id: "nav", icon: "🧭", name: "导航地形", items: [["🧭", "罗盘"], ["🗺️", "地图"], ["📍", "坐标"], ["📌", "航点"], ["🏔️", "山地"], ["⛰️", "山峰"], ["🥾", "步行"], ["🚶", "徒步"], ["🛤️", "路线"], ["🪨", "岩石"], ["🌲", "林地"], ["🌳", "树林"], ["🏕️", "营地"], ["🏠", "避难屋"], ["🌉", "桥"], ["🪜", "攀爬"], ["🕳️", "洞穴"], ["🏞️", "山谷"], ["🌊", "水面"], ["🏝️", "岸边"], ["🧱", "障碍"], ["↗️", "东北"], ["↘️", "东南"], ["↙️", "西南"], ["↖️", "西北"], ["⬆️", "北"], ["➡️", "东"], ["⬇️", "南"], ["⬅️", "西"], ["🔙", "回撤"], ["🚧", "绕行"], ["🎯", "目标"], ["🚩", "终点"], ["🌐", "网格"], ["📏", "距离"], ["⏱️", "耗时"], ["🛣️", "道路"], ["🚲", "骑行"], ["⛵", "水路"], ["🧗", "攀岩"], ["🪂", "空降"], ["🔭", "观察"]] },
-        { id: "weather", icon: "🌦️", name: "天气风险", items: [["☀️", "晴"], ["🌤️", "多云"], ["☁️", "阴"], ["🌧️", "雨"], ["⛈️", "雷暴"], ["❄️", "雪"], ["🌨️", "降雪"], ["🌬️", "强风"], ["🌫️", "雾"], ["🌪️", "风暴"], ["🌡️", "温度"], ["🥶", "严寒"], ["🥵", "高温"], ["💧", "潮湿"], ["🔥", "干燥火险"], ["🌈", "转晴"], ["🌙", "夜间"], ["🌅", "日出"], ["🌇", "日落"], ["⚠️", "警报"], ["🚨", "紧急"], ["☢️", "污染"], ["🌀", "旋涡"], ["🌊", "洪水"], ["🧊", "结冰"], ["🪨", "落石"], ["🏔️", "雪崩"], ["🌲", "倒木"], ["🔦", "能见度"], ["☂️", "雨具"], ["🧥", "保暖"], ["👓", "护目"], ["🟠", "橙色预警"], ["🔴", "红色预警"], ["🟡", "黄色预警"], ["🟢", "解除"]] },
-        { id: "survival", icon: "🏕️", name: "求生补给", items: [["🏕️", "搭营"], ["⛺", "帐篷"], ["🔥", "生火"], ["🪵", "柴火"], ["🪓", "斧头"], ["🔪", "刀具"], ["🧯", "灭火"], ["💧", "水源"], ["🚰", "饮水"], ["🫗", "装水"], ["🥫", "罐头"], ["🍞", "食物"], ["🍲", "热食"], ["🧂", "盐"], ["🎒", "背包"], ["🛏️", "睡袋"], ["🧥", "外套"], ["🧤", "手套"], ["🥾", "靴子"], ["🧢", "帽子"], ["🔦", "手电"], ["🕯️", "照明"], ["🔋", "备用电"], ["🔌", "充电"], ["🪢", "绳索"], ["🪝", "挂钩"], ["🪚", "锯"], ["🔧", "修理"], ["🧰", "工具箱"], ["🧭", "定位"], ["🆘", "求援"], ["🏚️", "避难"], ["🚪", "入口"], ["🔒", "封闭"], ["🐾", "踪迹"], ["🦟", "虫害"], ["🐻", "野兽"], ["🐍", "蛇"], ["🦌", "动物"], ["🗑️", "垃圾带走"], ["♻️", "复用"], ["🧼", "清洁"], ["📦", "物资"], ["⚖️", "配给"]] },
-        { id: "medical", icon: "🩹", name: "医疗救援", items: [["🆘", "求救"], ["🚑", "救护"], ["🚁", "直升机"], ["🩹", "创可贴"], ["🩺", "检查"], ["💊", "药品"], ["💉", "注射"], ["🩸", "出血"], ["🫀", "心脏"], ["🧠", "意识"], ["🫁", "呼吸"], ["🤕", "受伤"], ["🤒", "发热"], ["😵", "眩晕"], ["😷", "防护"], ["🦽", "转运"], ["🛟", "救生"], ["🧯", "灭火"], ["🚨", "报警"], ["📍", "伤员位置"], ["👥", "人数"], ["🫂", "安抚"], ["🧊", "冷敷"], ["🔥", "烫伤"], ["☠️", "剧毒"], ["🐍", "咬伤"], ["🦟", "叮咬"], ["🌡️", "体温"], ["🛌", "休息"], ["🥤", "补液"], ["⏱️", "时间"], ["📞", "呼援"], ["✅", "稳定"], ["⚠️", "危重"], ["🧾", "记录"], ["🏥", "医院"]] },
-        { id: "camp", icon: "🎒", name: "营地装备", items: [["🎒", "背包"], ["⛺", "帐篷"], ["🛏️", "睡眠"], ["🪑", "座椅"], ["🔦", "灯光"], ["🕯️", "蜡烛"], ["🔥", "炉火"], ["🍳", "炊具"], ["🥣", "餐具"], ["🥤", "饮品"], ["🧴", "清洁"], ["🧻", "纸品"], ["🪥", "卫生"], ["🧼", "洗涤"], ["🧯", "灭火器"], ["🔋", "电源"], ["🔌", "充电"], ["🧰", "工具"], ["🔧", "维修"], ["🪛", "螺丝刀"], ["🪜", "梯子"], ["🪢", "绳"], ["🧲", "磁吸"], ["🧪", "净水"], ["🗺️", "地图"], ["📒", "日志"], ["🗑️", "垃圾"], ["🚿", "洗漱"], ["👕", "衣物"], ["🧦", "袜子"], ["🪪", "证件"], ["🔐", "安全"], ["📦", "储物"], ["🛒", "补给"], ["⛽", "燃料"], ["🧭", "出发"]] },
-        { id: "people", icon: "🙂", name: "人员情绪", items: [["🙂", "正常"], ["😄", "开心"], ["😟", "担心"], ["😨", "害怕"], ["😫", "疲惫"], ["😴", "睡眠"], ["🤔", "思考"], ["🤫", "静默"], ["😡", "生气"], ["🥳", "庆祝"], ["👍", "赞同"], ["👎", "反对"], ["✋", "停"], ["👋", "招呼"], ["🤝", "协同"], ["🙏", "感谢"], ["💪", "有力"], ["👀", "观察"], ["👂", "聆听"], ["🗣️", "讲话"], ["👤", "单人"], ["👥", "队伍"], ["🧑‍🤝‍🧑", "同伴"], ["🏃", "移动"], ["🚶", "慢行"], ["🧗", "攀爬"], ["🙋", "报到"], ["🙅", "拒绝"], ["🙆", "就绪"], ["🤞", "希望"]] }
+        { id: "common", icon: "✅", name: "Common status", items: [["✅", "Received"], ["❌", "No"], ["⚠️", "Warning"], ["🆘", "Help"], ["📍", "Location"], ["🚩", "Mark"], ["⏳", "Wait"], ["🔄", "Repeat"], ["👍", "Confirm"], ["👎", "Reject"], ["❓", "Ask"], ["💬", "Message"], ["👀", "Observation"], ["🕒", "Delay"], ["📢", "Notification"], ["🚫", "Prohibited"], ["🟢", "Security"], ["🟡", "Attention"], ["🔴", "Danger"], ["🛑", "Stop"], ["↩️", "Return"], ["➡️", "Forward"], ["🆗", "Okay"], ["🤝", "Collaboration"], ["✳️", "Key Points"], ["📌", "Set Point"], ["☑️", "Agreed"], ["🔒", "Confidential"], ["🔓", "Unlock"], ["📝", "Record"], ["🔔", "Reminder"], ["📨", "Sent"], ["📥", "Received"], ["🧭", "Direction"], ["🏁", "End"], ["🔋", "Battery"]] },
+        { id: "radio", icon: "📡", name: "Radio", items: [["📡", "Signal"], ["📻", "Radio"], ["🎙️", "Transmit"], ["🔊", "Speaker"], ["🔇", "Mute"], ["📶", "Strength"], ["📳", "Call"], ["📴", "Offline"], ["🔋", "Battery"], ["🪫", "Low battery"], ["🔌", "Charging"], ["⚡", "Power supply"], ["🛰️", "Satellite"], ["📱", "Terminal"], ["⌚", "Timing"], ["🔁", "Relay"], ["↔️", "Two-way"], ["🔀", "Routing"], ["👂", "Listen"], ["🗣️", "Call"], ["📞", "Contact"], ["🔔", "Incoming call"], ["🔕", "Do not disturb"], ["📣", "Broadcast"], ["🔍", "Search for channels"], ["📈", "Enhanced"], ["📉", "Weakened"], ["🧲", "Antenna"], ["🪢", "Erection"], ["🔧", "Maintenance"], ["🧰", "Tools"], ["💾", "Archive"], ["🔐", "Encryption"], ["🔑", "Key"], ["🌐", "Network"], ["🧪", "Test"], ["♻️", "Reconnect"], ["🆘", "Emergency call"], ["⛔", "No signal"], ["🟰", "Channel"]] },
+        { id: "nav", icon: "🧭", name: "Navigation terrain", items: [["🧭", "Compass"], ["🗺️", "Map"], ["📍", "Coordinates"], ["📌", "Waypoints"], ["🏔️", "Mountains"], ["⛰️", "Peaks"], ["🥾", "Walk"], ["🚶", "Hiking"], ["🛤️", "Route"], ["🪨", "Rock"], ["🌲", "Woodland"], ["🌳", "Woods"], ["🏕️", "Camp"], ["🏠", "Shelter House"], ["🌉", "Bridge"], ["🪜", "Climbing"], ["🕳️", "Cave"], ["🏞️", "Valley"], ["🌊", "Water surface"], ["🏝️", "Shore"], ["🧱", "Obstacles"], ["↗️", "Northeast"], ["↘️", "Southeast"], ["↙️", "Southwest"], ["↖️", "Northwest"], ["⬆️", "North"], ["➡️", "East"], ["⬇️", "South"], ["⬅️", "West"], ["🔙", "Retracement"], ["🚧", "Detour"], ["🎯", "Target"], ["🚩", "End point"], ["🌐", "Grid"], ["📏", "Distance"], ["⏱️", "Time consuming"], ["🛣️", "Road"], ["🚲", "Cycling"], ["⛵", "Waterway"], ["🧗", "Rock climbing"], ["🪂", "Airborne"], ["🔭", "Observation"]] },
+        { id: "weather", icon: "🌦️", name: "Weather risk", items: [["☀️", "Sunny"], ["🌤️", "Cloudy"], ["☁️", "Overcast"], ["🌧️", "Rain"], ["⛈️", "Thunderstorm"], ["❄️", "Snow"], ["🌨️", "Snowfall"], ["🌬️", "Strong Wind"], ["🌫️", "Fog"], ["🌪️", "Storm"], ["🌡️", "Temperature"], ["🥶", "Severe Cold"], ["🥵", "High Temperature"], ["💧", "Moisture"], ["🔥", "Dry Fire Danger"], ["🌈", "Sunny"], ["🌙", "Night"], ["🌅", "Sunrise"], ["🌇", "Sunset"], ["⚠️", "Alarm"], ["🚨", "Emergency"], ["☢️", "Pollution"], ["🌀", "Whirlpool"], ["🌊", "Flood"], ["🧊", "Ice"], ["🪨", "Rockfall"], ["🏔️", "Avalanche"], ["🌲", "Falling wood"], ["🔦", "Visibility"], ["☂️", "Rain gear"], ["🧥", "Warm"], ["👓", "Eye protection"], ["🟠", "Orange warning"], ["🔴", "Red warning"], ["🟡", "Yellow Alert"], ["🟢", "Lifted"]] },
+        { id: "survival", icon: "🏕️", name: "Survival Supplies", items: [["🏕️", "Pitch a Camp"], ["⛺", "Tent"], ["🔥", "Make a Fire"], ["🪵", "Firewood"], ["🪓", "Axe"], ["🔪", "Knife"], ["🧯", "Fire fighting"], ["💧", "Water source"], ["🚰", "Drinking water"], ["🫗", "Water"], ["🥫", "Canned food"], ["🍞", "Food"], ["🍲", "Hot food"], ["🧂", "Salt"], ["🎒", "Backpack"], ["🛏️", "Sleeping bag"], ["🧥", "Coat"], ["🧤", "Gloves"], ["🥾", "Boots"], ["🧢", "Hat"], ["🔦", "Flashlight"], ["🕯️", "Lighting"], ["🔋", "Backup power"], ["🔌", "Charging"], ["🪢", "Rope"], ["🪝", "Hook"], ["🪚", "Saw"], ["🔧", "Repair"], ["🧰", "Toolbox"], ["🧭", "Location"], ["🆘", "Ask for help"], ["🏚️", "Escape"], ["🚪", "Entrance"], ["🔒", "Closed"], ["🐾", "Traces"], ["🦟", "Pests"], ["🐻", "Beasts"], ["🐍", "Snakes"], ["🦌", "Animals"], ["🗑️", "Take away garbage"], ["♻️", "Reuse"], ["🧼", "Clean"], ["📦", "Supplies"], ["⚖️", "Ration"]] },
+        { id: "medical", icon: "🩹", name: "Medical rescue", items: [["🆘", "Help"], ["🚑", "Rescue"], ["🚁", "Helicopter"], ["🩹", "Band-Aid"], ["🩺", "Check"], ["💊", "Medicine"], ["💉", "Injection"], ["🩸", "Bleeding"], ["🫀", "Heart"], ["🧠", "Consciousness"], ["🫁", "Breathing"], ["🤕", "Injury"], ["🤒", "Fever"], ["😵", "Dizziness"], ["😷", "Protection"], ["🦽", "Transport"], ["🛟", "Lifesaving"], ["🧯", "Fire fighting"], ["🚨", "Alarm"], ["📍", "Location of the injured"], ["👥", "Number of people"], ["🫂", "Comfort"], ["🧊", "Cold compress"], ["🔥", "Burn"], ["☠️", "Highly toxic"], ["🐍", "Bite"], ["🦟", "Bite"], ["🌡️", "Body temperature"], ["🛌", "Rest"], ["🥤", "Rehydration"], ["⏱️", "Time"], ["📞", "Call for help"], ["✅", "Stable"], ["⚠️", "Critical"], ["🧾", "Record"], ["🏥", "Hospital"]] },
+        { id: "camp", icon: "🎒", name: "Camp Equipment", items: [["🎒", "Backpack"], ["⛺", "Tent"], ["🛏️", "Sleeping"], ["🪑", "Seat"], ["🔦", "Lighting"], ["🕯️", "Candles"], ["🔥", "Fire"], ["🍳", "Cooking utensils"], ["🥣", "Tableware"], ["🥤", "Drinks"], ["🧴", "Clean"], ["🧻", "Paper products"], ["🪥", "Hygiene"], ["🧼", "Washing"], ["🧯", "Fire extinguisher"], ["🔋", "Power supply"], ["🔌", "Charging"], ["🧰", "Tools"], ["🔧", "Repair"], ["🪛", "Screwdriver"], ["🪜", "Ladder"], ["🪢", "Rope"], ["🧲", "Magnetic attraction"], ["🧪", "Purified water"], ["🗺️", "Map"], ["📒", "Log"], ["🗑️", "Garbage"], ["🚿", "Wash"], ["👕", "Clothing"], ["🧦", "Socks"], ["🪪", "Documents"], ["🔐", "Security"], ["📦", "Storage"], ["🛒", "Supplies"], ["⛽", "Fuel"], ["🧭", "Departure"]] },
+        { id: "people", icon: "🙂", name: "Staff sentiment", items: [["🙂", "Normal"], ["😄", "Happy"], ["😟", "Worried"], ["😨", "Afraid"], ["😫", "Tired"], ["😴", "Sleeping"], ["🤔", "Thinking"], ["🤫", "Silent"], ["😡", "Angry"], ["🥳", "Celebrating"], ["👍", "Agree"], ["👎", "Objection"], ["✋", "Stop"], ["👋", "Hello"], ["🤝", "Collaboration"], ["🙏", "Thank you"], ["💪", "Powerful"], ["👀", "Observation"], ["👂", "Listen"], ["🗣️", "Speak"], ["👤", "Solo"], ["👥", "Team"], ["🧑‍🤝‍🧑", "Companion"], ["🏃", "Move"], ["🚶", "Slow travel"], ["🧗", "Climbing"], ["🙋", "Report"], ["🙅", "Reject"], ["🙆", "Ready"], ["🤞", "Hope"]] }
       ];
 
       const state = { variant: "palette", category: "common", page: 0, paletteOpen: false, dashboardPickerOpen: false, selected: null };
@@ -431,13 +431,13 @@
             <span class="category-icon">${category.icon}</span>
             <span>
               <span class="category-name">${category.name}</span>
-              <span class="category-meta">${category.items.length} 项 · ${pageCount(category)} 页</span>
+              <span class="category-meta">${category.items.length} Item · ${pageCount(category)} Page</span>
             </span>
           </button>`).join("");
       }
 
       function candidateGrid() {
-        return `<div class="candidate-grid" aria-label="${esc(currentCategory().name)}候选项">
+        return `<div class="candidate-grid" aria-label="${esc(currentCategory().name)}candidates">
           ${currentItems().map(([emoji, name], index) => {
             const key = `${state.category}:${state.page}:${index}`;
             return `<button type="button" class="candidate" data-candidate="${key}" aria-pressed="${state.selected === key}">
@@ -450,21 +450,21 @@
       function pagination() {
         const count = pageCount();
         return `<div class="pagination">
-          <button type="button" class="page-action" data-page="previous" ${state.page === 0 ? "disabled" : ""}>‹ B 上一页</button>
-          <span class="page-indicator">第 ${state.page + 1} / ${count} 页<br>${currentCategory().items.length} 项</span>
-          <button type="button" class="page-action" data-page="next" ${state.page >= count - 1 ? "disabled" : ""}>N 下一页 ›</button>
+          <button type="button" class="page-action" data-page="previous" ${state.page === 0 ? "disabled" : ""}>‹ B Previous page</button>
+          <span class="page-indicator">No. ${state.page + 1} / ${count} Page<br>${currentCategory().items.length} item</span>
+          <button type="button" class="page-action" data-page="next" ${state.page >= count - 1 ? "disabled" : ""}>N Next page ›</button>
         </div>`;
       }
 
       function hints(extra = "") {
-        return `<div class="hint-row"><span><span class="key">WASD</span> 移动</span><span><span class="key">E / Enter</span> 选取</span><span><span class="key">Q / 退格</span> 关闭</span>${extra}</div>`;
+        return `<div class="hint-row"><span><span class="key">WASD</span> Move</span><span><span class="key">E / Enter</span> Select</span><span><span class="key">Q / Backspace</span> closure</span>${extra}</div>`;
       }
 
       function header({ mode, right = "" }) {
         const category = currentCategory();
         return `<header class="screen-header">
-          <button type="button" class="icon-button" data-close title="关闭">×</button>
-          <div class="title-area"><strong>${category.icon} ${category.name}</strong><span>分类内分页 · ${category.items.length} 项</span></div>
+          <button type="button" class="icon-button" data-close title="Close">×</button>
+          <div class="title-area"><strong>${category.icon} ${category.name}</strong><span>Pagination within categories · ${category.items.length} item</span></div>
           <span class="mode-tag">${mode}</span>${right}
         </header>`;
       }
@@ -472,12 +472,12 @@
       function paletteVariant() {
         const category = currentCategory();
         return `<div class="device"><section class="screen">
-          ${header({ mode: "A", right: `<button type="button" class="palette-trigger" data-palette>分类 ${category.icon} ▾</button>` })}
-          ${candidateGrid()}${pagination()}${hints(`<span><span class="key">C</span> 分类</span><span><span class="key">B / N</span> 上 / 下页</span>`)}
-          <section class="category-palette ${state.paletteOpen ? "open" : ""}" aria-label="选择表情分类">
-            <div class="palette-heading"><strong>选择表情分类</strong><button type="button" class="icon-button" data-palette title="关闭分类">×</button></div>
+          ${header({ mode: "A", right: `<button type="button" class="palette-trigger" data-palette>Classification ${category.icon} ▾</button>` })}
+          ${candidateGrid()}${pagination()}${hints(`<span><span class="key">C</span> Classification</span><span><span class="key">B / N</span> superior / Next page</span>`)}
+          <section class="category-palette ${state.paletteOpen ? "open" : ""}" aria-label="Select expression category">
+            <div class="palette-heading"><strong>Select expression category</strong><button type="button" class="icon-button" data-palette title="Close classification">×</button></div>
             <div class="category-cards">${categoryCards()}</div>
-            <p class="palette-copy">选中分类后回到该分类的第 1 页。可选地保存每个分类上次停留的页码；第一版建议统一回到第 1 页，行为最可预期。</p>
+            <p class="palette-copy">After selecting a category, return to the first page of the category 1 Page. Optionally save the last page number for each category; the first version recommends returning to the page number 1 page, the behavior is most predictable.</p>
           </section>
         </section></div>`;
       }
@@ -486,10 +486,10 @@
         return `<div class="device"><section class="screen">
           ${header({ mode: "B" })}
           <div class="rail-layout">
-            <nav class="category-rail" aria-label="表情分类">
+            <nav class="category-rail" aria-label="Expression classification">
               ${CATEGORIES.map((category) => `<button type="button" class="rail-category ${category.id === state.category ? "selected" : ""}" data-category="${category.id}" title="${category.name}"><span>${category.icon}</span><span>${category.name}</span></button>`).join("")}
             </nav>
-            <div class="rail-content">${candidateGrid()}${pagination()}${hints(`<span>触摸左栏切换分类</span><span><span class="key">B / N</span> 上 / 下页</span>`)}</div>
+            <div class="rail-content">${candidateGrid()}${pagination()}${hints(`<span>Touch the left column to switch categories</span><span><span class="key">B / N</span> superior / Next page</span>`)}</div>
           </div>
         </section></div>`;
       }
@@ -498,16 +498,16 @@
         const category = currentCategory();
         return `<div class="device"><section class="screen">
           <div class="dashboard-home ${state.dashboardPickerOpen ? "hidden" : ""}">
-            <header class="screen-header"><button type="button" class="icon-button" data-close title="关闭">×</button><div class="title-area"><strong>🧭 表情目录</strong><span>按任务语义寻找候选</span></div><span class="mode-tag">C</span></header>
+            <header class="screen-header"><button type="button" class="icon-button" data-close title="Close">×</button><div class="title-area"><strong>🧭 Expression Catalog</strong><span>Find candidates by task semantics</span></div><span class="mode-tag">C</span></header>
             <div class="dashboard-body">
-              <p class="dashboard-caption">先选择任务场景；进入后，在该分类内固定网格分页。</p>
-              <div class="mission-cards">${CATEGORIES.map((item) => `<button type="button" class="mission-card" data-category="${item.id}"><span class="category-icon">${item.icon}</span><strong>${item.name}</strong><small>${item.items.length} 项 · ${pageCount(item)} 页</small></button>`).join("")}</div>
-              <div class="dashboard-footer"><span>最近使用</span><span class="recent-strip">${["📍", "✅", "📡", "⚠️", "🆘"].map((emoji) => `<button type="button" class="recent-emoji">${emoji}</button>`).join("")}</span></div>
+              <p class="dashboard-caption">First select the task scene; after entering, fix the grid paging within the category.</p>
+              <div class="mission-cards">${CATEGORIES.map((item) => `<button type="button" class="mission-card" data-category="${item.id}"><span class="category-icon">${item.icon}</span><strong>${item.name}</strong><small>${item.items.length} item · ${pageCount(item)} page</small></button>`).join("")}</div>
+              <div class="dashboard-footer"><span>Recently used</span><span class="recent-strip">${["📍", "✅", "📡", "⚠️", "🆘"].map((emoji) => `<button type="button" class="recent-emoji">${emoji}</button>`).join("")}</span></div>
             </div>
           </div>
           <div class="dashboard-picker ${state.dashboardPickerOpen ? "open" : ""}">
-            ${header({ mode: "C", right: `<button type="button" class="palette-trigger" data-dashboard-home>⌂ 分类</button>` })}
-            ${candidateGrid()}${pagination()}${hints(`<span><span class="key">C</span> 分类首页</span><span><span class="key">B / N</span> 上 / 下页</span>`)}
+            ${header({ mode: "C", right: `<button type="button" class="palette-trigger" data-dashboard-home>⌂ Classification</button>` })}
+            ${candidateGrid()}${pagination()}${hints(`<span><span class="key">C</span> Classification homepage</span><span><span class="key">B / N</span> superior / Next page</span>`)}
           </div>
         </section></div>`;
       }
@@ -543,7 +543,7 @@
         if (button.dataset.page === "previous") { state.page = Math.max(0, state.page - 1); state.selected = null; render(); return; }
         if (button.dataset.page === "next") { state.page = Math.min(pageCount() - 1, state.page + 1); state.selected = null; render(); return; }
         if (button.dataset.candidate) { state.selected = button.dataset.candidate; render(); return; }
-        if (button.dataset.close !== undefined) { alert("原型：这里会关闭表情候选器，并回到文本输入界面。"); }
+        if (button.dataset.close !== undefined) { alert("Prototype: This will close the expression candidate and return to the text input interface"); }
       });
 
       document.addEventListener("keydown", (event) => {

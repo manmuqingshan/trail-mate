@@ -1,29 +1,29 @@
-# P1 · 【已有模型未发现】联系人、对端目录与本地信任未进入 Model Explorer
+# P1 · [Existing model not found] Contacts, peer directories and local trusts are not entered into the Model Explorer
 
-状态：**acknowledged**
-类别：**发现缺陷 / 文档索引**
+Status: **acknowledged**
+Category: **Flaws found/Document index**
 
-## 结论
+## Conclusion
 
-联系人目录不是未来设想。`MeshPeerRecord`、`IMeshPeerDirectory`、`ContactService`、`INodeStore` 与 `IContactStore` 已经共同承担对端索引、协议事实、用户别名、联系人分类、ignored 和本机信任投影。此前八模型审计漏掉了这一边界。
+The contact directory is not a future idea. `MeshPeerRecord`, `IMeshPeerDirectory`, `ContactService`, `INodeStore` and `IContactStore` already share peer indexing, protocol facts, user aliases, contact categories, ignored and native trust projections. Previous eight-model audits missed this boundary.
 
-这是“模型存在但工具/作者没有找到”，不是产品代码缺少模型。修复方式是把真实边界补进 Registry，而不是在 Review Queue 建议创建另一个空类。
+This is "the model exists but the tool/author did not find it", not that the product code is missing the model. The fix is ​​to add the real boundaries to the Registry instead of creating another empty class as suggested in the Review Queue.
 
-## 直接证据
+## Direct Evidence
 
-- `mesh_peer_directory.h` 定义有效目录身份、跨协议 facts、观察和用户 flags。
-- `i_mesh_peer_directory.h` 定义 record/find/search/setUserFlags/remove/flush 契约。
-- `ContactService` 管理协议分区、nickname、附近/忽略分类、人工验证和删除语义。
-- `IContactStore` 与 `INodeStore` 将联系人 nickname 和节点观察分开持久化。
-- 联系人、key verification、聊天投影和多个平台 runtime 都消费该服务。
+ - `mesh_peer_directory.h` defines valid directory identities, cross-protocol facts, observations and user flags.
+- `i_mesh_peer_directory.h` defines the record/find/search/setUserFlags/remove/flush contract.
+- `ContactService` manages protocol partitioning, nickname, near/ignore classification, human validation and delete semantics.
+- `IContactStore` and `INodeStore` persist contact nicknames and node observations separately.
+- Contacts, key verification, chat projections and multiple platform runtimes all consume this service.
 
-## 已执行的文档修复
+## Documentation fixes performed
 
-- 新增 `model:contact-peer-directory`。
-- 新增 5 个真实 Element 和目录生命周期图。
-- 新增 Mesh Identity → Directory → Conversation / Team 跨模型关系。
-- 保留新旧目录表达并存、IdentityLink 缺失和可见性策略失效等未解决问题。
+ - Added `model:contact-peer-directory`.
+- Added 5 new real Element and directory life cycle diagrams.
+- Added Mesh Identity → Directory → Conversation / Team cross-model relationship.
+- Retain unresolved issues such as the coexistence of old and new directory expressions, missing IdentityLink and invalid visibility policies.
 
-## 验收
+## Acceptance
 
-Model Explorer 必须显示“联系人、对端目录与本地信任”，并允许下钻到 `MeshPeerIdentity`、`MeshPeerRecord`、`ContactService`、`NodeInfo / NodeUpdate` 和 directory/store ports。
+M

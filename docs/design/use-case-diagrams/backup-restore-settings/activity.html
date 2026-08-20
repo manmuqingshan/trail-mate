@@ -1,7 +1,7 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：设置保护</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed"><h1>备份、恢复与重置</h1><pre class="mermaid">flowchart TD
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Activity: Settings Protection</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed"><h1>Backup, Restore and Reset</h1><pre class="mermaid">flowchart TD
 Intent -- Backup --> Temp["temp + atomic replace"]
 Intent -- Restore --> Validate{"valid backup?"}
-Validate -- 是 --> Apply
-Validate -- 否 --> Keep
+Validate -- Yes--> Apply
+Validate -- No--> Keep
 Intent -- Reset --> Confirm{"confirm exact scope?"}
-Confirm -- 是 --> Scoped["scoped destructive action"]</pre></main></body></html>
+Confirm -- Yes--> Scoped["scoped destructive action"]</pre></main></body></html>

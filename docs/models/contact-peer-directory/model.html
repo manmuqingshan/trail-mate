@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>联系人、对端目录与本地信任模型</title></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Contact, peer directory and local trust model</title></head>
 <body><main data-praxis-anchor="model:contact-peer-directory" data-praxis-kind="uml_model" data-praxis-status="confirmed">
-<h1>联系人、对端目录与本地信任模型</h1>
-<p>该模型拥有本地对端目录、联系人 nickname、协议分区、ignored 与 trust 投影。消息模型使用它，但不拥有它。</p>
-<h2>实际边界</h2>
-<ul><li><code>MeshPeerIdentity / MeshPeerRecord</code>：跨协议目录记录。</li><li><code>IMeshPeerDirectory</code>：目录写入、查询、flags、删除与 flush。</li><li><code>ContactService</code>：旧节点/联系人投影及用户动作。</li><li><code>INodeStore / IContactStore</code>：节点观察和 nickname 的独立持久化。</li></ul>
-<h2>尚未闭合</h2><p>新旧两套目录表达并存；<code>isNodeVisible()</code> 当前无条件返回 true；trusted、manually verified 与 Mesh verified key 没有统一证明语义；协议身份到业务联系人的 IdentityLink 尚未形成。</p>
-<p><a href="peer-directory-lifecycle.md">下钻：对端观察、联系人提升与本地信任</a></p>
+<h1>Contact, peer directory and local trust model</h1>
+<p>This model has local peer directory, contact nickname, protocol partition, ignored and trust projections. The message model uses it but does not own it.</p>
+<h2>Actual boundary</h2>
+<ul><li><code>MeshPeerIdentity / MeshPeerRecord</code>: Cross-protocol directory records.</li><li><code>IMeshPeerDirectory</code>: Directory writing, query, flags, deletion and flush.</li><li><code>ContactService</code>: Old node/contact projection and user actions.</li><li><code>INodeStore / IContactStore</code>: Independent persistence of node observation and nickname.</li></ul>
+<h2>Not yet closed</h2><p>The old and new directory expressions coexist;<code>isNodeVisible()</code> Currently returns true unconditionally; trusted, manually verified and Mesh verified key do not have unified certification semantics; the IdentityLink from the protocol identity to the business contact has not yet been formed.</p>
+<p><a href="peer-directory-lifecycle.md">Drill-down: peer observation, contact improvement and local trust</a></p>
 </main></body></html>

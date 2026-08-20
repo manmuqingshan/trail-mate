@@ -1,31 +1,31 @@
-# 代码锚点：apps/linux_uconsole_gtk
+# Code anchor: apps/linux_uconsole_gtk
 
-C4 层级：Code
-状态：candidate
-置信度：medium
-项目版本：0.1.30-alpha
-Git：34aad0bffa2f / main / dirty
-更新于：2026-06-25T09:19:32.800Z
+C4 level: Code
+Status: candidate
+Confidence: medium
+Project version: 0.1.30-alpha
+Git:34aad0bffa2f / main / dirty
+Updated on: 2026-06-25T09:19:32.800Z
 
-## 定位
+## Positioning
 
-从 C4 Code 层解释 apps/linux_uconsole_gtk 内少量关键代码锚点。Code 层不是代码浏览器，只在需要理解架构组件如何落到具体文件/符号时使用。
+Explain a few key code anchors in apps/linux_uconsole_gtk from the C4 Code layer. The Code layer is not a code browser and is only used when you need to understand how architectural components fall into specific files/symbols.
 
-## C4 层级路径
+## C4 hierarchical path
 
-- 当前层：Code View，解释上层 Component 如何落到具体文件、函数、类、接口或组件锚点。
-- 上层：Component，说明这些代码锚点共同服务的组件职责。
-- 下层：无；继续理解细节时应回到 IDE、代码预览或软件结构模型，而不是把 Code View 当成完整源码浏览器。
+-Current layer: Code View, explaining how the upper-level Component falls to a specific file, function, class, interface or component anchor.
+- Upper layer: Component, describing the component responsibilities that these code anchors serve together.
+- Lower layer: None; when continuing to understand the details, you should return to the IDE, code preview, or software structure model, rather than using Code View as a complete source code browser.
 
-## 责任
+## Responsibility
 
-把 apps/linux_uconsole_gtk 的架构组件进一步落到具体文件、函数、类、接口或组件锚点，帮助用户理解实现入口和变更影响面。
+ Further reduce the architectural components of apps/linux_uconsole_gtk to specific files, functions, classes, interfaces or component anchors to help users understand the implementation entry and the impact of changes.
 
-## 边界
+## Boundary
 
-Code View 只展示必要锚点，不列全量源码；完整结构解释、代码片段和复杂度候选点仍应回到软件结构模型或 IDE 查看。
+Code View only displays necessary anchor points and does not list the full source code; the complete structure explanation, code snippets and complexity candidate points should still be viewed back to the software structure model or IDE.
 
-## 关系
+## Relationship
 
 - FakeMeshAdapter -> apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17
 - FakeMeshAdapter -> apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19
@@ -38,15 +38,15 @@ Code View 只展示必要锚点，不列全量源码；完整结构解释、代�
 - FakeMeshAdapter::pollIncomingRawPacket -> apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86
 - FakeMeshAdapter::pollIncomingRawPacket -> apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88
 
-## 与业务复杂度的关联
+## Correlation with business complexity
 
-- Code View 不是业务解释入口；它只在业务故事需要追溯到实现锚点时提供底层证据。
+- Code View is not a business explanation portal; it only provides low-level evidence when the business story needs to be traced back to the implementation anchor.
 
-## 与技术复杂度的关联
+## Correlation with technical complexity
 
-- 软件结构模型负责继续解释复用迹象、外部协作迹象、Sequence、复杂度候选点和代码证据预览。
+ - The software structure model is responsible for continuing to explain signs of reuse, signs of external collaboration, sequences, complexity candidate points, and code evidence previews.
 
-## C4 Code View 图
+## C4 Code View diagram
 
 ```mermaid
 flowchart TB
@@ -85,167 +85,167 @@ flowchart TB
   file_8 --> code_8
 ```
 
-## 图内元素解释
+## Explanation of elements in the diagram
 
 ### FakeMeshAdapter
 
-- 层级：code
-- 说明：FakeMeshAdapter 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17；当前仓库证据显示它有 较强的外部协作/编排迹象。
-- 责任：FakeMeshAdapter 更像一个对外编排或聚合锚点：它从 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17 发出较多关系，改动时要优先检查它调用或引用的下游能力。
-- 边界：该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：FakeMeshAdapter 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: FakeMeshAdapter is the key code anchor of apps/linux_uconsole_gtk, located at apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17; current warehouse evidence shows that it has strong signs of external collaboration/orchestration.
+- Responsibility: FakeMeshAdapter is more like an external orchestration or aggregation anchor: it emits more relationships from apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17. When making changes, priority should be given to checking the downstream capabilities it calls or references.
+- Boundary: This anchor only explains an architectural landing point of apps/linux_uconsole_gtk; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relational meaning: FakeMeshAdapter is placed in Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17, so it belongs to the C4 Code layer; if you only discuss the responsibility boundary, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：存在局部外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Indications of external collaboration: there are local external collaboration clues
 
 ### FakeMeshAdapter
 
-- 层级：code
-- 说明：FakeMeshAdapter 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19；当前仓库证据显示它有 较强的外部协作/编排迹象。
-- 责任：FakeMeshAdapter 更像一个对外编排或聚合锚点：它从 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19 发出较多关系，改动时要优先检查它调用或引用的下游能力。
-- 边界：该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：FakeMeshAdapter 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: FakeMeshAdapter is the key code anchor of apps/linux_uconsole_gtk, located at apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19; current warehouse evidence shows that it has strong signs of external collaboration/orchestration.
+- Responsibility: FakeMeshAdapter is more like an external orchestration or aggregation anchor: it emits more relationships from apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19. When changing, priority should be given to checking the downstream capabilities it calls or references.
+- Boundary: This anchor only explains an architectural landing point of apps/linux_uconsole_gtk; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relational meaning: FakeMeshAdapter is placed in Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19, so it belongs to the C4 Code layer; if you only discuss the boundaries of responsibilities, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：存在局部外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Indications of external collaboration: there are local external collaboration clues
 
 ### FakeMeshAdapter::pushIncoming
 
-- 层级：code
-- 说明：FakeMeshAdapter::pushIncoming 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20；当前仓库证据显示它有 较强的被复用/被依赖迹象。
-- 责任：FakeMeshAdapter::pushIncoming 更像一个被复用或被依赖锚点：它在 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20 被多处关系指向，改动时要优先检查上游调用者和契约稳定性。
-- 边界：该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：FakeMeshAdapter::pushIncoming 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: FakeMeshAdapter::pushIncoming is the key code anchor of apps/linux_uconsole_gtk, located at apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20; the current warehouse evidence shows that it has strong signs of being reused/dependent.
+- Responsibility: FakeMeshAdapter::pushIncoming is more like a reused or dependent anchor: it is pointed to by multiple relationships in apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20. When making changes, priority should be given to checking the upstream caller and contract stability.
+- Boundary: This anchor only explains an architectural landing point of apps/linux_uconsole_gtk; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relationship meaning: FakeMeshAdapter::pushIncoming is put into Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20, so it belongs to the C4 Code layer; if you only discuss the boundaries of responsibilities, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L20
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### FakeMeshAdapter::applyConfig
 
-- 层级：code
-- 说明：FakeMeshAdapter::applyConfig 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：FakeMeshAdapter::applyConfig 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：FakeMeshAdapter::applyConfig 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: FakeMeshAdapter::applyConfig is the key code anchor of apps/linux_uconsole_gtk, located at apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: FakeMeshAdapter::applyConfig is a partial implementation anchor: it falls the upper-level component responsibilities to apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/linux_uconsole_gtk; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relationship meaning: FakeMeshAdapter::applyConfig is put into Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79, so it belongs to the C4 Code layer; if you only discuss the boundaries of responsibilities, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L79
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### FakeMeshAdapter::pushIncoming
 
-- 层级：code
-- 说明：FakeMeshAdapter::pushIncoming 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：FakeMeshAdapter::pushIncoming 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：FakeMeshAdapter::pushIncoming 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: FakeMeshAdapter::pushIncoming is the key code anchor of apps/linux_uconsole_gtk, located at apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: FakeMeshAdapter::pushIncoming is a partial implementation anchor: it falls the responsibility of the upper-level component to apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/linux_uconsole_gtk; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relationship meaning: FakeMeshAdapter::pushIncoming is put into Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has exact file and line number evidence apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22, so it belongs to the C4 Code layer; if you only discuss the boundaries of responsibilities, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L22
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### FakeMeshAdapter::applyConfig
 
-- 层级：code
-- 说明：FakeMeshAdapter::applyConfig 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：FakeMeshAdapter::applyConfig 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：FakeMeshAdapter::applyConfig 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: FakeMeshAdapter::applyConfig is the key code anchor of apps/linux_uconsole_gtk, located at apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: FakeMeshAdapter::applyConfig is a partial implementation anchor: it falls the responsibility of the upper-layer component to apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/linux_uconsole_gtk; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relationship meaning: FakeMeshAdapter::applyConfig is put into Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81, so it belongs to the C4 Code layer; if you only discuss the boundaries of responsibilities, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L81
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### FakeMeshAdapter::pollIncomingData
 
-- 层级：code
-- 说明：FakeMeshAdapter::pollIncomingData 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：FakeMeshAdapter::pollIncomingData 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：FakeMeshAdapter::pollIncomingData 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: FakeMeshAdapter::pollIncomingData is the key code anchor of apps/linux_uconsole_gtk, located at apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74; current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: FakeMeshAdapter::pollIncomingData is a partial implementation anchor: it falls the responsibility of the upper-level component to apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/linux_uconsole_gtk; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relational meaning: FakeMeshAdapter::pollIncomingData is put into Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74, so it belongs to the C4 Code layer; if you only discuss the responsibility boundary, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L74
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### FakeMeshAdapter::pollIncomingData
 
-- 层级：code
-- 说明：FakeMeshAdapter::pollIncomingData 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：FakeMeshAdapter::pollIncomingData 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：FakeMeshAdapter::pollIncomingData 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: FakeMeshAdapter::pollIncomingData is the key code anchor of apps/linux_uconsole_gtk, located at apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: FakeMeshAdapter::pollIncomingData is a partial implementation anchor: it falls the responsibility of the upper component to apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/linux_uconsole_gtk; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relational meaning: FakeMeshAdapter::pollIncomingData is put into Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76, so it belongs to the C4 Code layer; if you only discuss the boundaries of responsibilities, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L76
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### FakeMeshAdapter::pollIncomingRawPacket
 
-- 层级：code
-- 说明：FakeMeshAdapter::pollIncomingRawPacket 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：FakeMeshAdapter::pollIncomingRawPacket 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：FakeMeshAdapter::pollIncomingRawPacket 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: FakeMeshAdapter::pollIncomingRawPacket is the key code anchor of apps/linux_uconsole_gtk, located at apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: FakeMeshAdapter::pollIncomingRawPacket is a partial implementation anchor: it falls the responsibility of the upper-level component to apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/linux_uconsole_gtk; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relationship meaning: FakeMeshAdapter::pollIncomingRawPacket is placed in Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86, so it belongs to the C4 Code layer; if you only discuss the boundaries of responsibilities, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### FakeMeshAdapter::pollIncomingRawPacket
 
-- 层级：code
-- 说明：FakeMeshAdapter::pollIncomingRawPacket 是 apps/linux_uconsole_gtk 的关键代码锚点，位置为 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：FakeMeshAdapter::pollIncomingRawPacket 是一个局部实现锚点：它把上层组件职责落到 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/linux_uconsole_gtk 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：FakeMeshAdapter::pollIncomingRawPacket 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: FakeMeshAdapter::pollIncomingRawPacket is the key code anchor of apps/linux_uconsole_gtk, located at apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: FakeMeshAdapter::pollIncomingRawPacket is a partial implementation anchor: it falls the responsibility of the upper-layer component to apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/linux_uconsole_gtk; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relationship meaning: FakeMeshAdapter::pollIncomingRawPacket is placed in Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88, so it belongs to the C4 Code layer; if you only discuss the boundaries of responsibilities, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
-## 可下钻 C4
+## Drill-down C4
 
-- [组件职责：apps/linux_uconsole_gtk](../../components/apps-linux_uconsole_gtk/component.md) - 回到 组件职责：apps/linux_uconsole_gtk 可以避免只从代码锚点理解架构，重新检查这些锚点共同承担的组件职责和边界。
+- [Component Responsibilities: apps/linux_uconsole_gtk](../../components/apps-linux_uconsole_gtk/component.md) - Return to Component Responsibilities: apps/linux_uconsole_gtk to avoid understanding the architecture only from code anchors and re-examine the component responsibilities and boundaries shared by these anchors.
 
-## 关联软件结构模型
+## Associated Software Structural Model
 
-- 当前没有关联 Engineering 文档。
+ - There is currently no associated Engineering document.
 
-## 证据
+## Evidence
 
 - apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L17
 - apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L19
@@ -258,12 +258,12 @@ flowchart TB
 - apps/linux_uconsole_gtk/tests/uconsole_chat_dedup_smoke.cpp#L86
 - apps/linux_uconsole_gtk/tests/uconsole_chat_sqlite_store_smoke.cpp#L88
 
-## 判定依据
+## Judgment basis
 
-- Code View 只列少量能够追溯 Component 实现的文件/符号锚点；它不是源码浏览器，也不承载业务流程或完整类图。
+- Code View only lists a small number of file/symbol anchors that can trace the Component implementation; it is not a source code browser, and it does not host business processes or complete class diagrams.
 
-## 变更记录
+## Change Record
 
 ### 0.1.30-alpha - 2026-06-25T09:19:32.800Z
 
-- 基于本地仓库证据重新生成 代码锚点：apps/linux_uconsole_gtk。
+- Regenerate code anchor based on local repository evidence: apps/linux_uconsole_gtk.

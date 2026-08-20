@@ -58,7 +58,7 @@ At 9.6 kbps FSK:
 
 This fits 9.6 kbps in clean RF. However, preamble, sync, CRC,
 state transitions, and losses will reduce effective throughput.
-So it can be “smooth” at short range and still become choppy in noisy RF.
+So it can be "smooth" at short range and still become choppy in noisy RF.
 
 ## TX Pipeline (Stable and Buffered)
 1) Capture I2S audio (stereo).
@@ -129,7 +129,7 @@ This is the full, end-to-end strategy used to improve clarity and stability.
 ### 1) Stable Timing (TX + RX)
 - TX uses a frame queue so encoding is not blocked by radio sends.
 - RX uses a jitter buffer and plays at a fixed 20ms cadence.
-- This eliminates bursty playback and “stutter”.
+- This eliminates bursty playback and "stutter".
 
 ### 2) Jitter Buffer with Adaptive Depth
 - Good RF: 200ms prebuffer (lower latency).

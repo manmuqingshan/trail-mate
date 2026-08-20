@@ -11,12 +11,14 @@
 #endif
 
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <string>
 
 #include "app/app_config.h"
 #include "app/app_facade_access.h"
+#include "app/tms_config_codec.h"
 #if defined(ARDUINO)
 #include "cJSON.h"
 #else
@@ -33,9 +35,12 @@ namespace platform::ui::settings_backup
 namespace
 {
 
+namespace tms = ::app::tms;
+
 constexpr const char* kBackupDir = "/trailmate";
-constexpr const char* kBackupPath = "/trailmate/settings-backup.json";
-constexpr const char* kBackupTempPath = "/trailmate/settings-backup.tmp";
+constexpr const char* kBackupPath = "/trailmate/settings-backup.tms";
+constexpr const char* kBackupTempPath = "/trailmate/settings-backup.tms.tmp";
+constexpr const char* kLegacyBackupPath = "/trailmate/settings-backup.json";
 constexpr const char* kBackupMagic = "trail-mate-settings-backup";
 // Version 2 adds the complete Meshtastic channel presentation settings,
 // Reticulum location-request policy, Reticulum group-storage owner, and
@@ -45,6 +50,14 @@ constexpr const char* kBackupMagic = "trail-mate-settings-backup";
 constexpr int kBackupVersion = 2;
 constexpr std::size_t kMaxBackupBytes = 24 * 1024;
 constexpr std::size_t kMaxExtraBlobBytes = 128;
+constexpr std::size_t kMaxExtraTextBytes = 128;
+
+// New TMS backup I/O is deliberately fully bounded.  These are persistent
+// scratch areas rather than task-stack arrays or whole-document buffers.
+tms::LineScratch s_backup_line_scratch{};
+char s_extra_text_scratch[kMaxExtraTextBytes]{};
+uint8_t s_extra_blob_scratch[kMaxExtraBlobBytes]{};
+char s_extra_key_scratch[96]{};
 
 uint32_t uptime_ms()
 {
@@ -139,6 +152,7 @@ constexpr ExtraKey kExtraKeys[] = {
     {"power", "gauge_design_mah", "gauge_dsgn", ValueType::UInt},
     {"power", "gauge_full_mah", "gauge_full_mah", ValueType::UInt},
 };
+constexpr std::size_t kExtraKeyCount = sizeof(kExtraKeys) / sizeof(kExtraKeys[0]);
 
 void copy_bounded(char* out, std::size_t out_len, const char* text)
 {
@@ -1266,14 +1280,16 @@ void restore_extra_value(const ExtraKey& key, cJSON* value_object)
     case ValueType::Blob:
         if (cJSON_IsString(value) && value->valuestring)
         {
-            uint8_t bytes[kMaxExtraBlobBytes] = {};
             std::size_t bytes_len = 0;
-            if (hex_to_bytes_into(value->valuestring, bytes, sizeof(bytes), &bytes_len))
+            if (hex_to_bytes_into(value->valuestring,
+                                  s_extra_blob_scratch,
+                                  sizeof(s_extra_blob_scratch),
+                                  &bytes_len))
             {
                 (void)::platform::ui::settings_store::put_blob(
                     key.ns,
                     key.key,
-                    bytes_len == 0 ? nullptr : bytes,
+                    bytes_len == 0 ? nullptr : s_extra_blob_scratch,
                     bytes_len);
             }
         }
@@ -1309,6 +1325,777 @@ void restore_extra_settings(cJSON* root)
                                   : nullptr;
         restore_extra_value(key, value_object);
     }
+}
+
+uint32_t tms_crc32_update(uint32_t crc, const uint8_t* data, std::size_t length)
+{
+    for (std::size_t index = 0U; index < length; ++index)
+    {
+        crc ^= data[index];
+        for (uint8_t bit = 0U; bit < 8U; ++bit)
+        {
+            crc = (crc & 1U) != 0U ? (crc >> 1U) ^ 0xEDB88320UL : crc >> 1U;
+        }
+    }
+    return crc;
+}
+
+struct TmsBackupOutput
+{
+    ::platform::esp::arduino_common::storage::SdRuntimeFile* file = nullptr;
+    const app::AppConfig* config = nullptr;
+    uint32_t running_crc = 0xFFFFFFFFUL;
+};
+
+bool write_tms_output(void* context, const char* data, std::size_t length)
+{
+    auto* output = static_cast<TmsBackupOutput*>(context);
+    if (!output || !output->file || !data || length == 0U ||
+        output->file->write(data, length) != length)
+    {
+        return false;
+    }
+    output->running_crc = tms_crc32_update(
+        output->running_crc, reinterpret_cast<const uint8_t*>(data), length);
+    return true;
+}
+
+bool format_extra_record_key(const ExtraKey& key, const char* suffix)
+{
+    const int written = std::snprintf(s_extra_key_scratch,
+                                      sizeof(s_extra_key_scratch),
+                                      "extra.%s.%s.%s",
+                                      key.ns,
+                                      key.key,
+                                      suffix);
+    return written > 0 && static_cast<std::size_t>(written) < sizeof(s_extra_key_scratch);
+}
+
+bool write_extra_records(void* context, tms::RecordWriter& writer)
+{
+    auto* output = static_cast<TmsBackupOutput*>(context);
+    if (!output)
+    {
+        return false;
+    }
+    for (const ExtraKey& key : kExtraKeys)
+    {
+        const bool present = extra_preference_exists(key);
+        if (!format_extra_record_key(key, "present") ||
+            !writer.boolean(s_extra_key_scratch, present))
+        {
+            return false;
+        }
+        if (!present)
+        {
+            continue;
+        }
+        if (!format_extra_record_key(key, "value"))
+        {
+            return false;
+        }
+        switch (key.type)
+        {
+        case ValueType::Bool:
+            if (!writer.boolean(s_extra_key_scratch,
+                                ::platform::ui::settings_store::get_bool(key.ns, key.key, false)))
+            {
+                return false;
+            }
+            break;
+        case ValueType::Int:
+            if (!writer.i32(s_extra_key_scratch,
+                            static_cast<int32_t>(::platform::ui::settings_store::get_int(
+                                key.ns, key.key, 0))))
+            {
+                return false;
+            }
+            break;
+        case ValueType::UInt:
+            if (!writer.u32(s_extra_key_scratch,
+                            ::platform::ui::settings_store::get_uint(key.ns, key.key, 0U)))
+            {
+                return false;
+            }
+            break;
+        case ValueType::String:
+        {
+            std::size_t length = 0U;
+            if (!::platform::ui::settings_store::get_string_into(key.ns,
+                                                                  key.key,
+                                                                  s_extra_text_scratch,
+                                                                  sizeof(s_extra_text_scratch),
+                                                                  &length) ||
+                !writer.text(s_extra_key_scratch, s_extra_text_scratch))
+            {
+                return false;
+            }
+            break;
+        }
+        case ValueType::Blob:
+        {
+            std::size_t length = 0U;
+            if (!::platform::ui::settings_store::get_blob_into(key.ns,
+                                                                key.key,
+                                                                s_extra_blob_scratch,
+                                                                sizeof(s_extra_blob_scratch),
+                                                                &length) ||
+                !writer.blob(s_extra_key_scratch, s_extra_blob_scratch, length))
+            {
+                return false;
+            }
+            break;
+        }
+        }
+    }
+    if (!output->config)
+    {
+        return false;
+    }
+    const chat::MeshConfig& reticulum = output->config->reticulumConfig();
+    for (std::size_t slot = 0U; slot < chat::kReticulumGroupDestinationMaxCount; ++slot)
+    {
+        const chat::ReticulumGroupDestinationConfig& group = reticulum.reticulum_groups[slot];
+        const bool present = chat::hasReticulumDestinationIdentity(group.identity);
+        const int present_len = std::snprintf(s_extra_key_scratch,
+                                             sizeof(s_extra_key_scratch),
+                                             "reticulum_group.%u.present",
+                                             static_cast<unsigned>(slot));
+        if (present_len <= 0 || static_cast<std::size_t>(present_len) >= sizeof(s_extra_key_scratch) ||
+            !writer.boolean(s_extra_key_scratch, present))
+        {
+            return false;
+        }
+        if (!present)
+        {
+            continue;
+        }
+        if (std::snprintf(s_extra_key_scratch,
+                          sizeof(s_extra_key_scratch),
+                          "reticulum_group.%u.enabled",
+                          static_cast<unsigned>(slot)) <= 0 ||
+            !writer.boolean(s_extra_key_scratch, group.enabled) ||
+            std::snprintf(s_extra_key_scratch,
+                          sizeof(s_extra_key_scratch),
+                          "reticulum_group.%u.name",
+                          static_cast<unsigned>(slot)) <= 0 ||
+            !writer.text(s_extra_key_scratch, group.name) ||
+            std::snprintf(s_extra_key_scratch,
+                          sizeof(s_extra_key_scratch),
+                          "reticulum_group.%u.destination",
+                          static_cast<unsigned>(slot)) <= 0 ||
+            !writer.blob(s_extra_key_scratch,
+                         group.identity.destination_hash,
+                         chat::kReticulumPeerHashSize))
+        {
+            return false;
+        }
+    }
+    // The checksum covers each previous physical line, including its newline.
+    // It is intentionally emitted immediately before END so a portable backup
+    // can be verified without an allocation-proportional side structure.
+    return writer.u32("checksum.crc32", output->running_crc ^ 0xFFFFFFFFUL);
+}
+
+bool replace_tms_backup(const char* temporary_path, const char* path)
+{
+    if (storage_exists(path) && !storage_remove(path))
+    {
+        return false;
+    }
+    if (storage_rename(temporary_path, path))
+    {
+        return true;
+    }
+    (void)storage_remove(temporary_path);
+    return false;
+}
+
+bool write_tms_backup()
+{
+    if (!ensure_backup_dir())
+    {
+        return false;
+    }
+    if (storage_exists(kBackupTempPath))
+    {
+        (void)storage_remove(kBackupTempPath);
+    }
+    ::platform::esp::arduino_common::storage::SdRuntimeFile file;
+    if (!file.open(kBackupTempPath, "w"))
+    {
+        return false;
+    }
+    TmsBackupOutput output{&file, &app::appFacade().readConfig()};
+    tms::DocumentInfo info{};
+    const bool wrote = tms::writeDocument(*output.config,
+                                          tms::DocumentKind::Backup,
+                                          {&output, write_tms_output},
+                                          s_backup_line_scratch,
+                                          &info,
+                                          write_extra_records,
+                                          &output);
+    const bool flushed = file.flush();
+    file.close();
+    if (!wrote || !flushed)
+    {
+        (void)storage_remove(kBackupTempPath);
+        return false;
+    }
+    return replace_tms_backup(kBackupTempPath, kBackupPath);
+}
+
+struct ExtraRestoreState
+{
+    uint64_t seen_present = 0U;
+    uint64_t present_values = 0U;
+    uint64_t seen_values = 0U;
+    bool saw_checksum = false;
+};
+
+struct ReticulumGroupRestoreState
+{
+    uint8_t seen_present = 0U;
+    uint8_t present_values = 0U;
+    uint8_t seen_enabled = 0U;
+    uint8_t seen_name = 0U;
+    uint8_t seen_destination = 0U;
+};
+
+static_assert(kExtraKeyCount < 64U,
+              "TMS backup extra-field validation uses one bounded bitset");
+
+int base64_value(char value)
+{
+    if (value >= 'A' && value <= 'Z') return value - 'A';
+    if (value >= 'a' && value <= 'z') return value - 'a' + 26;
+    if (value >= '0' && value <= '9') return value - '0' + 52;
+    if (value == '+') return 62;
+    if (value == '/') return 63;
+    return -1;
+}
+
+bool decode_tms_text(const char* value, char* out, std::size_t capacity)
+{
+    if (!value || !out || capacity == 0U)
+    {
+        return false;
+    }
+    std::size_t written = 0U;
+    for (const char* cursor = value; *cursor != '\0'; ++cursor)
+    {
+        unsigned char decoded = static_cast<unsigned char>(*cursor);
+        if (*cursor == '%')
+        {
+            const int high = hex_nibble(cursor[1]);
+            const int low = hex_nibble(cursor[2]);
+            if (high < 0 || low < 0 || (high == 0 && low == 0))
+            {
+                return false;
+            }
+            decoded = static_cast<unsigned char>((high << 4) | low);
+            cursor += 2;
+        }
+        if (written + 1U >= capacity)
+        {
+            return false;
+        }
+        out[written++] = static_cast<char>(decoded);
+    }
+    out[written] = '\0';
+    return true;
+}
+
+bool decode_tms_base64(const char* value,
+                       uint8_t* out,
+                       std::size_t capacity,
+                       std::size_t* out_len)
+{
+    if (out_len)
+    {
+        *out_len = 0U;
+    }
+    if (!value || !out)
+    {
+        return false;
+    }
+    const std::size_t length = std::strlen(value);
+    if (length == 0U)
+    {
+        return true;
+    }
+    if ((length % 4U) != 0U)
+    {
+        return false;
+    }
+    std::size_t padding = value[length - 1U] == '=' ? 1U : 0U;
+    if (padding == 1U && value[length - 2U] == '=')
+    {
+        ++padding;
+    }
+    if (padding > 2U || (padding == 1U && value[length - 2U] == '=') ||
+        (padding == 2U && value[length - 3U] == '='))
+    {
+        return false;
+    }
+    const std::size_t decoded_length = length / 4U * 3U - padding;
+    if (decoded_length > capacity)
+    {
+        return false;
+    }
+    std::size_t written = 0U;
+    for (std::size_t index = 0U; index < length; index += 4U)
+    {
+        const bool last = index + 4U == length;
+        const int a = base64_value(value[index]);
+        const int b = base64_value(value[index + 1U]);
+        const int c = value[index + 2U] == '=' ? -2 : base64_value(value[index + 2U]);
+        const int d = value[index + 3U] == '=' ? -2 : base64_value(value[index + 3U]);
+        if (a < 0 || b < 0 || c == -1 || d == -1 || (!last && (c < 0 || d < 0)) ||
+            (c == -2 && d != -2))
+        {
+            return false;
+        }
+        const uint32_t bits = (static_cast<uint32_t>(a) << 18U) |
+                              (static_cast<uint32_t>(b) << 12U) |
+                              (static_cast<uint32_t>(c < 0 ? 0 : c) << 6U) |
+                              static_cast<uint32_t>(d < 0 ? 0 : d);
+        out[written++] = static_cast<uint8_t>((bits >> 16U) & 0xFFU);
+        if (c != -2) out[written++] = static_cast<uint8_t>((bits >> 8U) & 0xFFU);
+        if (d != -2) out[written++] = static_cast<uint8_t>(bits & 0xFFU);
+    }
+    if (out_len)
+    {
+        *out_len = decoded_length;
+    }
+    return written == decoded_length;
+}
+
+bool parse_tms_bool(const char* type, const char* value, bool* out)
+{
+    if (!type || !value || std::strcmp(type, "bool") != 0 ||
+        (std::strcmp(value, "0") != 0 && std::strcmp(value, "1") != 0))
+    {
+        return false;
+    }
+    if (out) *out = value[0] == '1';
+    return true;
+}
+
+bool parse_tms_u32(const char* type, const char* value, uint32_t* out)
+{
+    if (!type || !value || std::strcmp(type, "u32") != 0 || value[0] == '\0')
+    {
+        return false;
+    }
+    uint32_t parsed = 0U;
+    for (const char* cursor = value; *cursor != '\0'; ++cursor)
+    {
+        if (*cursor < '0' || *cursor > '9')
+        {
+            return false;
+        }
+        const uint32_t digit = static_cast<uint32_t>(*cursor - '0');
+        if (parsed > (UINT32_MAX - digit) / 10U)
+        {
+            return false;
+        }
+        parsed = parsed * 10U + digit;
+    }
+    if (out) *out = parsed;
+    return true;
+}
+
+bool parse_tms_i32(const char* type, const char* value, int* out)
+{
+    if (!type || !value || std::strcmp(type, "i32") != 0 || value[0] == '\0')
+    {
+        return false;
+    }
+    char* end = nullptr;
+    const long parsed = std::strtol(value, &end, 10);
+    if (end == value || *end != '\0' || parsed < INT32_MIN || parsed > INT32_MAX)
+    {
+        return false;
+    }
+    if (out) *out = static_cast<int>(parsed);
+    return true;
+}
+
+int find_extra_key(const char* ns, const char* key)
+{
+    for (std::size_t index = 0U; index < kExtraKeyCount; ++index)
+    {
+        if (std::strcmp(kExtraKeys[index].ns, ns) == 0 &&
+            std::strcmp(kExtraKeys[index].key, key) == 0)
+        {
+            return static_cast<int>(index);
+        }
+    }
+    return -1;
+}
+
+bool consume_extra_record(char* line, bool apply, ExtraRestoreState* state)
+{
+    if (!line || !state || std::strncmp(line, "extra.", 6U) != 0)
+    {
+        return false;
+    }
+    char* equal = std::strchr(line, '=');
+    if (!equal || equal == line)
+    {
+        return false;
+    }
+    *equal = '\0';
+    char* type = equal + 1;
+    char* colon = std::strchr(type, ':');
+    if (!colon || colon == type)
+    {
+        return false;
+    }
+    *colon = '\0';
+    char* value = colon + 1;
+    char* ns = line + 6U;
+    char* dot = std::strchr(ns, '.');
+    if (!dot)
+    {
+        return false;
+    }
+    *dot = '\0';
+    char* setting = dot + 1;
+    dot = std::strrchr(setting, '.');
+    if (!dot)
+    {
+        return false;
+    }
+    *dot = '\0';
+    const char* suffix = dot + 1;
+    const int index = find_extra_key(ns, setting);
+    if (index < 0)
+    {
+        return true; // forward-compatible extra setting
+    }
+    const uint64_t bit = 1ULL << static_cast<uint8_t>(index);
+    const ExtraKey& descriptor = kExtraKeys[index];
+    if (std::strcmp(suffix, "present") == 0)
+    {
+        bool present = false;
+        if (!parse_tms_bool(type, value, &present))
+        {
+            return false;
+        }
+        state->seen_present |= bit;
+        if (present)
+        {
+            state->present_values |= bit;
+        }
+        else if (apply)
+        {
+            const char* keys[] = {descriptor.key};
+            ::platform::ui::settings_store::remove_keys(descriptor.ns, keys, 1U);
+        }
+        return true;
+    }
+    if (std::strcmp(suffix, "value") != 0 || (state->seen_present & bit) == 0U ||
+        (state->present_values & bit) == 0U)
+    {
+        return false;
+    }
+    state->seen_values |= bit;
+    switch (descriptor.type)
+    {
+    case ValueType::Bool:
+    {
+        bool parsed = false;
+        if (!parse_tms_bool(type, value, &parsed)) return false;
+        if (apply) ::platform::ui::settings_store::put_bool(descriptor.ns, descriptor.key, parsed);
+        return true;
+    }
+    case ValueType::Int:
+    {
+        int parsed = 0;
+        if (!parse_tms_i32(type, value, &parsed)) return false;
+        if (apply) ::platform::ui::settings_store::put_int(descriptor.ns, descriptor.key, parsed);
+        return true;
+    }
+    case ValueType::UInt:
+    {
+        uint32_t parsed = 0U;
+        if (!parse_tms_u32(type, value, &parsed)) return false;
+        if (apply) ::platform::ui::settings_store::put_uint(descriptor.ns, descriptor.key, parsed);
+        return true;
+    }
+    case ValueType::String:
+        if (!decode_tms_text(value, s_extra_text_scratch, sizeof(s_extra_text_scratch)) ||
+            std::strcmp(type, "str") != 0)
+            return false;
+        return !apply || ::platform::ui::settings_store::put_string(
+                             descriptor.ns, descriptor.key, s_extra_text_scratch);
+    case ValueType::Blob:
+    {
+        std::size_t length = 0U;
+        if (std::strcmp(type, "b64") != 0 ||
+            !decode_tms_base64(value,
+                               s_extra_blob_scratch,
+                               sizeof(s_extra_blob_scratch),
+                               &length))
+            return false;
+        return !apply || ::platform::ui::settings_store::put_blob(
+                             descriptor.ns,
+                             descriptor.key,
+                             length == 0U ? nullptr : s_extra_blob_scratch,
+                             length);
+    }
+    default:
+        return false;
+    }
+
+}
+
+bool consume_reticulum_group_record(char* line,
+                                    app::AppConfig* target,
+                                    ReticulumGroupRestoreState* state)
+{
+    static constexpr const char* kPrefix = "reticulum_group.";
+    if (!line || !state || std::strncmp(line, kPrefix, std::strlen(kPrefix)) != 0)
+    {
+        return false;
+    }
+    char* equal = std::strchr(line, '=');
+    if (!equal || equal == line)
+    {
+        return false;
+    }
+    *equal = '\0';
+    char* type = equal + 1;
+    char* colon = std::strchr(type, ':');
+    if (!colon || colon == type)
+    {
+        return false;
+    }
+    *colon = '\0';
+    char* value = colon + 1;
+    const char* slot_text = line + std::strlen(kPrefix);
+    if (slot_text[0] < '0' ||
+        slot_text[0] >= '0' + static_cast<char>(chat::kReticulumGroupDestinationMaxCount) ||
+        slot_text[1] != '.')
+    {
+        return false;
+    }
+    const uint8_t slot = static_cast<uint8_t>(slot_text[0] - '0');
+    const uint8_t bit = static_cast<uint8_t>(1U << slot);
+    const char* suffix = slot_text + 2;
+    chat::ReticulumGroupDestinationConfig* group =
+        target ? &target->reticulumConfig().reticulum_groups[slot] : nullptr;
+    if (std::strcmp(suffix, "present") == 0)
+    {
+        bool present = false;
+        if (!parse_tms_bool(type, value, &present))
+        {
+            return false;
+        }
+        state->seen_present |= bit;
+        if (present)
+        {
+            state->present_values |= bit;
+        }
+        else if (group)
+        {
+            *group = chat::ReticulumGroupDestinationConfig{};
+        }
+        return true;
+    }
+    if ((state->seen_present & bit) == 0U || (state->present_values & bit) == 0U)
+    {
+        return false;
+    }
+    if (std::strcmp(suffix, "enabled") == 0)
+    {
+        bool enabled = false;
+        if (!parse_tms_bool(type, value, &enabled)) return false;
+        if (group) group->enabled = enabled;
+        state->seen_enabled |= bit;
+        return true;
+    }
+    if (std::strcmp(suffix, "name") == 0)
+    {
+        if (std::strcmp(type, "str") != 0 ||
+            !decode_tms_text(value, s_extra_text_scratch, sizeof(s_extra_text_scratch)) ||
+            std::strlen(s_extra_text_scratch) >= chat::kReticulumGroupNameMaxLen)
+            return false;
+        if (group)
+        {
+            std::snprintf(group->name, sizeof(group->name), "%s", s_extra_text_scratch);
+        }
+        state->seen_name |= bit;
+        return true;
+    }
+    if (std::strcmp(suffix, "destination") == 0)
+    {
+        std::size_t length = 0U;
+        if (std::strcmp(type, "b64") != 0 ||
+            !decode_tms_base64(value,
+                               s_extra_blob_scratch,
+                               sizeof(s_extra_blob_scratch),
+                               &length) ||
+            length != chat::kReticulumPeerHashSize)
+            return false;
+        if (group)
+        {
+            group->identity = chat::makeReticulumDestinationIdentity(s_extra_blob_scratch);
+        }
+        state->seen_destination |= bit;
+        return true;
+    }
+    return false;
+}
+
+bool consume_tms_checksum(char* line, uint32_t crc_before_line, ExtraRestoreState* state)
+{
+    if (!line || !state || std::strncmp(line, "checksum.crc32=", 15U) != 0)
+    {
+        return false;
+    }
+    char* equal = std::strchr(line, '=');
+    char* colon = equal ? std::strchr(equal + 1, ':') : nullptr;
+    if (!equal || !colon)
+    {
+        return false;
+    }
+    *colon = '\0';
+    uint32_t expected = 0U;
+    if (!parse_tms_u32(equal + 1, colon + 1, &expected) || state->saw_checksum ||
+        expected != (crc_before_line ^ 0xFFFFFFFFUL))
+    {
+        return false;
+    }
+    state->saw_checksum = true;
+    return true;
+}
+
+bool finish_extra_restore(const ExtraRestoreState& state)
+{
+    return state.saw_checksum && state.seen_present == ((1ULL << kExtraKeyCount) - 1ULL) &&
+           state.seen_values == state.present_values;
+}
+
+bool finish_reticulum_group_restore(const ReticulumGroupRestoreState& state)
+{
+    const uint8_t all_slots = static_cast<uint8_t>(
+        (1U << chat::kReticulumGroupDestinationMaxCount) - 1U);
+    return state.seen_present == all_slots &&
+           state.seen_enabled == state.present_values &&
+           state.seen_name == state.present_values &&
+           state.seen_destination == state.present_values;
+}
+
+bool read_tms_backup(app::AppConfig* target, bool apply_extra)
+{
+    if (!storage_exists(kBackupPath))
+    {
+        return false;
+    }
+    ::platform::esp::arduino_common::storage::SdRuntimeFile file;
+    if (!file.open(kBackupPath, "r") || file.size() == 0U ||
+        file.size() > tms::kMaxDocumentBytes)
+    {
+        file.close();
+        return false;
+    }
+    tms::Decoder decoder(target, tms::DocumentKind::Backup);
+    ExtraRestoreState extra{};
+    ReticulumGroupRestoreState groups{};
+    uint32_t running_crc = 0xFFFFFFFFUL;
+    uint32_t line_crc_start = running_crc;
+    std::size_t line_length = 0U;
+    const uint64_t size = file.size();
+    bool ok = true;
+    for (uint64_t index = 0U; index < size; ++index)
+    {
+        if (line_length == 0U)
+        {
+            line_crc_start = running_crc;
+        }
+        const int raw = file.read_byte();
+        if (raw < 0)
+        {
+            ok = false;
+            break;
+        }
+        const uint8_t byte = static_cast<uint8_t>(raw);
+        running_crc = tms_crc32_update(running_crc, &byte, 1U);
+        if (byte != '\n')
+        {
+            if (line_length + 1U >= sizeof(s_backup_line_scratch.bytes))
+            {
+                ok = false;
+                break;
+            }
+            s_backup_line_scratch.bytes[line_length++] = static_cast<char>(byte);
+            continue;
+        }
+        if (line_length > 0U && s_backup_line_scratch.bytes[line_length - 1U] == '\r')
+        {
+            --line_length;
+        }
+        s_backup_line_scratch.bytes[line_length] = '\0';
+        if (extra.saw_checksum && std::strcmp(s_backup_line_scratch.bytes, "END") != 0)
+        {
+            ok = false;
+            break;
+        }
+        if (std::strncmp(s_backup_line_scratch.bytes, "extra.", 6U) == 0)
+        {
+            ok = consume_extra_record(s_backup_line_scratch.bytes, apply_extra, &extra);
+        }
+        else if (std::strncmp(s_backup_line_scratch.bytes, "reticulum_group.", 16U) == 0)
+        {
+            ok = consume_reticulum_group_record(s_backup_line_scratch.bytes, target, &groups);
+        }
+        else if (std::strncmp(s_backup_line_scratch.bytes, "checksum.crc32=", 15U) == 0)
+        {
+            ok = consume_tms_checksum(s_backup_line_scratch.bytes, line_crc_start, &extra);
+        }
+        else
+        {
+            ok = decoder.consumeLine(s_backup_line_scratch.bytes);
+        }
+        if (!ok) break;
+        line_length = 0U;
+    }
+    file.close();
+    return ok && line_length == 0U && decoder.finish() && finish_extra_restore(extra) &&
+           finish_reticulum_group_restore(groups);
+}
+
+bool restore_tms_backup()
+{
+    if (!read_tms_backup(nullptr, false))
+    {
+        return false;
+    }
+    app::IAppFacade& facade = app::appFacade();
+    auto edit = facade.beginConfigEdit();
+    if (!edit || !read_tms_backup(&edit.config(), true))
+    {
+        return false;
+    }
+    const ::platform::ui::reticulum_groups::Status group_submit =
+        ::platform::ui::reticulum_groups::submit(
+            edit.config().reticulumConfig().reticulum_groups,
+            chat::kReticulumGroupDestinationMaxCount);
+    if (!group_submit.queued)
+    {
+        return false;
+    }
+    const ::platform::ui::reticulum_groups::Status group_save =
+        ::platform::ui::reticulum_groups::flushPending();
+    if (!group_save.saved)
+    {
+        return false;
+    }
+    edit.commit(app::AppConfigChangeSet::allPersisted());
+    return true;
 }
 
 cJSON* create_backup_document()
@@ -1457,34 +2244,27 @@ bool backup()
     {
         return false;
     }
-    if (!ensure_backup_dir())
-    {
-        return false;
-    }
-    cJSON* root = create_backup_document();
-    if (!root)
-    {
-        return false;
-    }
-    char* text = cJSON_Print(root);
-    cJSON_Delete(root);
-    if (!text)
-    {
-        return false;
-    }
-    const bool ok = write_text_atomic(kBackupPath, kBackupTempPath, text, std::strlen(text));
-    cJSON_free(text);
-    return ok;
+    return write_tms_backup();
 }
 
 bool restore()
 {
-    if (!sd_available() || !storage_exists(kBackupPath))
+    if (!sd_available())
+    {
+        return false;
+    }
+    if (storage_exists(kBackupPath))
+    {
+        return restore_tms_backup();
+    }
+    // JSON is retained only as an explicit one-release compatibility import.
+    // The normal backup path never creates it and never allocates a JSON tree.
+    if (!storage_exists(kLegacyBackupPath))
     {
         return false;
     }
     std::string text;
-    if (!read_file_text(kBackupPath, text))
+    if (!read_file_text(kLegacyBackupPath, text))
     {
         return false;
     }

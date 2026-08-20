@@ -1,4 +1,4 @@
-# State Machine：HostLink Session
+# State Machine:HostLink Session
 ```mermaid
 stateDiagram-v2
   [*] --> Stopped
@@ -14,22 +14,22 @@ stateDiagram-v2
   Waiting --> Stopped: stop
 ```
 
-## 状态 owner
+## State owner
 
-SessionRuntime 持有连接 generation、协商 capability、RX parser、pending request 和 TX 队列。Transport 只产生 connect/disconnect/bytes 事件；Handler 不持有会话状态。
+SessionRuntime holds connection generation, negotiation capability, RX parser, pending request and TX queue. Transport only generates connect/disconnect/bytes events; Handler does not hold session state.
 
-## Guard 与动作
+## Guard and Action
 
-Connected 只有在 transport 建链后进入；Hello 完整且版本/capability 可验证才进入 Handshaking。Ready 之前任何 command frame 返回 protocol error。Ready 的自循环每次完成 decode、route、handler 和有序 response。
+Connected can only be entered after the transport link is established; Handshaking can only be entered after Hello is complete and the version/capability can be verified. Any command frame before Ready returns a protocol error. Ready's self-loop completes decode, route, handler and ordered response each time.
 
-## 错误分类
+## Error classification
 
-命令级 rejected 保持 Ready；破坏 framing、版本不兼容、持续超限进入 Error 并清理 parser/pending。Disconnect 从任意已连接状态回 Waiting，并使所有旧 callback generation 失效。
+Command-level rejected remains Ready; broken framing, version incompatibility, continuous overrun enters Error and cleans up parser/pending. Disconnect returns from any connected state to Waiting and invalidates any old callback generation.
 
-## 幂等与背压
+## Idempotence and backpressure
 
-Start/stop 幂等；同 seq 副作用命令通过 pending/committed result 去重。RX/TX 使用固定容量，队列满按 contract 返回 Busy 或关闭失控 peer，禁止无界增长。
+Start/stop is idempotent; the same as the seq side effect command to deduplicate the pending/committed result. RX/TX uses a fixed capacity. When the queue is full, the contract returns Busy or closes the out-of-control peer, prohibiting unbounded growth.
 
-## 测试
+## Testing
 
-覆盖 command-before-handshake、invalid hello、half frame、disconnect during handler、快速重连、重复 seq、TX 满和 Error reset。
+Cover command-before-handshake, invalid hello, half frame, disconnect during handler, fast reconnect, repeated seq, TX full and Error reset.

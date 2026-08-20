@@ -1,4 +1,4 @@
-# Sequence Diagram：Radio 到 Ledger
+# Sequence Diagram: Radio to Ledger
 
 ```mermaid
 sequenceDiagram
@@ -23,22 +23,22 @@ sequenceDiagram
   end
 ```
 
-## 场景与责任
+## Scenarios and responsibilities
 
-Radio/Transport 产生原始 frame；活动 Backend 负责协议结构、目标和 crypto；ReceivePacketService 只接收已经通过协议验证的 packet，执行业务去重与组合提交；Ledger 是消息终态 owner；Directory 拥有 peer 观察；UI 只接收 committed projection。
+Radio/Transport generates the original frame; the activity Backend is responsible for the protocol structure, target and crypto; ReceivePacketService only receives packets that have passed protocol verification, and performs business deduplication and combined submission; Ledger is the message final state owner; Directory has peer observation; UI only receives committed projection.
 
-## 顺序约束
+## Sequence constraints
 
-协议验证发生在任何业务写入前。Dedup key 包含协议 namespace。Peer facts 与消息提交需要明确一致性策略：若目录写失败不影响消息真实性，可作为独立事实重试；消息未 Durable 时绝不能发布 conversation/unread。
+Protocol verification occurs before any business is written. Dedup key contains protocol namespace. Peer facts and message submission need to have a clear consistency strategy: if directory writing failure does not affect the authenticity of the message, it can be retried as an independent fact; conversation/unread must not be published when the message is not Durable.
 
-## ACK 语义
+## ACK semantics
 
-业务 Durable 后 Backend 才能根据协议策略发送成功 ACK。重复消息可以不重复建消息，但仍可能重发 ACK。Rejected 不产生业务事件；协议层是否返回 NACK 由 wire contract 决定。
+After the business becomes Durable, Backend can send a successful ACK according to the protocol policy. Duplicate messages do not need to be re-established, but the ACK may still be resent. Rejected does not generate business events; whether the protocol layer returns NACK is determined by the wire contract.
 
-## 乱序与迟到
+## Out-of-order and late
 
-消息到达顺序不等于会话显示顺序，投影按协议序号/消息时间和稳定 identity 处理。非活动 backend 的迟到事件带 generation，被入口拒绝而不是写入当前协议空间。
+The message arrival order is not equal to the session display order, and the projection is processed according to the protocol sequence number/message time and stable identity. Late events for inactive backends with generation,are rejected by the ingress instead of being written to the,current protocol space.
 
-## 验证
+## Verification
 
-覆盖 decode/crypto 失败、跨协议 key 冲突、重复 packet、Directory 失败、Ledger Deferred/Rejected 以及 ACK 仅在允许阶段产生。
+ Covers decode/crypto failures, cross-protocol key conflicts, duplicate packets, Directory failures, Ledger Deferred/Rejected, and ACKs are only generated in the allowed phase.

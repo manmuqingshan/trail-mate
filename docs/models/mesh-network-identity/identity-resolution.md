@@ -1,4 +1,4 @@
-# 本机身份建立与对端公钥保护
+# Local identity establishment and peer public key protection
 
 ```mermaid
 flowchart TD
@@ -15,4 +15,4 @@ flowchart TD
   Stamp --> Put["peer_store.put"]
 ```
 
-图中没有“联系人”或“稳定 PeerIdentity”，因为当前 `core_mesh` 只明确拥有 `LocalIdentity` 和 `PeerPublicKey`。
+There is no "Contact" or "Stable PeerIdentity" in the diagram because currently `core_mesh` only explicitly owns `LocalIdentity` and `PeerPublicKey`.

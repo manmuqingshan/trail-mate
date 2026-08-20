@@ -2,105 +2,105 @@
 
 ## 1. Scope
 
-本文档定义 Trail Mate `Node Info` / 节点详情页面的 UI/UX 规格。
+This document defines the UI/UX specifications for the Trail Mate `Node Info` / node details page.
 
-本文档当前只约束“联系人中打开某个节点后看到的详情页”，不覆盖联系人列表页本身，也不覆盖地图主页面。
+This document currently only restricts "the details page seen after opening a node in the contacts", and does not cover the contact list page itself, nor does it cover the main map page.
 
-本页面中的地图背景、拖动、缩放、图层切换与投影能力，不在本文档中单独重新定义底层组件职责，而是继承共享地图视口组件规格：
+The map background, dragging, zooming, layer switching and projection capabilities in this page do not separately redefine the underlying component responsibilities in this document, but inherit the shared map viewport component specifications:
 
 - [Firmware Visual Style Specification](../foundation/firmware_visual_style.md)
 - [Shared Map Viewport Component Specification](../components/shared_map_viewport.md)
 - [Shared Map Viewport Implementation Specification](../components/shared_map_viewport_impl.md)
 
-这是一份实现约束文档，不是视觉灵感草图。后续 `node_info_page_layout.*` 与 `node_info_page_components.*` 的改造应回到本文档核对，而不是继续靠局部补丁演化。
+This is an implementation constraint document, not a visual inspiration sketch. Subsequent modifications to `node_info_page_layout.*` and `node_info_page_components.*` should be reviewed in this document instead of continuing to rely on local patches to evolve.
 
-本文档中的未定义项，默认视为“禁止实现”，而不是“留给实现者自由发挥”。
+Undefined items in this document are by default regarded as "forbidden to implement" instead of "leaving it to implementers to freely develop".
 
-换句话说：
+In other words:
 
-- 只有文档明确列出的字段可以显示
-- 只有文档明确允许的降级行为可以出现
-- 没有被文档点名的补充信息，默认不应出现在标准 `Node Info` 页面
+- Only fields explicitly listed in the document can be displayed
+- Only downgrade behaviors explicitly allowed by the document can appear
+- Supplementary information that is not named by the document should not appear in the standard `Node Info` page by default
 
-如果后续需要扩展字段或增加新的视觉元素，应先改规格，再改代码。
+If you need to expand fields or add new visual elements later, you should change the specifications first, and then change the code.
 
 ---
 
 ## 2. Requirement Restatement
 
-节点详情页的目标不是做成一个由多个卡片和边框堆起来的信息面板，而是做成一个以“节点空间位置”为主视觉、以“节点链路信息”为右侧辅信息的沉浸式页面。
+The goal of the node details page is not to make an information panel stacked with multiple cards and borders, but to make an immersive page with "node space position" as the main visual and "node link information" as the auxiliary information on the right side.
 
-当前已经确认的需求如下：
+The currently confirmed requirements are as follows:
 
-1. 整个节点详情页需要重构，不再沿用旧的卡片式/框式信息布局。
-2. 页面主体不要再出现内容框、链路框、信息卡等视觉容器，内容尽量直接落在页面上。
-3. 如果节点存在经纬度信息，地图应作为页面背景。
-4. 节点 ID 显示在左上角。
-5. 经纬度显示在左下角，并且“上面经度，下面纬度”。
-6. 原来链路框里显示的信息，不再使用单独框体，而是全部放到页面右侧，一行一项。
-7. 如果节点存在经纬度，需要在地图上标出该节点位置。
-8. 如果同时存在“我的经纬度”和“该节点经纬度”，需要在地图上同时标记两个点，并连线显示，还要渲染两点之间的距离。
-9. 页面右下角增加 `+` 和 `-` 两个地图缩放按钮，缩放中心始终是该节点。
-10. 只有在节点存在经纬度时，缩放按钮才可操作；如果没有经纬度，两个缩放按钮不可操作。
-11. 当节点存在经纬度时，地图需要支持滑动，允许用户拖动查看节点周边区域。
-12. “角色”字段如果只能显示 `-`，则不要显示。当前规格中默认移除该字段。
-13. 地图上的文字描述需要使用一组较鲜明、彼此区分的彩色配色。ID、经纬度、链路信息项、距离等可以使用不同颜色，整体要尽量好看。
-14. 页面底部中间增加一个 `Layer` 按钮，用于图层切换。
-15. `Layer` 按钮的功能必须与 `GPS / 地图` 页中的 `Layer` 按钮完全一致，至少包括：
-    - 街道图 / `OSM`
-    - 地形图 / `Terrain`
-    - 卫星图 / `Satellite`
-    - 等高线开关 / `Contour`
-16. `Node Info` 页不允许定义自己的图层切换语义；它只能复用共享地图视口所定义的图层切换语义。
+1. The entire node details page needs to be reconstructed, and the old card/box information layout will no longer be used.
+2. The main body of the page should no longer have visual containers such as content boxes, link boxes, and information cards. The content should fall directly on the page as much as possible.
+3. If the node has latitude and longitude information, the map should be used as the page background.
+4. The node ID is displayed in the upper left corner.
+5. The latitude and longitude are displayed in the lower left corner, and "longitude above, latitude below".
+6. The information displayed in the original link box is no longer in a separate box, but is placed on the right side of the page, one item per line.
+7. If the node has longitude and latitude, the location of the node needs to be marked on the map.
+8. If "my latitude and longitude" and "latitude and longitude of this node" both exist, you need to mark two points on the map at the same time, display them as a line, and render the distance between the two points.
+9. Two map zoom buttons, `+` and `-`, are added to the lower right corner of the page. The zoom center is always this node.
+10. The zoom button is operable only when the node has latitude and longitude; if there is no latitude and longitude, the two zoom buttons are inoperable.
+11. When a node has longitude and latitude, the map needs to support sliding and allow users to drag to view the area around the node.
+12. If the "role" field can only display `-`, do not display it. This field is removed by default in the current specification.
+13. The text description on the map needs to use a set of bright and distinguishable colors. ID, latitude and longitude, link information items, distance, etc. can use different colors, and the overall look should be as good as possible.
+14. Add a `Layer` button in the middle of the bottom of the page for layer switching.
+15. The function of the `Layer` button must be exactly the same as the `Layer` button in the `GPS/Map` page, including at least:
+- Street Map / `OSM`
+- Terrain Map / `Terrain`
+- Satellite images / `Satellite`
+ - Contour switch / `Contour`
+16. The `Node Info` page does not allow defining its own layer switching semantics; it can only reuse the layer switching semantics defined by the shared map viewport.
 
 ---
 
 ## 3. Distinctions
 
-### 3.1 页面主对象
+### 3.1 Main object of the page
 
-节点详情页的主对象是“一个远端节点”。
+The main object of the node details page is "a remote node".
 
-地图不是主对象，地图只是这个节点的空间上下文。
+The map is not the main object, the map is just the spatial context of this node.
 
-### 3.2 页面主视觉
+### 3.2 Main visual of the page
 
-页面主视觉不是“表格”也不是“卡片组”，而是：
+The main vision of the page is not a "table" or a "card deck", but:
 
-- 有坐标时：以地图为背景的空间视图
-- 无坐标时：以纯背景承载文本信息的降级视图
+- When there are coordinates: a spatial view with the map as the background
+- When there are no coordinates: a degraded view with a pure background carrying text information
 
-### 3.3 右侧信息区的职责
+### 3.3 Responsibilities of the information area on the right
 
-右侧区域负责承载节点的链路和附加信息，它是“信息投影区”，不是第二个主页面，也不是独立卡片容器。
+The area on the right is responsible for carrying the links and additional information of the node. It is an "information projection area", not a second main page, nor an independent card container.
 
-### 3.4 不再成立的旧表达
+### 3.4 Old expressions that are no longer valid
 
-以下表达在新规格中不再成立：
+The following expressions no longer hold true in the new specification:
 
-- “角色”字段恒常显示，即使值没有意义
-- 使用链路框来承载链路信息
-- 使用多个内容框把一个节点拆成多个视觉岛
-- 让地图退化为小插图或次要组件
+-The "role" field is always displayed, even if the value is meaningless
+-Use link boxes to carry link information
+-Use multiple content boxes to split a node into multiple visual islands
+-Let the map be reduced to a vignette or a secondary component
 
 ---
 
 ## 4. Page Goals
 
-### 4.1 核心目标
+### 4.1 Core Objective
 
-- 让用户一眼先看到“这个节点在哪里”
-- 再快速看到“它和我之间是什么关系”
-- 最后看到“它的链路/状态细节”
+- Let the user see "where is this node" at a glance
+- and then quickly see "what is the relationship between it and me"
+- and finally see "its link/status details"
 
-### 4.2 非目标
+### 4.2 Non-target
 
-本页面当前不是：
+This page is not currently:
 
-- 节点配置编辑器
-- 完整诊断页
-- 多标签页容器
-- 多卡片信息看板
+- Node configuration editor
+- Complete diagnostic page
+- Multi-tab container
+- Multi-card information board
 
 ---
 
@@ -108,13 +108,13 @@
 
 ## 5.1 Overall Structure
 
-页面保留应用级公共顶部栏能力，例如返回、标题、电量等。
+The page retains application-level public top bar capabilities, such as return, title, battery, etc.
 
-除顶部栏外，内容区域采用全屏单画布表达，不再引入内容卡片、信息框、链路框、外轮廓盒子。
+Except for the top bar, the content area is expressed in a full-screen single canvas, and content cards, information boxes, link boxes, and outer outline boxes are no longer introduced.
 
-本节给出的结构图只表达“区域关系”，不表达固定像素。
+The structure diagram given in this section only expresses "regional relationships" and does not express fixed pixels.
 
-`Node Info` 的具体几何必须由当前设备尺寸和 `page_profile` 决定，不能把其它文档中面向 `pager` 的 `480x222` 示例反向理解成 `Node Info` 或全固件的统一布局法。
+The specific geometry of `Node Info` must be determined by the current device size and `page_profile`. The `480x222` example for `pager` in other documents cannot be reversely understood as `Node Info` or a unified layout method for the entire firmware.
 
 ```text
 +--------------------------------------------------+
@@ -133,134 +133,134 @@
 
 ### 5.1.1 Compact Portrait Baseline
 
-以下基线适用于当前 `320x240` 竖屏设备族，是 `Node Info` 页面评审、截图比对和回归检查时的**规范性参考布局**：
+The following baseline applies to the current `320x240` portrait screen device family and is the **normative reference layout** for `Node Info` page review, screenshot comparison and regression check:
 
-- 根页面：`320x240`
-- TopBar：`320x30`
-- 内容区：`320x210`
-- 内容区内边距：`10px`
-- 右侧链路列宽：`122px`
-- 右侧链路列起始 Y：`12px`
-- 右侧链路列行高：`12px`
-- 右侧链路列行间距：`1px`
-- 右下角缩放按钮：`28x28`
-- 底部中间 `Layer` 按钮：`68x24`
+- Root page: `320x240`
+- TopBar:`320x30`
+- Content area: `320x210`
+- Content area margin: `10px`
+- Right link column width: `122px`
+- Right link column start Y: `12px`
+- Right link column row height: `12px`
+- Right link column row spacing: `1px`
+- Bottom right zoom button: `28x28`
+- Bottom middle `Layer` Button: `68x24`
 
-这个基线只约束当前紧凑竖屏 profile 下的 `Node Info` 页面，不构成全固件通用布局法。
+This baseline only constrains the `Node Info` page under the current compact portrait profile and does not constitute a common layout method for the entire firmware.
 
 ## 5.2 Background
 
-### 有节点坐标
+### With node coordinates
 
-- 地图铺满内容区域，作为主背景
-- 默认首帧以节点为中心
-- 地图需要支持用户滑动查看周边区域
-- 地图缩放围绕节点进行
-- 地图底图必须保持清晰可读；标准态下不允许再叠加任何持续存在的半透明蒙版、雾化层、scrim 或右侧渐隐遮罩
-- 唯一允许盖在地图之上的半透明层，只能是临时模态弹层自己的背景遮罩，且它必须在弹层关闭后完全消失
+- The map covers the content area as the main background
+- The default first frame is centered on the node
+- The map needs to support the user to slide to view the surrounding area
+- The map zooms around the node
+- The map basemap must remain clear and readable; no persistent translucent masks, fog layers, scrims, or right-side fade masks are allowed in the standard state
+- The only translucent layer allowed to cover the map can only be the background mask of the temporary modal elastic layer itself, and it must disappear completely after the elastic layer is closed
 
-### 无节点坐标
+### No node coordinates
 
-- 不显示地图底图
-- 使用纯色或轻量纹理背景承载文本信息
-- 缩放按钮显示为禁用态
+-Do not display the map basemap
+-Use a solid color or lightweight texture background to carry text information
+- The zoom button appears disabled
 
 ## 5.3 Left-Top: Node Identity
 
-左上角显示节点 ID。
+The node ID is displayed in the upper left corner.
 
-要求：
+Requirements:
 
-- 位置稳定，优先级高
-- 不被右侧信息区挤压
-- 颜色应明显区别于背景
-- 可以使用强调色
+- Stable position, high priority
+- Not squeezed by the right information area
+- The color should be clearly different from the background
+- Accent colors can be used
 
-如果后续需要同时显示短名/昵称，也应从属于 ID，不应取代 ID 的第一视觉位。
+ If the short name/nickname needs to be displayed at the same time later, it should also be subordinate to the ID and should not replace the first visual position of the ID.
 
 ## 5.4 Left-Bottom: Coordinates
 
-左下角显示坐标文本，顺序固定为：
+The coordinate text is displayed in the lower left corner, and the order is fixed as:
 
-1. 经度
-2. 纬度
+1. Longitude
+2. Latitude
 
-要求：
+Requirements:
 
-- 上面经度，下面纬度
-- 文字颜色与 ID 和右侧信息项区分开
-- 坐标缺失时不显示伪值、不显示占位破折号
+- Longitude above, latitude below
+- Text color is distinguished from ID and information items on the right
+- When coordinates are missing, dummy values ​​and placeholder dashes will not be displayed
 
 ## 5.5 Right Side: Info Lines
 
-页面右侧为信息列，一行一项。
+The right side of the page is an information column, one item per line.
 
-要求：
+Requirements:
 
-- 不再使用链路框
-- 每一行只承载一个信息项
-- 信息项自上而下排列
-- 视觉上比左侧主信息弱，但仍应清晰可读
-- 行之间需要保持稳定节奏和可扫描性
-- 整列按右缘读数列处理，必须真正右对齐
-- 当底图为瓦片地图或卫星图时，右侧读数列必须优先保证对比度和瞬时可读性；它允许比全局正文使用更亮的叠加读数色，但不得退化成随机多彩文本
+- Link boxes are no longer used
+- Each line carries only one information item
+- Information items are arranged from top to bottom
+- Visually weaker than the main information on the left, but should still be clearly readable
+- A steady rhythm and scannability need to be maintained between lines
+- The entire column is processed as a right-edge reading column and must be truly right-aligned
+- When the base map is a tile map or satellite image, the right reading column must prioritize ensuring contrast and instant readability; it allows the use of brighter overlay reading colors than the global text, but must not degrade into random colorful text
 
 ### 5.5.1 Standard Field Set
 
-标准 `Node Info` 页面右侧信息列只允许显示以下字段，顺序固定：
+The information column on the right side of the standard `Node Info` page only allows the following fields to be displayed, in a fixed order:
 
 1. `Protocol`
 2. `RSSI`
 3. `SNR`
 4. `Seen`
 
-这 4 项组成标准节点详情页的完整链路信息合同。
+These 4 items constitute the complete link information contract of the standard node details page.
 
-如果某一项缺失，则直接省略，后续项上移；**不允许用任何其它字段补位**。
+If an item is missing, it will be omitted directly, and subsequent items will be moved up; **No other fields are allowed to be filled in**.
 
 ### 5.5.2 Field Text Templates
 
-右侧信息列文本模板固定如下：
+The right information column text template is fixed as follows:
 
 1. `Protocol`
-   - 允许值：`Meshtastic` / `MeshCore` / `RNode` / `LXMF`
-   - 不允许缩写成 `MT` / `MC` / `RN` / `LX`
+ - Allowed values: `Meshtastic` / `MeshCore` / `RNode` / `LXMF`
+ - Abbreviations to `MT` / `MC` / `RN` / `LX`
 2. `RSSI`
-   - 模板：`RSSI -49 dBm`
-   - 数值取整到 1 dBm
+ are not allowed - Template: `RSSI -49 dBm`
+ - Values rounded to 1 dBm
 3. `SNR`
-   - 模板：`SNR +6.2 dB`
-   - 保留 1 位小数，正数必须带 `+`
+ - Template: `SNR +6.2 dB`
+ - Keep 1 decimal place, positive numbers must contain `+`
 4. `Seen`
-   - 模板：`Seen 12s` / `Seen 3m` / `Seen 2h` / `Seen 1d`
-   - 使用相对时长短格式
+ - Template: `Seen 12s` / `Seen 3m` / `Seen 2h` / `Seen 1d`
+ - Use relative duration short format
 
 ### 5.5.3 Readout Color Contract
 
-右侧读数列在地图背景上使用固定的高可读颜色合同，当前版本定义如下：
+The right reading column uses a fixed high readable color contract on the map background, the current version is defined as follows:
 
 1. `Protocol`
-   - 使用明亮暖 amber
-   - 目标是成为第一眼可扫读项
+ - Use bright and warm amber
+ - Aim to be scannable at first glance
 2. `RSSI`
-   - 使用明亮 info blue / cyan
-   - 必须明显亮于普通正文棕色
+ - Use bright info blue / cyan
+ - Must be significantly lighter than normal text brown
 3. `SNR`
-   - 使用明亮 ok green
+ - Use bright ok green
 4. `Seen`
-   - 使用浅暖亮色，而不是暗淡次文本棕色
+ - Use light warm bright color, not dull sub-text brown
 5. `Zoom`
-   - 使用与 `Seen` 同级或略强一级的浅亮色
+ - Use with `Seen` Light bright color of the same level or slightly better
 
-禁止做法：
+Prohibited practices:
 
-- 继续沿用全局普通正文深棕色直接覆盖到地图瓦片之上
-- 为了“统一”而把 `Seen` / `Zoom` 压回低亮度灰褐色
-- 对每一行随意指定未收敛的新颜色
+-Continue to use the global normal text dark brown to directly cover the map tiles
+-For the sake of "unification", push `Seen` / `Zoom` back to low brightness taupe
+- Randomly specify new unconverged colors for each line
 
 ### 5.5.4 Forbidden Fields
 
-以下字段在标准 `Node Info` 页面中**明确禁止显示**：
+The following fields are in the standard `Node Info` **Explicitly prohibited** on the page:
 
 - `LoRa`
 - `MQTT`
@@ -271,109 +271,109 @@
 - `HOPS`
 - `NEXT`
 - `Role`
-- 任何调试字段
-- 任何为了“补满右侧区域”而临时加入的派生字段
+- Any debug fields
+- Any derived fields temporarily added to "fill in the right area"
 
-这些信息如果未来确有价值，应进入单独的诊断页或高级详情模式，而不是重新塞回标准节点详情页。
+If this information is indeed valuable in the future, it should be entered into a separate diagnostic page or advanced details mode instead of being stuffed back into the standard node details page.
 
 ### 5.5.5 Line Count Contract
 
-标准 `Node Info` 页面右侧信息列最大行数为 `4`。
+The maximum number of rows in the information column on the right side of the standard `Node Info` page is `4`.
 
-这不是“当前实现巧合”，而是规格本身的一部分。
+This is not a "current implementation coincidence", but part of the specification itself.
 
-任何实现如果在标准节点详情页中显示第 5 行及以上的链路信息，都应视为违反规格。
+Any implementation that displays link information on line 5 and above in the standard node details page shall be considered a specification violation.
 
 ### 5.5.6 Viewport Status Line
 
-标准 `Node Info` 页面允许在 `Seen` 下方额外显示 1 行**视口状态行**，当前版本固定只用于显示当前缩放等级。
+The standard `Node Info` page allows an additional line of **viewport status line** to be displayed below `Seen`. The current version is only used to display the current zoom level.
 
-它不是链路信息的一部分，因此**不计入** 5.5.4 中“链路信息列最大行数为 `4`”的限制。
+It is not part of the link information and therefore does not count against the `4` maximum number of rows in the link information column in 5.5.4.
 
-要求：
+Requirements:
 
-- 固定显示在 `Seen` 的下方
-- 仍然属于右侧读数列，必须右对齐
-- 只在节点存在有效经纬度时显示
-- 当前版本文本模板固定为 `Zoom 12`
-- 不允许在这行里追加其它调试字段、tile 状态、坐标系、底图源简称等信息
+- Fixed to be displayed below `Seen`
+- Still belongs to the right reading column and must be right-aligned
+- Only displayed when the node has valid longitude and latitude
+- The current version text template is fixed to `Zoom 12`
+- It is not allowed to add other debugging fields, tile status, coordinate system, base map source abbreviation and other information in this line
 
 ### 5.5.7 Readout Backdrop
 
-右侧链路读数列允许增加一个 *内容包裹式半透明底板*，用途只有一个：在瓦片地图或卫星图背景上提升 `Protocol / RSSI / SNR / Seen / Zoom` 这组读数的瞬时可读性。
+The right link reading column allows adding a *content-wrapped translucent bottom plate*, which has only one purpose: to improve the instant readability of the `Protocol / RSSI / SNR / Seen / Zoom` set of readings on the tile map or satellite image background.
 
-要求：
-- 底板只能包裹右侧当前可见的读数项，尺寸必须由“可见读数文本的实际包围盒 + 少量内边距”决定
-- 当前版本透明度固定为 `60%`
-- 当前版本底板颜色固定继承固件暖色面板底色语义，即 `PanelBG`
-- 底板必须跟随可见读数项数量与文本宽度变化，不能退化成固定半列、固定整列或半屏遮罩
-- 底板只服务于右侧读数簇，不得扩展到地图主体区域，也不得影响左上 ID、左下坐标、地图标记或距离标签的视觉层级
-- 底板是读数簇的承托层，不是新的“链路框”或“信息卡”；禁止重新引入标题栏、分组边框、分隔线或二级卡片语义
-- 当右侧没有任何可见读数项时，底板必须完全隐藏
+Requirements:
+- The base plate can only wrap the currently visible reading item on the right side, and the size must be determined by "the actual bounding box of the visible reading text + a small amount of padding"
+- The current version transparency is fixed at `60%`
+- The current version of the base plate color is fixed and inherits the firmware warm panel background color semantics, that is, `PanelBG`
+- The bottom plate must follow changes in the number of visible reading items and text width, and cannot degenerate into a fixed half column, fixed full column, or half-screen mask
+- The bottom plate only serves the right reading cluster and must not be extended to the main map area, nor must it affect the visual hierarchy of the upper left ID, lower left coordinate, map mark, or distance label
+- The base plate is the supporting layer of the reading cluster, not a new "link box" or "information card"; it is forbidden to reintroduce title bars, group borders, dividers or secondary card semantics
+- When there are no visible read items on the right, the base plate must be completely hidden
 
-禁止做法：
-- 用整块右半屏蒙版、渐隐遮罩、scrim、雾化层来替代这个底板
-- 为了实现可读性而重新把地图做灰、做雾或整体降对比
-- 把底板做成与右侧列宽永久绑定的固定矩形，而不是内容驱动矩形
+Prohibited practices:
+-Replace this base plate with the entire right half-screen mask, fade mask, scrim, fog layer
+- Re-grey, fog or overall reduce the contrast of the map in order to achieve readability
+- Make the base plate a fixed rectangle permanently bound to the right column width, rather than a content-driven rectangle
 
 ## 5.6 Bottom-Right: Zoom Controls
 
-右下角放置两个按钮：
+Place two buttons in the lower right corner:
 
 - `+`
 - `-`
 
-要求：
+Requirements:
 
-- 始终固定在右下角区域
-- 只控制地图缩放
-- 缩放中心始终是当前节点
-- 缩放等级契约固定继承共享地图视口 / 地图页契约：最小 `0`，最大 `18`，默认 `12`
-- 首次进入页面时，视口默认使用 `12` 作为首选缩放级别；若该级别中心瓦片不可用，才允许在 `0..18` 范围内寻找最近可用级别
-- 用户点击 `+` 或 `-` 后，缩放动作必须重新回到“以当前节点为锚点”的相机语义，不能继续沿用拖动后偏离节点的屏幕中心
-- 用户触发的缩放请求只受缩放范围约束，不得再额外被“当前更高/更低一级中心瓦片是否存在”拦截为 no-op；瓦片缺失属于地图数据可用性问题，不是缩放语义问题
-- 当已经到达最小或最大缩放级别时，对应按钮必须显示为禁用态
+-Always fixed in the lower right corner area
+-Only control the map zoom
+- The zoom center is always the current node
+- Fixed inheritance of the zoom level contract shared map viewport/map page contract: minimum `0`, maximum `18`, default `12`
+- When entering the page for the first time, the viewport defaults to `12` as the preferred zoom level; if the center tile at this level is not available, only `0..18` is allowed. Find the nearest available level within the range
+- After the user clicks `+` or `-`, the zoom action must return to the camera semantics of "using the current node as the anchor point", and cannot continue to use the screen center of the node after dragging
+- The zoom request triggered by the user is only constrained by the zoom range, and must not be additionally intercepted by "whether the current higher/lower level center tile exists". no-op; missing tiles are a map data availability issue, not a zoom semantic issue
+- When the minimum or maximum zoom level has been reached, the corresponding button must be displayed as disabled
 
-当节点没有经纬度时：
+When the node has no latitude and longitude:
 
-- 两个按钮保持可见但不可操作
-- 视觉上必须表现为禁用态
-- 点击后不执行任何地图行为
+- The two buttons remain visible but inoperable
+- They must appear visually disabled
+- No map behavior is performed after clicking
 
 ## 5.7 Bottom-Center: Layer Button
 
-页面底部中间必须放置一个 `Layer` 按钮。
+ A `Layer` button must be placed in the middle of the bottom of the page.
 
-要求：
+Requirements:
 
-- 位置固定在底部中间区域
-- 它属于页面固定 chrome，不跟随地图拖动
-- 它打开的图层切换能力必须与 `GPS / 地图` 页的 `Layer` 按钮功能完全一致
-- 它不允许引入一套 `Node Info` 私有的图层定义、图层命名或图层切换后果
+- The position is fixed in the bottom middle area
+- It belongs to the page fixed chrome and does not follow the map dragging
+- The layer switching capability it opens must be exactly the same as the `Layer` button function of the `GPS/Map` page
+- It does not allow the introduction of a set of `Node Info` Private layer definition, layer naming or layer switching consequences
 
-`Layer` 按钮控制的是共享地图配置，而不是当前页面私有状态。
+The `Layer` button controls the shared map configuration, not the private state of the current page.
 
-这意味着：
+This means:
 
-- 切换 `OSM / Terrain / Satellite` 时，改变的是共享基础底图选择
-- 切换 `Contour` 时，改变的是共享等高线叠加开关
-- 这些变化的语义应与地图页保持一致
+- When switching `OSM / Terrain / Satellite`, what changes is the shared base map selection
+- When switching `Contour`, what changes is the shared contour overlay switch
+- The semantics of these changes should be consistent with the map page
 
-### 无坐标状态下的 `Layer` 按钮
+### `Layer` in the non-coordinate state Buttons
 
-即使当前节点没有坐标，`Layer` 按钮仍然保持可见且可操作。
+The `Layer` button remains visible and operable even if the current node has no coordinates.
 
-原因是：
+The reason is:
 
-- 它切换的是共享地图图层偏好
-- 它不依赖当前节点是否可投影
-- 无坐标只意味着当前页不显示地图内容，不意味着图层切换能力失效
+- It switches the shared map layer preference
+- It does not depend on whether the current node can be projected
+- No coordinates only means that the current page does not display map content, it does not mean that the layer switching ability is invalid
 
-但在无坐标状态下：
+But in the non-coordinate state:
 
-- 页面仍然不得伪装出可浏览地图
-- 切换图层后也不会强行显示地图背景
-- 页面主降级态保持不变
+- The page still must not pretend to be a browsable map
+- The map background will not be forcibly displayed after switching layers
+- The primary and secondary status of the page remains unchanged
 
 ---
 
@@ -381,50 +381,50 @@
 
 ## 6.1 Node Marker
 
-当节点存在经纬度时：
+When the node has longitude and latitude:
 
-- 必须在地图上标记节点位置
-- 节点标记应清楚、醒目、易定位
-- 标记色应与“我的位置”标记色区分
+- The node location must be marked on the map
+- The node marking should be clear, eye-catching, and easy to locate
+- The mark color should be distinguished from the "My Location" mark color
 
 ## 6.2 Self Marker
 
-只有在本机也存在有效经纬度时，才显示“我的位置”标记。
+The "My Location" mark will be displayed only when the local machine also has valid longitude and latitude.
 
 ## 6.3 Connection Line
 
-只有在“节点位置”和“我的位置”都存在时，才显示连线。
+The connection is only displayed when both "Node Position" and "My Position" exist.
 
-要求：
+Requirements:
 
-- 连线应清楚但不要喧宾夺主
-- 颜色应与底图和两个标记都能区分
+- The connection should be clear but not overwhelming
+- The color should be distinguishable from the base map and both markers
 
 ## 6.4 Distance Label
 
-只有在“节点位置”和“我的位置”都存在时，才显示距离。
+The distance is only displayed if both "Node Position" and "My Position" exist.
 
-要求：
+Requirements:
 
-- 距离标签必须与连线语义一致
-- 距离标签优先服务于空间理解，不应遮挡主文本
+- The distance label must be semantically consistent with the connection
+- Distance labels prioritize spatial understanding and should not obscure the main text
 
 ## 6.5 Panning Semantics
 
-当节点存在经纬度时，地图内容层必须支持滑动。
+When the node has latitude and longitude, the map content layer must support sliding.
 
-要求：
+Requirements:
 
-- 用户可以通过拖动地图查看节点周边区域
-- 滑动的是地图视口，不是整个页面布局
-- ID、经纬度文本、右侧信息列、缩放按钮等 UI 覆盖层位置必须保持稳定，不能跟着地图一起漂移
-- 节点标记、自身标记、连线、距离等地图语义层必须与底图一起同步移动
-- 如果节点没有经纬度，则不提供地图滑动能力
-- 首帧默认视图必须让当前节点落在可视区几何中心，而不是左偏或右偏构图
-- 拖动只代表“临时浏览周边区域”；它不改变本页的主对象，也不改变缩放锚点语义
-- 因此，当用户在拖动后再次执行缩放时，视口必须重新收敛到“节点居中”的锚点状态
+- Users can view the area around the node by dragging the map
+- What slides is the map viewport, not the entire page layout
+- The positions of UI overlays such as ID, longitude and latitude text, right information column, zoom button, etc. must remain stable and cannot drift with the map
+- Map semantic layers such as node markers, self-marks, connections, distances, etc. must move synchronously with the base map
+- If the node does not have longitude and latitude, the map sliding ability is not provided
+- The default view of the first frame must place the current node in the geometric center of the visual area, rather than deviating to the left or right of the composition
+- Dragging only represents "temporarily browsing the surrounding area"; it does not change the main object of this page, nor does it change the zoom anchor semantics
+- Therefore, when the user performs zoom again after dragging, the viewport must reconverge to the "node-centered" anchor state
 
-滑动能力的职责是“浏览节点周边”，不是改写页面主对象。即使用户把视口拖离节点，节点仍然是本页的主参考对象。
+The responsibility of the sliding ability is to "browse around the node", not to rewrite the main object of the page. Even if the user drags the viewport away from the node, the node remains the main reference object of the page.
 
 ---
 
@@ -432,39 +432,39 @@
 
 ## 7.1 State A: Node Has No Coordinates
 
-表现：
+Performance:
 
-- 不显示地图底图
-- 不显示节点地图标记
-- 不显示自我标记
-- 不显示连线
-- 不显示距离
-- 缩放按钮禁用
-- 仍显示左上 ID 和右侧信息列
+-Do not display the map basemap
+-Do not display node map markers
+-Do not display self-marks
+-Do not display connections
+- Do not show distance
+- Zoom button disabled
+- Still show upper left ID and right information column
 
 ## 7.2 State B: Node Has Coordinates, Self Has No Coordinates
 
-表现：
+Performance:
 
-- 显示地图背景
-- 显示节点标记
-- 不显示自我标记
-- 不显示连线
-- 不显示距离
-- 支持地图滑动
-- 缩放按钮可用
+- Show map background
+- Show node markers
+-Do not display self-marks
+-Do not display connections
+- Do not show distance
+- Support map sliding
+- Zoom button available
 
 ## 7.3 State C: Node Has Coordinates, Self Also Has Coordinates
 
-表现：
+Performance:
 
-- 显示地图背景
-- 显示节点标记
-- 显示自我标记
-- 显示两点连线
-- 显示距离
-- 支持地图滑动
-- 缩放按钮可用
+- Show map background
+- Show node markers
+-Display self-mark
+-Display a line connecting two points
+-Display distance
+- Support map sliding
+- Zoom button available
 
 ---
 
@@ -472,57 +472,57 @@
 
 ## 8.1 General Style Direction
 
-`Node Info` 页面必须继承 [Firmware Visual Style Specification](../foundation/firmware_visual_style.md)。
+`Node Info` page must inherit [Firmware Visual Style Specification](../foundation/firmware_visual_style.md).
 
-这意味着：
+This means:
 
-- 页面整体必须保持暖色工程仪表风格
-- TopBar 必须与其它标准页面使用同一套共享 chrome
-- 不允许在该页私自引入深色 HUD / cyber 配色体系
-- 地图语义层可以使用有限语义色，但页面 chrome 仍以暖色 token 为主
+- The overall page must maintain a warm engineering instrument style
+- TopBar must use the same shared chrome as other standard pages
+- Private introduction of dark HUD/cyber color schemes on this page is not allowed
+- The map semantic layer can use limited semantic colors, but the page chrome is still dominated by warm-color tokens
 
-页面应摆脱“调试面板感”和“表单感”，整体更接近一张有空间感的暖色工程地图详情页。
+The page should get rid of the "debug panel feel" and "form feel", and be closer to a warm-color engineering map details page with a sense of space.
 
-要求：
+Requirements:
 
-- 不堆框
-- 不堆边线
-- 不让页面看起来像报表
-- 颜色鲜明但不杂乱
+- Don't stack boxes
+- Don't stack edges
+- Don't make the page look like a report
+- Vivid colors but not clutter
 
 ## 8.2 Color Strategy
 
-以下元素允许使用有限的语义区分色：
+The following elements allow for color differentiation with limited semantics:
 
 - ID
-- 经度
-- 纬度
-- 距离
-- 节点标记
-- 自身标记
-- 连线
+- Longitude
+- Latitude
+- Distance
+- Node markers
+- Self tag
+- Connection
 
-右侧信息列默认应以 `Text / TextDim` 为主，只在必要时用 `Info / Ok / Warn / AmberDark` 做语义强调。
+The information column on the right side should be mainly `Text / TextDim` by default, and only use `Info / Ok / Warn / AmberDark` for semantic emphasis when necessary.
 
-颜色要表达层次和角色，不是随机上色。
+Color should express hierarchy and role, not random coloring.
 
-对于右侧信息列，色彩分配也应固定收敛：
+For the information column on the right, color allocation should also be fixed and converged:
 
-- `Protocol`：`Text`
-- `RSSI`：`Text`
-- `SNR`：`Ok`
-- `Seen`：`TextDim`
+- `Protocol`:`Text`
+- `RSSI`:`Text`
+- `SNR`:`Ok`
+- `Seen`:`TextDim`
 
-标准节点详情页不允许让不同链路项各自随机发明一套颜色。
+The standard node details page does not allow different link items to randomly invent a set of colors.
 
 ## 8.3 Typography
 
-要求：
+Requirements:
 
-- ID 为页面最高优先级文本之一
-- 经纬度次一级，但仍要明显
-- 右侧信息项按可扫描性优先，而不是挤成密集小字
-- 不要因为要容纳更多字段而把字体压得过小
+- ID is one of the highest priority texts on the page
+- Longitude and latitude are secondary, but still obvious
+- Information items on the right are prioritized according to scannability, rather than being squeezed into dense small characters
+- Do not make the font size too small to accommodate more fields
 
 ---
 
@@ -530,54 +530,54 @@
 
 ## 9.1 Enter Page
 
-进入节点详情页后：
+After entering the node details page:
 
-- 页面应直接展示节点当前信息
-- 如果有坐标，应直接进入地图背景态
-- 如果有坐标，首帧默认以节点为中心
-- 不需要额外点击才能展开地图
+- The page should directly display the current information of the node
+- If there are coordinates, it should directly enter the map background state
+- If there are coordinates, the first frame will be centered on the node by default
+- No additional clicks are required to expand the map
 
 ## 9.2 Drag / Pan
 
-当节点存在经纬度时，地图必须支持拖动。
+ When the node has longitude and latitude, the map must support dragging.
 
-要求：
+Requirements:
 
-- 拖动手势只作用于地图视口
-- 拖动后，用户可以查看节点附近区域
-- 拖动不改变节点作为页面主对象的语义地位
-- 拖动后不应导致左上 ID、左下坐标、右侧信息列和右下缩放按钮错位
+- The dragging gesture only works on the map viewport
+- After dragging, the user can view the area near the node
+- Dragging does not change the semantic status of the node as the main object of the page
+- Dragging should not cause the upper left ID, lower left coordinate, right information column and lower right zoom button to be misaligned
 
 ## 9.3 Zoom In / Out
 
-- `+` 放大地图
-- `-` 缩小地图
-- 缩放中心固定为该节点，不是屏幕中心自由漫游
-- 如果用户此前已经把地图拖离节点，触发缩放后视图应回到以节点为缩放锚点的状态
+- `+` Enlarge the map
+- `-` Zoom out the map
+- The zoom center is fixed to the node, not the center of the screen to roam freely
+- If the user has previously dragged the map away from the node, the view should return to the state of using the node as the zoom anchor after triggering zoom
 
 ## 9.4 Disabled Interaction
 
-当节点没有坐标时：
+When the node has no coordinates:
 
-- 缩放按钮不可操作
-- 地图不可滑动
-- 页面不能假装存在地图能力
-- 不应出现点击后“看起来点了但什么都没发生”的模糊反馈
+-The zoom button is inoperable
+-The map cannot be slid
+- The page cannot pretend to have map capabilities
+- There should be no vague feedback of "it looks like it clicked but nothing happened" after clicking it
 
 ## 9.5 Layer Switching
 
-`Layer` 按钮触发的图层切换交互遵守以下规则：
+The layer switching interaction triggered by the `Layer` button obeys the following rules:
 
-1. 不重建 `Node Info` 页面。
-2. 不改变当前查看对象。
-3. 不改变页面右侧信息语义。
-4. 如果当前节点有坐标，则底图按新图层配置刷新。
-5. 如果当前节点无坐标，则只更新共享地图图层偏好，不强行制造地图显示。
-6. 缺图提示、图层归一化、等高线开关语义必须与共享地图视口一致。
-7. 图层弹窗/弹层必须继承全局暖色弹层风格，并在小屏上保持可操作，不允许做成遮挡严重、难以操作的深色模态块。
-8. `320x240` 基线下，图层弹窗的垂直定位必须优先贴近顶部安全区或贴近触发按钮的上方；如果按钮上方空间不足，不允许退化成“尽量压在屏幕下沿”的低位弹窗。
-9. 图层弹窗的状态摘要必须压缩为单行展示，固定为同一行中的 `Base: <Source>` 与 `Contour: <ON/OFF>`；不允许再次拆成两行。
-10. 图层弹窗在 `320x240` 基线下必须保证 `OSM / Terrain / Satellite / Contour / Close` 五个动作项一次完整可见；不允许依赖裁切、滚动或超高按钮来挤占可操作空间。
+1. Do not rebuild the `Node Info` page.
+2. Do not change the current viewing object.
+3. Do not change the semantics of the information on the right side of the page.
+4. If the current node has coordinates, the basemap will be refreshed according to the new layer configuration.
+5. If the current node has no coordinates, only the shared map layer preference will be updated and the map display will not be forced.
+6. The missing image prompt, layer normalization, and contour switch semantics must be consistent with the shared map viewport.
+7. The layer pop-up window/pop-up layer must inherit the global warm color pop-up layer style and remain operable on small screens. It is not allowed to be made into dark modal blocks that are severely blocked and difficult to operate.
+8. Under the `320x240` baseline, the vertical positioning of the layer pop-up window must be prioritized close to the top safe area or close to the top of the trigger button; if there is insufficient space above the button, it is not allowed to degenerate into a low-position pop-up window that "presses as hard as possible on the bottom edge of the screen."
+9. The status summary of the layer pop-up window must be compressed into a single line for display, fixed to `Base: <Source>` and `Contour: <ON/OFF>` in the same line; it is not allowed to be split into two lines again.
+10. The layer pop-up window must ensure that the five action items of `OSM / Terrain / Satellite / Contour / Close` are fully visible at one time under the `320x240` baseline; it is not allowed to rely on cropping, scrolling or super-high buttons to occupy the operable space.
 
 ---
 
@@ -585,84 +585,84 @@
 
 ## 10.1 Role Field
 
-“角色”字段默认不显示。
+The "Role" field is not displayed by default.
 
-只有当后续产品上真正定义了有意义、稳定、对用户有价值的角色语义，并且该值不是占位符时，才允许重新引入。
+Reintroduction is allowed only when role semantics that are meaningful, stable, and valuable to users are truly defined on subsequent products, and the value is not a placeholder.
 
 ## 10.2 Empty Values
 
-不要用 `-`、`N/A`、空标签去填充页面。
+Do not use `-`, `N/A`, or empty tags to fill the page.
 
-规则是：
+The rules are:
 
-- 有值才显示
-- 无值就省略
+- Display only if there is a value
+- Omit if there is no value
 
 ## 10.3 Information Priority
 
-页面的信息优先级如下：
+The information priority of the page is as follows:
 
-1. 节点身份
-2. 节点空间位置
-3. 我与节点的空间关系
-4. 节点链路与附加信息
+1. Node identity
+2. Node spatial location
+3. My spatial relationship with the node
+4. Node links and additional information
 
-右侧信息项不得反过来压制地图和身份信息。
+The information items on the right must not in turn suppress the map and identity information.
 
 ### 10.4 Standard Page Contract
 
-标准 `Node Info` 页面不是诊断页。
+The standard `Node Info` page is not a diagnostic page.
 
-因此它的信息合同固定为：
+So its information contract is fixed as:
 
-- 左上：节点 ID
-- 左下：经度、纬度
-- 地图层：节点位置、自身位置、连线、距离
-- 右侧：`Protocol / RSSI / SNR / Seen`
+-Upper left: node ID
+-Bottom left: longitude, latitude
+-Map layer: node position, own position, connection, distance
+-right side: `Protocol / RSSI / SNR / Seen`
 
-除此之外，不再显示其它链路细节。
+Other than this, no other link details will be shown.
 
-这条合同的目的就是压缩实现自由度，避免不同开发者或 AI 在“也许这些字段有用”的判断下继续发散。
+The purpose of this contract is to compress the degree of freedom of implementation and prevent different developers or AI from continuing to diverge under the judgment of "maybe these fields are useful".
 
 ---
 
 ## 11. Implementation Guardrails
 
-为避免实现再次漂移，后续改造时必须遵守以下约束：
+To avoid drifting again, the following constraints must be observed during subsequent modifications:
 
-1. 不允许重新引入“链路框”。
-2. 不允许为了补字段而恢复卡片式布局。
-3. 不允许保留只会显示 `-` 的角色字段。
-4. 不允许把地图降为页面中的一个小组件，只要节点有坐标，地图就是背景主画布。
-5. 不允许让缩放围绕任意中心点漂移，缩放中心必须是节点。
-6. 不允许在无坐标状态下伪装成可缩放地图页。
-7. 不允许把“地图支持滑动”实现成整个详情页跟着滚动，固定信息层必须保持稳定。
-8. 不允许把颜色策略退化成“全部同色文本”。
-9. 不允许把右侧信息列做成“放在右侧的左对齐段落”。
-10. 不允许把协议对象名重新压缩成 `MT/MC/RN/LX` 这类缩写主表达。
-11. 不允许在标准 `Node Info` 页面中重新加入 `LoRa / MQTT / FREQ / SF / BW / CH / HOPS / NEXT`。
-12. 不允许把右侧信息列扩展到 4 行以上。
-13. 不允许在 `Node Info` 页面内再次实现一套独立地图主流程；地图底图、投影、拖动、缩放、图层切换必须接入共享地图视口组件。
-14. 不允许在 `Node Info` 页面内定义与 `GPS / 地图` 页不同的图层切换语义。
-15. 不允许把 `Layer` 按钮实现成只改视觉、不改共享图层配置的伪入口。
+1. Reintroduction of the "link box" is not allowed.
+2. It is not allowed to restore the card layout for filling fields.
+3. Role fields that only display `-` are not allowed to be retained.
+4. It is not allowed to reduce the map to a small component in the page. As long as the node has coordinates, the map is the background main canvas.
+5. The zoom is not allowed to drift around any center point. The zoom center must be a node.
+6. Pretending to be a zoomable map page without coordinates is not allowed.
+7. "The map supports sliding" is not allowed to be implemented so that the entire details page scrolls, and the fixed information layer must remain stable.
+8. It is not allowed to degenerate the color strategy into "all text of the same color".
+9. It is not allowed to make the right information column into a "left-aligned paragraph on the right side".
+10. Recompression of protocol object names into abbreviated expressions such as `MT/MC/RN/LX` is not allowed.
+11. Re-adding `LoRa / MQTT / FREQ / SF / BW / CH / HOPS / NEXT` to the standard `Node Info` page is not allowed.
+12. It is not allowed to extend the right information column to more than 4 lines.
+13. It is not allowed to implement an independent map main process again in the `Node Info` page; map basemap, projection, dragging, zooming, and layer switching must be connected to the shared map viewport component.
+14. It is not allowed to define different layer switching semantics in the `Node Info` page than in the `GPS/Map` page.
+15. It is not allowed to implement the `Layer` button as a pseudo-entry that only changes the visual but not the shared layer configuration.
 
 ---
 
 ## 12. Open Items
 
-以下问题当前可以留给实现阶段，但不能违反前述结构约束：
+The following issues can currently be left to the implementation stage, but they cannot violate the aforementioned structural constraints:
 
-- 地图标记的具体图形样式
-- 距离标签放置在连线中点、靠近节点还是靠近右侧信息列
-- 无坐标状态下采用纯色背景还是轻量纹理背景
-- 不同设备尺寸上的字号与边距微调
+- The specific graphic style of the map marker
+- The distance label is placed at the midpoint of the connection, close to the node, or close to the right information column
+- Whether to use a solid color background or a lightweight texture background in the coordinate-free state
+- Fine-tuning of font size and margins on different device sizes
 
-这些都属于实现细节微调，不应推翻本文档的页面结构。
+These are fine-tuning of implementation details and should not overturn the page structure of this document.
 
 ---
 
 ## 13. Summary Baseline
 
-一句话总结本页规格：
+Summary the specifications of this page in one sentence:
 
-节点详情页应当是一个“以节点位置为中心的全屏地图详情页”，而不是一个“套着多个框的节点信息面板”。
+The node details page should be a "full-screen map details page centered on the node location" rather than a "node information panel with multiple boxes".

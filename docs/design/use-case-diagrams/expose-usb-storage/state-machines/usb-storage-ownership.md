@@ -1,4 +1,4 @@
-# State Machine：USB Storage Ownership
+# State Machine:USB Storage Ownership
 ```mermaid
 stateDiagram-v2
   [*] --> ApplicationOwned
@@ -11,29 +11,29 @@ stateDiagram-v2
   Error --> Restoring: retry recovery
 ```
 
-## 状态 owner
+## Status owner
 
-USB Support Runtime 是唯一协调 owner，并持有 session generation、已暂停 owner 集合和介质阶段。Application SD Host 与 MSC backend 只报告自己的操作结果。
+The USB Support Runtime is the sole coordinating owner and holds the session generation, paused owner collection, and media stages. Application SD Host and MSC backend only report their own operation results.
 
-## 所有权不变量
+## Ownership invariants
 
-ApplicationOwned 时应用可访问 SD、MSC 必须停止；HostOwned 时 MSC 可访问、应用必须 unmounted 且所有相关 owner 静止。Preparing/Restoring 是不可对外宣称可写的过渡态。
+When ApplicationOwned, the application can access the SD and the MSC must be stopped; when HostOwned, the MSC can be accessed, the application must be unmounted and all related owners are quiescent. Preparing/Restoring is a transition state that cannot be declared externally as writable.
 
-## Transition 表
+## Transition table
 
-| 当前状态 | 完成 guard | 下一状态 |
+| Current state | Completion guard | Next state |
 | --- | --- | --- |
 | ApplicationOwned | enter accepted | Preparing |
 | Preparing | all quiesced + unmounted + MSC active | HostOwned |
-| Preparing | 任一阶段失败 | Restoring |
+| Preparing | Failure in any stage | Restoring |
 | HostOwned | exit/disconnect/error | Restoring |
 | Restoring | MSC stopped + remounted + owners resumed | ApplicationOwned |
-| Restoring | remount/resume 失败 | Error |
+| Restoring | remount/resume failed | Error |
 
-## 禁止与恢复
+## Ban and restore
 
-Preparing/Restoring/Error 中拒绝第二次 enter。HostOwned 不允许应用文件操作。Error 保持受影响 owner paused，直到 retry recovery 明确成功；不能为了回到 UI 首页假装 ApplicationOwned。
+The second enter is rejected in Preparing/Restoring/Error. HostOwned does not allow application file operations. Error remains affected owner paused until retry recovery is clearly successful; cannot pretend to be ApplicationOwned in order to return to the UI homepage.
 
-## 测试
+## test
 
-对每个中间阶段注入失败，验证逆序补偿、所有权互斥、重复 exit 和重启后的介质检查。
+Injection failures for each intermediate stage, verifying reversal compensation, ownership mutual exclusion, repeated exits, and media checks after restarts.

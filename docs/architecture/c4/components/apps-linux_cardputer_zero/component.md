@@ -1,49 +1,49 @@
-# 组件职责：apps/linux_cardputer_zero
+# Component responsibility: apps/linux_cardputer_zero
 
-C4 层级：Component
-状态：candidate
-置信度：medium
-项目版本：0.1.30-alpha
-Git：34aad0bffa2f / main / dirty
-更新于：2026-06-25T09:19:32.800Z
+C4 level: Component
+Status: candidate
+Confidence: medium
+Project version: 0.1.30-alpha
+Git:34aad0bffa2f / main / dirty
+Updated on: 2026-06-25T09:19:32.800Z
 
-## 定位
+## Positioning
 
-从 C4 Component 层解释 apps/linux_cardputer_zero 内部的关键职责单元：入口、页面、命令、接口、注册表、adapter 或共享对象。
+Explain the key responsibility units inside apps/linux_cardputer_zero from the C4 Component layer: entry, page, command, interface, registry, adapter or shared object.
 
-## C4 层级路径
+## C4 hierarchical path
 
-- 当前层：Component，解释某个 Container 内部的关键职责单元。
-- 上层：Container，限定这些组件所属的架构边界。
-- 下层：Code View，只在需要追溯实现入口或变更影响面时进入少量关键代码锚点。
+- Current layer: Component, explaining the key responsibility units within a Container.
+- Upper layer: Container, which defines the architectural boundaries to which these components belong.
+- Lower layer: Code View, only enter a small number of key code anchors when you need to trace the implementation entrance or change the impact surface.
 
-## 责任
+## Responsibility
 
-解释 apps/linux_cardputer_zero 这个 Container 内部由哪些关键组件承担架构职责。Component 层不是全量类/函数列表，只保留对理解系统边界、协作或变更影响有帮助的对象。
+Explain which key components within the apps/linux_cardputer_zero Container bear architectural responsibilities. The Component layer is not a comprehensive list of classes/functions, only objects that are helpful for understanding system boundaries, collaboration, or the impact of changes.
 
-## 边界
+## Boundary
 
-Component View 的边界被限制在 apps/linux_cardputer_zero Container 内；跨容器关系应该回到 Container 或 Engineering Sequence 视角解释。
+The boundary of Component View is limited to apps/linux_cardputer_zero Container; cross-container relationships should be explained back to the Container or Engineering Sequence perspective.
 
-## 关系
+## Relationship
 
-- CardputerZeroNotificationPort: CardputerZeroNotificationPort 是 apps/linux_cardputer_zero 内的主要架构组件，证据来自 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67。
-- CardputerZeroInputMethodPort: CardputerZeroInputMethodPort 是 apps/linux_cardputer_zero 内的主要架构组件，证据来自 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39。
-- NotificationUrgency: NotificationUrgency 是 apps/linux_cardputer_zero 内的主要架构组件，证据来自 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12。
-- cardputer_zero_input_method_port: cardputer_zero_input_method_port 是 apps/linux_cardputer_zero 内的主要架构组件，证据来自 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.cpp。
-- cardputer_zero_notification_port: cardputer_zero_notification_port 是 apps/linux_cardputer_zero 内的主要架构组件，证据来自 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp。
+- CardputerZeroNotificationPort: CardputerZeroNotificationPort is the main architectural component within apps/linux_cardputer_zero, evidenced by apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67.
+- CardputerZeroInputMethodPort: CardputerZeroInputMethodPort is the main architectural component within apps/linux_cardputer_zero, as evidenced by apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39.
+- NotificationUrgency: NotificationUrgency is a major architectural component within apps/linux_cardputer_zero, as evidenced by apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12.
+- cardputer_zero_input_method_port: cardputer_zero_input_method_port is the main architectural component within apps/linux_cardputer_zero, as evidenced by apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.cpp.
+- cardputer_zero_notification_port: cardputer_zero_notification_port is the main architectural component within apps/linux_cardputer_zero, evidenced by apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp.
 
-## 与业务复杂度的关联
+## Correlation with business complexity
 
-- 组件层帮助把业务故事连接到实际入口、编排、适配或基础设施对象。
-- 如果某个组件直接承载 Use Case，应在组织/过程模型的下钻文档中出现对应证据。
+- The component layer helps connect business stories to actual portal, orchestration, adaptation or infrastructure objects.
+- If a component directly hosts a Use Case, corresponding evidence should appear in the drill-down document of the organization/process model.
 
-## 与技术复杂度的关联
+## Correlation with technical complexity
 
-- 对应 Engineering Class / Structural Diagram：docs/engineering/class-structural-diagrams/apps-linux_cardputer_zero/class-structural-diagram.html。
-- 组件级复用迹象、外部协作迹象和复杂度候选点仍由软件结构模型负责解释。
+- Corresponds to Engineering Class / Structural Diagram: docs/engineering/class-structural-diagrams/apps-linux_cardputer_zero/class-structural-diagram.html.
+- Component-level reuse signs, external collaboration signs, and complexity candidates are still explained by the software structural model.
 
-## C4 Component 图
+## C4 Component diagram
 
 ```mermaid
 flowchart TB
@@ -60,92 +60,92 @@ flowchart TB
   container --> component_5
 ```
 
-## 图内元素解释
+## Explanation of elements in the diagram
 
 ### CardputerZeroNotificationPort
 
-- 层级：component
-- 说明：CardputerZeroNotificationPort 是 apps/linux_cardputer_zero 内的 class 候选组件，证据锚点是 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：CardputerZeroNotificationPort 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/linux_cardputer_zero Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：CardputerZeroNotificationPort 被放入 Component View，是因为它能把 apps/linux_cardputer_zero 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/linux_cardputer_zero 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 CardputerZeroNotificationPort 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：medium
-- 证据：
+- Level: component
+- Description: CardputerZeroNotificationPort is a class candidate component in apps/linux_cardputer_zero, and the evidence anchor is apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: CardputerZeroNotificationPort is considered a candidate architecture component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67, class type and local relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/linux_cardputer_zero Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+- Relational significance: CardputerZeroNotificationPort is put into the Component View because it offloads the architectural responsibilities of apps/linux_cardputer_zero to an inspectable entry, orchestration, adaptation, contract, or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how to split the internal responsibilities of apps/linux_cardputer_zero, so it belongs to the C4 Component layer.
+- Drill down intent: Drill down to the Code View or Component Diagram of the software structure model to view the file anchor point of CardputerZeroNotificationPort, direct collaboration, and whether there is a risk of change diffusion.
+- Confidence: medium
+- Evidence:
   - apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：存在局部外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Indications of external collaboration: there are local external collaboration clues
 
 ### CardputerZeroInputMethodPort
 
-- 层级：component
-- 说明：CardputerZeroInputMethodPort 是 apps/linux_cardputer_zero 内的 class 候选组件，证据锚点是 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：CardputerZeroInputMethodPort 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/linux_cardputer_zero Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：CardputerZeroInputMethodPort 被放入 Component View，是因为它能把 apps/linux_cardputer_zero 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/linux_cardputer_zero 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 CardputerZeroInputMethodPort 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：medium
-- 证据：
+- Level: component
+- Description: CardputerZeroInputMethodPort is a class candidate component in apps/linux_cardputer_zero, and the evidence anchor is apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: CardputerZeroInputMethodPort is considered a candidate architecture component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39, class type, and local relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/linux_cardputer_zero Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+- Relational significance: CardputerZeroInputMethodPort is put into the Component View because it offloads the architectural responsibilities of apps/linux_cardputer_zero onto an inspectable entry, orchestration, adaptation, contract, or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how to split the internal responsibilities of apps/linux_cardputer_zero, so it belongs to the C4 Component layer.
+- Drill-down intent: Drill down to the Component Diagram of the Code View or software structure model to view the file anchor point, direct collaboration, and whether there is a risk of change diffusion of CardputerZeroInputMethodPort.
+- Confidence: medium
+- Evidence:
   - apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：存在局部外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Indications of external collaboration: there are local external collaboration clues
 
 ### NotificationUrgency
 
-- 层级：component
-- 说明：NotificationUrgency 是 apps/linux_cardputer_zero 内的 enum 候选组件，证据锚点是 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：NotificationUrgency 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12、enum 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/linux_cardputer_zero Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：NotificationUrgency 被放入 Component View，是因为它能把 apps/linux_cardputer_zero 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/linux_cardputer_zero 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 NotificationUrgency 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：medium
-- 证据：
+- Level: component
+- Description: NotificationUrgency is an enum candidate component in apps/linux_cardputer_zero, and the evidence anchor is apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: NotificationUrgency is considered a candidate architectural component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12, enum type, and local relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/linux_cardputer_zero Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+- Relational meaning: NotificationUrgency is put into the Component View because it offloads the architectural responsibilities of apps/linux_cardputer_zero onto an inspectable entry, orchestration, adaptation, contract, or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how to split the internal responsibilities of apps/linux_cardputer_zero, so it belongs to the C4 Component layer.
+- Drill-down intent: Drill down to the Component Diagram of the Code View or software structure model to view the file anchor point of NotificationUrgency, direct collaboration, and whether there is a risk of change diffusion.
+- Confidence: medium
+- Evidence:
   - apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L12
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：存在局部外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Indications of external collaboration: there are local external collaboration clues
 
 ### cardputer_zero_input_method_port
 
-- 层级：component
-- 说明：cardputer_zero_input_method_port 是 apps/linux_cardputer_zero 内的 import 候选组件，证据锚点是 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.cpp；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：cardputer_zero_input_method_port 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.cpp、import 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/linux_cardputer_zero Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：cardputer_zero_input_method_port 被放入 Component View，是因为它能把 apps/linux_cardputer_zero 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/linux_cardputer_zero 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 cardputer_zero_input_method_port 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：medium
-- 证据：
+- Level: component
+- Description: cardputer_zero_input_method_port is an import candidate component in apps/linux_cardputer_zero, and the evidence anchor is apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.cpp; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: cardputer_zero_input_method_port is considered a candidate architecture component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.cpp, import type, and partial relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/linux_cardputer_zero Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+- Relational meaning: cardputer_zero_input_method_port is put into the Component View because it offloads the architectural responsibilities of apps/linux_cardputer_zero to an inspectable entry, orchestration, adaptation, contract, or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how to split the internal responsibilities of apps/linux_cardputer_zero, so it belongs to the C4 Component layer.
+- Drill-down intention: Drill down to the Component Diagram of the Code View or software structure model to view the file anchor point of cardputer_zero_input_method_port, direct collaboration, and whether there is a risk of change diffusion.
+- Confidence: medium
+- Evidence:
   - apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.cpp
-  - 复用迹象：当前未观察到明显复用线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Reuse signs: No obvious reuse clues are currently observed
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### cardputer_zero_notification_port
 
-- 层级：component
-- 说明：cardputer_zero_notification_port 是 apps/linux_cardputer_zero 内的 import 候选组件，证据锚点是 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：cardputer_zero_notification_port 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp、import 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/linux_cardputer_zero Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：cardputer_zero_notification_port 被放入 Component View，是因为它能把 apps/linux_cardputer_zero 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/linux_cardputer_zero 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 cardputer_zero_notification_port 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：medium
-- 证据：
+- Level: component
+ - Description: cardputer_zero_notification_port is an import candidate component in apps/linux_cardputer_zero, and the evidence anchor is apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp; the current warehouse evidence shows that it has Local signs of relationships, suitable as candidate anchors rather than complete conclusions.
+- Responsibility: cardputer_zero_notification_port is considered a candidate architecture component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp, import type, and partial relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/linux_cardputer_zero Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+ - Relational meaning: cardputer_zero_notification_port is placed in the Component View because it offloads the architectural responsibilities of apps/linux_cardputer_zero onto an inspectable entry, orchestration, adaptation, contract, or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how to split the internal responsibilities of apps/linux_cardputer_zero, so it belongs to the C4 Component layer.
+- Drill-down intention: Drill down to the Component Diagram of the Code View or software structure model to view the file anchor point of cardputer_zero_notification_port, direct collaboration, and whether there is a risk of change diffusion.
+- Confidence: medium
+- Evidence:
   - apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp
-  - 复用迹象：当前未观察到明显复用线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Reuse signs: No obvious reuse clues are currently observed
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
-## 可下钻 C4
+## Drill-down C4
 
-- [代码锚点：apps/linux_cardputer_zero](../../code/apps-linux_cardputer_zero/code.md) - 进入 代码锚点：apps/linux_cardputer_zero 是为了把 组件职责：apps/linux_cardputer_zero 的架构职责追溯到具体文件/符号锚点；只有需要判断实现入口或变更影响面时才应下钻到 Code。
+- [Code Anchor: apps/linux_cardputer_zero](../../code/apps-linux_cardputer_zero/code.md) - Entering Code Anchor: apps/linux_cardputer_zero is to trace the architectural responsibility of Component Responsibility: apps/linux_cardputer_zero to the specific file/symbol anchor; you should drill down only when you need to determine the implementation entry or the impact of the change. Code.
 
-## 关联软件结构模型
+## Associated Software Structural Model
 
-- [apps/linux_cardputer_zero Class / Structural Diagram](../../../../engineering/class-structural-diagrams/apps-linux_cardputer_zero/class-structural-diagram.md) - 查看该 Container 内部结构协作和关键技术对象。
+- [apps/linux_cardputer_zero Class / Structural Diagram](../../../../engineering/class-structural-diagrams/apps-linux_cardputer_zero/class-structural-diagram.md) - View the internal structure collaboration and key technical objects of this Container.
 
-## 证据
+## Evidence
 
 - apps/linux_cardputer_zero/src/cardputer_zero_notification_port.h#L67
 - apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.h#L39
@@ -153,12 +153,12 @@ flowchart TB
 - apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.cpp
 - apps/linux_cardputer_zero/src/cardputer_zero_notification_port.cpp
 
-## 判定依据
+## Judgment basis
 
-- Component 候选只保留入口、编排、接口、适配器、配置、任务、消费者或生产者等组件级职责对象；方法、路由和局部函数下沉到 Code View。
+- Component candidates only retain component-level responsibility objects such as entrances, orchestrations, interfaces, adapters, configurations, tasks, consumers or producers; methods, routes and local functions are dropped to Code View.
 
-## 变更记录
+## Change Record
 
 ### 0.1.30-alpha - 2026-06-25T09:19:32.800Z
 
-- 基于本地仓库证据重新生成 组件职责：apps/linux_cardputer_zero。
+- Regenerate based on local repository evidence Component responsibility: apps/linux_cardputer_zero.

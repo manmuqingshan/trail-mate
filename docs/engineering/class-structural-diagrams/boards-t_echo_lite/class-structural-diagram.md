@@ -1,43 +1,43 @@
-# 结构协作：结构切片 t_echo_lite · t_echo_lite
+# Structure collaboration: structure slicing t_echo_lite · t_echo_lite
 
-图种：Class / Structural Diagrams
-状态：candidate
-置信度：high
-项目版本：0.1.30-alpha
-Git：34aad0bffa2f / main / dirty
-更新于：2026-06-25T09:19:20.669Z
+Graph type: Class / Structural Diagrams
+Status: candidate
+Confidence: high
+Project version: 0.1.30-alpha
+Git:34aad0bffa2f / main / dirty
+Updated on: 2026-06-25T09:19:20.669Z
 
-## 定位
+## Positioning
 
-解释 boards/t_echo_lite 这一结构切片中类、接口、组件或值对象如何共同承担结构切片 t_echo_lite中的结构职责；候选对象包括 EpaperMonoDisplay、ScopedGpsSuspend。
+Explain how the classes, interfaces, components or value objects in the structure slice boards/t_echo_lite share the structural responsibilities in the structure slice t_echo_lite; candidates include EpaperMonoDisplay and ScopedGpsSuspend.
 
-## 图的读法
+## How to read the diagram
 
-- 这张 Class / Structural Diagram 聚焦 boards/t_echo_lite 这一结构切片，而不是整个 boards 顶层目录。
-- 它只放入类、接口、枚举或结构类型；方法级高引用对象会进入 Component/Hotspot，不再混入结构协作图。
-- 候选语境是「结构切片 t_echo_lite」。读图时先确认这些对象是否共同承载同一个业务能力、共享支撑机制或适配边界。
-- 当前没有足够类级关系证据，因此图只保留候选切片对象，并降低为结构候选视角。
+- This Class / Structural Diagram focuses on the structural slice boards/t_echo_lite, rather than the entire top-level directory of boards.
+- It only puts classes, interfaces, enumerations or structure types; method-level high-reference objects will go into Component/Hotspot and will no longer be mixed into the structure collaboration diagram.
+- The candidate context is "structural slice t_echo_lite". When reading the diagram, first confirm whether these objects jointly carry the same business capabilities, share support mechanisms or adaptation boundaries.
+- There is currently insufficient evidence of class-level relationships, so the graph only retains candidate slice objects and is reduced to structural candidate perspectives.
 
-## 技术复杂度分析
+## Technical Complexity Analysis
 
-- boards/t_echo_lite 当前包含 2 个类/结构和 0 个接口/trait 候选对象。
-- 当前缺少类级关系证据，不能把同目录对象直接解释成稳定协作。
-- 这张图的解释目标是结构职责和边界：哪些对象像领域模型、哪些对象像接口契约、哪些对象像策略/适配器或共享支撑。
-- 如果图中对象只是同目录但没有共同业务语境或结构关系，生成流程必须拆分或降级为 Component/Hotspot，而不是继续保留为 Class / Structural Diagram。
+- boards/t_echo_lite currently contains 2 class/structure and 0 interface/trait candidates.
+- There is currently a lack of class-level relationship evidence, and objects in the same directory cannot be directly interpreted as stable collaboration.
+- The interpretation goal of this diagram is to structure responsibilities and boundaries: which objects are like domain models, which objects are like interface contracts, and which objects are like strategies/adapters or shared supports.
+- If the objects in the diagram are in the same directory but have no common business context or structural relationship, the generation process must be split or downgraded to Component/Hotspot instead of remaining as Class/Structural Diagram.
 
-## 与业务复杂度的关联
+## Association with business complexity
 
-- 该图候选关联「结构切片 t_echo_lite」，应该回连到组织/过程模型中对应 Use Case 的 Class Collaboration、Activity 或 Sequence 下钻图。
-- 软件结构模型不能只说“这里有很多类”，而要说明这些类如何让业务变化更容易或更困难。
-- 候选对象包括：EpaperMonoDisplay、ScopedGpsSuspend。
+- This diagram candidate is associated with "structural slice t_echo_lite" and should be connected back to the Class Collaboration, Activity or Sequence drill-down diagram corresponding to the Use Case in the organization/process model.
+- The software structure model cannot just say "here are a lot of classes", but how these classes make business changes easier or more difficult.
+- Candidates include: EpaperMonoDisplay, ScopedGpsSuspend.
 
-## 治理建议
+## Governance Recommendations
 
-- 不要把顶层 layer、目录名或关系数量当作结构图的解释对象；结构图必须围绕可命名的业务/技术语境。
-- 当某个对象脱离当前语境、没有关系说明或只是高引用工具类时，应从该图移除，转入 Component/Hotspot 或共享支撑切片。
-- 变更 boards/t_echo_lite 时，同步维护它和相关 Use Case、Component、Sequence 的引用关系。
+- Do not treat top-level layers, directory names, or relationship numbers as the interpretation objects of the structure diagram; the structure diagram must be centered around a nameable business/technical context.
+- When an object is out of context, has no relationship description, or is just a highly referenced utility class, it should be removed from the diagram and moved to Component/Hotspot or a shared supporting slice.
+- When changing boards/t_echo_lite, maintain the reference relationship between it and the related Use Case, Component, and Sequence simultaneously.
 
-## UML / 技术图
+## UML / Technical diagram
 
 ```mermaid
 classDiagram
@@ -47,80 +47,80 @@ classDiagram
   class ScopedGpsSuspend["ScopedGpsSuspend"] {
     <<class>>
   }
-  note for EpaperMonoDisplay "结构切片 t_echo_lite，关系需由下钻证据确认"
+ note for EpaperMonoDisplay "Structure slice t_echo_lite, the relationship needs to be confirmed by drill-down evidence"
 ```
 
-## 覆盖范围
+## Coverage
 
-- 结构切片：boards/t_echo_lite
-- 候选业务/技术语境：结构切片 t_echo_lite
-- 所属工程边界：boards
-- 候选结构对象数：2
-- 候选结构关系数：0
-- 对象：EpaperMonoDisplay (class)
-- 对象：ScopedGpsSuspend (class)
+- Structural slice: boards/t_echo_lite
+- Candidate business/technical context: structural slice t_echo_lite
+- Project boundary: boards
+- Number of candidate structure objects: 2
+- Number of candidate structure relationships: 0
+- Object: EpaperMonoDisplay (class)
+-
 
-## 图内语义元素下钻
+## Drill-down of semantic elements in the diagram
 
 ### EpaperMonoDisplay
 
-- 元素类型：component
-- 说明：EpaperMonoDisplay 属于 boards/t_echo_lite 结构切片，用来解释「结构切片 t_echo_lite」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。
-- 技术角色：结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。
-- 为什么出现：它位于 boards/t_echo_lite/src/t_echo_lite_board.cpp，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。
-- 关系意义：图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。
-- 下钻意图：下钻 EpaperMonoDisplay 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。
-- 业务关联：EpaperMonoDisplay 是「结构切片 t_echo_lite」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。
-- 变更影响：修改 EpaperMonoDisplay 可能影响 boards/t_echo_lite 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。
-- 置信度：high
-- 证据：
+- Element type: component
+- Note: EpaperMonoDisplay belongs to the boards/t_echo_lite structure slice and is used to explain a structural responsibility in the "structural slice t_echo_lite", rather than being put into the graph because it has a high number of relationships in boards.
+- Technical role: Structural object: Its responsibilities must be explained in conjunction with Use Case, Sequence or Component drill-down evidence, and cannot be judged solely by name or directory.
+- Why it appears: It is located in boards/t_echo_lite/src/t_echo_lite_board.cpp, and is in the same source code context as other classes/interfaces in the same slice; this context is closer to the real business or architectural boundary than the top-level directory boards.
+- Relationship meaning: The same slice relationship in the diagram represents the collaboration boundary of the candidate structure; only when there is evidence of interface implementation, inheritance, composition, strategy or port, it should be further marked as a clear design relationship.
+- Drill-down intent: Drill-down EpaperMonoDisplay should verify the specific roles it plays in Component, Sequence, and Use Case Class Collaboration to avoid isolated class names being misread as business explanations.
+-Business correlation: EpaperMonoDisplay is a candidate technology carrier object for "structural slicing t_echo_lite"; the current document explains the triggering conditions, processes or rules of its service through Trace/Refine links. When the evidence is insufficient, the confidence level will be reduced or the coverage will be reduced.
+- Impact of changes: Modifying EpaperMonoDisplay may affect the structure description in boards/t_echo_lite, and the relevant Design/Engineering/Architecture documents should be checked simultaneously to see if they are still consistent.
+- Confidence: high
+- Evidence:
   - boards/t_echo_lite/src/t_echo_lite_board.cpp#L856
-  - 结构切片：boards/t_echo_lite
-  - 对象类型：class
-  - 候选语境：结构切片 t_echo_lite
-- 风险：
-  - 当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。
-- 问题：暂无。
-- 下钻：当前没有根据证据关联到更细图。
+ - Structure slice: boards/t_echo_lite
+ - Object type: class
+ - Candidate context: structure slice t_echo_lite
+ - Risk:
+ - The current slice comes from local warehouse evidence and path context inference; the objects in the graph must be able to interpret the same structural context, otherwise the generation process will be split or degraded.
+- Question: None yet.
+- Drill down: There is currently no evidence-based correlation to a finer picture.
 
 ### ScopedGpsSuspend
 
-- 元素类型：component
-- 说明：ScopedGpsSuspend 属于 boards/t_echo_lite 结构切片，用来解释「结构切片 t_echo_lite」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。
-- 技术角色：结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。
-- 为什么出现：它位于 boards/t_echo_lite/src/settings_store.cpp，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。
-- 关系意义：图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。
-- 下钻意图：下钻 ScopedGpsSuspend 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。
-- 业务关联：ScopedGpsSuspend 是「结构切片 t_echo_lite」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。
-- 变更影响：修改 ScopedGpsSuspend 可能影响 boards/t_echo_lite 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。
-- 置信度：high
-- 证据：
+- Element type: component
+- Description: ScopedGpsSuspend belongs to the boards/t_echo_lite structure slice and is used to explain a structural responsibility in the "structural slice t_echo_lite", rather than being put into the graph because it has a high number of relationships in boards.
+- Technical role: Structural object: Its responsibilities must be explained in conjunction with Use Case, Sequence or Component drill-down evidence, and cannot be judged solely by name or directory.
+- Why it appears: It is located in boards/t_echo_lite/src/settings_store.cpp, and is in the same source code context as other classes/interfaces in the same slice; this context is closer to the real business or architectural boundary than the top-level directory boards.
+- Relationship meaning: The same slice relationship in the diagram represents the collaboration boundary of the candidate structure; only when there is evidence of interface implementation, inheritance, composition, strategy or port, it should be further marked as a clear design relationship.
+- Drill-down intent: Drill-down ScopedGpsSuspend should verify the specific role it plays in Component, Sequence, and Use Case Class Collaboration to avoid isolated class names being misread as business explanations.
+-Business correlation: ScopedGpsSuspend is a candidate technology bearer object of "structural slice t_echo_lite"; the current document explains the triggering conditions, processes or rules of its service through Trace/Refine links. If the evidence is insufficient, the confidence level will be reduced or the coverage will be reduced.
+- Impact of change: Modifying ScopedGpsSuspend may affect the structure description in boards/t_echo_lite, and the relevant Design/Engineering/Architecture documents should be checked simultaneously to see if they are still consistent.
+- Confidence: high
+- Evidence:
   - boards/t_echo_lite/src/settings_store.cpp#L95
-  - 结构切片：boards/t_echo_lite
-  - 对象类型：class
-  - 候选语境：结构切片 t_echo_lite
-- 风险：
-  - 当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。
-- 问题：暂无。
-- 下钻：当前没有根据证据关联到更细图。
+ - Structure slice: boards/t_echo_lite
+ - Object type: class
+ - Candidate context: structure slice t_echo_lite
+ - Risk:
+ - The current slice comes from local warehouse evidence and path context inference; the objects in the graph must be able to interpret the same structural context, otherwise the generation process will be split or degraded.
+- Question: None yet.
+- Drill down: There is currently no evidence-based correlation to a finer picture.
 
-## 可下钻 UML
+## Drill-down UML
 
-- [函数节点：makeBoardProfile](../../component-diagrams/boards-makeboardprofile/component-diagram.md) - 打开 函数节点：makeBoardProfile 的组件视角，是为了验证结构图里的对象角色是否有文件锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h、被引用/调用关系和下游关系证据支撑。
-- [函数节点：pinNum](../../component-diagrams/boards-pinnum/component-diagram.md) - 打开 函数节点：pinNum 的组件视角，是为了验证结构图里的对象角色是否有文件锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h、被引用/调用关系和下游关系证据支撑。
-- [依赖簇：boards 技术热点](../../technical-hotspots/dependency-cluster--boards/technical-hotspot.md) - 查看该结构边界中的热点，确认复杂度集中在哪个对象、文件或关系簇上。
+- [Function node: makeBoardProfile](../../component-diagrams/boards-makeboardprofile/component-diagram.md) - Open the component perspective of function node: makeBoardProfile to verify whether the object role in the structure diagram has a file anchor boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h, referenced/called relationship and downstream relationship evidence support.
+- [Function node: pinNum](../../component-diagrams/boards-pinnum/component-diagram.md) - Open the component perspective of function node: pinNum to verify whether the object role in the structure diagram has a file anchor boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h, referenced/called relationship and downstream relationship evidence support.
+- [Dependency cluster: boards technical hotspots](../../technical-hotspots/dependency-cluster--boards/technical-hotspot.md) - View the hotspots within the boundaries of this structure to identify which object, file, or relationship cluster the complexity is concentrated on.
 
-## 证据
+## Evidence
 
 - boards/t_echo_lite/src/t_echo_lite_board.cpp#L856
 - boards/t_echo_lite/src/settings_store.cpp#L95
 
-## 问题
+## Problem
 
-- 该结构切片来自本地仓库证据；当前未发现足够 Trace 证据把它绑定到唯一业务故事，因此只作为软件结构模型候选视角。
+- This structural slice comes from the local warehouse evidence; currently not enough Trace evidence has been found to bind it to the unique business story, so it is only used as a candidate perspective of the software structure model.
 
-## 变更记录
+## Change Record
 
 ### 0.1.30-alpha - 2026-06-25T09:19:20.669Z
 
-- 从本地仓库证据生成 结构协作：结构切片 t_echo_lite · t_echo_lite。
+ - Generated from local repository evidence Struct collaboration: Struct slice t_echo_lite · t_echo_lite.

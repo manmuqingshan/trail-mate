@@ -1,15 +1,15 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>动态协作：setBootLog 调用 unlockUi</title>
+  <title>Dynamic collaboration: setBootLog calls unlockUi</title>
 </head>
 <body>
 <main class="praxis-engineering-map" data-praxis-anchor="engineering:runtime-flow:setbootlog:unlockui:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp" data-praxis-kind="engineering_sequence_diagram" data-praxis-status="candidate" data-praxis-confidence="high" data-praxis-document-path="docs/engineering/sequence-diagrams/setbootlog-calls-unlockui/sequence-diagram.html" data-praxis-drilldowns="[]">
   <header class="praxis-design-map-header">
     <p>Praxis Software Structure Model</p>
-    <h1>动态协作：setBootLog 调用 unlockUi</h1>
-    <p>apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 setBootLog calls apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 unlockUi。</p>
+    <h1>Dynamic collaboration: setBootLog calls unlockUi</h1>
+    <p>setBootLog calls in apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp unlockUi in apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp.</p>
     <div class="meta-row">
       <span>Sequence Diagrams</span>
       <span>candidate / high</span>
@@ -17,39 +17,39 @@
     </div>
   </header>
   <section class="semantic-layer" data-praxis-anchor="engineering:reading-guide" data-praxis-kind="engineering_document_section">
-    <h2>图的读法</h2>
+    <h2>How to read the diagram</h2>
     <ul>
-      <li>这张 Sequence Diagram 聚焦 setBootLog 调用 unlockUi 的技术协作片段。</li>
-      <li>它描述的是一个局部运行片段，不一定等同于完整业务流程。</li>
-      <li>当前关系来自本地调用证据；若没有 Use Case Trace，它只表示局部协作片段，不直接等同于主成功场景、回调、补偿或失败路径。</li>
+      <li>This Sequence Diagram focuses on the technical collaboration fragment of setBootLog calling unlockUi.</li>
+      <li>It describes a partial operation segment and is not necessarily equivalent to the complete business process.</li>
+      <li>The current relationship comes from local call evidence; without Use Case Trace, it only represents a local collaboration fragment and is not directly equivalent to the main success scenario, callback, compensation or failure path.</li>
     </ul>
   </section>
   <section class="semantic-layer" data-praxis-anchor="engineering:technical-analysis" data-praxis-kind="engineering_document_section">
-    <h2>技术复杂度分析</h2>
+    <h2>Technical complexity analysis</h2>
     <ul>
-      <li>apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 与 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 之间存在 calls 关系，所属技术边界是 apps/esp32_lvgl。</li>
-      <li>Sequence Diagram 用于解释运行时或协作顺序，适合承接那些从 Package/Component 图看不清的动态行为。</li>
-      <li>如果未来证据显示存在异步消息、回调、超时或失败补偿，应为同一业务/技术场景拆出多张 sequence，而不是塞进一张大图。</li>
+      <li>There is a calls relationship between apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp and apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp, and the technical boundary is apps/esp32_lvgl.</li>
+      <li>Sequence Diagram is used to explain runtime or collaboration sequences, and is suitable for undertaking dynamic behaviors that are not clearly visible from the Package/Component diagram.</li>
+      <li>If future evidence shows that there are asynchronous messages, callbacks, timeouts or failure compensation, multiple sequences should be broken out for the same business/technical scenario rather than crammed into one big picture.</li>
     </ul>
   </section>
   <section class="semantic-layer" data-praxis-anchor="engineering:business-relation" data-praxis-kind="engineering_document_section">
-    <h2>与业务复杂度的关联</h2>
+    <h2>Relationship with business complexity</h2>
     <ul>
-      <li>业务 Use Case 的主成功路径、失败路径和回调路径最终会落到若干技术 sequence 片段上。</li>
-      <li>当前片段可能解释某个业务故事中的技术执行步骤；如果没有 Use Case Trace，它只作为软件结构模型中的局部协作片段。</li>
-      <li>如果它被确认属于某个 Use Case，应在 docs/design 对应下钻 Sequence Diagram 中链接到这份工程 sequence 文档。</li>
+      <li>The main success path, failure path and callback path of the business Use Case will eventually fall on several technical sequence fragments.</li>
+      <li>The current fragment may explain the technical execution steps in a certain business story; if there is no Use Case Trace, it only serves as a local collaboration fragment in the software structure model.</li>
+      <li>If it is confirmed to belong to a Use Case, the project sequence document should be linked to the corresponding drill-down Sequence Diagram in docs/design.</li>
     </ul>
   </section>
   <section class="semantic-layer" data-praxis-anchor="engineering:governance-notes" data-praxis-kind="engineering_document_section">
-    <h2>治理建议</h2>
+    <h2>Governance Suggestions</h2>
     <ul>
-      <li>不要只根据单条关系判断完整调用链；需要结合前后游关系补全场景。</li>
-      <li>当 sequence 涉及外部系统、模型调用、文件写入或 Git 操作时，应补充失败路径和重试/补偿说明。</li>
-      <li>如果该 sequence 支撑用户可见功能，应同步维护组织/过程模型的业务下钻图。</li>
+      <li>Don't just judge the complete call chain based on a single relationship; you need to combine the upstream and downstream relationships to complete the scenario.</li>
+      <li>When the sequence involves external systems, model calls, file writing, or Git operations, failure paths and retry/compensation instructions should be added.</li>
+      <li>If the sequence supports user-visible functions, the business drill-down diagram of the organization/process model should be maintained simultaneously.</li>
     </ul>
   </section>
   <section class="semantic-layer diagram-section" data-praxis-anchor="engineering:diagram-body" data-praxis-kind="engineering_diagram_body">
-    <h2>UML / 技术图</h2>
+    <h2>UML/Technical Diagram</h2>
     <pre class="mermaid" data-praxis-anchor="engineering:runtime-flow:setbootlog:unlockui:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:uml" data-praxis-kind="engineering_sequence_uml" data-praxis-drilldowns="[]">sequenceDiagram
   participant Source as setBootLog
   participant Target as unlockUi
@@ -57,104 +57,104 @@
   Note over Source,Target: apps/esp32_lvgl</pre>
   </section>
   <section class="semantic-layer" data-praxis-anchor="engineering:coverage" data-praxis-kind="engineering_document_section">
-    <h2>覆盖范围</h2>
+    <h2>Coverage</h2>
     <ul>
-      <li>交互类型：calls</li>
-      <li>来源：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
-      <li>目标：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
-      <li>所属模块：apps/esp32_lvgl</li>
+      <li>Interaction type: calls</li>
+      <li>Source: apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
+      <li>Target: apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
+      <li>Official module: apps/esp32_lvgl</li>
     </ul>
   </section>
   <section class="semantic-layer engineering-element-drilldowns" data-praxis-anchor="engineering:runtime-flow:setbootlog:unlockui:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:element-drilldowns" data-praxis-kind="engineering_element_drilldown_index">
-    <h2>图内语义元素下钻</h2>
+    <h2>Drill-down of semantic elements in the diagram</h2>
     <ol>
       <li data-praxis-anchor="engineering:runtime-flow:setbootlog:unlockui:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:source" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="Source" data-praxis-drilldowns="[]">
         <strong>setBootLog</strong>
         <span>component</span>
-        <p>setBootLog 是当前 Sequence Diagram 的来源参与者，用来解释 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 setBootLog calls apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 unlockUi。</p>
+        <p>setBootLog is the source participant of the current Sequence Diagram and is used to interpret setBootLog calls in apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp and unlockUi in apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp.</p>
         <dl>
-          <div><dt>技术角色</dt><dd>消息发起/依赖方：它触发或引用目标能力。</dd></div>
-          <div><dt>为什么出现</dt><dd>本地仓库证据在 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 与 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 之间观察到 calls，因此 setBootLog 被放入 sequence。</dd></div>
-          <div><dt>关系意义</dt><dd>setBootLog -&gt; unlockUi 表示当前片段的依赖方向；如果关系只是 import，它只能说明静态依赖，不能直接证明运行时顺序。</dd></div>
-          <div><dt>下钻意图</dt><dd>下钻 setBootLog 可以查看对应 Component Diagram 或结构上下文，判断这个参与者在更大技术边界中的职责。</dd></div>
-          <div><dt>业务关联</dt><dd>业务 Use Case 的执行过程可能落到多个 sequence 片段上；当前片段只是候选技术步骤，需要组织/过程模型证据确认业务含义。</dd></div>
-          <div><dt>变更影响</dt><dd>修改 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 可能改变该 sequence 的依赖关系、调用证据和相关组件/结构图的解释。</dd></div>
-          <div><dt>置信度</dt><dd>high</dd></div>
+          <div><dt>Technical role</dt><dd>Message originator/relying party: It triggers or references the target capability.</dd></div>
+          <div><dt>Why it appears</dt><dd>Local repository evidence calls were observed between apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp and apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp, so setBootLog was put into sequence.</dd></div>
+          <div><dt>Relationship meaning</dt><dd>setBootLog -> unlockUi indicates the dependency direction of the current fragment; if the relationship is only import, it can only indicate static dependencies and cannot directly prove the runtime order.</dd></div>
+          <div><dt>Drill-down intention</dt><dd>Drill down setBootLog to view the corresponding Component Diagram or structural context to determine the responsibilities of this participant within the larger technical boundary.</dd></div>
+          <div><dt>Business association</dt><dd>The execution process of the business Use Case may fall on multiple sequence fragments; the current fragment is only a candidate technical step and requires organizational/process model evidence to confirm the business meaning.</dd></div>
+          <div><dt>Impact of change</dt><dd>Modifying apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp may change the sequence's dependencies, calling evidence, and interpretation of related component/structure diagrams.</dd></div>
+          <div><dt>Confidence</dt><dd>high</dd></div>
         </dl>
-        <section><h3>证据</h3>
+        <section><h3>Evidence</h3>
           <ul>
             <li>apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
-            <li>交互类型：calls</li>
-            <li>来源：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
-            <li>目标：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
-            <li>所属模块：apps/esp32_lvgl</li>
+            <li>Interaction type: calls</li>
+            <li>Source: apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
+            <li>Target: apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
+            <li>Official module: apps/esp32_lvgl</li>
           </ul>
         </section>
-        <section><h3>风险</h3>
+        <section><h3>Risk</h3>
           <ul>
-            <li>单条 sequence 片段不足以证明完整调用链或业务主成功路径。</li>
+            <li>A single sequence fragment is not enough to prove the complete call chain or the successful path of the business owner.</li>
           </ul>
         </section>
-        <section><h3>问题</h3>
+        <section><h3>Problem</h3>
           <ul>
-            <li>当前关系类型需要按证据区分运行时调用、静态 import、类型引用或配置引用；若只是静态关系，本图不应被解释成真实调用顺序。</li>
+            <li>The current relationship type needs to be distinguished by evidence between runtime calls, static imports, type references, or configuration references; if it is only a static relationship, this diagram should not be interpreted as a real calling sequence.</li>
           </ul>
         </section>
       </li>
       <li data-praxis-anchor="engineering:runtime-flow:setbootlog:unlockui:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:target" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="Target" data-praxis-drilldowns="[]">
         <strong>unlockUi</strong>
         <span>component</span>
-        <p>unlockUi 是当前 Sequence Diagram 的目标参与者，用来解释 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 setBootLog calls apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 unlockUi。</p>
+        <p>unlockUi is the target actor of the current Sequence Diagram and is used to interpret setBootLog calls in apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp for unlockUi in apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp.</p>
         <dl>
-          <div><dt>技术角色</dt><dd>消息接收/被依赖方：它提供被当前片段引用或调用的能力。</dd></div>
-          <div><dt>为什么出现</dt><dd>本地仓库证据在 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 与 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 之间观察到 calls，因此 unlockUi 被放入 sequence。</dd></div>
-          <div><dt>关系意义</dt><dd>setBootLog -&gt; unlockUi 表示目标能力被当前片段依赖；需要结合调用证据确认它是运行时调用、类型引用还是静态导入。</dd></div>
-          <div><dt>下钻意图</dt><dd>下钻 unlockUi 可以查看对应 Component Diagram 或结构上下文，判断这个参与者在更大技术边界中的职责。</dd></div>
-          <div><dt>业务关联</dt><dd>业务 Use Case 的执行过程可能落到多个 sequence 片段上；当前片段只是候选技术步骤，需要组织/过程模型证据确认业务含义。</dd></div>
-          <div><dt>变更影响</dt><dd>修改 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 可能改变该 sequence 的依赖关系、调用证据和相关组件/结构图的解释。</dd></div>
-          <div><dt>置信度</dt><dd>high</dd></div>
+          <div><dt>Technical role</dt><dd>Message receiving/relying party: It provides the ability to be referenced or called by the current fragment.</dd></div>
+          <div><dt>Why it appears</dt><dd>Local repository evidence calls were observed between apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp and apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp, so unlockUi was put into sequence.</dd></div>
+          <div><dt>Relationship meaning</dt><dd>setBootLog -> unlockUi means that the target capability is dependent on the current fragment; it needs to be combined with the call evidence to confirm whether it is a runtime call, a type reference or a static import.</dd></div>
+          <div><dt>Drill-down intention</dt><dd>Drilling down unlockUi can view the corresponding Component Diagram or structural context to determine the responsibilities of this participant within the larger technical boundary.</dd></div>
+          <div><dt>Business association</dt><dd>The execution process of the business Use Case may fall on multiple sequence fragments; the current fragment is only a candidate technical step and requires organizational/process model evidence to confirm the business meaning.</dd></div>
+          <div><dt>Impact of change</dt><dd>Modifying apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp may change the sequence's dependencies, calling evidence, and interpretation of related component/structure diagrams.</dd></div>
+          <div><dt>Confidence</dt><dd>high</dd></div>
         </dl>
-        <section><h3>证据</h3>
+        <section><h3>Evidence</h3>
           <ul>
             <li>apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
-            <li>交互类型：calls</li>
-            <li>来源：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
-            <li>目标：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
-            <li>所属模块：apps/esp32_lvgl</li>
+            <li>Interaction type: calls</li>
+            <li>Source: apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
+            <li>Target: apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
+            <li>Official module: apps/esp32_lvgl</li>
           </ul>
         </section>
-        <section><h3>风险</h3>
+        <section><h3>Risk</h3>
           <ul>
-            <li>单条 sequence 片段不足以证明完整调用链或业务主成功路径。</li>
+            <li>A single sequence fragment is not enough to prove the complete call chain or the successful path of the business owner.</li>
           </ul>
         </section>
-        <section><h3>问题</h3>
+        <section><h3>Problem</h3>
           <ul>
-            <li>当前关系类型需要按证据区分运行时调用、静态 import、类型引用或配置引用；若只是静态关系，本图不应被解释成真实调用顺序。</li>
+            <li>The current relationship type needs to be distinguished by evidence between runtime calls, static imports, type references, or configuration references; if it is only a static relationship, this diagram should not be interpreted as a real calling sequence.</li>
           </ul>
         </section>
       </li>
     </ol>
   </section>
   <section class="semantic-layer engineering-drilldowns" data-praxis-anchor="engineering:runtime-flow:setbootlog:unlockui:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:drilldowns" data-praxis-kind="engineering_drilldown_options" data-praxis-drilldowns="[]">
-    <h2>可下钻 UML</h2>
-    <p>当前没有根据证据关联到更细图。</p>
+    <h2>Drill-down UML</h2>
+    <p>There is currently no evidence-based link to a finer picture.</p>
 
   </section>
   <section class="semantic-layer" data-praxis-anchor="engineering:evidence" data-praxis-kind="engineering_document_section">
-    <h2>证据</h2>
+    <h2>Evidence</h2>
     <ul>
       <li>apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
       <li>apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp</li>
     </ul>
   </section>
   <section class="semantic-layer" data-praxis-anchor="engineering:questions" data-praxis-kind="engineering_document_section">
-    <h2>问题</h2>
+    <h2>Problem</h2>
     <ul>
-      <li>暂无未决问题。</li>
+      <li>There are no open issues yet.</li>
     </ul>
   </section>
-  <script type="application/json" id="praxis-engineering-diagram-document">{"id":"engineering:diagram:sequence:setbootlog-calls-unlockui","kind":"sequence","title":"动态协作：setBootLog 调用 unlockUi","summary":"apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 setBootLog calls apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 unlockUi。","docPath":"docs/engineering/sequence-diagrams/setbootlog-calls-unlockui/sequence-diagram.md","htmlPath":"docs/engineering/sequence-diagrams/setbootlog-calls-unlockui/sequence-diagram.html","anchor":"engineering:runtime-flow:setbootlog:unlockui:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp","status":"candidate","confidence":"high","mermaidKind":"sequenceDiagram","mermaid":"sequenceDiagram\n  participant Source as setBootLog\n  participant Target as unlockUi\n  Source-\u003e\u003eTarget: calls\n  Note over Source,Target: apps/esp32_lvgl","readingGuide":["这张 Sequence Diagram 聚焦 setBootLog 调用 unlockUi 的技术协作片段。","它描述的是一个局部运行片段，不一定等同于完整业务流程。","当前关系来自本地调用证据；若没有 Use Case Trace，它只表示局部协作片段，不直接等同于主成功场景、回调、补偿或失败路径。"],"technicalAnalysis":["apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 与 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 之间存在 calls 关系，所属技术边界是 apps/esp32_lvgl。","Sequence Diagram 用于解释运行时或协作顺序，适合承接那些从 Package/Component 图看不清的动态行为。","如果未来证据显示存在异步消息、回调、超时或失败补偿，应为同一业务/技术场景拆出多张 sequence，而不是塞进一张大图。"],"businessRelation":["业务 Use Case 的主成功路径、失败路径和回调路径最终会落到若干技术 sequence 片段上。","当前片段可能解释某个业务故事中的技术执行步骤；如果没有 Use Case Trace，它只作为软件结构模型中的局部协作片段。","如果它被确认属于某个 Use Case，应在 docs/design 对应下钻 Sequence Diagram 中链接到这份工程 sequence 文档。"],"governanceNotes":["不要只根据单条关系判断完整调用链；需要结合前后游关系补全场景。","当 sequence 涉及外部系统、模型调用、文件写入或 Git 操作时，应补充失败路径和重试/补偿说明。","如果该 sequence 支撑用户可见功能，应同步维护组织/过程模型的业务下钻图。"],"coverage":["交互类型：calls","来源：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","目标：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","所属模块：apps/esp32_lvgl"],"evidencePaths":["apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp"],"questions":[],"scope":{"packageId":"apps/esp32_lvgl","sourcePath":"apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","targetPath":"apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","targetPackageId":"apps/esp32_lvgl","sourceName":"setBootLog","targetName":"unlockUi"},"drilldowns":[],"elements":[{"id":"engineering:diagram:sequence:setbootlog-calls-unlockui:element:setbootlog","mermaidId":"Source","label":"setBootLog","kind":"component","anchor":"engineering:runtime-flow:setbootlog:unlockui:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:source","summary":"setBootLog 是当前 Sequence Diagram 的来源参与者，用来解释 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 setBootLog calls apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 unlockUi。","role":"消息发起/依赖方：它触发或引用目标能力。","whyItExists":"本地仓库证据在 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 与 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 之间观察到 calls，因此 setBootLog 被放入 sequence。","relationshipMeaning":"setBootLog -\u003e unlockUi 表示当前片段的依赖方向；如果关系只是 import，它只能说明静态依赖，不能直接证明运行时顺序。","drilldownIntent":"下钻 setBootLog 可以查看对应 Component Diagram 或结构上下文，判断这个参与者在更大技术边界中的职责。","businessRelevance":"业务 Use Case 的执行过程可能落到多个 sequence 片段上；当前片段只是候选技术步骤，需要组织/过程模型证据确认业务含义。","changeImpact":"修改 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 可能改变该 sequence 的依赖关系、调用证据和相关组件/结构图的解释。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","交互类型：calls","来源：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","目标：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","所属模块：apps/esp32_lvgl"],"risks":["单条 sequence 片段不足以证明完整调用链或业务主成功路径。"],"questions":["当前关系类型需要按证据区分运行时调用、静态 import、类型引用或配置引用；若只是静态关系，本图不应被解释成真实调用顺序。"],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:sequence:setbootlog-calls-unlockui:element:unlockui","mermaidId":"Target","label":"unlockUi","kind":"component","anchor":"engineering:runtime-flow:setbootlog:unlockui:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:target","summary":"unlockUi 是当前 Sequence Diagram 的目标参与者，用来解释 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 setBootLog calls apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 中的 unlockUi。","role":"消息接收/被依赖方：它提供被当前片段引用或调用的能力。","whyItExists":"本地仓库证据在 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 与 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 之间观察到 calls，因此 unlockUi 被放入 sequence。","relationshipMeaning":"setBootLog -\u003e unlockUi 表示目标能力被当前片段依赖；需要结合调用证据确认它是运行时调用、类型引用还是静态导入。","drilldownIntent":"下钻 unlockUi 可以查看对应 Component Diagram 或结构上下文，判断这个参与者在更大技术边界中的职责。","businessRelevance":"业务 Use Case 的执行过程可能落到多个 sequence 片段上；当前片段只是候选技术步骤，需要组织/过程模型证据确认业务含义。","changeImpact":"修改 apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp 可能改变该 sequence 的依赖关系、调用证据和相关组件/结构图的解释。","evidence":["apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","交互类型：calls","来源：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","目标：apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","所属模块：apps/esp32_lvgl"],"risks":["单条 sequence 片段不足以证明完整调用链或业务主成功路径。"],"questions":["当前关系类型需要按证据区分运行时调用、静态 import、类型引用或配置引用；若只是静态关系，本图不应被解释成真实调用顺序。"],"confidence":"high","drilldowns":[]}]}</script>
+  <script type="application/json" id="praxis-engineering-diagram-document">{"id":"engineering:diagram:sequence:setbootlog-calls-unlockui","kind":"sequence","title":"Dynamic collaboration: setBootLog calls unlockUi","summary":"setBootLog calls in apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp unlockUi in apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp.","docPath":"docs/engineering/sequence-diagrams/setbootlog-calls-unlockui/sequence-diagram.md","htmlPath":"docs/engineering/sequence-diagrams/setbootlog-calls-unlockui/sequence-diagram.html","anchor":"engineering:runtime-flow:setbootlog:unlockui:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp","status":"candidate","confidence":"high","mermaidKind":"sequenceDiagram","mermaid":"sequenceDiagram\n  participant Source as setBootLog\n  participant Target as unlockUi\n  Source->>Target: calls\n  Note over Source,Target: apps/esp32_lvgl","readingGuide":["This Sequence Diagram focuses on the technical collaboration fragment of setBootLog calling unlockUi.","It describes a partial operation segment and is not necessarily equivalent to the complete business process.","The current relationship comes from local call evidence; without Use Case Trace, it only represents a local collaboration fragment and is not directly equivalent to the main success scenario, callback, compensation or failure path."],"technicalAnalysis":["There is a calls relationship between apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp and apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp, and the technical boundary is apps/esp32_lvgl.","Sequence Diagram is used to explain runtime or collaboration sequences, and is suitable for undertaking dynamic behaviors that are not clearly visible from the Package/Component diagram.","If future evidence shows that there are asynchronous messages, callbacks, timeouts or failure compensation, multiple sequences should be broken out for the same business/technical scenario rather than crammed into one big picture."],"businessRelation":["The main success path, failure path and callback path of the business Use Case will eventually fall on several technical sequence fragments.","The current fragment may explain the technical execution steps in a certain business story; if there is no Use Case Trace, it only serves as a local collaboration fragment in the software structure model.","If it is confirmed to belong to a Use Case, the project sequence document should be linked to the corresponding drill-down Sequence Diagram in docs/design."],"governanceNotes":["Don't just judge the complete call chain based on a single relationship; you need to combine the upstream and downstream relationships to complete the scenario.","When the sequence involves external systems, model calls, file writing, or Git operations, failure paths and retry/compensation instructions should be added.","If the sequence supports user-visible functions, the business drill-down diagram of the organization/process model should be maintained simultaneously."],"coverage":["Interaction type: calls","Source: apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","Target: apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","Official module: apps/esp32_lvgl"],"evidencePaths":["apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp"],"questions":[],"scope":{"packageId":"apps/esp32_lvgl","sourcePath":"apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","targetPath":"apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","targetPackageId":"apps/esp32_lvgl","sourceName":"setBootLog","targetName":"unlockUi"},"drilldowns":[],"elements":[{"id":"engineering:diagram:sequence:setbootlog-calls-unlockui:element:setbootlog","mermaidId":"Source","label":"setBootLog","kind":"component","anchor":"engineering:runtime-flow:setbootlog:unlockui:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:source","summary":"setBootLog is the source participant of the current Sequence Diagram and is used to interpret setBootLog calls in apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp and unlockUi in apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp.","role":"Message originator/relying party: It triggers or references the target capability.","whyItExists":"Local repository evidence calls were observed between apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp and apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp, so setBootLog was put into sequence.","relationshipMeaning":"setBootLog -> unlockUi indicates the dependency direction of the current fragment; if the relationship is only import, it can only indicate static dependencies and cannot directly prove the runtime order.","drilldownIntent":"Drill down setBootLog to view the corresponding Component Diagram or structural context to determine the responsibilities of this participant within the larger technical boundary.","businessRelevance":"The execution process of the business Use Case may fall on multiple sequence fragments; the current fragment is only a candidate technical step and requires organizational/process model evidence to confirm the business meaning.","changeImpact":"Modifying apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp may change the sequence's dependencies, calling evidence, and interpretation of related component/structure diagrams.","evidence":["apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","Interaction type: calls","Source: apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","Target: apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","Official module: apps/esp32_lvgl"],"risks":["A single sequence fragment is not enough to prove the complete call chain or the successful path of the business owner."],"questions":["The current relationship type needs to be distinguished by evidence between runtime calls, static imports, type references, or configuration references; if it is only a static relationship, this diagram should not be interpreted as a real calling sequence."],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:sequence:setbootlog-calls-unlockui:element:unlockui","mermaidId":"Target","label":"unlockUi","kind":"component","anchor":"engineering:runtime-flow:setbootlog:unlockui:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:apps-esp32_lvgl-src-esp32_lvgl_startup_runtime.cpp:target","summary":"unlockUi is the target actor of the current Sequence Diagram and is used to interpret setBootLog calls in apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp for unlockUi in apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp.","role":"Message receiving/relying party: It provides the ability to be referenced or called by the current fragment.","whyItExists":"Local repository evidence calls were observed between apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp and apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp, so unlockUi was put into sequence.","relationshipMeaning":"setBootLog -> unlockUi indicates that the target capability is dependent on the current fragment; it needs to be combined with the call evidence to confirm whether it is a runtime call, a type reference or a static import.","drilldownIntent":"Drilling down unlockUi can view the corresponding Component Diagram or structural context to determine the responsibilities of this participant within the larger technical boundary.","businessRelevance":"The execution process of the business Use Case may fall on multiple sequence fragments; the current fragment is only a candidate technical step and requires organizational/process model evidence to confirm the business meaning.","changeImpact":"Modifying apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp may change the sequence's dependencies, calling evidence, and interpretation of related component/structure diagrams.","evidence":["apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","Interaction type: calls","Source: apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","Target: apps/esp32_lvgl/src/esp32_lvgl_startup_runtime.cpp","Official module: apps/esp32_lvgl"],"risks":["A single sequence fragment is not enough to prove the complete call chain or the successful path of the business owner."],"questions":["The current relationship type needs to be distinguished by evidence between runtime calls, static imports, type references, or configuration references; if it is only a static relationship, this diagram should not be interpreted as a real calling sequence."],"confidence":"high","drilldowns":[]}]}</script>
 </main>
 </body>
 </html>

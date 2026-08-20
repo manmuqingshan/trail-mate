@@ -1,78 +1,78 @@
-# Meshtastic BLE 交互时序
+# Meshtastic BLE interaction timing
 
-本文整理 `Meshtastic` Android 客户端与当前 `trail-mate` nRF52 固件之间的 BLE 交互时序，目的是为后续排查 “App 一直停在正在连接” 和 `FromRadio/FromNum` 兼容问题提供统一基线。
+This article organizes the BLE interaction timing between the `Meshtastic` Android client and the current `trail-mate` nRF52 firmware. The purpose is to provide a unified baseline for subsequent troubleshooting of "App keeps stopping at connecting" and `FromRadio/FromNum` compatibility issues.
 
-本文不讨论 UI、GPS、LoRa 或 flash 持久化问题，只聚焦 Meshtastic BLE 握手、配置流和连接完成判定。
+This article does not discuss UI, GPS, LoRa or flash persistence issues, but only focuses on Meshtastic BLE handshake, configuration flow and connection completion determination.
 
 > Normative spec: `docs/specification/MESHTASTIC_ANDROID_BLE_CONNECTION_SPEC.md`.
 > This file is a diagnostic timing note. If it conflicts with the specification, the specification wins.
 
-## 1. 总体结论
+## 1. Overall conclusion
 
-Android 端的 Meshtastic BLE 连接并不是：
+The Meshtastic BLE connection on the Android side is not:
 
-- 连接成功
-- 收到一两个通知
-- 立刻视为已连接
+- Connection successful
+- Receive one or two notifications
+- Consider it connected immediately
 
-它真正的判定是两阶段配置握手：
+The real determination is a two-phase configuration handshake:
 
-1. GATT 连接建立，完成服务发现和通知订阅。
-2. App 发出 Stage 1：`ToRadio.want_config_id = CONFIG_NONCE`
-3. 设备返回一整段配置流，直到 `config_complete_id(CONFIG_NONCE)`
-4. App 发出 Stage 2：`ToRadio.want_config_id = NODE_INFO_NONCE`
-5. 设备返回一整段 `node_info` 流，直到 `config_complete_id(NODE_INFO_NONCE)`
-6. App 才把连接状态从 `Connecting` 切到 `Connected`
+1. GATT connection is established, service discovery and notification subscription are completed.
+2. App issues Stage 1: `ToRadio.want_config_id = CONFIG_NONCE`
+3. The device returns a whole configuration stream until `config_complete_id(CONFIG_NONCE)`
+4. App issues Stage 2: `ToRadio.want_config_id = NODE_INFO_NONCE`
+5. The device returns a whole `node_info` stream until `config_complete_id(NODE_INFO_NONCE)`
+6. App switches the connection status from `Connecting` to `Connected`
 
-因此，App 长时间停在“正在连接”，通常不表示 BLE 物理链路没有连上，而是表示 Meshtastic 的配置握手尚未被完整认账。
+Therefore, if the App stays at "Connecting" for a long time, it usually does not mean that the BLE physical link is not connected, but that the Meshtastic configuration handshake has not been fully acknowledged.
 
-## 2. Android 端时序
+## 2. Android side timing
 
-### 2.1 连接建立
+### 2.1 Connection establishment
 
-Android 端 BLE 入口在：
+The Android side BLE entrance is:
 
 - `.tmp/meshtastic-android/core/network/src/commonMain/kotlin/org/meshtastic/core/network/radio/BleRadioInterface.kt`
 - `.tmp/meshtastic-android/core/ble/src/commonMain/kotlin/org/meshtastic/core/ble/KableMeshtasticRadioProfile.kt`
 
-高层时序：
+High-level timing:
 
-1. `BleRadioInterface.connect()` 建立 GATT 连接
-2. `discoverServicesAndSetupCharacteristics()` 完成 service/profile 建立
-3. `fromRadio` / `logRadio` 的 observation 被启动
-4. 经过一个很短的 `CCCD_SETTLE_MS` 等待窗口
-5. 调用 `service.onConnect()`
+1. `BleRadioInterface.connect()` establishes GATT connection
+2. `discoverServicesAndSetupCharacteristics()` completes service/profile establishment
+3. `fromRadio` / `logRadio` observation is started
+4. After a short `CCCD_SETTLE_MS` waiting window
+5. Call `service.onConnect()`
 
-对应关键代码位置：
+Corresponding key code location:
 
 - `BleRadioInterface.discoverServicesAndSetupCharacteristics()`
 - `BleRadioInterface.service.onConnect()`
 
-### 2.2 App 如何读取 FromRadio
+### 2.2 How App reads FromRadio
 
-Android 端并不是单纯依赖 `FROMNUM` 通知。
+The Android side does not simply rely on `FROMNUM` notification.
 
-`KableMeshtasticRadioProfile.fromRadio` 的行为如下：
+The behavior of `KableMeshtasticRadioProfile.fromRadio` is as follows:
 
-1. 如果设备支持 `FROMRADIOSYNC`，则直接订阅该特征。
-2. 如果不支持，则退回到 legacy 模式：
-   - 订阅 `FROMNUM`
-   - 但是同时主动触发一次 drain
-   - 然后循环读取 `FROMRADIO`
-   - 一直读到返回空包为止
+1. If the device supports `FROMRADIOSYNC`, subscribe to this feature directly.
+2. If not supported, fall back to legacy mode:
+ - Subscribe to `FROMNUM`
+ - But actively trigger a drain at the same time
+ - Then read `FROMRADIO` in a loop
+ - Read until an empty packet is returned
 
-更具体地说，legacy 模式里会发生两件关键动作：
+More specifically, legacy Two key actions will occur in the mode:
 
-1. `triggerDrain.tryEmit(Unit)` 会在 collector 启动时主动触发一次。
-2. `sendToRadio()` 每发送一条 `ToRadio`，也会再次 `triggerDrain.tryEmit(Unit)`。
+1. `triggerDrain.tryEmit(Unit)` will actively trigger once when the collector starts.
+2. `sendToRadio()` will trigger `triggerDrain.tryEmit(Unit)` again every time it sends a `ToRadio`.
 
-这意味着：
+This means:
 
-- 发送 `want_config_id` 后，App 会主动开始 `read(FROMRADIO)`
-- 即使某一瞬间没有 `FROMNUM` 通知，App 也不一定会停住
-- `FROMNUM` 更像 steady-state 提示，而不是唯一驱动条件
+- After sending `want_config_id`, the App will actively start `read(FROMRADIO)`
+- Even if there is no `FROMNUM` notification at a certain moment, the App will not necessarily stop
+- `FROMNUM` is more like a steady-state prompt, not the only driving condition
 
-对应关键代码位置：
+Corresponding key code location:
 
 - `KableMeshtasticRadioProfile.fromRadio`
 - `service.observe(fromNum)`
@@ -80,9 +80,9 @@ Android 端并不是单纯依赖 `FROMNUM` 通知。
 - `triggerDrain.tryEmit(Unit)`
 - `sendToRadio()`
 
-### 2.3 两阶段握手
+### 2.3 Two-phase handshake
 
-上层状态机在：
+The upper-layer state machine is in:
 
 - `.tmp/meshtastic-android/core/data/src/commonMain/kotlin/org/meshtastic/core/data/manager/MeshConnectionManagerImpl.kt`
 - `.tmp/meshtastic-android/core/data/src/commonMain/kotlin/org/meshtastic/core/data/manager/MeshConfigFlowManagerImpl.kt`
@@ -90,16 +90,16 @@ Android 端并不是单纯依赖 `FROMNUM` 通知。
 
 #### Stage 1
 
-1. 连接建立后，`MeshConnectionManagerImpl.handleConnected()` 调用 `startConfigOnly()`
-2. `startConfigOnly()` 发送：
+1. After the connection is established, `MeshConnectionManagerImpl.handleConnected()` calls `startConfigOnly()`
+2. `startConfigOnly()` sends:
    - `ToRadio.want_config_id = HandshakeConstants.CONFIG_NONCE`
-3. App 开始消费 `FromRadio`
-4. `FromRadioPacketHandlerImpl` 将不同 variant 分发到 config flow manager / config handler
-5. 当收到：
+3. App starts consuming `FromRadio`
+4. `FromRadioPacketHandlerImpl` distributes different variants to config flow manager / config handler
+5. When receiving:
    - `FromRadio.config_complete_id == CONFIG_NONCE`
-6. `MeshConfigFlowManagerImpl.handleConfigComplete()` 进入 Stage 1 complete
+6. `MeshConfigFlowManagerImpl.handleConfigComplete()` Enter Stage 1 complete
 
-Stage 1 期间典型接收内容包括：
+Stage 1 Typical receiving content during the period includes:
 
 - `my_info`
 - `deviceui`
@@ -111,90 +111,90 @@ Stage 1 期间典型接收内容包括：
 
 #### Stage 2
 
-Stage 1 完成后：
+After Stage 1 is completed:
 
-1. `MeshConfigFlowManagerImpl.handleConfigOnlyComplete()` 先发送一个 heartbeat
-2. 然后调用 `startNodeInfoOnly()`
-3. 发送：
+1. `MeshConfigFlowManagerImpl.handleConfigOnlyComplete()` first sends a heartbeat
+2. Then call `startNodeInfoOnly()`
+3. Send:
    - `ToRadio.want_config_id = HandshakeConstants.NODE_INFO_NONCE`
-4. App 接收一串 `node_info`
-5. 当收到：
+4. App receives a string of `node_info`
+5. When receiving:
    - `FromRadio.config_complete_id == NODE_INFO_NONCE`
-6. `MeshConfigFlowManagerImpl.handleNodeInfoComplete()` 才真正执行：
+6. `MeshConfigFlowManagerImpl.handleNodeInfoComplete()` is actually executed:
    - `serviceRepository.setConnectionState(ConnectionState.Connected)`
 
-也就是说，只有 Stage 2 完成，Android 才认为连接完成。
+In other words, only Stage 2 is completed, Android will consider the connection complete.
 
-## 3. 当前固件侧时序
+## 3. Current firmware side timing
 
-当前 nRF52 侧入口主要在：
+The current nRF52 side entrance is mainly at:
 
 - `platform/nrf52/arduino_common/src/ble/meshtastic_ble.cpp`
 - `modules/core_phone/src/meshtastic/meshtastic_phone_core.cpp`
 
-注意：本节描述的是必须达到的交互语义，不证明某个历史实现已经满足该语义。当前实现状态必须以源码和主规格回归为准。
+Note: This section describes the interaction semantics that must be achieved, and does not prove that a historical implementation has satisfied this semantics. The current implementation status must be based on the source code and main specification regression.
 
-### 3.1 BLE service 层
+### 3.1 BLE service layer
 
-当前 Meshtastic BLE service 暴露的关键特征：
+The key features exposed by the current Meshtastic BLE service:
 
 - `ToRadio`
 - `FromRadio`
 - `FromNum`
 - `LogRadio`
 
-主循环必须达到的关键顺序是：
+The key sequence that the main loop must reach is:
 
 1. `processPendingToRadio()`
 2. `handleToPhone()`
 3. `prepareReadableFromRadio()`
 
-也就是：
+That is:
 
-- 先处理手机写入的 `ToRadio`
-- 再让 `MeshtasticPhoneCore` 产出下一帧 `FromRadio`
-- 再把下一帧预装进 `FromRadio` characteristic，等待 App 读取
+- First process the `ToRadio` written by the mobile phone
+- Then let `MeshtasticPhoneCore` produce the next frame `FromRadio`
+- Then preload the next frame into the `FromRadio` characteristic and wait for the App to read
 
-### 3.2 PhoneCore 配置流
+### 3.2 PhoneCore Configuration flow
 
-`MeshtasticPhoneCore` 在收到 `want_config_id` 后会开始吐配置快照。
+`MeshtasticPhoneCore` will start spitting out configuration snapshots after receiving `want_config_id`.
 
-当前日志里能看到的配置流顺序大致是：
+The sequence of configuration streams that can be seen in the current log is roughly:
 
 1. `cfg#N start`
 2. `frame my_info`
 3. `frame deviceui`
 4. `frame self_node`
-5. 后续 metadata/config/module/channel/node 等若干帧
+5. Subsequent frames such as metadata/config/module/channel/node
 6. `cfg#N complete`
 
-对应日志前缀：
+Corresponding log prefix:
 
 - `[BLE][mtcore][cfg#N] start`
 - `[BLE][mtcore][cfg#N] frame ...`
 - `[BLE][mtcore][cfg#N] complete`
 
-每帧编码后都会成为一条 `MeshtasticBleFrame`，交给 transport 层。
+After encoding, each frame will become a `MeshtasticBleFrame` and handed over to the transport layer.
 
-### 3.3 FromNum / FromRadio 当前实现
+### 3.3 FromNum / FromRadio current implementation
 
-目标 nRF52 transport 的基本模型是：
+The basic model of the target nRF52 transport is:
 
-1. `MeshtasticPhoneCore.notifyFromNum(from_num)` 把真实 `from_num` 交给 nRF52 transport
-2. nRF52 transport 将 `from_num` 放入固定深度 pending 队列
-3. 主循环调用 `prepareReadableFromRadio()`，让 `PhoneCore.popToPhone()` 产出下一帧并预装进 `FROMRADIO`
-4. 手机完成 `FROMNUM` 订阅且已有预装帧后，transport 用同一个真实 `from_num` 发送通知
-5. App 读取 `FROMRADIO` 时进入 `onFromRadioAuthorize()`；该回调只记录读取/消费状态，不再产出 protobuf 帧
-6. 主循环调用 `consumeReadableFromRadio()` 消费已读预装帧，并立刻尝试换装下一帧
-7. App 持续读取，直到 `FROMRADIO` 返回空包，表示本轮 drain 完成
+1. `MeshtasticPhoneCore.notifyFromNum(from_num)` hands the real `from_num` to nRF52 transport
+2. nRF52 transport puts `from_num` into the fixed-depth pending queue
+3. The main loop calls `prepareReadableFromRadio()` to let `PhoneCore.popToPhone()` produces the next frame and preloads it into `FROMRADIO`
+4. After the phone completes `FROMNUM` subscription and has preloaded frames, transport uses the same real `from_num` to send notifications
+5. Enter when App reads `FROMRADIO` `onFromRadioAuthorize()`; This callback only records the read/consumption status and no longer produces protobuf frames
+6. The main loop calls `consumeReadableFromRadio()` to consume the read pre-assembled frames and immediately try to change to the next frame
+7. The App continues to read until `FROMRADIO` returns an empty packet, indicating that this round of drain is completed
 
-关键约束是：两帧之间不能先发布一个人为的空 `FROMRADIO` 值。`consumeReadableFromRadio()` 只有在确认
-`PhoneCore.popToPhone()` 没有下一帧之后，才允许把 characteristic 写成 0 长度；否则 Android 的
-`read-until-empty` 可能把配置流提前判定为 drain 完成，错过后续 `config_complete_id`。
+The key constraint is: an artificially empty `FROMRADIO` value cannot be released first between two frames. `consumeReadableFromRadio()` is only allowed to write the characteristic with a length of 0 after confirming that
+`PhoneCore.popToPhone()` does not have the next frame; otherwise Android's
+`read-until-empty` may determine the configuration flow as drain completion in advance and miss the subsequent `config_complete_id`.
 
-这里有一个稳定性边界：Bluefruit 的 read-authorize 回调不能执行 `popToPhone()`、MQTT proxy 轮询、nanopb 编码或串口日志重活。否则在手机高频 drain、空中包入站和 MQTT downlink 混在一起时，nRF52 侧可能出现无 HardFault 日志的 USB 重枚举/断连。
+There is a stability boundary here: Bluefruit's read-authorize callback cannot perform `popToPhone()`, MQTT proxy polling, nanopb encoding, or serial port log reactivation. Otherwise, when mobile phone high-frequency drain, over-the-air packet inbound and MQTT downlink are mixed together, USB re-enumeration/disconnection without HardFault log may occur on the nRF52 side.
 
-为了排障，目前固件还打印了这些日志：
+In order to troubleshoot, the firmware currently also prints these logs:
 
 - `[BLE][nrf52][mt][flow] link-up ...`
 - `[BLE][nrf52][mt][flow] from_num subscribed=...`
@@ -203,145 +203,145 @@ Stage 1 完成后：
 - `[BLE][nrf52][mt] from_radio read len=...`
 - `[BLE][nrf52][mt] from_radio read empty reason=...`
 
-## 4. 双方时序的核心关系
+## 4. The core relationship between the timing of both parties
 
-把 Android 和固件合在一起，可以归纳成下面这条主线：
+Putting Android and firmware together can be summarized into the following main line:
 
 1. GATT connected
-2. App 订阅 `FROMNUM` / `LOGRADIO`，并建立 `fromRadio` collector
-3. App 调用 `service.onConnect()`
-4. App 发送 `want_config_id = CONFIG_NONCE`
-5. App 主动开始 drain `FROMRADIO`
-6. 固件一帧一帧提供：
+2. App subscribes to `FROMNUM` / `LOGRADIO` and establishes `fromRadio` collector
+3. App calls `service.onConnect()`
+4. App sends `want_config_id = CONFIG_NONCE`
+5. App actively starts draining `FROMRADIO`
+6. The firmware provides frame by frame:
    - `my_info`
    - `deviceui`
    - `self_node`
    - ...
    - `config_complete(CONFIG_NONCE)`
-7. App 切到 Stage 2，发送 `want_config_id = NODE_INFO_NONCE`
-8. App 再次 drain `FROMRADIO`
-9. 固件提供若干 `node_info`
-10. 固件发送 `config_complete(NODE_INFO_NONCE)`
-11. App 切为 `Connected`
+7. App switches to Stage 2 and sends `want_config_id = NODE_INFO_NONCE`
+8. App drains `FROMRADIO` again
+9. The firmware provides several `node_info`
+10. The firmware sends `config_complete(NODE_INFO_NONCE)`
+11. App is switched to `Connected`
 
-## 5. 当前 nRF52 侧最值得关注的偏离点
+## 5. The most noteworthy deviation points on the current nRF52 side
 
-基于 Android 端真实代码，当前最重要的观察点不是“有没有大量 `FROMNUM notify`”，而是以下几条。
+Based on the real code on the Android side, the most important observation point currently is not "whether there are a large number of `FROMNUM notify`", but the following.
 
-### 5.1 App 是否真的在读 FromRadio
+### 5.1 Is the App really reading FromRadio?
 
-由于 Android 在发送 `want_config` 后会主动 drain `FROMRADIO`，所以如果固件日志里看不到：
+Since Android will actively drain `FROMRADIO` after sending `want_config`, so if you cannot see it in the firmware log:
 
 - `[BLE][nrf52][mt] from_radio read len=...`
 - `[BLE][nrf52][mt] from_radio read empty`
 
-那问题更像是：
+The problem is more like:
 
-- `FromRadio` 的 GATT read 在 nRF52/Bluefruit 上没有真正对上 App 的读取
-- 而不是配置内容本身不对
+- `FromRadio`'s GATT read in nRF52/Bluefruit There is no real reading of the App
+- It is not that the configuration content itself is wrong
 
-### 5.2 空包语义是否闭环
+### 5.2 Is the empty packet semantics closed?
 
-Android 端 legacy 模式会一直 `read(FROMRADIO)`，直到返回空包才结束本轮 drain。
+The legacy mode on the Android side will always read(FROMRADIO)` until an empty packet is returned to end this round of drain.
 
-因此固件必须保证：
+So the firmware must ensure:
 
-1. 有帧时，read 返回当前帧
-2. 当前帧被读走后，下一次 read 应该拿到下一帧
-3. 本轮没有更多帧时，必须返回空包
+1. When there is a frame, read returns the current frame
+2. After the current frame is read, the next read should get the next frame
+3. When there are no more frames in this round, an empty packet must be returned
 
-如果最后一步没有成立，App 可能一直认为配置流没有完整结束。
+If the last step is not established, the App may always think that the configuration flow is not completely completed.
 
-### 5.3 Stage 1 完成不等于连接完成
+### 5.3 Stage 1 completion does not equal connection completion
 
-即使 `cfg#1 complete` 已经在固件日志里出现，App 也仍可能显示“正在连接”。
+Even if `cfg#1 complete` has appeared in the firmware log, the App may still display "Connecting".
 
-因为对 Android 来说：
+Because for Android:
 
-- Stage 1 complete 只是配置读取完成
-- 还需要再跑一次 Stage 2 node-info 握手
-- 只有第二个 `config_complete_id` 到达，状态才会变成 `Connected`
+- Stage 1 complete is only the configuration reading is completed
+- You need to run another Stage 2 node-info handshake
+- Only when the second `config_complete_id` arrives, the status will become `Connected`
 
-因此任何只完成 Stage 1 的链路，都会让 UI 继续停留在 `Connecting`
+So any link that only completes Stage 1 will keep the UI in `Connecting`
 
-### 5.4 历史问题：loop 栈溢出
+### 5.4 Historical issue: loop Stack overflow
 
-之前 nRF52 侧已经确认过一个与 BLE 配置流强相关的历史问题：
+Previously, the nRF52 side has confirmed a historical issue related to the strong BLE configuration stream:
 
-- 配置流构造路径曾把 `loop` 任务栈压到 `stack_hwm=0`
-- 这会导致同任务中的其他对象被踩坏
-- 表现为 GPS 状态损坏、`SAT` 数异常、guard 被 `[BLE` 字样改写
+-The configuration stream construction path once pushed the `loop` task stack to `stack_hwm=0`
+- This will cause other objects in the same task to be trampled
+- Manifested as damaged GPS status, abnormal `SAT` numbers, and guard being overwritten with the word `[BLE`
 
-该问题经过 `MeshtasticPhoneCore` 的大对象减栈后已经明显缓解，但它说明：
+This problem has been significantly alleviated after the large object stack reduction of `MeshtasticPhoneCore`, but it shows:
 
-- Meshtastic 配置流不是“普通小开销路径”
-- 任何时序分析都需要连同任务上下文和内存行为一起看
+- Meshtastic The configuration flow is not a "normal low-overhead path"
+ - any timing analysis needs to be looked at together with the task context and memory behavior
 
-## 6. 用这份时序来判定故障
+## 6. Use this timing to determine faults
 
-后续排障可以按下面的判定法来做。
+Following troubleshooting can be done according to the following judgment method.
 
-### 情况 A
+### Case A
 
-现象：
+Phenomena:
 
-- 有 `cfg#start`
-- 有 `cfg#complete`
-- 但没有任何 `from_radio read ...`
+- There is `cfg#start`
+- There is `cfg#complete`
+- But there is no `from_radio read...`
 
-判断：
+Judgment:
 
-- App 已经发出 `want_config`
-- 但 `FROMRADIO` 读路径没有真正命中 nRF52 固件
-- 应重点排查 `FromRadio` characteristic 的 GATT read 兼容性
+- The App has issued `want_config`
+- but the `FROMRADIO` read path does not actually hit the nRF52 firmware
+- The GATT read compatibility of `FromRadio` characteristic should be checked
 
-### 情况 B
+### Situation B
 
-现象：
+Phenomena:
 
-- 有 `from_radio read len=...`
-- 但没有 `from_radio read empty`
+- There is `from_radio read len=...`
+- But there is no `from_radio read empty`
 
-判断：
+Judgment:
 
-- drain-until-empty 没闭环
-- App 很可能还在等待本轮读取结束
+- drain-until-empty does not close the loop
+- App is probably still waiting for the end of this round of reading
 
-### 情况 C
+### Situation C
 
-现象：
+Phenomena:
 
-- Stage 1 的 `config_complete(CONFIG_NONCE)` 已发送
-- 但 App 没进入第二次 `want_config_id`
+- Stage 1's `config_complete(CONFIG_NONCE)` has been sent
+- But the App did not enter the second `want_config_id`
 
-判断：
+Judgment:
 
-- App 没有成功消费到 Stage 1 完成信号
-- 应优先核对 `config_complete_id` 帧是否真的到达 Android `FromRadioPacketHandler`
+- The App did not successfully consume the Stage 1 completion signal
+- Priority should be given to checking whether the `config_complete_id` frame really arrives at Android `FromRadioPacketHandler`
 
-### 情况 D
+### Situation D
 
-现象：
+Phenomena:
 
-- Stage 2 也已经完成
-- 但 App 还是 `Connecting`
+- Stage 2 has also been completed
+- But the App is still `Connecting`
 
-判断：
+Judgment:
 
-- 应核对 Android 侧 `MeshConfigFlowManagerImpl.handleNodeInfoComplete()` 是否真的被触发
-- 或排查 Stage 2 期间是否存在 node-info 流中断 / 状态机被回退
+- You should check whether the Android side `MeshConfigFlowManagerImpl.handleNodeInfoComplete()` is really triggered
+- Or check whether there is node-info flow interruption/state machine being rolled back during Stage 2
 
-## 7. 后续建议
+## 7. Follow-up suggestions
 
-后续所有 Meshtastic BLE 修复，都应优先对照本文中的这几条事实：
+All subsequent Meshtastic BLE fixes should give priority to the following facts in this article:
 
-1. Android 会主动 drain `FROMRADIO`
-2. `FROMNUM` 不是唯一驱动条件
-3. 连接完成依赖两阶段 `config_complete_id`
-4. `FROMRADIO` 必须具备“连续读帧直到空包”的稳定语义
-5. nRF52 上不仅要关注协议顺序，还要关注任务栈和回调上下文
+1. Android will actively drain `FROMRADIO`
+2. `FROMNUM` is not the only driving condition
+3. Connection completion relies on two stages `config_complete_id`
+4. `FROMRADIO` must have stable semantics of "continuously reading frames until empty packets"
+5. On nRF52, we must not only pay attention to the protocol sequence, but also the task stack and callback context
 
-如果后续继续调试，建议优先保留以下日志：
+If you continue to debug, it is recommended to keep the following logs:
 
 - `[BLE][nrf52][mt][flow] link-up ...`
 - `[BLE][nrf52][mt][flow] from_num subscribed=...`
@@ -352,10 +352,10 @@ Android 端 legacy 模式会一直 `read(FROMRADIO)`，直到返回空包才结�
 - `[BLE][mtcore][cfg#N] start/frame/complete`
 - `[BLE][mtcore][rt] stage=... stack_hwm=...`
 
-这些日志已经足够把问题收敛到：
+These logs are enough to converge the problem to:
 
-- GATT 读不到
-- drain 语义不闭环
-- Stage 1 未完成
-- Stage 2 未完成
-- 或运行时栈/内存问题
+-GATT Unable to read
+- drain semantics does not close the loop
+- Stage 1 not completed
+- Stage 2 not completed
+- or runtime stack/memory issue

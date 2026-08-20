@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Sequence：Fix 到偏航</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="candidate"><h1>Fix 到偏航投影</h1><pre class="mermaid">sequenceDiagram
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sequence: Fix to yaw</title></head><body><main data-praxis-kind="design_sequence_diagram" data-praxis-status="candidate"><h1>Fix to yaw projection</h1><pre class="mermaid">sequenceDiagram
 participant S as Route Store
 participant G as LocationService
 participant UI as GPS Runtime
@@ -7,4 +7,4 @@ UI->>S: route
 G-->>UI: fix
 UI->>P: distance to segments
 P->>P: hysteresis
-P-->>UI: state + distance</pre><p>Deviation Logic 当前仍由 UI runtime 持有。</p></main></body></html>
+P-->>UI: state + distance</pre><p>Deviation Logic is currently still held by the UI runtime.</p></main></body></html>

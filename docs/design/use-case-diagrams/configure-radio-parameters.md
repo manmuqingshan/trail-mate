@@ -1,51 +1,51 @@
-# Use Case：切换活动协议并提交无线配置
+# Use Case: Switch active protocol and submit wireless configuration
 
-状态：**confirmed**
+Status: **confirmed**
 
-业务边界：网络、身份与目录
+Business boundary: network, identity and directory
 
-主要参与者：设备用户
-支持系统：Target Capability、AppConfig、MeshAdapterRouter、协议分区存储、Radio owner
+Main participants: device user
+Supporting systems: Target Capability, AppConfig, MeshAdapterRouter, protocol partition storage, Radio owner
 
-## 用户目标
+## User Goals
 
-在 Meshtastic、MeshCore 与 Reticulum 之间选择一个当前协议，使身份、频道/密钥、无线参数、backend 与 UI 使用同一份已提交配置。
+Choose a current protocol between Meshtastic, MeshCore and Reticulum so that the identity, channel/key, wireless parameters, backend and UI use the same committed configuration.
 
-## 前置条件与触发
+## Preconditions and triggers
 
-- 目标 manifest 声明支持所选协议与所需 radio/bearer。
-- 用户在 Settings 选择协议，或修改当前协议的 region、channel、PSK、LoRa preset、Reticulum bearer。
-- 修改先进入编辑状态，不能在每个字段变化时假装整体配置已经成功应用。
+- The target manifest declares support for the selected protocol and required radio/bearer.
+- The user selects the protocol in Settings, or modifies the region, channel, PSK, LoRa preset, and Reticulum bearer of the current protocol.
+- Modify before entering the editing state, and you cannot pretend that the overall configuration has been successfully applied when each field changes.
 
-## 成功场景
+## Success Scenario
 
-1. `AppConfig` 校验协议、区域、频率、带宽、SF、CR、发射功率、频道与密钥组合。
-2. `MeshAdapterRouter` 停止旧 backend，清空属于旧协议的活动引用，但不删除其他协议分区的数据。
-3. 从对应协议分区加载本机身份、peer facts、频道密钥和协议设置。
-4. 创建并安装新 backend，应用有效用户信息和无线配置。
-5. backend 启动成功后保存配置，更新 active protocol，并刷新 Chat/Contacts/Network 投影。
+1. `AppConfig` verifies protocol, region, frequency, bandwidth, SF, CR, transmit power, channel and key combination.
+2. `MeshAdapterRouter` stops the old backend and clears active references belonging to the old protocol, but does not delete data in other protocol partitions.
+3. Load the local identity, peer facts, channel key and protocol settings from the corresponding protocol partition.
+4. Create and install the new backend, applying valid user information and wireless configuration.
+5. After the backend is started successfully, save the configuration, update the active protocol, and refresh the Chat/Contacts/Network projection.
 
-## 失败与恢复
+## Failure and recovery
 
-- 目标不支持：在释放旧 backend 前拒绝。
-- 新 backend 创建或 radio 配置失败：进入明确 stopped/error 状态；不得显示新协议已可用。
-- 持久化失败：运行态变更与“已保存”必须区分，并提示用户重试。
-- 切换协议不合并 NodeId、密钥或消息去重空间。
+ - Unsupported by target: reject before releasing old backend.
+ - New backend creation or radio configuration fails: enters explicit stopped/error state; MUST NOT show that new protocol is available.
+- Persistence failure: running state changes must be distinguished from "saved", and the user is prompted to try again.
+ - Switching protocols do not merge NodeIds, keys or message deduplication spaces.
 
-## 业务规则
+## Business Rules
 
-- 同一时刻只有一个活动 mesh backend/radio owner。
-- Meshtastic、MeshCore、Reticulum 的身份、寻址、频道与 ACK 语义保持隔离。
-- RNode bridge 只是 Reticulum bearer，不等于本机 LXMF identity。
+- There is only one active mesh backend/radio owner at the same time.
+ - Meshtastic, MeshCore, Reticulum identities, addressing, channels and ACK semantics remain isolated.
+- The RNode bridge is just a Reticulum bearer, not equivalent to the native LXMF identity.
 
-## 源码证据
+## Source code evidence
 
 - `modules/core_sys/include/app/app_config.h`
 - `modules/core_chat/include/chat/infra/mesh_adapter_router.h`
 - `apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp`
 - `modules/ui_shared/src/ui/screens/settings/settings_page_components.cpp`
 
-## 下钻
+## Drill down
 
-- [Activity：协议切换与提交](configure-radio-parameters/activity.md)
-- [Sequence：Settings 到活动 backend](configure-radio-parameters/sequences/sequence-configure-radio-parameters.md)
+- [Activity: protocol switching and submission](configure-radio-parameters/activity.md)
+- [Sequence: Settings to activity backend](configure-radio-parameters/sequences/sequence-configure-radio-parameters.md)

@@ -1,4 +1,4 @@
-# Sequence Diagram：Deferred 存储恢复
+# Sequence Diagram: Deferred storage recovery
 
 ```mermaid
 sequenceDiagram
@@ -21,22 +21,22 @@ sequenceDiagram
   end
 ```
 
-## 为什么需要 Deferred
+## Why Deferred is needed
 
-Receive 运行在受时间和栈预算约束的路径，Message Store 可能因存储 owner、锁或暂时资源不足无法立即提交。Deferred 允许把紧凑 commit input 转移到有界 worker，而不是阻塞 radio callback。
+Receive runs in a path subject to time and stack budget constraints, and the Message Store may not be able to commit immediately due to insufficient storage owners, locks, or temporary resources. Deferreds allow moving compact commit inputs to bounded workers instead of blocking radio callbacks.
 
-## Slot 所有权
+## Slot ownership
 
-Slot 保存稳定 message identity、必要的小型元数据和对 payload 的明确所有权；不得复制大型 frame 到 ESP 任务栈。采用固定深度 FIFO/ring，并说明满时 drop-new、drop-old 或拒绝策略；当前图选择显式计数而非静默覆盖。
+Slot holds stable message identity, necessary small metadata, and clear ownership of the payload; large frames must not be copied to the ESP task stack. Use a fixed-depth FIFO/ring and specify a drop-new, drop-old, or reject policy when full; choose explicit counting instead of silent coverage for the current graph.
 
-## 重试顺序
+## Retry sequence
 
-service pump 先处理最老条目，避免持续新消息饿死旧提交。Durable 后发布一次 committed event 并释放 slot；Deferred 保持原位；Rejected 释放并记录不可重试原因。
+service pump processes the oldest entries first to avoid starving old submissions of new messages. Durable releases a committed event and releases the slot; Deferred remains in place; Rejected releases and records the reason why it cannot be retried.
 
-## 崩溃与重启
+## Crashes and Reboots
 
-RAM slot 不承诺跨重启存活。若产品要求不丢消息，需要 durable inbox/journal，而不是把 Deferred 文案当成持久化保证。诊断区分存储拒绝和 slot overflow。
+RAM slots are not promised to survive across reboots. If the product requires no message loss, durable inbox/journal is needed instead of using Deferred copy as a durability guarantee. Diagnostics distinguish between storage rejection and slot overflow.
 
-## 测试
+## test
 
-覆盖连续 Deferred、FIFO 公平性、slot 满、payload 生命周期、重复 pump、Store 恢复和发布回调失败。
+ Covers continuous Deferred, FIFO fairness, slot full, payload life cycle, repeated pump, Store recovery and publishing callback failure.

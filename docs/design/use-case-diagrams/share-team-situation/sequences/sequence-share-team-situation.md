@@ -1,7 +1,7 @@
-# Sequence：Team payload 到地图/聊天
+# Sequence: Team payload to map/chat
 ```mermaid
 sequenceDiagram
-  actor U as 用户/TrackSampler
+ actor U as user/TrackSampler
   participant Team as TeamService
   participant Codec as Team Codec + Crypto
   participant Mesh as Active Transport
@@ -18,22 +18,22 @@ sequenceDiagram
   Bus-->>UI: committed projection update
 ```
 
-## 场景与参与者
+## Scenario and actor
 
-TeamService 接收业务命令并验证团队状态；Codec/Crypto 拥有 Team envelope；Active Transport 只负责 wire 传输；Remote TeamService 验证接收上下文；Event Sink 按类型提交；Map/Chat 消费投影。
+TeamService receives business commands and verifies team status; Codec/Crypto owns Team envelope; Active Transport is only responsible for wire transmission; Remote TeamService verifies receiving context; Event Sink Submit by type; Map/Chat consume projection.
 
-## 发送顺序
+## Sending sequence
 
-业务 payload 先检查大小、identity/revision 和 key 用途，再编码认证；只有完整 envelope 交给 transport。Transport 成功只表示本地发送结果，不能伪造成所有远端成员已看到。
+The business payload first checks the size, identity/revision and key usage, and then encodes and authenticates it; only the complete envelope is handed over to the transport. Transport success only means that the result is sent locally and cannot be faked to be seen by all remote members.
 
-## 接收提交
+## Receive submissions
 
-Remote 使用 Rx context、TeamId、key version 和 payload identity 验证。typed message 形成后交给相应 Event Sink；只有 sink 提交成功才更新 UI。部分 track 或无效 waypoint 不发布半成品事件。
+Remote uses Rx context, TeamId, key version and payload identity verification. After the typed message is formed, it is handed to the corresponding Event Sink; the UI will be updated only if the sink is submitted successfully. Partial track or invalid waypoint does not publish half-finished events.
 
-## 去重与新鲜度
+## Deduplication and freshness
 
-位置按 member + revision/time 合并，聊天按 message identity 去重，航点和轨迹按对象 revision。旧位置可存历史但不能覆盖新地图位置。重复 envelope 可以重发 transport ACK，但不重复业务事件。
+Positions are merged by member + revision/time, chats are deduplicated by message identity, and waypoints and trajectories are merged by object revision. Old locations can be saved in history but new map locations cannot be overwritten. Repeating envelopes allows retransmission of transport ACKs, but does not repeat business events.
 
-## 测试
+## test
 
-覆盖错误团队/key、乱序位置、重复聊天、分段轨迹缺片、Event Sink Deferred 和 transport 切换。
+ Covers incorrect teams/keys, out-of-order locations, duplicate chats, segmented track missing pieces, Event Sink Deferred and transport switching.

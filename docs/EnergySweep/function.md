@@ -3,7 +3,7 @@
 ## Status And Intent
 
 This is the authoritative target specification for the user-facing feature now
-named `Protocol Probe` (Chinese: `协议包探测`). It supersedes the
+n
 RSSI-oriented Energy Sweep design.
 
 The internal application id and source directory remain `energy_sweep` for

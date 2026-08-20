@@ -1,47 +1,47 @@
-# Activity Diagram：帧验证、去重与提交
+# Activity Diagram: Frame verification, deduplication and submission
 
 ```mermaid
 flowchart TD
-  Frame["Radio / transport frame"] --> Active{"来自活动协议?"}
-  Active -- 否 --> Ignore["拒绝跨协议污染"]
-  Active -- 是 --> Decode{"framing / destination / length 有效?"}
-  Decode -- 否 --> Reject["Rejected；不改业务状态"]
-  Decode -- 是 --> Auth{"解密、签名或密钥验证通过?"}
-  Auth -- 否 --> Reject
-  Auth -- 是 --> Dedup{"protocol-scoped identity 已见?"}
-  Dedup -- 是 --> AckOnly["不重复建消息；按协议处理 ACK"]
-  Dedup -- 否 --> Commit{"消息/peer/会话提交结果"}
-  Commit -- Durable --> Publish["发布消息与未读事件"]
-  Commit -- Deferred --> Buffer{"进入有界 deferred slot"]
+ Frame["Radio / transport frame"] --> Active{"From active protocol?"}
+ Active -- No --> Ignore["Reject cross-protocol pollution"]
+ Active -- Yes --> Decode{"framing / destination / length valid?"}
+ Decode -- No --> Reject["Rejected; do not change business status"]
+ Decode -- Yes --> Auth{"Decryption, signature or key verification passed?"}
+ Auth -- No --> Reject
+ Auth -- Yes --> Dedup{"protocol-scoped identity seen?"}
+ Dedup -- Yes --> AckOnly["Do not recreate message; handle ACK according to protocol"]
+ Dedup -- No --> Commit{"Message/peer/session submission result"}
+ Commit -- Durable --> Publish["Publish messages and unread events"]
+ Commit -- Deferred --> Buffer{"Enter bounded deferred slot"]
   Commit -- Rejected --> Reject
-  Buffer --> Retry{"资源恢复?"}
-  Retry -- 是 --> Commit
-  Retry -- 溢出 --> Drop["计数并暴露诊断"]
+ Buffer --> Retry{"Resource recovery?"}
+ Retry -- Yes --> Commit
+ Retry -- Overflow --> Drop["Count and expose diagnostics"]
 ```
 
-## 本图回答的问题
+## Questions answered by this picture
 
-一个异步无线帧满足什么条件才能变成用户可见消息。接收不是用户命令：入口是 radio/transport event，出口是 Durable 提交、受控 Deferred，或带诊断的拒绝。
+What conditions does an asynchronous wireless frame meet to become a user-visible message? Reception is not a user command: entry is a radio/transport event, exit is a Durable commit, controlled Deferred, or reject with diagnostics.
 
-## 验证层次
+## Verification level
 
-1. **协议归属**：只接受活动 backend 的事件，防止不同协议 identity 和 dedup 空间互相污染。
-2. **帧结构**：长度、目标、版本和 framing 必须完整。
-3. **真实性**：按协议执行解密、签名、密钥或身份验证；“可解码”不等于可信。
-4. **去重**：使用 protocol-scoped message identity，而不是文本内容或到达时间。
+1. **Protocol ownership**: Only accept events from the active backend to prevent the identity and dedup spaces of different protocols from contaminating each other.
+2. **Frame structure**: length, target, version and framing must be complete.
+3. **Authenticity**: Decryption, signature, key or authentication is performed according to the protocol; "decodable" does not mean trustworthy.
+4. **Deduplication**: Use protocol-scoped message identity instead of text content or arrival time.
 
-## 提交结果
+## Submit results
 
-Durable 表示消息、peer 关联和会话状态已进入持久化边界，此后才能发布未读事件。Deferred 表示业务事实尚未提交，帧被放入固定容量 slot；UI 不得先显示消息。Rejected 不修改业务状态，必要的协议级 ACK/NACK 由 backend 单独处理。
+Durable indicates that the message, peer association, and session state have entered the persistence boundary before unread events can be published. Deferred means that the business fact has not yet been submitted and the frame is put into a fixed-capacity slot; the UI must not display the message first. Rejected does not modify the business status, and the necessary protocol-level ACK/NACK is handled separately by the backend.
 
-## 重复、乱序与容量
+## Duplication, reordering, and capacity
 
-重复帧不创建第二条消息，但可能需要重发协议 ACK。乱序消息按协议序号或消息时间投影，不改变存储提交顺序。有界 deferred slot 满时必须增加可观察 drop 计数，不能覆盖尚未处理的帧，也不能在 ESP 任务栈上复制大 frame。
+Duplicate frames do not create a second message, but may require a protocol ACK to be resent. Out-of-order messages are projected according to protocol sequence number or message time, without changing the storage and submission order. The observable drop count must be incremented when a bounded deferred slot is full, unprocessed frames cannot be overwritten, and large frames cannot be copied on the ESP task stack.
 
-## 恢复规则
+## Recovery rules
 
-资源恢复后按原 protocol identity 重试提交；重复重试必须幂等。重启恢复只处理已明确持久化的 inbox/outbox 或受支持的 durable deferred 数据，不能假设 RAM slot 会存活。
+After the resource is restored, retry submission according to the original protocol identity; repeated retries must be idempotent. Restart recovery only handles explicitly persisted inbox/outbox or supported durable deferred data and cannot assume that the RAM slot will survive.
 
-## 源码证据与测试
+## Source code evidence and testing
 
-活动跨越 backend decode、认证/去重、消息接收服务和 Ledger/Store。测试需注入跨协议帧、无效签名、重复、乱序、存储 Deferred、slot 溢出及发布事件失败。
+Activities span backend decode, authentication/deduplication, message receiving service and Ledger/Store. Tests need to inject cross-protocol frames, invalid signatures, duplications, out-of-order, storage Deferred, slot overflow and publishing event failures.

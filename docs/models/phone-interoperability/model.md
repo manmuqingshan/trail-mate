@@ -1,23 +1,23 @@
-# 手机应用协议互操作
+# Mobile application protocol interoperability
 
-模型状态：**integration · confirmed；协议 core 明确，产品启用边界需由 capability 决定**
+Model status: **integration · confirmed; protocol core is clear, product enablement boundaries need to be determined by capability**
 
-## 应用看到的共同契约
+## The common contract seen by the application
 
-代码中的共同入口是 `IPhoneAppFacade`，不是 `PhoneFacade`：
+The common entry in the code is `IPhoneAppFacade`, not `PhoneFacade`:
 
-| 方法 | 返回的业务视图 |
+| Method | Returned business view |
 | --- | --- |
 | `getTime` | `TimeSyncFact` |
 | `getLocation` | `LocationFixView` |
 | `getDeviceStatus` | `DeviceStatusView` |
 | `getConfig` | `ConfigSnapshotView` |
-| `applyConfigPatch` | 接受字段级 `ConfigPatchView` |
-| `submitCommand` | 接受 `AppCommandView` |
+| `applyConfigPatch` | Accepts field-level `ConfigPatchView` |
+| `submitCommand` | Accepts `AppCommandView` |
 
-`AppCommandKind` 当前包含 `SendText / ApplyConfig / RequestConfig / RequestNodeInfo`。Facade 提供的是手机应用能够观察和提交的能力，不是 BLE transport API。
+`AppCommandKind` currently contains `SendText / ApplyConfig / RequestConfig / RequestNodeInfo`. Facade provides the ability for mobile applications to observe and submit, not the BLE transport API.
 
-## 协议不能被共同 Facade 抹平
+## The protocol cannot be smoothed by the common Facade
 
 ```mermaid
 flowchart LR
@@ -30,20 +30,20 @@ flowchart LR
   MCFrames --> IO
 ```
 
-`MeshtasticPhoneCore` 暴露 Bluetooth config、module config、MQTT、device runtime 等 hooks；`MeshCorePhoneCore` 有自己的 frame queue、contact view、radio/packet statistics 与 tuning data。共同 Facade 只统一应用意图和结果，不能声称两种 wire protocol 拥有相同配置模型。
+`MeshtasticPhoneCore` exposes Bluetooth config, module config, MQTT, device runtime and other hooks; `MeshCorePhoneCore` has its own frame queue, contact view, radio/packet statistics and tuning data. The common Facade only unifies application intentions and results, and cannot claim that two wire protocols have the same configuration model.
 
-## 有界帧与 ESP 约束
+## Bounded frames and ESP constraints
 
-Meshtastic 与 MeshCore phone core 都定义自己的 frame/queue 类型。它们位于 BLE 热路径，必须遵守仓库的 fixed-depth / scratch storage 规则；文档不能把大 frame 描述成普通可复制 DTO。
+Meshtastic and MeshCore phone core both define their own frame/queue types. They are in the BLE hot path and must comply with the warehouse's fixed-depth / scratch storage rules; the documentation cannot describe large frames as ordinary copyable DTOs.
 
-## 产品边界
+## Product Boundaries
 
-手机互操作是 capability，不是 Trail Mate 核心通信、定位或轨迹的必需依赖。是否启用、使用何种 transport、由哪个 host 提供，应由 Target Manifest / Capability model 决定。
+Mobile interoperability is a capability and is not a required dependency on Trail Mate core communications, positioning or tracking. Whether to enable it, which transport to use, and which host to provide should be determined by the Target Manifest / Capability model.
 
-## 下钻与证据
+## Drilldown and evidence
 
-- [Facade 到协议 core 的会话协作](phone-session.md)
+- [Session collaboration from Facade to protocol core](phone-session.md)
 - `modules/core_phone/include/phone/common/phone_facade.h`
 - `modules/core_phone/include/phone/meshtastic/meshtastic_phone_core.h`
 - `modules/core_phone/include/phone/meshcore/meshcore_phone_core.h`
-- legacy 对照：`modules/core_chat/include/chat/ble/`
+- legacy comparison: `modules/core_chat/include/chat/ble/`

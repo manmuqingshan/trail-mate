@@ -1,14 +1,14 @@
-# 团队凭据、配对状态与协同消息
+# Team credentials, pairing status and collaboration messages
 
-模型状态：**candidate：配对模型明确，成员聚合尚未形成**
+Model status: **candidate: pairing model is clear, member aggregation has not been formed**
 
-## 当前代码的团队核心
+## Team core of the current code
 
-代码中没有 `Team` 或 `TeamMember` aggregate。明确存在的是团队 ID、四类用途分离的密钥、配对角色/状态，以及负责 leader/member 握手的 `TeamPairingCoordinator`。
+There is no `Team` or `TeamMember` aggregate in the code. Explicitly present are the team ID, four types of purpose-separated keys, pairing roles/status, and the `TeamPairingCoordinator` responsible for the leader/member handshake.
 
-## 团队凭据
+## Team Credentials
 
-`TeamKeys` 包含：
+`TeamKeys` contains:
 
 - `TeamId team_id`
 - `key_id`
@@ -18,11 +18,11 @@
 - `chat_key`
 - `valid`
 
-密钥按管理、位置、路标和聊天用途分开，是当前模型中最重要的授权边界。文档不能把这些 payload 都概括成“团队共享”。
+Keys are separated by administrative, location, waypoint, and chat purposes and are the most important authorization boundaries in the current model. The documentation cannot generalize these payloads as "team sharing".
 
-## 配对状态机
+## Pairing state machine
 
-真实状态来自 `TeamPairingState`：
+The real state comes from `TeamPairingState`:
 
 ```mermaid
 stateDiagram-v2
@@ -39,35 +39,35 @@ stateDiagram-v2
   Failed --> Idle: stop/restart
 ```
 
-上图中 `Idle / LeaderBeacon / MemberScanning / JoinSent / WaitingKey / Completed / Failed` 是 Observed；具体每条触发条件需要以 coordinator 实现和测试逐条核对，不能只凭状态名补全。
+ In the above figure, `Idle / LeaderBeacon / MemberScanning / JoinSent / WaitingKey / Completed / Failed` is Observed; each specific trigger condition needs to be implemented and tested by the coordinator to check one by one, and cannot be completed by just the state name.
 
-## Coordinator 实际协调什么
+## What Coordinator actually coordinates
 
-`TeamPairingCoordinator` 持有：
+`TeamPairingCoordinator` holds:
 
-- `ITeamRuntime`：时间、随机数或团队运行时能力；
-- `ITeamPairingEventSink`：发布配对状态；
-- `ITeamPairingTransport`：发送 beacon、join 与 key；
-- role、state、deadline、重试计数、leader/member ID、nonce 与 leader MAC；
-- team ID、PSK、key ID 和 team name。
+- `ITeamRuntime`: time, random number or team runtime capability;
+- `ITeamPairingEventSink`: publish pairing status;
+- `ITeamPairingTransport`: send beacon, join and key;
+- role, state, deadline, retry count, leader/member ID, nonce and key leader MAC;
+- team ID, PSK, key ID and team name.
 
-它是明确的 pairing process manager，不等于 Team aggregate。
+It is a clear pairing process manager, not equal to Team aggregate.
 
-## 尚未形成的成员模型
+## Not yet formed member model
 
-`TeamService` 已经提供 `rememberTeamMember`、`updateTeamMemberRoster`、kick、leader transfer、key distribution、status、PKI verification、位置、路标、轨迹与聊天动作。但当前 roster 只是 `vector<NodeId>`：没有成员资格来源、角色状态、revision、撤销和跨协议稳定身份。
+`TeamService` already provides `rememberTeamMember`, `updateTeamMemberRoster`, kick, leader transfer, key distribution, status, PKI verification, location, waypoint, trajectory and chat actions. But currently the roster is just a `vector<NodeId>`: no membership source, role status, revision, revocation and cross-protocol stable identity.
 
-因此“团队已经拥有完整成员聚合”是不成立的。Review Queue 单独记录[团队成员与团队生命周期没有领域 owner](../../review/issues/team-membership-lifecycle-model-missing.md)，而不是在 Model Explorer 中制造 `TeamMember` 元素。
+So "the team already has a complete member aggregation" is not true. Review Queue logs [Team members and Team Lifecycle without field owner](../../review/issues/team-membership-lifecycle-model-missing.md) separately instead of creating a `TeamMember` element in the Model Explorer.
 
-## 当前 Team Model 的边界
+## Boundaries of the current Team Model
 
-- 已存在并可建模：TeamKeys、pairing role/state、pairing coordinator、协议消息和 TeamService 的实际动作。
-- 已出现但未闭合：roster 更新、kick、leader transfer、成员身份和密钥撤销规则。
-- 不属于当前 confirmed 事实：文档设想的 Team aggregate、TeamMember、MembershipState 和领域事件名称。
+ - Exists and can be modeled: TeamKeys, pairing role/state, pairing coordinator, protocol messages and actual actions of TeamService.
+- Presented but not closed: roster updates, kick, leader transfer, membership and key revocation rules.
+ - Team aggregate, TeamMember, MembershipState, and domain event names not part of the current confirmed fact: documentation envisages them.
 
-## 下钻与证据
+## Drilldown and evidence
 
-- [Leader / Member 配对消息序列](team-pairing.md)
+- [Leader/Member pairing message sequence](team-pairing.md)
 - `modules/core_team/include/team/domain/team_types.h`
 - `modules/core_team/include/team/usecase/team_pairing_coordinator.h`
 - `modules/core_team/src/usecase/team_pairing_coordinator.cpp`

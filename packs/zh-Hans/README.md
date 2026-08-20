@@ -201,6 +201,6 @@ Copy the bundle contents so the SD card ends up with:
 /trailmate/packs/ime/zh-hans-pinyin/manifest.ini
 ```
 
-After reboot, `简体中文` appears in Settings. The runtime loads the core pack when the
+A
 locale becomes active, and it can add the extension pack later when extra Chinese glyphs
 are needed on chat/content surfaces.

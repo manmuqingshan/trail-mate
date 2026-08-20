@@ -1,28 +1,28 @@
-# Use Case：把设备存储安全交给 USB 主机
+# Use Case: Handle the device storage safely to the USB host
 
-状态：**confirmed**
-业务边界：设备维护与数据所有权
+Status: **confirmed**
+Business boundary: device maintenance and data ownership
 
-## 用户目标
+## User Goals
 
-让 PC 以 USB Mass Storage 访问设备 SD 卡，同时避免设备自身 GPS、track、radio 或文件 worker 与主机并发写同一介质；退出后恢复设备使用。
+Let the PC access the device SD card using USB Mass Storage while preventing the device's own GPS, track, radio or file worker from concurrently writing the same media with the host; resume device use after exiting.
 
-## 主场景
+## Main scene
 
-1. 只有 USB support 和 SD ready 的目标显示入口。
-2. `prepare_mass_storage_mode` 请求相关 worker 停止/flush，暂停 GPS/radio tasks、screen sleep 等会触碰共享资源的活动。
-3. device unmount/deinit application SD owner，USB backend 接管介质并报告 Active。
-4. 用户退出或主机断开时 stop backend；重新 mount application SD，恢复 tasks 和 screen policy。
+1. Only USB support and SD ready targets display entries.
+2. `prepare_mass_storage_mode` requests relevant workers to stop/flush, pause GPS/radio tasks, screen sleep and other activities that will touch shared resources.
+3. device unmount/deinit application SD owner, USB backend takes over the media and reports Active.
+4. Stop backend when the user exits or the host is disconnected; remount the application SD and restore tasks and screen policy.
 
-## 失败与恢复
+## Failure and recovery
 
-- 任一 owner 未能停止或 SD 无法卸载时，不启动 USB backend。
-- USB 启动失败必须恢复 application mount 和暂停的 tasks。
-- 退出是异步过程；页面在 restore 完成前显示 stopping，不能提前返回让应用访问 SD。
+- USB backend is not started when either owner fails to stop or SD cannot be unmounted.
+ - USB boot failure must resume application mount and suspended tasks.
+- Exit is an asynchronous process; the page displays stopping before restore is completed, and cannot return early to allow the application to access the SD.
 
-源码：`modules/core_sys/include/platform/ui/usb_support_runtime.h`、`platform/esp/arduino_common/src/platform_ui_usb_support_runtime.cpp`、`modules/ui_shared/src/ui/screens/usb/usb_page_runtime.cpp`。
+Source code: `modules/core_sys/include/platform/ui/usb_support_runtime.h`, `platform/esp/arduino_common/src/platform_ui_usb_support_runtime.cpp`, `modules/ui_shared/src/ui/screens/usb/usb_page_runtime.cpp`.
 
-## 下钻
+## Drill down
 
 - [Activity](expose-usb-storage/activity.md)
 - [Sequence](expose-usb-storage/sequences/sequence-expose-usb-storage.md)

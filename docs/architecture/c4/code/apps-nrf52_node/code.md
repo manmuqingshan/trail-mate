@@ -1,31 +1,31 @@
-# 代码锚点：apps/nrf52_node
+# Code anchor: apps/nrf52_node
 
-C4 层级：Code
-状态：candidate
-置信度：medium
-项目版本：0.1.30-alpha
-Git：34aad0bffa2f / main / dirty
-更新于：2026-06-25T09:19:32.800Z
+C4 level: Code
+Status: candidate
+Confidence: medium
+Project version: 0.1.30-alpha
+Git:34aad0bffa2f / main / dirty
+Updated on: 2026-06-25T09:19:32.800Z
 
-## 定位
+## Positioning
 
-从 C4 Code 层解释 apps/nrf52_node 内少量关键代码锚点。Code 层不是代码浏览器，只在需要理解架构组件如何落到具体文件/符号时使用。
+Explain a few key code anchors in apps/nrf52_node from the C4 Code layer. The Code layer is not a code browser and is only used when you need to understand how architectural components fall into specific files/symbols.
 
-## C4 层级路径
+## C4 hierarchical path
 
-- 当前层：Code View，解释上层 Component 如何落到具体文件、函数、类、接口或组件锚点。
-- 上层：Component，说明这些代码锚点共同服务的组件职责。
-- 下层：无；继续理解细节时应回到 IDE、代码预览或软件结构模型，而不是把 Code View 当成完整源码浏览器。
+-Current layer: Code View, explaining how the upper-level Component falls to a specific file, function, class, interface or component anchor.
+- Upper layer: Component, describing the component responsibilities that these code anchors serve together.
+- Lower layer: None; when continuing to understand the details, you should return to the IDE, code preview, or software structure model, rather than using Code View as a complete source code browser.
 
-## 责任
+## Responsibility
 
-把 apps/nrf52_node 的架构组件进一步落到具体文件、函数、类、接口或组件锚点，帮助用户理解实现入口和变更影响面。
+ Further reduce the architectural components of apps/nrf52_node to specific files, functions, classes, interfaces or component anchors to help users understand the implementation entry and the impact of changes.
 
-## 边界
+## Boundary
 
-Code View 只展示必要锚点，不列全量源码；完整结构解释、代码片段和复杂度候选点仍应回到软件结构模型或 IDE 查看。
+Code View only displays necessary anchor points and does not list the full source code; the complete structure explanation, code snippets and complexity candidate points should still be viewed back to the software structure model or IDE.
 
-## 关系
+## Relationship
 
 - AppFacadeRuntime::getTeamController -> apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L543
 - ChatService -> apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23
@@ -38,15 +38,15 @@ Code View 只展示必要锚点，不列全量源码；完整结构解释、代�
 - AppFacadeRuntime::getTeamService -> apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L553
 - AppFacadeRuntime::getTeamService -> apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L558
 
-## 与业务复杂度的关联
+## Correlation with business complexity
 
-- Code View 不是业务解释入口；它只在业务故事需要追溯到实现锚点时提供底层证据。
+- Code View is not a business explanation portal; it only provides low-level evidence when the business story needs to be traced back to the implementation anchor.
 
-## 与技术复杂度的关联
+## Correlation with technical complexity
 
-- 软件结构模型负责继续解释复用迹象、外部协作迹象、Sequence、复杂度候选点和代码证据预览。
+ - The software structure model is responsible for continuing to explain signs of reuse, signs of external collaboration, sequences, complexity candidate points, and code evidence previews.
 
-## C4 Code View 图
+## C4 Code View diagram
 
 ```mermaid
 flowchart TB
@@ -85,167 +85,167 @@ flowchart TB
   file_8 --> code_8
 ```
 
-## 图内元素解释
+## Explanation of elements in the diagram
 
 ### AppFacadeRuntime::getTeamController
 
-- 层级：code
-- 说明：AppFacadeRuntime::getTeamController 是 apps/nrf52_node 的关键代码锚点，位置为 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L543；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：AppFacadeRuntime::getTeamController 是一个局部实现锚点：它把上层组件职责落到 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L543，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/nrf52_node 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：AppFacadeRuntime::getTeamController 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L543，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: AppFacadeRuntime::getTeamController is the key code anchor of apps/nrf52_node, located at apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L543; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: AppFacadeRuntime::getTeamController is a partial implementation anchor: it falls the responsibility of the upper-level component to apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L543. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/nrf52_node; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relational meaning: AppFacadeRuntime::getTeamController is placed in Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L543, so it belongs to the C4 Code layer; if you only discuss the boundaries of responsibilities, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L543
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### ChatService
 
-- 层级：code
-- 说明：ChatService 是 apps/nrf52_node 的关键代码锚点，位置为 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：ChatService 是一个局部实现锚点：它把上层组件职责落到 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/nrf52_node 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：ChatService 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: ChatService is the key code anchor of apps/nrf52_node, located at apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: ChatService is a partial implementation anchor: it places the responsibility of the upper-layer component on apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/nrf52_node; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relational meaning: ChatService is placed in Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has precise file and line number evidence apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23, so it belongs to the C4 Code layer; if you only discuss responsibility boundaries, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### ContactService
 
-- 层级：code
-- 说明：ContactService 是 apps/nrf52_node 的关键代码锚点，位置为 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L30；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：ContactService 是一个局部实现锚点：它把上层组件职责落到 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L30，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/nrf52_node 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：ContactService 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L30，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: ContactService is the key code anchor of apps/nrf52_node, located at apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L30; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: ContactService is a partial implementation anchor: it places the responsibilities of upper-level components on apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L30. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/nrf52_node; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relationship meaning: ContactService is put into Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has precise file and line number evidence apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L30, so it belongs to the C4 Code layer; if you only discuss responsibility boundaries, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L30
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### IMeshAdapter
 
-- 层级：code
-- 说明：IMeshAdapter 是 apps/nrf52_node 的关键代码锚点，位置为 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L25；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：IMeshAdapter 是一个局部实现锚点：它把上层组件职责落到 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L25，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/nrf52_node 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：IMeshAdapter 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L25，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: IMeshAdapter is the key code anchor of apps/nrf52_node, located at apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L25; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: IMeshAdapter is a partial implementation anchor: it places the upper-layer component responsibilities on apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L25. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/nrf52_node; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relational meaning: IMeshAdapter is placed in Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L25, so it belongs to the C4 Code layer; if you only discuss the responsibility boundary, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L25
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### & AppFacadeRuntime::getChatService()
 
-- 层级：code
-- 说明：& AppFacadeRuntime::getChatService() 是 apps/nrf52_node 的关键代码锚点，位置为 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L518；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：& AppFacadeRuntime::getChatService() 是一个局部实现锚点：它把上层组件职责落到 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L518，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/nrf52_node 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：& AppFacadeRuntime::getChatService() 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L518，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: & AppFacadeRuntime::getChatService() is the key code anchor of apps/nrf52_node, located at apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L518; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: & AppFacadeRuntime::getChatService() is a partial implementation anchor: it places the upper-layer component responsibilities on apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L518. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/nrf52_node; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relationship meaning: & AppFacadeRuntime::getChatService() is put into Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L518, so it belongs to the C4 Code layer; if you only discuss the boundaries of responsibilities, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L518
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### & AppFacadeRuntime::getContactService()
 
-- 层级：code
-- 说明：& AppFacadeRuntime::getContactService() 是 apps/nrf52_node 的关键代码锚点，位置为 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L523；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：& AppFacadeRuntime::getContactService() 是一个局部实现锚点：它把上层组件职责落到 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L523，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/nrf52_node 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：& AppFacadeRuntime::getContactService() 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L523，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: & AppFacadeRuntime::getContactService() is the key code anchor of apps/nrf52_node, located at apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L523; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: & AppFacadeRuntime::getContactService() is a local implementation anchor: it places the upper component responsibilities on apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L523. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/nrf52_node; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relationship meaning: & AppFacadeRuntime::getContactService() is put into Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L523, so it belongs to the C4 Code layer; if you only discuss the boundaries of responsibilities, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L523
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### AppFacadeRuntime::getMeshAdapter
 
-- 层级：code
-- 说明：AppFacadeRuntime::getMeshAdapter 是 apps/nrf52_node 的关键代码锚点，位置为 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L528；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：AppFacadeRuntime::getMeshAdapter 是一个局部实现锚点：它把上层组件职责落到 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L528，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/nrf52_node 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：AppFacadeRuntime::getMeshAdapter 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L528，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: AppFacadeRuntime::getMeshAdapter is the key code anchor of apps/nrf52_node, located at apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L528; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: AppFacadeRuntime::getMeshAdapter is a partial implementation anchor: it falls the responsibility of the upper-layer component to apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L528. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/nrf52_node; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relational meaning: AppFacadeRuntime::getMeshAdapter is put into Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L528, so it belongs to the C4 Code layer; if you only discuss the boundaries of responsibilities, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L528
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### AppFacadeRuntime::getMeshAdapter
 
-- 层级：code
-- 说明：AppFacadeRuntime::getMeshAdapter 是 apps/nrf52_node 的关键代码锚点，位置为 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L533；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：AppFacadeRuntime::getMeshAdapter 是一个局部实现锚点：它把上层组件职责落到 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L533，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/nrf52_node 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：AppFacadeRuntime::getMeshAdapter 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L533，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: AppFacadeRuntime::getMeshAdapter is the key code anchor of apps/nrf52_node, located at apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L533; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: AppFacadeRuntime::getMeshAdapter is a partial implementation anchor: it falls the responsibility of the upper-layer component to apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L533. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/nrf52_node; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relational meaning: AppFacadeRuntime::getMeshAdapter is put into Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L533, so it belongs to the C4 Code layer; if you only discuss the boundaries of responsibilities, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L533
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### AppFacadeRuntime::getTeamService
 
-- 层级：code
-- 说明：AppFacadeRuntime::getTeamService 是 apps/nrf52_node 的关键代码锚点，位置为 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L553；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：AppFacadeRuntime::getTeamService 是一个局部实现锚点：它把上层组件职责落到 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L553，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/nrf52_node 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：AppFacadeRuntime::getTeamService 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L553，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: AppFacadeRuntime::getTeamService is the key code anchor of apps/nrf52_node, located at apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L553; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: AppFacadeRuntime::getTeamService is a partial implementation anchor: it places the upper-layer component responsibilities on apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L553. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/nrf52_node; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relationship meaning: AppFacadeRuntime::getTeamService is put into Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L553, so it belongs to the C4 Code layer; if you only discuss the boundaries of responsibilities, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L553
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### AppFacadeRuntime::getTeamService
 
-- 层级：code
-- 说明：AppFacadeRuntime::getTeamService 是 apps/nrf52_node 的关键代码锚点，位置为 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L558；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：AppFacadeRuntime::getTeamService 是一个局部实现锚点：它把上层组件职责落到 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L558，当前关系压力不高，但仍可作为理解实现入口的证据。
-- 边界：该锚点只解释 apps/nrf52_node 的一处架构落点；它不是完整源码结构，也不能替代软件结构模型的代码证据预览。
-- 关系意义：AppFacadeRuntime::getTeamService 被放入 Code View，是因为它能把上层 Component 的职责追溯到具体文件/符号。当它被大量对象引用或调用时，应优先理解谁依赖它；当它向外依赖过多对象时，应优先理解它编排了哪些外部能力。
-- 为什么属于该层：它有精确文件和行号证据 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L558，因此属于 C4 Code 层；如果只讨论职责边界，应回到 Component 或 Container。
-- 下钻意图：下钻或切到软件结构模型时，应查看该锚点的直接协作、附近复杂度候选点和代码片段，判断改动是否会扩散。
-- 置信度：high
-- 证据：
+-Level: code
+- Description: AppFacadeRuntime::getTeamService is the key code anchor of apps/nrf52_node, located at apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L558; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: AppFacadeRuntime::getTeamService is a partial implementation anchor: it falls the responsibility of the upper-layer component to apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L558. The current relationship pressure is not high, but it can still be used as evidence to understand the implementation entrance.
+- Boundary: This anchor only explains an architectural landing point of apps/nrf52_node; it is not a complete source code structure, nor can it replace the code evidence preview of the software structure model.
+- Relationship meaning: AppFacadeRuntime::getTeamService is put into Code View because it can trace the responsibilities of the upper-level Component back to specific files/symbols. When it is referenced or called by a large number of objects, priority should be given to understanding who depends on it; when it relies on too many external objects, priority should be given to understanding what external capabilities it orchestrates.
+- Why it belongs to this layer: It has the exact file and line number evidence apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L558, so it belongs to the C4 Code layer; if you only discuss the boundaries of responsibilities, you should go back to Component or Container.
+- Drill-down intention: When drilling down or cutting to the software structure model, you should check the direct collaboration of the anchor point, nearby complexity candidate points and code snippets to determine whether the changes will spread.
+- Confidence: high
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L558
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Indications of reuse: there are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
-## 可下钻 C4
+## Drill-down C4
 
-- [组件职责：apps/nrf52_node](../../components/apps-nrf52_node/component.md) - 回到 组件职责：apps/nrf52_node 可以避免只从代码锚点理解架构，重新检查这些锚点共同承担的组件职责和边界。
+- [Component Responsibility: apps/nrf52_node](../../components/apps-nrf52_node/component.md) - Return to Component Responsibility: apps/nrf52_node to avoid understanding the architecture only from code anchors and re-examine the component responsibilities and boundaries shared by these anchors.
 
-## 关联软件结构模型
+## Associated Software Structural Model
 
-- 当前没有关联 Engineering 文档。
+ - There is currently no associated Engineering document.
 
-## 证据
+## Evidence
 
 - apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L543
 - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23
@@ -258,12 +258,12 @@ flowchart TB
 - apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L553
 - apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L558
 
-## 判定依据
+## Judgment basis
 
-- Code View 只列少量能够追溯 Component 实现的文件/符号锚点；它不是源码浏览器，也不承载业务流程或完整类图。
+- Code View only lists a small number of file/symbol anchors that can trace the Component implementation; it is not a source code browser, and it does not host business processes or complete class diagrams.
 
-## 变更记录
+## Change Record
 
 ### 0.1.30-alpha - 2026-06-25T09:19:32.800Z
 
-- 基于本地仓库证据重新生成 代码锚点：apps/nrf52_node。
+- Regenerate the code anchor based on local repository evidence: apps/nrf52_node.

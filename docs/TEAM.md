@@ -1,218 +1,218 @@
-# 你这个 TEAM 业务到底在做什么（我现在能总结到“可写 TeamEvent”的程度）
+# What exactly is your TEAM business doing (I can now summarize it to the extent of "writable TeamEvent")
 
-## 1) Team 的定义（产品级一句话）
+## 1) Definition of Team (one sentence at the product level)
 
-**Team = 临时形成、目标驱动、随时解散的户外行动单元。**
+**Team = an outdoor action unit that is temporarily formed, goal-driven, and disbanded at any time. **
 
-它不是“群聊”，也不是“普通位置共享”，而是让一小群人在无网络环境下持续回答三件事：
+It is not a "group chat" or "ordinary location sharing", but allows a small group of people to continuously answer three things in a non-network environment:
 
-1. **我们是否还在一起**（队伍是否分散/掉队/走偏）
-2. **接下来要做什么**（集合、等待、求助等“行动共识”）
-3. **有没有人出问题**（静止、失联、电量低、SOS）
-
----
-
-## 2) Team 的核心能力（你已经确定的）
-
-### A. 临时组队（Create / Join / Disband）
-
-* Leader 一键建队
-* 成员通过短码/QR 拿到 **TeamKey** 加入
-* Team 可以随时解散（解散即密钥销毁）
-
-**这一套你已经做成状态机：Create → Active → Rotate → Disband**
+1. **Are we still together** (whether the team is scattered/left behind/astray)
+2. **What to do next** ("action consensus" such as gathering, waiting, asking for help, etc.)
+3. **Is anyone having problems** (stationary, lost contact, low battery, SOS)
 
 ---
 
-### B. 强隐私位置共享（你的差异化关键）
+## 2) Team's core capabilities (which you have determined)
 
-你明确在意：
+### A. Temporary team formation (Create / Join / Disband)
 
-> **位置广播出去后，只有 Team 成员能解析成功；即便 Team channel 配置外传，也看不懂。**
+* Leader creates a team with one click
+* Members pass short code/QR Get **TeamKey** and join
+* Team can be disbanded at any time (dissolution means the key is destroyed)
 
-因此你采用两层保护：
+**You have made this set into a state machine: Create → Active → Rotate → Disband**
 
-* L1：Meshtastic **Channel** 加密（CH-ENC）
-* L2：应用层 **E2EE**（TeamKey 派生的 PosKey/WpKey，TeamEncrypted Envelope）
+---
 
-并且你倾向新增自己的 PortNum：
+### B. Strong privacy location sharing (your key to differentiation)
+
+You clearly care about:
+
+> **After the location is broadcast, only Team members can parse it successfully; even if the Team channel is configured to be transmitted, it cannot be understood. **
+
+So you use two layers of protection:
+
+* L1: Meshtastic **Channel** encryption (CH-ENC)
+* L2: Application layer **E2EE** (TeamKey-derived PosKey/WpKey, TeamEncrypted Envelope)
+
+And you tend to add your own PortNum:
 
 * `TEAM_POSITION_APP`
 * `TEAM_WAYPOINT_APP`
 * `TEAM_TRACK_APP`
-* 管理类 `TEAM_MGMT_APP`
+* Management class `TEAM_MGMT_APP`
 
 ---
 
-### C. Team 内的“行动指令”（Preset / Command）
+### C. "Action command" within Team (Preset / Command)
 
-你提出的差异化：
+The difference you proposed:
 
-* 向队友发 **预设指令**（集合、等待、求助…）
-* 指令携带必要参数（例如集合地点 waypoint）
-* 指令是“事件”，不靠打字聊天
+* Send **default commands** to teammates (gather, wait, ask for help...)
+* The command carries necessary parameters (such as the meeting point waypoint)
+* The command is an "event" and does not require typing to chat
 
-> 注意：你前面没要求我把它做成完整协议，但你已经明确这是 Team 的重要业务能力。
-
----
-
-### D. Team 生命周期复盘（你现在要做的）
-
-你希望**整个组队过程可复盘**，包括生命周期中所有事件落地。
-
-所以我们引入：
-
-* SD 日志（append-only）
-* LogRecord（AEAD + CRC）
-* snapshot 加速（可选）
-* LogKey（独立于 TeamKey，可配置是否保留）
+> Note: You did not ask me to make it a complete agreement, but you have made it clear that this is an important business capability of Team.
 
 ---
 
-## 3) Team 生命周期里“会发生哪些事件”（这直接决定 TeamEvent）
+### D. Team life cycle review (what you want to do now)
 
-为了写 `TeamEvent` 的 protobuf，你需要先承认：
-**TeamEvent 不等于“所有无线包”**，而是**业务层发生的事情**，能用于复盘与解释行为。
+You want to review the entire team process, including the implementation of all events in the life cycle.
 
-你当前业务可以归纳为 5 类事件：
+So we introduce:
 
-### 1) 生命周期事件（Lifecycle）
-
-* Team 被创建（Leader 本地）
-* 广播可发现（ADVERTISE）
-* 有人请求加入（JOIN_REQUEST）
-* Leader 接受并下发配置（JOIN_ACCEPT）
-* 成员确认入队（JOIN_CONFIRM）
-* Team 状态同步（TEAM_STATUS）
-* 密钥轮换（KEY_ROTATE）
-* 解散/离开（DISBAND / LEAVE）
-
-这些事件用于回答：
-
-* “队伍什么时候开始/结束”
-* “谁在队里、什么时候加入/离开”
-* “什么时候换过密钥、为什么换”
+* SD log (append-only)
+* LogRecord(AEAD + CRC)
+* snapshot acceleration (optional)
+* LogKey (independent of TeamKey, configurable whether to retain)
 
 ---
 
-### 2) 位置与轨迹事件（Telemetry）
+## 3) "What events will occur" in the Team life cycle (this directly determines TeamEvent)
 
-* 收到某成员位置（POSITION_RX）
-* 收到航点/集合点（WAYPOINT_RX）
-* 收到轨迹批量点（TRACK_RX）
+In order to write `TeamEvent` protobuf, you need to admit first:
+ **TeamEvent is not equal to "all wireless packets"**, but **what happened in the business layer**, which can be used to review and explain behavior.
 
-这些事件用于复盘：
+Your current business can be summarized into 5 types of events:
 
-* 人在什么时候到过哪里
-* 队伍是否分散、何时重新聚拢
+### 1) Lifecycle event (Lifecycle)
 
-> 位置事件会有降采样策略，否则日志爆炸。
+* Team is created (Leader local)
+* Broadcast discoverable (ADVERTISE)
+* Someone requests to join (JOIN_REQUEST)
+* Leader accepts and issues the configuration (JOIN_ACCEPT)
+* Member confirmation to join the team (JOIN_CONFIRM)
+* Team status synchronization (TEAM_STATUS)
+* Key rotation (KEY_ROTATE)
+* Dismiss/leave (DISBAND / LEAVE)
 
----
+These events are used to answer:
 
-### 3) 指令事件（Command）
-
-* 集合指令（含地点 waypoint）
-* 等待/暂停
-* 求助（SOS，含位置/严重级别）
-
-这些事件用于复盘：
-
-* “谁下达过行动共识”
-* “队伍如何响应”
+* "When does the team start/end"
+* "Who is in the team and when did they join/leave"
+* "When did the key change and why?"
 
 ---
 
-### 4) 连接与可见性事件（Presence/Health）
+### 2) Position and trajectory events (Telemetry)
 
-这类你在产品目标里明确需要，但我们之前没有把它细化成协议字段，现在总结出来：
+* Receive a member's position (POSITION_RX)
+* Receive waypoint/rendezvous point (WAYPOINT_RX)
+* Receive track batch points (TRACK_RX)
 
-* 某成员“暂时不可见”（超时没收到位置）
-* 恢复可见
-* 电量低（如果你决定上报）
-* 静止过久（如果你决定做本机推断事件）
+These events are used for review:
 
-这些事件用于复盘：
+* When and where people have been
+* Whether the team dispersed and when they reunited
 
-* “为什么当时地图上看不到人”
-* “掉队是不是因为设备没电/失联”
-
-> 这类事件可以是“本机推断”，不一定来自无线包。
+> Location events will have a downsampling strategy, otherwise the log will explode.
 
 ---
 
-### 5) 安全/异常事件（Security/Diagnostics）
+### 3) Command event (Command)
 
-你要做强隐私承诺，就必须能复盘“失败原因”，否则用户只会觉得 bug。
+* Collection command (including location waypoint)
+* Wait/Pause
+* Ask for help (SOS, including location/severity level)
 
-* 解密失败（DECRYPT_FAIL）
-* key_id 不匹配（KEY_MISMATCH）
-* 重放丢弃（REPLAY_DROP）
-* 包格式错误（DECODE_FAIL）
+These events are used for review:
 
-这些事件用于复盘：
-
-* “当时收到了包但没显示”的原因
+* "Who issued the action consensus"
+* "How did the team respond"
 
 ---
 
-## 4) 我现在对你 TEAM 业务的总结边界（我确定 vs 我不会擅自假设）
+### 4) Connection and visibility events (Presence/Health)
 
-### 我已经可以确定的（来自你明确提出并反复确认的）
+You clearly need this type in the product goal, but we have not refined it into protocol fields before, now we summarize it:
 
-* Team 是临时行动单元，有 Create/Join/Disband
-* Team 内位置共享 + waypoint
-* 强隐私：channel 隔离 + 应用层 E2EE
-* 需要记录整个生命周期事件并可复盘
-* 你愿意新增自定义 PortNum（TEAM_*_APP）
+* A member is "temporarily invisible" (timeout and no location received)
+* Restore visibility
+* Low battery (if you decide to report it)
+* Staying still for too long (if you decide to do native inference events)
 
-### 我不会擅自补的（你没冻结）
+These events are used for review:
 
-* 指令种类到底有哪些、每种指令带哪些参数（我能提建议，但需要你确认）
-* 成员健康字段是否要上报（电量、能力、角色）
-* 是否要求“全队一致复盘”（你目前更像本地复盘/Leader复盘）
+* "Why was there no one on the map at that time?"
+* "Is it because the device was out of power/lost contact?"
+
+> This type of event can be "local inference" and does not necessarily come from wireless packets.
 
 ---
 
-# Team 建队 / 加入 报文交互流程（强隐私版本）
+### 5) Security/Diagnostics
 
-## 参与方
+If you want to make a strong privacy commitment, you must be able to review the "reasons for failure", otherwise users will only feel bugs.
+
+* Decryption failed (DECRYPT_FAIL)
+* key_id mismatch (KEY_MISMATCH)
+* Replay discard (REPLAY_DROP)
+* Packet format error (DECODE_FAIL)
+
+These events are used for review:
+
+* Reason for "the package was received but not displayed"
+
+---
+
+## 4) I now summarize the boundaries of your TEAM business (I am sure vs I won't assume without permission)
+
+### What I can confirm (from what you clearly stated and repeatedly confirmed)
+
+* Team is a temporary action unit with Create/Join/Disband
+* Location sharing within Team + waypoint
+* Strong privacy: channel isolation + application layer E2EE
+* The entire life cycle events need to be recorded and can be reviewed
+* Are you willing to add a custom PortNum (TEAM_*_APP)
+
+### I will not make up for it without authorization (you are not frozen)
+
+* What are the types of commands and what parameters are included in each command (I can make suggestions, but you need to confirm)
+* Whether member health fields need to be reported (battery, ability, role)
+* Whether to require "unanimous review of the whole team" (you are currently more like a local review/Leader review)
+
+---
+
+# Team establishment/joining message interaction process (strong privacy version)
+
+## Participants
 
 ```
-L = Leader / 建队者设备
-M = Member / 队员设备
-O = Others / 旁观设备（非 Team 成员）
+L = Leader / team builder device
+M = Member / team member device
+O = Others / spectator device (non-Team member)
 ```
 
-## 信道
+## Channel
 
 ```
-CH0 = 默认公共频道（Primary Channel）
-CHT = Team 私有频道（新建 / 分配的 channel index）
+CH0 = Default public channel (Primary Channel)
+CHT = Team private channel (new/assigned channel) index)
 ```
 
-## 安全层
+## Security layer
 
 ```
-CH-ENC = Meshtastic 按 Channel 的链路层加密
-E2EE   = TeamKey 派生的应用层端到端加密
-         （Envelope: TeamEncrypted）
+CH-ENC = Meshtastic per-Channel link layer encryption
+E2EE = TeamKey-derived application layer end-to-end encryption
+         (Envelope: TeamEncrypted)
 ```
 
 ---
 
-## 总览：时序线图（ASCII）
+## Overview: Timing line diagram (ASCII)
 
 ```
-时间 ↓
+Time ↓
 
 L (Leader)                  M (Member)                   O (Others)
 ────────────────────────────────────────────────────────────────────────
 
-(0) 本地建队（无报文）
-L: 生成 TeamKey
+(0) Local team building (no message)
+L: Generate TeamKey
 L: TeamId = Trunc(Hash(TeamKey))
-L: 选择 / 创建 CHT
+L: Select/Create CHT
 L: ChannelPSK = KDF(TeamKey, "channel-psk")
 L: MgmtKey    = KDF(TeamKey, "mgmt")
 L: PosKey     = KDF(TeamKey, "pos")
@@ -220,24 +220,24 @@ L: WpKey      = KDF(TeamKey, "wp")
 
 ────────────────────────────────────────────────────────────────────────
 
-(1) Team 可被“发现”（不泄密）
+(1) Team can be "discovered" (without leaking secrets)
 CH0
 L  ─────── TEAM_ADVERTISE ───────▶  * 
       { team_id, join_hint?, channel_index?, nonce/ts }
 
-                                   O: 只能知道“附近有一个 Team”
-                                      无法获得任何密钥或位置
+ O: Can only know "there is a Team nearby"
+ Unable to obtain any key or location
 
 ────────────────────────────────────────────────────────────────────────
 
-(2) 队员请求加入（无密钥）
+(2) Team members request to join (without key)
 CH0
 M  ───── TEAM_JOIN_REQUEST ─────▶  L
       { team_id, member_pub?, nonce/ts }
 
 ────────────────────────────────────────────────────────────────────────
 
-(3) Leader 接受加入并下发 Team 配置
+(3) Leader accepts joining and issues Team configuration
 CH0
 L  ───── TEAM_JOIN_ACCEPT ─────▶  M
       {
@@ -251,22 +251,22 @@ L  ───── TEAM_JOIN_ACCEPT ─────▶  M
         nonce/ts
       }
 
-注：
-- 此时 M **必须已经通过 UI 获得 TeamKey**
-  （短码 / QR / 近距离方式）
-- 否则无法解密 MgmtKey / payload
+Note:
+- At this time M **must have obtained TeamKey** through UI**
+ (short code / QR / short range method)
+- Otherwise, MgmtKey / payload cannot be decrypted
 
 ────────────────────────────────────────────────────────────────────────
 
-(4) 队员本地切换到 Team
-M: 保存 TeamKey
-M: 派生 MgmtKey / PosKey / WpKey
-M: 保存 CHT + ChannelPSK
-M: 切换到 CHT
+(4) Players switch to Team locally
+M: Save TeamKey
+M: Derive MgmtKey / PosKey / WpKey
+M: Save CHT + ChannelPSK
+M: Switch to CHT
 
 ────────────────────────────────────────────────────────────────────────
 
-(5) 入队确认（推荐）
+(5) Team confirmation (recommended)
 CHT (CH-ENC)
 M  ───── TEAM_JOIN_CONFIRM ─────▶  L
       {
@@ -281,7 +281,7 @@ M  ───── TEAM_JOIN_CONFIRM ─────▶  L
 
 ────────────────────────────────────────────────────────────────────────
 
-(6) Team 状态同步（可选）
+(6) Team Status synchronization (optional)
 CHT (CH-ENC)
 L  ─────── TEAM_STATUS ───────▶  Team
       {
@@ -296,7 +296,7 @@ L  ─────── TEAM_STATUS ───────▶  Team
 
 ────────────────────────────────────────────────────────────────────────
 
-(7) Team 内位置共享（核心）
+(7) Location sharing within Team (core)
 CHT (CH-ENC)
 Each Member ── TEAM_POSITION_APP ──▶ Team
       payload = TeamEncrypted {
@@ -310,79 +310,79 @@ Each Member ── TEAM_POSITION_APP ──▶ Team
                   )
                }
 
-Team 外成员：
-- 即便拿到 CHT + ChannelPSK
-- 只能解 CH-ENC
-- 无 TeamKey / PosKey → 无法解密位置
+External members of Team:
+- Even if you get CHT + ChannelPSK
+- You can only decrypt CH-ENC
+- No TeamKey / PosKey → Unable to decrypt the location
 ```
 
 ---
 
-## 关键语义说明（非常重要）
+## Key semantic explanation (very important)
 
-### 1️⃣ 为什么 **TEAM_ADVERTISE** 不包含密钥
+### 1️⃣ Why **TEAM_ADVERTISE** does not contain a key
 
-这是**“发现”而不是“加入”**：
+This is **"discover" not "join"**:
 
-* 让人知道「附近有一个 Team」
-* 但不授予任何能力
-* 防止被动监听就获得权限
-
----
-
-### 2️⃣ 为什么 **TeamKey 不通过无线明文传播**
-
-这是你“强隐私承诺”的核心：
-
-* TeamKey **只通过 UI 侧渠道**传播（短码 / QR / 近距）
-* 无线中只传播 **TeamKey 派生物**
-* 即使频道配置外传，也无法逆推出 TeamKey
+* Lets people know "there is a Team nearby"
+* but does not grant any abilities
+* Obtain permissions to prevent passive monitoring
 
 ---
 
-### 3️⃣ 为什么要分 **ChannelPSK / MgmtKey / PosKey**
+### 2️⃣ Why **TeamKey does not spread through wireless clear text**
 
-这是“可演化设计”：
+This is the core of your "Strong Privacy Commitment":
 
-* ChannelPSK：只管“这包是谁能收到”
-* MgmtKey：管成员管理 / 参数
-* PosKey / WpKey：管位置 / 航点
-
-👉 未来你可以做到：
-
-* 换位置密钥 ≠ 踢人
-* 换管理密钥 ≠ 影响历史数据
+* TeamKey **Only propagates via UI side channels** (short code / QR / Proximity)
+* Only **TeamKey derivatives** propagated over the air
+* TeamKey cannot be reversed even if the channel is configured to outbound
 
 ---
 
-### 4️⃣ 为什么要 **TEAM_JOIN_CONFIRM**
+### 3️⃣ Why divide **ChannelPSK / MgmtKey / PosKey**
 
-不是为了安全，是为了**产品可感知性**：
+This is an "evolvable design":
 
-* Leader 知道谁真的成功入队
-* UI 能显示“成员已就绪”
-* 后续 Team 状态才可信
+* ChannelPSK: Just care about "who can receive this package"
+* MgmtKey: Manage member management/parameters
+* PosKey/WpKey: Manage location/waypoint
+
+👉 In the future you can do:
+
+* Change the location key ≠ Kick someone
+* Change management key ≠ Affect historical data
 
 ---
 
-## MVP 与增强项划分（帮你控复杂度）
+### 4️⃣ Why **TEAM_JOIN_CONFIRM**
 
-### MVP 必须（第一版就该有）
+Not for security, but for **product perceptibility**:
 
-* (0) 本地建队 + TeamKey 派生
+* Leader knows who has really successfully joined the team
+* UI can display "Members are ready"
+* Follow-up Team Only the state can be trusted
+
+---
+
+## MVP and enhancement item division (helping you control complexity)
+
+### MVP is required (should be included in the first version)
+
+* (0) Local team building + TeamKey derivation
 * (1) TEAM_ADVERTISE
-* UI 侧 TeamKey 输入 / 扫码
+* TeamKey input/scan code on UI side
 * (3) TEAM_JOIN_ACCEPT
-* (4) 切换到 CHT
-* (7) TEAM_POSITION_APP（E2EE）
+* (4) Switch to CHT
+* (7) TEAM_POSITION_APP(E2EE)
 
-### 可选增强（后续再加）
+### Optional enhancements (to be added later)
 
-* member_pub + 更强密钥交换
+* member_pub + stronger key exchange
 * TEAM_JOIN_CONFIRM
 * TEAM_STATUS
-* key rotation / key_id 更新
-* 防重放窗口优化
+* key rotation / key_id update
+* Anti-replay window optimization
 
 ---
 
@@ -392,275 +392,275 @@ Team 外成员：
 
 ---
 
-## 公共约定（适用于所有 Team 报文）
+## Public convention (applicable to all Team messages)
 
 ### Team Identity
 
 * **TeamKey**
 
-  * 高熵随机生成
-  * 仅通过 UI 侧（短码 / QR / 近距）分发
-  * **MUST NOT** 通过无线明文传播
+ * High entropy random generation
+ * Only distributed through UI side (short code/QR/close range)
+ * **MUST NOT** Transmission via wireless clear text
 
 * **team_id**
 
-  * 定义：`Trunc(Hash(TeamKey))`
-  * 用途：标识 Team，而不泄露 TeamKey
-  * **MUST** 在所有 Team 相关报文中出现
+ * Definition: `Trunc(Hash(TeamKey))`
+ * Purpose: to identify Team without leaking TeamKey
+ * **MUST** Appear in all Team-related packets
 
 ---
 
-### 加密层级
+### Encryption level
 
-* **CH-ENC**：Meshtastic Channel 加密
-* **E2EE**：应用层 Team 加密（AEAD）
+* **CH-ENC**: Meshtastic Channel Encryption
+* **E2EE**: Application Layer Team Encryption (AEAD)
 
 ---
 
-### TeamEncrypted Envelope（通用）
+### TeamEncrypted Envelope (generic)
 
-> 用于所有 E2EE payload（位置 / 管理 / 状态）
+> for all E2EE payloads (location/admin/status)
 
-| 字段         | 类型     | 级别   | 说明           |
+| Field | Type | Level | Description |
 | ---------- | ------ | ---- | ------------ |
-| version    | uint32 | MUST | Envelope 版本  |
-| team_id    | bytes  | MUST | Team 标识      |
-| key_id     | uint32 | MUST | 当前密钥版本       |
-| nonce      | bytes  | MUST | 每包唯一，用于 AEAD |
-| ciphertext | bytes  | MUST | AEAD 加密后的数据  |
-| aad_flags  | uint32 | MAY  | AAD 类型标识     |
+| version | uint32 | MUST | Envelope version |
+| team_id    | bytes  | MUST | Team Identification |
+| key_id | uint32 | MUST | Current key version |
+| nonce | bytes | MUST | unique per package, for AEAD |
+| ciphertext | bytes | MUST | AEAD encrypted data |
+| aad_flags | uint32 | MAY | AAD type identifier |
 
 ---
 
 ## 1. TEAM_ADVERTISE
 
-**用途**：让 Team 可被“发现”，不授予任何能力
+**PURPOSE**: Makes Team "discoverable", does not grant any abilities
 
-* **信道**：CH0
-* **加密**：可明文或 CH0 加密
-* **PortNum**：`TEAM_MGMT_APP`
+* **Channel**: CH0
+* **Encryption**: Can be plain text or CH0 encrypted
+* **PortNum**:`TEAM_MGMT_APP`
 
-### 字段表
+### Field table
 
-| 字段            | 类型     | 级别   | 说明               |
+| Field | Type | Level | Description |
 | ------------- | ------ | ---- | ---------------- |
-| team_id       | bytes  | MUST | Team 标识          |
-| join_hint     | uint32 | MAY  | 加入提示（需确认 / 有效期等） |
-| channel_index | uint32 | MAY  | Team Channel 索引  |
-| expires_at    | uint64 | MAY  | 广告过期时间           |
-| nonce         | bytes  | MUST | 防重放              |
+| team_id | bytes | MUST | Team identification |
+| join_hint | uint32 | MAY | Join prompt (requires confirmation/validity period, etc.) |
+| channel_index | uint32 | MAY | Team Channel index |
+| expires_at | uint64 | MAY | Ad expiration time |
+| nonce | bytes | MUST | Anti-replay |
 
-### 语义规则
+### Semantic rules
 
-* **MUST NOT** 包含任何密钥材料
-* **MUST NOT** 泄露位置或成员信息
-* **MAY** 周期性广播
+* **MUST NOT** Contain any key material
+* **MUST NOT** Disclose location or membership information
+* **MAY** Periodic broadcast
 
 ---
 
 ## 2. TEAM_JOIN_REQUEST
 
-**用途**：队员请求加入 Team（无密钥）
+**Purpose**: Team members request to join Team (no key)
 
-* **信道**：CH0
-* **PortNum**：`TEAM_MGMT_APP`
+* **Channel**: CH0
+* **PortNum**:`TEAM_MGMT_APP`
 
-### 字段表
+### Field table
 
-| 字段           | 类型     | 级别   | 说明          |
+| Field | Type | Level | Description |
 | ------------ | ------ | ---- | ----------- |
-| team_id      | bytes  | MUST | 目标 Team     |
-| member_pub   | bytes  | MAY  | 公钥（增强密钥交换用） |
-| capabilities | uint32 | MAY  | 能力标识        |
-| nonce        | bytes  | MUST | 防重放         |
+| team_id | bytes | MUST | Target Team |
+| member_pub | bytes | MAY | Public key (for enhanced key exchange) |
+| capabilities | uint32 | MAY | Capability identifier |
+| nonce | bytes | MUST | Anti-replay |
 
-### 语义规则
+### Semantic rules
 
-* **MUST NOT** 包含 TeamKey
-* **MAY** 被 Leader 拒绝（无响应）
+* **MUST NOT** Contains TeamKey
+* **MAY** Rejected by Leader (no response)
 
 ---
 
 ## 3. TEAM_JOIN_ACCEPT
 
-**用途**：Leader 接受成员并下发 Team 配置
+**Purpose**: Leader accepts members and delivers Team configuration
 
-* **信道**：CH0
-* **PortNum**：`TEAM_MGMT_APP`
-* **加密**：E2EE（MgmtKey）
+* **Channel**: CH0
+* **PortNum**:`TEAM_MGMT_APP`
+* **Encryption**: E2EE (MgmtKey)
 
-### Payload（解密后结构）
+### Payload (decrypted structure)
 
-| 字段            | 类型         | 级别   | 说明           |
+| Field | Type | Level | Description |
 | ------------- | ---------- | ---- | ------------ |
 | channel_index | uint32     | MUST | Team Channel |
 | channel_psk   | bytes      | MUST | Channel PSK  |
-| key_id        | uint32     | MUST | 当前密钥版本       |
-| team_params   | TeamParams | MAY  | 行为参数         |
+| key_id | uint32 | MUST | Current key version |
+| team_params | TeamParams | MAY | Behavior parameters |
 
-### 外层字段表
+### Outer field table
 
-| 字段      | 类型            | 级别   | 说明      |
+| Field | Type | Level | Description |
 | ------- | ------------- | ---- | ------- |
-| team_id | bytes         | MUST | Team 标识 |
-| payload | TeamEncrypted | MUST | E2EE 封装 |
-| nonce   | bytes         | MUST | 防重放     |
+| team_id | bytes | MUST | Team logo |
+| payload | TeamEncrypted | MUST | E2EE packaging |
+| nonce | bytes | MUST | Anti-replay |
 
-### 语义规则
+### Semantic rules
 
-* 接收方 **MUST** 已拥有 TeamKey
-* 解密失败 **MUST** 丢弃
-* **MUST NOT** 在 TeamKey 未确认前应用配置
+* Recipient **MUST** already has TeamKey
+* Decryption failed **MUST** Discard
+* **MUST NOT** Apply configuration before TeamKey is confirmed
 
 ---
 
 ## 4. TEAM_JOIN_CONFIRM
 
-**用途**：成员确认已成功入队
+**Purpose**: Member confirmation has successfully joined the team
 
-* **信道**：CHT
-* **PortNum**：`TEAM_MGMT_APP`
-* **加密**：CH-ENC + E2EE（MgmtKey）
+* **Channel**: CHT
+* **PortNum**:`TEAM_MGMT_APP`
+* **Encryption**: CH-ENC + E2EE (MgmtKey)
 
-### Payload（解密后）
+### Payload (after decryption)
 
-| 字段           | 类型     | 级别   | 说明    |
+| Field | Type | Level | Description |
 | ------------ | ------ | ---- | ----- |
-| ok           | bool   | MUST | 加入成功  |
-| capabilities | uint32 | MAY  | 能力声明  |
-| battery      | uint32 | MAY  | 电量百分比 |
+| ok | bool | MUST | Joined successfully |
+| capabilities | uint32 | MAY | capability statement |
+| battery | uint32 | MAY | battery percentage |
 
 ---
 
 ## 5. TEAM_STATUS
 
-**用途**：同步 Team 当前状态
+**Purpose**: Synchronize the current status of Team
 
-* **信道**：CHT
-* **PortNum**：`TEAM_MGMT_APP`
-* **加密**：CH-ENC + E2EE（MgmtKey）
+* **Channel**: CHT
+* **PortNum**:`TEAM_MGMT_APP`
+* **Encryption**: CH-ENC + E2EE (MgmtKey)
 
-### Payload（解密后）
+### Payload (after decryption)
 
-| 字段               | 类型         | 级别   | 说明     |
+| Fields | Type | Level | Description |
 | ---------------- | ---------- | ---- | ------ |
-| member_list_hash | bytes      | MUST | 成员列表摘要 |
-| key_id           | uint32     | MUST | 当前密钥版本 |
-| team_params      | TeamParams | MAY  | 当前参数   |
+| member_list_hash | bytes | MUST | Member list summary |
+| key_id | uint32 | MUST | Current key version |
+| team_params | TeamParams | MAY | Current parameters |
 
 ---
 
 ## 6. TEAM_POSITION_APP
 
-**用途**：Team 内位置共享（强隐私）
+**Purpose**: Position sharing within Team (strong privacy)
 
-* **信道**：CHT
-* **PortNum**：`TEAM_POSITION_APP`
-* **加密**：CH-ENC + E2EE（PosKey）
+* **Channel**: CHT
+* **PortNum**:`TEAM_POSITION_APP`
+* **Encryption**: CH-ENC + E2EE (PosKey)
 
-### Payload（E2EE 明文结构）
+### Payload (E2EE plain text structure)
 
-| 字段              | 类型                  | 级别   | 说明   |
+| Field | Type | Level | Description |
 | --------------- | ------------------- | ---- | ---- |
-| position        | meshtastic_Position | MUST | 位置数据 |
-| precision_level | uint32              | MAY  | 精度等级 |
-| timestamp       | uint64              | MUST | 位置时间 |
+| position | meshtastic_Position | MUST | Location Data |
+| precision_level | uint32 | MAY | precision level |
+| timestamp | uint64 | MUST | location time |
 
-### 外层（TeamEncrypted）
+### Outer layer (TeamEncrypted)
 
-| 字段         | 类型     | 级别   | 说明      |
+| Field | Type | Level | Description |
 | ---------- | ------ | ---- | ------- |
-| team_id    | bytes  | MUST | Team 标识 |
-| key_id     | uint32 | MUST | 位置密钥版本  |
-| nonce      | bytes  | MUST | 每包唯一    |
-| ciphertext | bytes  | MUST | AEAD 密文 |
+| team_id | bytes | MUST | Team logo |
+| key_id | uint32 | MUST | location key version |
+| nonce | bytes | MUST | unique per package |
+| ciphertext | bytes | MUST | AEAD ciphertext |
 
 ---
 
 ## 7. TEAM_WAYPOINT_APP
 
-**用途**：Team 内航点共享
+**Purpose**: Team internal waypoint sharing
 
-* 与 `TEAM_POSITION_APP` 完全一致
-* 使用 `WpKey` 解密
-* 明文结构为 `meshtastic_Waypoint`
+* Exactly the same as `TEAM_POSITION_APP`
+* Use `WpKey` Decryption
+* The plaintext structure is `meshtastic_Waypoint`
 
 ---
 
 ## 8. TEAM_TRACK_APP
 
-**用途**：Team 内轨迹批量点共享（固定间隔）
+**Purpose**: Track batch point sharing within Team (fixed interval)
 
-* 与 `TEAM_POSITION_APP` 完全一致（E2EE PosKey）
-* 明文结构为 `TeamTrackMessage`（自定义轻量编码）
-* 轨迹点不带单点时间戳，时间由 `start_ts + i * interval_s` 推导
-* `valid_mask` 用于标记每个点是否有效（无 fix 时可置 0）
-* 单包最多 20 个点
-* **发送端建议**：在队伍 keys 就绪后启动 10 分钟采样窗口；每 30 秒采样一次，共 20 点；窗口内若全部点无效则不发包
-* **接收端落盘**：`/team/<team_dir>/tracks/<member_id>.gpx`（GPX 1.1，增量追加 `<trkpt>`）
+* Exactly the same as `TEAM_POSITION_APP` (E2EE PosKey)
+* The plain text structure is `TeamTrackMessage` (custom lightweight encoding)
+* Track points do not have a single point timestamp, and the time is determined by `start_ts + i * interval_s` derivation
+* `valid_mask` is used to mark whether each point is valid (it can be set to 0 when there is no fix)
+* A single package can have up to 20 points
+* **Sender suggestion**: Start a 10-minute sampling window after the team keys are ready; sample every 30 seconds, a total of 20 points; if all points in the window are invalid, no packet will be sent
+* **Receiver placement**: `/team/<team_dir>/tracks/<member_id>.gpx` (GPX 1.1, incremental addition `<trkpt>`)
 
-### Payload（E2EE 明文结构）
+### Payload (E2EE plain text structure)
 
-| 字段         | 类型                               | 级别   | 说明 |
+| Field | Type | Level | Description |
 | ---------- | -------------------------------- | ---- | ---- |
-| version    | uint8                            | MUST | 版本 |
-| start_ts   | uint32                           | MUST | 起始时间（epoch 秒） |
-| interval_s | uint16                           | MUST | 采样间隔（秒） |
-| count      | uint8                            | MUST | 点数（<= 20） |
-| valid_mask | uint32                           | MUST | 点有效性位图（bit i 对应第 i 个点） |
-| points     | (lat_e7 int32, lon_e7 int32) * N | MUST | 经纬度（E7） |
+| Version | uint8 | MUST | Version |
+| start_ts | uint32 | MUST | Start time (epoch seconds) |
+| interval_s | uint16 | MUST | Sampling interval (seconds) |
+| count | uint8 | MUST | Points (<= 20) |
+| valid_mask | uint32 | MUST | Point validity bitmap (bit i corresponds to the i-th point) |
+| lon_e7 int32) * N | MUST | Latitude and longitude (E7) |
 
 ---
 
-## 9. MUST / SHOULD / MAY 总结（Conformance Checklist）
+## 9. MUST / SHOULD / MAY Summary (Conformance Checklist)
 
 ### MUST
 
-* TeamKey **不得**通过无线明文传播
-* 所有 Team 数据 **必须**包含 team_id
-* 所有 E2EE payload **必须**使用 AEAD
-* nonce **必须** 唯一（防重放）
-* 解散 Team 时 **必须** 丢弃所有派生密钥
+* TeamKey **must not** be transmitted in clear text over wireless
+* All Team data **MUST** contain team_id
+* All E2EE payloads **MUST** use AEAD
+* nonce **MUST** be unique (anti-replay)
+* When disbanding a Team **MUST** discard all derived keys
 
 ### SHOULD
 
-* 使用独立的 PosKey / WpKey
-* 支持 key_id 轮换
-* JOIN_CONFIRM / TEAM_STATUS 用于 UI 同步
+* Use a separate PosKey / WpKey
+* supports key_id rotation
+* JOIN_CONFIRM / TEAM_STATUS for UI synchronization
 
 ### MAY
 
-* 使用 member_pub 做更强密钥交换
-* 支持权限分级
-* 统一 payload 长度以降低关联风险
+* Use member_pub for stronger key exchange
+* Support permission classification
+* Unify payload length to reduce association risk
 
 ---
 
-## 协议一句话定义（可写在文件头）
+## One-sentence protocol definition (can be written in the file header)
 
-> **Team 协议定义了一种临时、目标驱动的加密协作单元，其安全边界以 TeamKey 为核心，而非无线信道。**
-
----
-
-
-## 目标：你要对用户承诺什么
-
-**隐私承诺（你可以写进 PRD / README）：**
-
-1. **只有 Team 成员能解读 Team 位置与航点**（即便别人拿到频道配置/PSK，也无法解密）
-2. **Team 解散后内容不可恢复**（密钥丢弃）
-3. **外人无法从包内容推断成员位置**（密文 + 随机化 + 防重放）
+> **The Team protocol defines an ad hoc, goal-driven encrypted collaboration unit with a security perimeter centered on TeamKey rather than a wireless channel. **
 
 ---
 
-好，这一步我们把 **Team 的一生**画清楚。
-不是“功能流程图”，而是**状态机**——**什么时候处在什么状态、因为什么事件发生跃迁、跃迁时必须做什么**。
 
-下面这张 **ASCII 状态机图**，你可以直接放进协议文档或 PRD。
+## Goal: What do you want to promise to users
+
+**Privacy commitment (you can write it in PRD / README):**
+
+1. **Only Team members can decipher Team position and waypoint** (even if others get the channel configuration/PSK, they cannot decrypt it)
+2. **Team Content cannot be recovered after disbandment** (key discarded)
+3. **Outsiders cannot infer member locations from the package content** (ciphertext + randomization + anti-replay)
 
 ---
 
-# Team 生命周期状态机（State Machine）
+Okay, in this step we draw a clear picture of the **Team's life**.
+ It is not a "functional flow chart", but a **state machine** - **when is it in what state, what event occurs due to the transition, and what must be done during the transition**.
+
+You can put the **ASCII state machine diagram** below directly into the protocol document or PRD.
+
+---
+
+# Team life cycle state machine (State Machine)
 
 ```
                            ┌─────────────────────────┐
@@ -782,115 +782,115 @@ Team 外成员：
 
 ---
 
-## 状态语义说明（这比图本身更重要）
+## State semantic description (this is more important than the diagram itself)
 
 ### 1️⃣ Idle
 
-* 设备**不持有任何 TeamKey**
-* 不广播 Team 位置
-* UI 显示「未建队 / 未加入」
+* The device** does not hold any TeamKey**
+* Does not broadcast the Team location
+* The UI displays "Not Team Created/Not Joined"
 
 ---
 
 ### 2️⃣ Create
 
-* **纯本地状态**
-* 没有任何无线安全风险
-* 所有“信任根”在这一刻生成
+* **Purely local state**
+* No wireless security risks
+* All "roots of trust" are generated at this moment
 
-> 这是 **Team 安全边界的诞生点**
+> This is the birth point of **Team security boundary**
 
 ---
 
 ### 3️⃣ Active
 
-* Team 的 **主要生命周期**
-* 所有 Team 功能（地图、位置、指令）都只在此状态合法
-* **TeamKey 是唯一信任来源**
+* Team's **Main life cycle**
+* All Team functions (maps, locations, commands) are only legal in this state
+* **TeamKey is the only source of trust**
 
 ---
 
 ### 4️⃣ Rotate
 
-* **不是异常状态，是主动防御状态**
-* 用来兑现你对用户的这句话：
+* **It is not an abnormal state, it is an active defense state**
+* Used to fulfill your words to users:
 
-  > “即使配置外传，也能立刻止损”
+ > "Even if external transmission is configured, the loss can be stopped immediately"
 
-关键点：
+Key points:
 
-* Rotate **不改变 team_id**
-* 只改变 `key_id` + 派生密钥
-* 旧密钥立即失效
+* Rotate **Do not change team_id**
+* Only change `key_id` + derived key
+* The old key becomes invalid immediately
 
 ---
 
 ### 5️⃣ Disband
 
-* **安全终止态**
-* 所有密钥必须被销毁
-* 不允许“恢复”“回看”“重连”
+* **Safe termination state**
+* All keys must be destroyed
+* "Restore", "Review" and "Reconnect" are not allowed
 
-> Team 结束 ≠ 暂停
-> Team 结束 = **密码学意义上的死亡**
-
----
-
-## 你可以直接写进协议的 MUST 规则（来自状态机）
-
-* **MUST** 仅在 `ACTIVE` / `ROTATE` 状态发送 Team 数据
-* **MUST** 在 `DISBAND` 进入时销毁全部 Team 密钥
-* **MUST** 丢弃 key_id 不匹配的数据包
-* **MUST NOT** 从 `DISBAND` 回到 `ACTIVE`（必须重新建队）
+> Team End ≠ Pause
+> Team End = **Cryptographic Death**
 
 ---
 
-## 为什么这张状态机“站得住”
+## You can directly write the MUST rules of the protocol (from the state machine)
 
-* **产品层**：每个状态都能映射到一个清晰 UI
-* **协议层**：每个跃迁都有明确报文或本地动作
-* **安全层**：密钥生命周期与状态生命周期完全一致
-
----
-
-非常好，这一步其实是**把“用户点了什么”和“协议里发生了什么”一一对齐**。
-下面我会**严格按 UI 行为 → 状态变化 → 报文触发**来写，不引入新概念、不模糊。
-
-你可以把这份内容理解为：
-
-> **UI 是状态机的控制面板，协议报文是状态跃迁的副作用。**
+* **MUST** Only send Team data in the `ACTIVE` / `ROTATE` state
+* **MUST** Destroy all Team keys on `DISBAND` entry
+* **MUST** Drop packets with mismatched key_id
+* **MUST NOT** Return from `DISBAND` to `ACTIVE` (the team must be re-established)
 
 ---
 
-# UI 行为 ↔ Team 状态机 ↔ 报文触发 精确映射
+## Why this state machine "stands"
+
+* **Product layer**: Each state can be mapped to a clear UI
+* **Protocol layer**: Each transition has a clear message or local action
+* **Security layer**: The key life cycle is completely consistent with the state life cycle
 
 ---
 
-## 一、UI 总览：Team 菜单的三种“用户可感知状态”
+Very good. This step is actually to align "what the user clicked" and "what happened in the protocol" one by one**.
+ Below I will write strictly according to UI behavior → status change → message trigger** without introducing new concepts or ambiguity.
 
-从 UI 角度，Team 其实只有三种状态（和协议状态一一对应）：
+You can understand this content as:
 
-| UI 显示状态  | 协议状态    | 用户能做什么       |
+> **UI is the control panel of the state machine, and protocol messages are the side effects of state transitions. **
+
+---
+
+# UI behavior ↔ Team state machine ↔ Message trigger precise mapping
+
+---
+
+## 1. UI overview: three "user-perceivable states" of the Team menu
+
+From a UI perspective, Team actually has only three states (one-to-one correspondence with the protocol state):
+
+| UI display status | Agreement status | What users can do |
 | -------- | ------- | ------------ |
-| 未建队      | Idle    | 建队 / 加入      |
-| Team 进行中 | Active  | 查看 / 分享 / 解散 |
-| 正在解散     | Disband | 无（系统动作）      |
+| Team has not been established | Idle | Create team / join |
+| Team in progress | Active | View / share / disband |
+| Disbanding | Disband | None (system action) |
 
-> Rotate 是 **Active 内的子动作**，通常是 Leader-only，不是普通用户主流程。
-
----
-
-## 二、UI 行为 1：点击「建队（Create Team）」
-
-### UI 行为
-
-```
-菜单 → Team → [Create Team]
-```
+> Rotate is **Active The sub-actions** within are usually Leader-only, not the normal user main process.
 
 ---
 
-### 对应状态机跃迁
+## 2. UI behavior 1: Click "Create Team"
+
+### UI behavior
+
+```
+Menu → Team → [Create Team]
+```
+
+---
+
+### Corresponding state machine transition
 
 ```
 Idle ──(Create Team)──▶ Create ──▶ Active
@@ -898,42 +898,42 @@ Idle ──(Create Team)──▶ Create ──▶ Active
 
 ---
 
-### 报文与动作映射（逐步）
+### Message and action mapping (step by step)
 
-#### Step 1：用户点击「Create Team」（无报文）
+#### Step 1: The user clicks "Create Team" (no message)
 
-**UI 行为**
+**UI Behavior**
 
-* 用户确认“我要建一个 Team”
+* User confirms "I want to build a Team"
 
-**本地动作（MUST）**
+**Local Action (MUST)**
 
-* 生成 `TeamKey`
-* 计算 `team_id = Trunc(Hash(TeamKey))`
-* 分配 / 选择 `CHT`
-* 派生密钥：
+* Generate `TeamKey`
+* Calculate `team_id = Trunc(Hash(TeamKey))`
+* Assign/Select `CHT`
+* Derived key:
 
   * `ChannelPSK`
   * `MgmtKey`
   * `PosKey`
   * `WpKey`
 
-📌 **此时没有任何无线报文**
-📌 **这是 Team 安全边界的起点**
+📌 **There is no wireless message at this time**
+📌 **This is the starting point of the Team security boundary**
 
 ---
 
-#### Step 2：UI 显示「Team 已创建 / 分享码」
+#### Step 2: UI displays "Team has been created/shared code"
 
-**UI 行为**
+**UI Behavior**
 
-* 显示 Team Code / QR
-* 显示「成员数：1」
+* Displays Team Code / QR
+* Displays "Number of members: 1"
 
-**协议动作**
+**Protocol action**
 
-* **进入 Active 状态**
-* 开始周期性（或一次性）广播：
+* **Enter Active state**
+* Start periodic (or one-time) broadcast:
 
 ```
 CH0 → TEAM_ADVERTISE
@@ -948,15 +948,15 @@ TEAM_ADVERTISE {
 }
 ```
 
-📌 这是 **UI 显示“Team 已存在”** 的唯一协议依据
+📌 This is the only protocol basis for **UI to display "Team already exists"**
 
 ---
 
-#### Step 3：UI 返回 Team 主页面（Active）
+#### Step 3: UI returns to Team main page (Active)
 
-**UI 行为**
+**UI Behavior**
 
-* 显示：
+* Display:
 
   * Team Active
   * Members: 1
@@ -964,9 +964,9 @@ TEAM_ADVERTISE {
   * [Share Team]
   * [Disband Team]
 
-**协议行为**
+**Protocol Behavior**
 
-* 允许并处理以下报文：
+* Allow and process the following messages:
 
   * `TEAM_JOIN_REQUEST`
   * `TEAM_JOIN_ACCEPT`
@@ -974,35 +974,35 @@ TEAM_ADVERTISE {
 
 ---
 
-## 三、UI 行为 2：他人加入 Team（Join Team）
+## 3. UI Behavior 2: Others join Team (Join Team)
 
-### UI 行为（队员）
+### UI Behavior (Team Team)
 
 ```
-Team → Join Team → 输入短码 / 扫码 → Confirm
+Team → Join Team → Enter the short code / scan the code → Confirm
 ```
 
 ---
 
-### 报文与状态映射
+### Message and status mapping
 
-#### Step 1：队员输入短码 / 扫码（无报文）
+#### Step 1: Team members enter short code/scan code (no message)
 
-**UI 行为**
+**UI Behavior**
 
-* 用户确认加入
+* User confirms joining
 
-**本地动作（MUST）**
+**Local Action (MUST)**
 
-* 解析 / 获得 `TeamKey`
-* 预计算 `team_id`
-* 派生 `MgmtKey / PosKey / WpKey`
+* Parse/obtain `TeamKey`
+* Precompute `team_id`
+* Derive `MgmtKey / PosKey / WpKey`
 
-📌 **没有 TeamKey，后续任何 JOIN 报文都没有意义**
+📌 **Without TeamKey, any subsequent JOIN messages are meaningless**
 
 ---
 
-#### Step 2：队员请求加入
+#### Step 2: Team members request to join
 
 ```
 CH0 → TEAM_JOIN_REQUEST
@@ -1017,18 +1017,18 @@ TEAM_JOIN_REQUEST {
 
 ---
 
-#### Step 3：Leader UI 出现「加入请求」
+#### Step 3: "Join request" appears in Leader UI
 
-**UI 行为（Leader）**
+**UI behavior (Leader)**
 
-* 显示“新成员请求加入”
+* Display "New member requesting to join"
 * [Accept] / [Ignore]
 
-📌 UI 事件 **直接绑定** 下一条报文是否发送
+📌 UI event **Direct binding** Whether to send the next message
 
 ---
 
-#### Step 4：Leader 点击「Accept」
+#### Step 4: Leader clicks "Accept"
 
 ```
 CH0 → TEAM_JOIN_ACCEPT
@@ -1049,19 +1049,19 @@ TEAM_JOIN_ACCEPT {
 
 ---
 
-#### Step 5：队员 UI 切换为「Team Active」
+#### Step 5: Team UI switches to "Team Active"
 
-**UI 行为**
+**UI Behavior**
 
-* 显示 Team 主页面
+* Display Team Main page
 * Members ≥ 2
 
-**本地动作**
+**Local action**
 
-* 保存 CHT + ChannelPSK
-* 切换到 CHT
+* Save CHT + ChannelPSK
+* Switch to CHT
 
-**协议动作（推荐）**
+**Protocol action (recommended)**
 
 ```
 CHT → TEAM_JOIN_CONFIRM
@@ -1069,9 +1069,9 @@ CHT → TEAM_JOIN_CONFIRM
 
 ---
 
-## 四、UI 行为 3：Team 进行中（无按钮，但有持续行为）
+## 4. UI behavior 3: Team in progress (no button, but continuous behavior)
 
-### UI 行为
+### UI behavior
 
 ```
 Team Active → View Team Map
@@ -1079,25 +1079,25 @@ Team Active → View Team Map
 
 ---
 
-### 协议行为（持续）
+### Protocol behavior (persistent)
 
-* 每个成员周期性发送：
+* Each member periodically sends:
 
 ```
 CHT → TEAM_POSITION_APP
 ```
 
-* UI 地图刷新 **只依赖成功解密后的 payload**
-* 解密失败的数据包：
+* UI map refresh **Only relies on successfully decrypted payload**
+* Decrypted failed packets:
 
-  * MUST 被丢弃
-  * MUST NOT 更新 UI
+ * MUST be discarded
+ * MUST NOT be updated UI
 
 ---
 
-## 五、UI 行为 4：点击「解散 Team（Disband Team）」【Leader】
+## 5. UI Behavior 4: Click "Disband Team" [Leader]
 
-### UI 行为
+### UI behavior
 
 ```
 Team Active → [Disband Team] → Confirm
@@ -1105,7 +1105,7 @@ Team Active → [Disband Team] → Confirm
 
 ---
 
-### 对应状态机跃迁
+### Corresponding state machine transition
 
 ```
 Active ──(Disband)──▶ Disband ──▶ Idle
@@ -1113,19 +1113,19 @@ Active ──(Disband)──▶ Disband ──▶ Idle
 
 ---
 
-### 报文与动作映射
+### Message and action mapping
 
-#### Step 1：Leader 点击「Disband」
+#### Step 1: Leader clicks "Disband"
 
-**UI 行为**
+**UI Behavior**
 
-* 显示强确认弹窗
+* Display a strong confirmation pop-up window
 
 ---
 
-#### Step 2：Leader 确认解散
+#### Step 2: Leader confirms disbandment
 
-**协议动作（可选但推荐）**
+**Protocol action (optional but recommended)**
 
 ```
 CHT → TEAM_STATUS / TEAM_END
@@ -1140,41 +1140,41 @@ TEAM_STATUS {
 }
 ```
 
-📌 这是 **通知性质**，不是安全关键
-📌 即使收不到，也不影响安全性
+📌 This is **notification nature**, not security critical
+📌 Even if it is not received, it does not affect security
 
 ---
 
-#### Step 3：所有设备进入 Disband
+#### Step 3: All devices enter Disband
 
-**本地动作（MUST，所有成员）**
+**Local action (MUST, all members)**
 
-* 立即销毁：
+* Destroy immediately:
 
   * `TeamKey`
   * `ChannelPSK`
   * `MgmtKey / PosKey / WpKey`
-* 停止所有 Team 报文
-* 离开 CHT
+* Stop all Team messages
+* Leave CHT
 
 ---
 
-#### Step 4：UI 回到未建队状态
+#### Step 4: UI returns to the unestablished team state
 
 ```
 Team → You are not in a Team
 [Create Team] [Join Team]
 ```
 
-📌 **UI 是密钥销毁完成的“可视确认”**
+📌 **UI It is the "visual confirmation" that the key destruction is completed**
 
 ---
 
-## 六、UI 行为 5：普通成员「离开 Team（Leave）」【非解散】
+## 6. UI Behavior 5: Ordinary members "leave Team (Leave)" [non-disbanded]
 
-> 这是 **UI 行为 ≠ 协议状态变化** 的典型例子
+> This is a typical example of **UI behavior ≠ protocol status change**
 
-### UI 行为
+### UI behavior
 
 ```
 Team Active → [Leave Team]
@@ -1182,87 +1182,87 @@ Team Active → [Leave Team]
 
 ---
 
-### 本地动作（MUST）
+### Local action (MUST)
 
-* 销毁所有 TeamKey / 派生密钥
-* 离开 CHT
+* Destroy all TeamKey / derived keys
+* Leave CHT
 
-### 协议动作（MAY）
+### Protocol action (MAY)
 
 ```
 CHT → TEAM_LEAVE_NOTICE
 ```
 
-> 仅用于 UI 同步，不影响 Team 存续
+> Only used for UI synchronization, does not affect Team survival
 
-📌 **Team 状态仍为 Active（对其他人）**
-
----
-
-## 七、关键设计原则（可以写进 PRD）
-
-1. **UI 行为永远先于报文**
-   报文只是“用户意图的副作用”
-
-2. **没有 TeamKey → UI 不允许进入 Active**
-   安全失败必须表现为“操作不可达”
-
-3. **解散是密钥行为，不是通知行为**
-   报文失败 ≠ 解散失败
+📌 **Team status is still Active (for others)**
 
 ---
 
-## 一句话总结这套映射关系
+## 7. Key design principles (can be written into PRD)
 
-> **UI 决定状态，
-> 状态决定密钥，
-> 密钥决定哪些报文“有意义”。**
+1. **UI Behavior always precedes messages**
+ Messages are just "side effects of user intentions"
 
----
+2. **No TeamKey → UI is not allowed to enter Active**
+ Security failure must be expressed as "operation unreachable"
 
-### 下一步（非常自然）
-
-如果你愿意，我可以下一步帮你直接做其中之一：
-
-1. **把这套映射写成“UI × Protocol 对照表”**（方便测试与 PR）
-2. **帮你设计 Team 页面在不同状态下的 LVGL 组件树**
-3. **把这些 UI 行为转成自动化测试用例描述**
-
-你现在这一步，已经是在做**系统级产品设计**了，而不是“功能拼装”。
-
-
-好，这一步我们**完全站在“嵌入式 UI 工程”的角度**来做。
-目标不是“好看”，而是 **状态清晰、组件稳定、不会演化失控**。
-
-下面我给你的是 **LVGL 组件树（Component Tree）**，不是布局草图；
-你可以直接据此拆 `.cpp / .h`，或者对照你现在的 UI 架构来重构。
+3. **Dismissal is a key behavior, not a notification behavior**
+ Message failure ≠ Dissolution failure
 
 ---
 
-# Team 页面 · LVGL 组件树设计
+## Summarize this mapping relationship in one sentence
 
-（按 **状态** 明确分支，而不是条件 if/else 堆在一起）
+> **UI Determine status,
+> The status determines the key,
+> The key determines which messages are "meaningful". **
 
 ---
 
-## 总体设计原则（先给你“架构约束”）
+### Next step (very natural)
 
-### 1️⃣ Team 页面 = 状态容器（不是功能容器）
+If you are willing, I can help you do one of them directly in the next step:
+
+1. **Write this set of mappings as a "UI × Protocol comparison table"** (convenient for testing and PR)
+2. **Help you design the LVGL component tree of the Team page in different states**
+3. **Convert these UI behaviors into automated test case descriptions**
+
+At this step, you are already doing **system-level product design**, not "functional assembly".
+
+
+Okay, we will do this step completely from the perspective of "embedded UI engineering".
+The goal is not to "look good", but to have clear status, stable components, and not evolve out of control**.
+
+What I give you below is the **LVGL Component Tree**, not the layout sketch;
+You can directly disassemble `.cpp / .h` accordingly, or reconstruct it based on your current UI architecture.
+
+---
+
+# Team page · LVGL component tree design
+
+(Clear branches by **status**, rather than piled together if/else conditions)
+
+---
+
+## Overall design principles (give you "architectural constraints" first)
+
+### 1️⃣ Team page = State container (not functional container)
 
 ```text
 TeamPage
-└── TeamStateContainer   // 只负责：Idle / Active / Disband
+└── TeamStateContainer // Only responsible for: Idle / Active / Disband
 ```
 
-* **永远只挂载一个子树**
-* 状态切换 = 删除旧子树 + 创建新子树
-* 不在同一树里 hide/show
+* **Always only mount one subtree**
+* State switching = delete old subtree + create new subtree
+* Not in the same tree hide/show
 
-👉 这是防止 LVGL 页面“变成屎山”的关键
+👉 This is the key to prevent the LVGL page from "turning into a mountain of shit"
 
 ---
 
-### 2️⃣ 页面分三棵互斥的树
+### 2️⃣ The page is divided into three mutually exclusive trees
 
 ```text
 TeamState = { IDLE, ACTIVE, DISBAND }
@@ -1270,11 +1270,11 @@ TeamState = { IDLE, ACTIVE, DISBAND }
 
 * `IdleTree`
 * `ActiveTree`
-* `DisbandTree`（瞬态，通常很短）
+* `DisbandTree` (transient, usually very short)
 
 ---
 
-## 一、Team 页面根节点（所有状态共用）
+## 1. Team page root node (common to all states)
 
 ```text
 TeamPage (lv_obj_t*)
@@ -1286,64 +1286,64 @@ TeamPage (lv_obj_t*)
     └── <StateSpecificTree>
 ```
 
-说明：
+Description:
 
-* `TopBar` 永远存在
-* `TeamStateContainer` 是**唯一可变区域**
-
----
-
-## 二、状态 1：未建队（IDLE）
-
-### 用户心智
-
-> “我现在不在任何 Team 里。”
+* `TopBar` exists forever
+* `TeamStateContainer` is the only variable area**
 
 ---
 
-### 组件树：IdleTree
+## 2. State 1: Unestablished Team (IDLE)
+
+### User Mind
+
+> "I am not in any Team now" "
+
+---
+
+### Component tree: IdleTree
 
 ```text
 IdleTree (lv_obj_t*)
 ├── CenterContainer
-│   ├── StatusIcon        // 简单图标：空队伍
+│ ├── StatusIcon // Simple icon: empty team
 │   ├── StatusLabel       // "You are not in a Team"
 │   └── Spacer
 │
 ├── ActionContainer
-│   ├── CreateTeamButton  // 主按钮
-│   └── JoinTeamButton    // 次按钮
+│ ├── CreateTeamButton // Primary button
+│ └── JoinTeamButton // Secondary button
 ```
 
 ---
 
-### 组件职责说明
+### Component Responsibility Description
 
 * `CreateTeamButton`
 
-  * 点击 → **触发 UI 行为：Create Team**
-  * 后续状态切换由控制器决定
+ * Click → **Trigger UI behavior: Create Team**
+ * Subsequent status switching is determined by the controller
 
 * `JoinTeamButton`
 
-  * 跳转到 Join 流程页（输入码 / 扫码）
-  * 成功后切换到 `ACTIVE`
+ * Jump to the Join process page (enter code/scan code)
+ * Switch to `ACTIVE` after success
 
-📌 **IdleTree 不关心任何协议或密钥**
-
----
-
-## 三、状态 2：Team 进行中（ACTIVE）
-
-这是 **停留时间最长、最重要的状态**。
-
-### 用户心智
-
-> “我在一个 Team 里，我能看到状态，也能做决定。”
+📌 **IdleTree does not care about any protocol or key**
 
 ---
 
-### 组件树：ActiveTree（完整）
+## 3. State 2: Team In progress (ACTIVE)
+
+This is the **longest staying and most important state**.
+
+### User Mind
+
+> "I am in a Team, I can see the status and make decisions."
+
+---
+
+### Component tree: ActiveTree (complete)
 
 ```text
 ActiveTree (lv_obj_t*)
@@ -1356,7 +1356,7 @@ ActiveTree (lv_obj_t*)
 │
 ├── ActionList
 │   ├── ViewMapItem        // → Team Map
-│   ├── ShareTeamItem      // → 显示 Team Code / QR
+│ ├── ShareTeamItem // → Display Team Code / QR
 │   └── (optional) RotateKeyItem  // Leader only
 │
 ├── Divider
@@ -1367,33 +1367,33 @@ ActiveTree (lv_obj_t*)
 
 ---
 
-### 关键：Leader / Member 的分支（不是不同页面）
+### Key: Leader / Member Branch (not different pages)
 
-#### 普通成员（Member）
+#### Ordinary members (Member)
 
 ```text
 DangerZone
 └── LeaveTeamButton
 ```
 
-#### Leader（建队者）
+#### Leader (Team Builder)
 
 ```text
 DangerZone
 └── DisbandTeamButton
 ```
 
-> ⚠️ **不要在 UI 层暴露“Leader”概念**
-> 只通过按钮存在与否体现
+> ⚠️ **Do not expose the "Leader" concept at the UI layer**
+> Only reflected by the presence or absence of buttons
 
 ---
 
-### 各组件的“协议触发点”
+### "Protocol trigger points" of each component
 
 #### `ViewMapItem`
 
-* 只做一件事：跳转到 Team Map 页面
-* Team Map 页面只消费：
+* Just do one thing: jump to Team Map Page
+* Team Map page only consumes:
 
   * `TEAM_POSITION_APP`
   * `TEAM_WAYPOINT_APP`
@@ -1401,38 +1401,38 @@ DangerZone
 
 #### `ShareTeamItem`
 
-* 进入 **Share Subpage**
-* 只读数据：
+* Enter **Share Subpage**
+* Read-only data:
 
   * Team Code
   * QR
-* ❌ 不触发任何报文
+* ❌ Do not trigger any message
 
-#### `RotateKeyItem`（Leader-only）
+#### `RotateKeyItem`(Leader-only)
 
-* 点击 → 进入确认页
-* 确认后：
+* Click → Enter the confirmation page
+* After confirmation:
 
-  * 触发 **Rotate 状态**
-  * 发送 `TEAM_STATUS (new key_id)`
+ * Trigger **Rotate status**
+ * Send `TEAM_STATUS (new key_id)`
 
 #### `DisbandTeamButton`
 
-* 点击 → 进入 **DisbandTree**
+* Click → Enter **DisbandTree**
 
 ---
 
-## 四、状态 3：解散中（DISBAND）
+## 4. State 3: Disbanding (DISBAND)
 
-这是一个 **瞬态状态**，但非常重要。
+This is a **transient state**, but very important.
 
-### 用户心智
+### User Mind
 
-> “这件事是不可逆的。”
+> "This matter is irreversible."
 
 ---
 
-### 组件树：DisbandTree
+### Component tree: DisbandTree
 
 ```text
 DisbandTree (lv_obj_t*)
@@ -1445,37 +1445,37 @@ DisbandTree (lv_obj_t*)
 
 ---
 
-### 行为绑定（关键）
+### Behavior binding (key)
 
-* **进入 DisbandTree 的同时**
+* **While entering DisbandTree**
 
-  * 本地立即销毁：
+ * Local destruction immediately:
 
     * TeamKey
     * ChannelPSK
-    * 所有派生密钥
-  * 停止 Team 报文
+ * All derived keys
+ * Stop Team messages
 
-* **不等待网络结果**
+* **Do not wait for network results**
 
-* UI 停留时间极短（例如 300–500ms）
+* UI dwell time is extremely short (e.g. 300–500ms)
 
 ---
 
-### Disband 完成后
+### After Disband is completed
 
 ```text
 DISBAND → IDLE
 ```
 
-* 销毁 `DisbandTree`
-* 创建 `IdleTree`
+* Destroy `DisbandTree`
+* Create `IdleTree`
 
 ---
 
-## 五、状态切换 = 组件树切换（推荐实现模式）
+## 5. State switching = component tree switching (recommended implementation mode)
 
-### 推荐控制逻辑（伪代码）
+### Recommended control logic (pseudocode)
 
 ```cpp
 void TeamPage::setState(TeamState newState) {
@@ -1498,108 +1498,108 @@ void TeamPage::setState(TeamState newState) {
 }
 ```
 
-📌 **没有 show/hide**
-📌 **没有 if (isLeader) scattered everywhere**
-📌 **所有状态边界在一个地方**
+📌 **No show/hide**
+📌 **No if (isLeader) scattered everywhere**
+📌 **All state boundaries in one place**
 
 ---
 
-## 六、这套组件树设计的三个“硬优势”
+## 6. Three "hard advantages" of this component tree design
 
-1. **状态与 UI 完全同构**
-   状态机 = UI 结构，不是注释
+1. **State and UI are completely isomorphic**
+ State machine = UI structure, not comments
 
-2. **协议失败不会污染 UI**
+2. **Protocol failure will not pollute the UI**
 
-   * 解散不依赖报文成功
-   * UI 只反映本地密钥状态
+ * Dismissal does not depend on message success
+ * UI only reflects local key status
 
-3. **未来扩展不会炸**
+3. **Future expansion will not explode**
 
-   * 加 Team Settings
-   * 加 Key Rotation
-   * 加 Debug Info
-     都只是在 `ActiveTree` 里加一支
+ * Add Team Settings
+ * Adding Key Rotation
+ * Adding Debug Info
+ is just adding one to `ActiveTree`
 
----你这个“拉回”的动作非常对。
-我们现在**明确只做一件事**：
+---Your "pull back" action is very correct.
+We are now **clearly doing only one thing**:
 
-> **围绕「建队状态机 + 密钥交换流程」，哪些数据必须持久化？哪些绝不能持久化？哪些是状态性的？**
+> **Revolving around the "team building state machine + key exchange process", what data must be persisted? Which ones must never be persisted? Which ones are status? **
 
-不谈 UI、不谈地图、不谈未来扩展，只谈**数据与生命周期**。
-
----
-
-# Team 建队 & 密钥交换阶段
-
-## 数据持久化整理（严格按状态机）
+Don't talk about UI, don't talk about maps, don't talk about future expansion, just talk about **data and life cycle**.
 
 ---
 
-## 一、先给结论（总表）
+# Team building & key exchange phase
 
-> **不是所有参与建队的东西都应该持久化**
-> 持久化的唯一判断标准是：
-> 👉 *“设备重启后，是否还能继续处于同一个 Team 状态”*
+## Data persistence organization (strictly according to state machine)
 
-### 数据分三类：
+---
 
-| 类别         | 是否持久化 | 原因            |
+## 1. First give the conclusion (general table)
+
+> **Not everything involved in team building should be persistent**
+> The only criterion for persistence is:
+> 👉 *"Can the device continue to be in the same Team state after restarting?"*
+
+### The data is divided into three categories:
+
+| Category | Whether to persist | Reason |
 | ---------- | ----- | ------------- |
-| Team 身份与密钥 | ✅ 必须  | 否则重启=自动退队     |
-| Channel 配置 | ✅ 必须  | 否则无法接收 Team 包 |
-| 协议瞬态状态     | ❌ 不应  | 可通过报文重建       |
-| UI / 交互状态  | ❌ 不应  | 完全是表现层        |
+| Team identity and key | ✅ Required | Otherwise, restart = automatic exit |
+| Channel configuration | ✅ Required | Otherwise, Team packets cannot be received |
+| Protocol transient state | ❌ Should not be | Can be reconstructed through messages |
+| UI / Interactive state | ❌ Should not | Completely presentation layer |
 
 ---
 
-## 二、按状态机逐状态分析
+## 2. State-by-state analysis by state machine
 
 ---
 
-## 状态 0：Idle（未建队）
+## State 0: Idle (not team established)
 
-### 持久化数据
+### Persistent data
 
-**无。**
+**None. **
 
 ```text
 (no Team-related persistent data)
 ```
 
-### 原则
+### Principles
 
-* Idle 状态下 **设备上不存在任何 Team 痕迹**
-* 这是安全与心理边界的起点
-
----
-
-## 状态 1：Create（本地建队，尚未 Active）
-
-> 这是一个**非常短暂的状态**
-> 只存在于一次 UI 操作中
-
-### 是否需要持久化？
-
-❌ **不需要**
-
-### 原因
-
-* Create 是一次**原子操作**
-* 要么成功进入 Active
-* 要么失败回到 Idle
-
-👉 **Create 阶段失败 = 不留下任何痕迹**
+* In the Idle state **there is no trace of Team on the device**
+* This is the starting point of the security and psychological boundaries
 
 ---
 
-## 状态 2：Active（Team 正在进行）
+## State 1: Create (local team building, not yet Active)
 
-这是**唯一需要持久化的核心状态**。
+> This is a **very short-lived state**
+> only exists once in the UI In operation
+
+### Is persistence required?
+
+❌ **Not required**
+
+### Reason
+
+* Create is an **atomic operation**
+* Either successfully enter Active
+* or fail and return to Idle
+
+👉 **Create phase failure = no trace left**
 
 ---
 
-### 1️⃣ Team 身份类（必须持久化）
+## State 2: Active (Team in progress)
+
+This is the only core state that needs to be persisted.
+
+---
+
+### 1️⃣Team identity class (must be persisted)
 
 ```text
 TeamIdentity
@@ -1608,38 +1608,38 @@ TeamIdentity
 ├── key_id           (uint32)
 ```
 
-#### 说明
+#### Description
 
-* `team_id`：所有 Team 数据的索引键
-* `team_role`：影响 UI 与允许的动作
-* `key_id`：当前密钥版本（用于解密判断）
+* `team_id`: Index key for all Team data
+* `team_role`: Influence UI and allowed actions
+* `key_id`: Current key version (used for decryption judgment)
 
 ✅ **MUST persist**
 
 ---
 
-### 2️⃣ Team 密钥类（必须持久化，安全存储）
+### 2️⃣ Team key class (must be persisted and stored securely)
 
 ```text
 TeamSecrets
-├── team_key         (bytes)   // 根密钥
+├── team_key (bytes) // Root key
 ├── mgmt_key         (bytes)
 ├── pos_key          (bytes)
 ├── wp_key           (bytes)
 ```
 
-#### 说明
+#### Description
 
-* 派生密钥 **可以重算**，但不建议
-* 重算依赖 KDF 版本一致，风险高
-* 实践中直接存派生结果更稳
+* Derived key **can be recalculated**, but not recommended
+* Recalculation relies on KDF version consistency, high risk
+* In practice, direct storage of derived results is more stable
 
 ✅ **MUST persist**
-⚠️ **必须使用安全存储（NVS / encrypted storage）**
+⚠️ **Safe storage (NVS / encrypted storage) must be used**
 
 ---
 
-### 3️⃣ Channel 配置类（必须持久化）
+### 3️⃣ Channel configuration class (must be persisted)
 
 ```text
 TeamChannelConfig
@@ -1647,16 +1647,16 @@ TeamChannelConfig
 ├── channel_psk      (bytes)
 ```
 
-#### 说明
+#### Description
 
-* 重启后必须能重新监听 CHT
-* 否则会“逻辑上还在 Team，物理上听不到”
+* You must be able to re-listen to CHT after restarting
+* Otherwise, "logically still exists" Team, physically unable to hear"
 
 ✅ **MUST persist**
 
 ---
 
-### 4️⃣ Team 行为参数（建议持久化）
+### 4️⃣ Team behavior parameters (persistence recommended)
 
 ```text
 TeamParams
@@ -1666,53 +1666,53 @@ TeamParams
 ├── join_policy
 ```
 
-#### 说明
+#### Description
 
-* 这些参数**由 Leader 决定**
-* 成员端只是执行
+* These parameters are **determined by the Leader**
+* The member side is just executed
 
 🟡 **SHOULD persist**
-（不存也能跑，但体验不一致）
+ (it can run without saving, but the experience is inconsistent)
 
 ---
 
-### 5️⃣ 不应持久化的东西（非常重要）
+### 5️⃣ Things that should not be persisted (very important)
 
-#### ❌ 协议瞬态状态
+#### ❌ Protocol Transient Status
 
 ```text
 DO NOT persist:
-- 已发送但未确认的 JOIN_REQUEST
-- JOIN_CONFIRM 状态
-- 最近一次 TEAM_STATUS 内容
-- 成员列表（可通过广播重建）
+- JOIN_REQUEST sent but not acknowledged
+- JOIN_CONFIRM status
+-Last TEAM_STATUS content
+- Member list (can be reconstructed via broadcast)
 ```
 
-原因：
+Reason:
 
-* 都是 **软状态**
-* 断电/重启后自然恢复
+* All are **soft state**
+* Natural recovery after power outage/restart
 
 ---
 
-#### ❌ UI 状态
+#### ❌ UI status
 
 ```text
 DO NOT persist:
-- 当前是否在 Team 页面
-- 是否展开某个子菜单
-- 是否刚刚显示过 QR
+- Whether you are currently on the Team page
+- Whether to expand a submenu
+- Whether the QR has just been displayed
 ```
 
 ---
 
-## 状态 3：Rotate（密钥轮换中）
+## State 3: Rotate (key rotating)
 
-> Rotate 是 **Active 的子状态**
+> Rotate is a sub-state of **Active**
 
-### 持久化策略：**两阶段提交**
+### Persistence strategy: **Two-phase commit**
 
-#### 临时状态（不持久化）
+#### Temporary state (not persisted)
 
 ```text
 RotateContext (RAM only)
@@ -1722,7 +1722,7 @@ RotateContext (RAM only)
 ├── new_wp_key
 ```
 
-#### 切换成功瞬间（持久化）
+#### The moment the switch is successful (persistence)
 
 ```text
 TeamSecrets (overwrite)
@@ -1732,20 +1732,20 @@ TeamSecrets (overwrite)
 ├── wp_key   = new_wp_key
 ```
 
-📌 **不要持久化“正在轮换中”**
-📌 **要么成功覆盖，要么保持旧密钥**
+📌 **Do not persist "in rotation"**
+📌 **Either overwrite successfully or keep the old key**
 
-这是**避免掉电/异常导致“半轮换”**的关键。
+This is the key to avoid "half-rotation" caused by power outage/abnormality**.
 
 ---
 
-## 状态 4：Disband（解散）
+## State 4: Disband (disband)
 
-### 行为规则（强制）
+### Behavior rules (mandatory)
 
-> **Disband = 数据销毁**
+> **Disband = data destruction**
 
-### 必须执行的持久化动作
+### Persistence actions that must be performed
 
 ```text
 DELETE persistent:
@@ -1755,51 +1755,51 @@ DELETE persistent:
 - TeamParams
 ```
 
-### 不允许的行为
+### Disallowed Behavior
 
-* ❌ 不允许标记“已解散但可恢复”
-* ❌ 不允许保留 team_id
-* ❌ 不允许缓存旧密钥
+* ❌ Not allowed to mark "disbanded but recoverable"
+* ❌ Not allowed to retain team_id
+* ❌ Not allowed to cache old keys
 
-📌 **Disband 是密码学意义上的死亡**
+📌 **Disband is cryptographically dead**
 
 ---
 
-## 三、Join 流程中的持久化时机（精确）
+## 3. Persistence timing in the Join process (accurate)
 
-### 成员设备（Member）
+### Member device (Member)
 
-| 时刻                   | 是否持久化 | 内容                               |
+| Time | Whether to persist | Content |
 | -------------------- | ----- | -------------------------------- |
-| 输入短码                 | ❌     | （仅 RAM）                          |
-| 发送 JOIN_REQUEST      | ❌     |                                  |
-| 收到 JOIN_ACCEPT 并成功解密 | ✅     | TeamIdentity + Secrets + Channel |
-| 切换到 CHT 成功           | ✅     | 同上                               |
+| Enter short code | ❌ | (RAM only) |
+| Send JOIN_REQUEST | ❌ | |
+| Receive JOIN_ACCEPT and decrypt successfully | ✅ | TeamIdentity + Secrets + Channel |
+| Switched to CHT successfully | ✅ | Same as above |
 | JOIN_CONFIRM         | ❌     |                                  |
 
 ---
 
-### 建队者（Leader）
+### Leader
 
-| 时刻          | 是否持久化 | 内容         |
+| Time | Whether to persist | Content |
 | ----------- | ----- | ---------- |
-| Create Team | ✅     | 全量 Team 数据 |
-| 接受新成员       | ❌     |            |
-| Rotate 成功   | ✅     | 覆盖密钥       |
-| Disband     | ❌（删除） |            |
+| Create Team | ✅ | Full Team data |
+| Accept new members | ❌ | |
+| Rotate successful | ✅ | Overwrite key       |
+| Disband | ❌(delete) | |
 
 ---
 
-## 四、你可以直接写进协议/实现文档的一句话规则
+## 4. A one-sentence rule that you can write directly into the protocol/implementation document
 
-> **只有“定义 Team 身份连续性的数据”才允许持久化；
-> 所有报文级、交互级状态都必须是可丢弃的。**
+> **Only "data that defines Team identity continuity" is allowed to be persisted;
+> All message-level and interaction-level states must be discardable. **
 
 ---
 
-## 五、一个非常实用的工程建议（重要）
+## 5. A very practical engineering suggestion (important)
 
-**把 Team 持久化做成一个“单一对象”**
+**Make Team persistence into a "single object"**
 
 ```text
 PersistentTeamState
@@ -1809,20 +1809,20 @@ PersistentTeamState
 ├── params
 ```
 
-* 有这个对象 → Team = Active
-* 没有这个对象 → Team = Idle
+* Have this object → Team = Active
+* There is no such object → Team = Idle
 
-📌 **不要拆散到多个 KV**
-📌 **不要用 flag 表示“在不在 Team”**
+📌 **Do not split into multiple KV**
+📌 **Do not use flag to indicate "whether you are in Team"**
 
 ---
 
-# 1️⃣ 建队流程（Leader）
+# 1️⃣ Team building process (Leader)
 
-## 持久化读写时序图
+## Persistent read and write sequence diagram
 
 ```
-时间 ↓
+Time ↓
 
 Leader Device
 ──────────────────────────────────────────────────────────────
@@ -1863,20 +1863,20 @@ Leader Device
 [PROTO] send JOIN_ACCEPT
 ```
 
-### 关键规则（必须遵守）
+### Key rules (must be followed)
 
-* ❌ **在 UI Confirm 之前，绝不写 Flash**
-* ✅ **第一次持久化 = Team 正式存在**
-* 💡 掉电在 Confirm 之前 → 自动回到 Idle（无残留）
+* ❌ **Never write Flash before UI Confirm**
+* ✅ **First persistence = Team officially exists**
+* 💡 Power off before Confirm → Automatically return to Idle (no residue)
 
 ---
 
-# 2️⃣ 加入流程（Member）
+# 2️⃣ Join the process (Member)
 
-## 持久化读写时序图（最容易出 bug 的地方）
+## Persistent read and write sequence diagram (the most likely place for bugs)
 
 ```
-时间 ↓
+Time ↓
 
 Member Device
 ──────────────────────────────────────────────────────────────
@@ -1938,25 +1938,25 @@ Member Device
 [PROTO] start TEAM_POSITION_APP
 ```
 
-### 关键规则（这是重点）
+### Key rules (this is the key point)
 
-* ❌ **收到 JOIN_ACCEPT ≠ 可以写 Flash**
-* ❌ **解密成功 ≠ 可以写 Flash**
-* ✅ **只有在“成功切换到 CHT”之后才允许持久化**
+* ❌ **JOIN_ACCEPT received ≠ can be written to Flash**
+* ❌ **Decryption successful ≠ can be written to Flash**
+* ✅ **Only after "Successful switch to Persistence is only allowed after CHT"**
 
-> 这是为了防止：
-> **“Flash 里记录着 Team，但无线层根本进不了 Team Channel”**
+> This is to prevent:
+> **"Team is recorded in Flash, but the wireless layer cannot enter the Team Channel at all"**
 
 ---
 
-# 3️⃣ 解散流程（Disband）
+# 3️⃣ Disband process (Disband)
 
-## 持久化删除时序图（最安全的一条）
+## Persistent deletion sequence diagram (the safest one)
 
-### 3A. Leader 解散 Team
+### 3A. Leader disbands Team
 
 ```
-时间 ↓
+Time ↓
 
 Leader Device
 ──────────────────────────────────────────────────────────────
@@ -1984,10 +1984,10 @@ Leader Device
 [PROTO] (optional) send TEAM_STATUS / TEAM_END
 ```
 
-### 3B. 普通成员离开 Team（Leave）
+### 3B. Ordinary members leave Team (Leave)
 
 ```
-时间 ↓
+Time ↓
 
 Member Device
 ──────────────────────────────────────────────────────────────
@@ -2007,18 +2007,18 @@ Member Device
 [PROTO] (optional) send LEAVE_NOTICE
 ```
 
-### 关键规则（必须统一）
+### Key rules (must be unified)
 
-* ❌ **不要先发报文再删数据**
-* ❌ **不要等待网络 ACK**
-* ✅ **删除持久化 = Team 立刻不存在**
+* ❌ **Don't send messages first and then delete data**
+* ❌ **Don't wait for network ACK**
+* ✅ **Delete persistence = Team will no longer exist immediately**
 
-> 报文是“礼貌”，
-> **删除密钥才是“事实”。**
+> Messages are "polite",
+> **Deleting the key is the "fact". **
 
 ---
 
-# 4️⃣ 旋转密钥（Rotate）补充：持久化原子性
+# 4️⃣ Rotate key (Rotate) supplement: persistence atomicity
 
 ```
 Leader Device
@@ -2049,119 +2049,119 @@ Leader Device
 [STATE] Team still ACTIVE (new key)
 ```
 
-### 关键规则
+### Key rules
 
-* ❌ **不允许“半写入”**
-* ❌ **不持久化 Rotate 进行中状态**
-* ✅ **要么全换，要么不换**
-
----
-
-# 5️⃣ 一条可以写进实现规范的铁律
-
-> **持久化只发生在“状态跃迁完成之后”，
-> 删除只发生在“状态跃迁开始之时”。**
+* ❌ ** "Half-write" is not allowed**
+* ❌ **Do not persist Rotate in-progress status**
+* ✅ **Either replace it all or not**
 
 ---
 
-# 6️⃣ 最终工程检查清单（你可以直接用）
+# 5️⃣ An iron rule that can be written into the implementation specification
 
-* [ ] Create Confirm 前没有任何 Flash 写入
-* [ ] Join 成功切换 CHT 前没有任何 Flash 写入
-* [ ] Disband / Leave 第一动作就是删除持久化
-* [ ] Rotate 只有一个原子写点
-* [ ] PersistentTeamState 是否是“单一对象”
+> **Persistence only occurs "after the state transition is completed",
+> Deletion only occurs "when the state transition begins". **
 
 ---
 
-# Team 持久化存储设计
+# 6️⃣ Final project checklist (you can use it directly)
+
+* [ ] There is no Flash writing before Create Confirm
+* [ ] There is no Flash writing before Join successfully switches CHT
+* [ ] Disband / Leave The first action is to delete persistence
+* [ ] Rotate has only one atomic write point
+* [ ] Is PersistentTeamState a "single object"
+
+---
+
+# Team persistent storage design
 
 ## NVS / Flash Layout & Wear Strategy
 
-> 设计目标：
+> Design goals:
 >
-> * 掉电安全
-> * 原子更新
-> * 最小擦写
-> * 明确“Team 存在 / 不存在”的判据
+> * Power-off safety
+> * Atomic updates
+> * Minimal erase
+> * Clarify the criteria for "Team existence/non-existence"
 
 ---
 
-## 一、总原则（先立铁律）
+## 1. General principles (establish the iron law first)
 
-### 1️⃣ Team 持久化 = **单一对象**
+### 1️⃣ Team persistence = **Single object**
 
-> **Flash 中只有一个“Team 是否存在”的真相源**
+> **There is only one source of truth for "Does Team exist" in Flash**
 
 ```text
 PersistentTeamState
 ```
 
-* 有它 → Team = Active
-* 没有它 → Team = Idle
+* With it → Team = Active
+* Without it → Team = Idle
 
-❌ 不使用多个 flag
-❌ 不在不同 namespace 里拆散
+❌ Do not use multiple flags
+❌ Do not split in different namespaces
 
 ---
 
-### 2️⃣ 写入次数极少，是“生命周期级别”的
+### 2️⃣ The number of writes is very small, it is "life cycle level"
 
-| 操作          | 写 Flash？ |
+| Operation | Writing Flash? |
 | ----------- | -------- |
-| 建队成功        | ✅ 一次     |
-| 成员加入成功      | ✅ 一次     |
-| Rotate Key  | ✅ 一次     |
-| 正常使用（位置/聊天） | ❌        |
-| 解散 / 离开     | ✅ 删除     |
+| Team establishment successful | ✅ Once |
+| Member joining successfully | ✅ Once |
+| Rotate Key | ✅ Once |
+| Normal use (location/chat) | ❌ |
+| Dismiss/leave | ✅ Delete |
 
-> **不是高频写场景**
-> 所以重点是 **正确性 > 极限性能**
-
----
-
-## 二、推荐存储方式（ESP32 实践）
-
-### ✅ 推荐：NVS（Non-Volatile Storage）
-
-原因：
-
-* 自带 wear leveling
-* 支持 blob
-* 支持 namespace
-* 原子语义清晰
-
-> 你现在的需求 **完全不需要自定义 raw flash**
+> **Not high-frequency writing scenes**
+> So the focus is **correctness > extreme performance**
 
 ---
 
-## 三、NVS Namespace 设计
+## 2. Recommended storage method (ESP32 practice)
+
+### ✅ Recommended: NVS (Non-Volatile Storage)
+
+Reason:
+
+* Comes with wear leveling
+* Supports blob
+* Support namespace
+* Clear atomic semantics
+
+> Your current needs **No need to customize raw flash**
+
+---
+
+## 3. NVS Namespace design
 
 ```text
 NVS Namespace: "team"
 ```
 
-**只有这一个 namespace 存 Team。**
+**Only this namespace stores Team. **
 
 ---
 
-## 四、Key 布局（极简但完整）
+## 4. Key layout (minimalist but complete)
 
-### 核心 Key 列表
+### Core Key List
 
-| Key          | 类型   | 说明                     |
+| Key | Type | Description |
 | ------------ | ---- | ---------------------- |
-| `version`    | u32  | 结构版本                   |
-| `team_state` | blob | 整个 PersistentTeamState |
+| `version` | u32 | Structure version |
+| `team_state` | blob | Entire PersistentTeamState |
 
-> ❗**不要拆成几十个 key**
-> 拆了就很难保证一致性与原子性
+> ❗**Do not split into dozens key**
+> If it is dismantled, it will be difficult to ensure consistency and atomicity
 
 ---
 
-## 五、PersistentTeamState 结构（Flash 中的唯一真相）
+## 5. PersistentTeamState structure (the only truth in Flash)
 
-### 逻辑结构（与你之前分析一致）
+### Logical structure (consistent with your previous analysis)
 
 ```text
 PersistentTeamState
@@ -2194,79 +2194,79 @@ PersistentTeamState
 
 ---
 
-### Header 设计（非常重要）
+### Header design (very important)
 
-| 字段        | 作用          |
+| Field | Function |
 | --------- | ----------- |
-| `magic`   | 判断是否存在 Team |
-| `version` | 结构版本        |
-| `length`  | 防截断         |
-| `crc32`   | 掉电 / 半写检测   |
+| `magic` | Determine whether Team exists |
+| `version` | Structure version |
+| `length` | Anti-truncation |
+| `crc32` | Power failure / half-write detection |
 
-📌 **header 是你对抗掉电与损坏的最后防线**
+📌 **header is your last line of defense against power failure and damage**
 
 ---
 
-## 六、写入策略（什么时候写，怎么写）
+## 6. Writing strategy (when to write, how to write)
 
-### 1️⃣ 写入只发生在“成功跃迁后”
+### 1️⃣ Writing only occurs "after successful transition"
 
-你前面定的规则，现在变成存储规则：
+The rules you set before now become storage rules:
 
-| 场景              | 写入内容                    |
+| Scenario | Write content |
 | --------------- | ----------------------- |
-| Create Confirm  | 写完整 PersistentTeamState |
-| Join 成功切换 CHT   | 写完整 PersistentTeamState |
-| Rotate 成功       | **整体覆盖写**               |
-| Disband / Leave | 删除 key                  |
+| Create Confirm | Write complete PersistentTeamState |
+| Join successfully switched CHT | Write complete PersistentTeamState |
+| Rotate successfully | **Overwrite write** |
+| Disband / Leave | Delete key |
 
 ---
 
-### 2️⃣ 写入方式：整体覆盖（不是增量）
+### 2️⃣ Writing method: overall coverage (not incremental)
 
 ```text
 nvs_set_blob("team", "team_state", &state, sizeof(state))
 nvs_commit()
 ```
 
-* 不修改子字段
-* 不做 patch
-* 不维护“正在 rotate”状态
+* Do not modify subfields
+* Do not patch
+* Do not maintain "rotating" status
 
-📌 **整体写 + CRC = 最稳**
+📌 **Write overall + CRC = most stable**
 
 ---
 
-## 七、擦写 / 删除策略（关键）
+## 7. Erase/Delete Strategy (Key)
 
-### 解散 / 离开 Team
+### Disband/Leave Team
 
 ```text
 nvs_erase_key("team", "team_state")
 nvs_commit()
 ```
 
-* **删除即事实**
-* 不保留“历史 Team”
-* 不留可恢复路径
+* **Deletion is a fact**
+* Does not retain "Historical Team"
+* Does not retain a recoverable path
 
 ---
 
-### 为什么不用 flag 表示“已解散”
+### Why not use flag to indicate "disbanded"
 
-因为：
+Because:
 
-* flag 本身也是状态
-* flag 需要维护一致性
-* flag 会引入“幽灵 Team”
+* The flag itself is also a state
+* flag needs to maintain consistency
+* flag will introduce "Ghost Team"
 
-**不存在 = 最干净**
+**Does not exist = cleanest**
 
 ---
 
-## 八、掉电与损坏恢复策略
+## 8. Power failure and damage recovery strategy
 
-### 启动时的判断逻辑（唯一入口）
+### Judgment logic at startup (the only entry)
 
 ```text
 if (nvs_has_key("team", "team_state")) {
@@ -2282,18 +2282,18 @@ if (nvs_has_key("team", "team_state")) {
 }
 ```
 
-📌 **任何异常 → 删除 → Idle**
+📌 **Any exception → Delete → Idle**
 
 ---
 
-## 九、Key Rotation 的原子性保证
+## 9. Key Rotation's atomicity guarantee
 
-### 正确做法（你前面已经定了）
+### Correct approach (you have already decided before)
 
-1. 新密钥 **只存在 RAM**
-2. 广播 Rotate
-3. 同步完成
-4. **一次性覆盖写 PersistentTeamState**
+1. New key **Only exists in RAM**
+2. Broadcast Rotate
+3. Synchronization completed
+4. **One-time overwrite PersistentTeamState**
 
 ```text
 old_state → new_state
@@ -2301,272 +2301,272 @@ nvs_set_blob(...)
 nvs_commit()
 ```
 
-❌ 不写中间态
-❌ 不写 `rotating = true`
+❌ Do not write intermediate states
+❌ Do not write `rotating = true`
 
 ---
 
-## 十、Flash 磨损分析（给你信心）
+## 10. Flash wear analysis (gives you confidence)
 
-### 最坏情况估算
+### Worst case estimation
 
-| 操作     | 次数      |
+| Operations | Times |
 | ------ | ------- |
-| 建队     | 1       |
-| Rotate | 假设 20 次 |
-| 解散     | 1       |
+| Team building | 1 |
+| Rotate | Assume 20 times |
+| Disband | 1 |
 
-**< 50 次写入 / Team 生命周期**
+**< 50 writes/Team life cycle**
 
-NVS 默认 wear leveling 足以支撑 **数十万次**。
+NVS default wear leveling is enough to support **hundreds of thousands of times**.
 
-👉 **可以放心**
-
----
-
-## 十一、一个非常重要的安全建议（强烈）
-
-### TeamSecrets 存储
-
-* 如果平台支持：
-
-  * 使用 **NVS encrypted partition**
-* 或：
-
-  * 在写入前，用 device-unique key 再包一层
-
-你不需要军工级，只需要：
-
-> **Flash 被 dump，TeamKey 不可直接读出**
+👉 **You can rest assured**
 
 ---
 
-## 十二、最终“实现检查清单”（你可以直接用）
+## 11. A very important safety suggestion (strong)
 
-* [ ] Team 只占用一个 NVS key
-* [ ] PersistentTeamState 有 magic + crc
-* [ ] 所有写入都是整体 blob
-* [ ] 解散 = erase key
-* [ ] 启动异常 = erase key
-* [ ] Rotate 只有一个 commit 点
+### TeamSecrets storage
 
----
+* If the platform supports:
 
-## 一句话总结这套设计
+ * Use **NVS encrypted partition**
+* or:
 
-> **Flash 里不保存“过程”，
-> 只保存“事实”。**
+ * Use device-unique key to wrap it again before writing
 
----
+You don't need military grade, just:
 
-## 1) 复盘的三种级别（先定产品边界）
-
-你要“整个生命周期所有事件落地”，但落地可以有不同强度：
-
-### A. 本地复盘（推荐默认）
-
-* **每台设备只记录自己看到/发出的事件**
-* 不需要全员上报
-* 最少协议改动
-* 复盘不一定 100%完整（取决于你当时是否收到包）
-
-### B. 领队完整复盘（可选增强）
-
-* Leader 设备尽量收集全队事件（仍然是“尽量”，无线环境无法保证 100%）
-* 更接近“行动记录仪”
-
-### C. 全队一致复盘（最重，不建议一开始做）
-
-* 需要全队 ACK/补齐/对账
-* 立刻把系统复杂度拉爆
-
-> 我建议：**先做 A**，再做 B（Leader 模式），C 暂时不碰。
+> **Flash is dumped, TeamKey cannot be read directly**
 
 ---
 
-## 2) 你要记录什么：事件模型（Event Sourcing 风格）
+## 12. Final "Implementation Checklist" (you can use it directly)
 
-把 Team 的一生理解为：**事件序列 + 状态重建**。
+* [ ] Team only occupies one NVS key
+* [ ] PersistentTeamState has magic + crc
+* [ ] All writes are integral blob
+* [ ] dissolve = erase key
+* [ ] Startup exception = erase key
+* [ ] Rotate has only one commit point
 
-### 事件必须包含的元信息（所有事件通用）
+---
 
-* `event_id`：唯一（可用 `sender_id + seq`）
+## Summarize this design in one sentence
+
+> **Flash does not save "process",
+> only saves "facts". **
+
+---
+
+## 1) Three levels of review (define product boundaries first)
+
+You want to "implement all events throughout the life cycle", but the implementation can have different intensities:
+
+### A. Local review (recommended default)
+
+* **Each device only records the events it sees/sends**
+* No need for all employees to report
+* Minimum protocol changes
+* The review may not be 100% complete (it depends on whether you received the package at that time)
+
+### B. Complete review of the team (optional enhancement)
+
+* The leader device tries to collect the events of the entire team (still "as much as possible", the wireless environment cannot guarantee 100%)
+* Closer to an "action recorder"
+
+### C. Consistent review of the whole team (the most important, not recommended at the beginning)
+
+* Requires ACK/complement/reconciliation from the entire team
+* Immediately increases system complexity
+
+> I suggest: **Do A** first, then B (Leader mode), and leave C alone for now.
+
+---
+
+## 2) What do you want to record: event model (Event Sourcing style)
+
+Understand the life of Team as: **event sequence + state reconstruction**.
+
+### Meta information that events must contain (common to all events)
+
+* `event_id`: unique (available `sender_id + seq`)
 * `team_id`
-* `ts`：事件发生时间（设备本地时间 + 可选 mesh 时间）
-* `sender_id`：节点 ID
+* `ts`: event occurrence time (device local time + optional mesh time)
+* `sender_id`: node ID
 * `event_type`
-* `payload`：按类型携带字段
-* `key_id`：当时使用的密钥版本（很重要，便于复盘解密）
+* `payload`: carry fields by type
+* `key_id`: the key version used at the time (very important, easy for re-display and decryption)
 
-### 事件类型建议（覆盖你当前系统）
+### Event type suggestions (covering your current system)
 
-**生命周期**
+**Lifecycle**
 
-* `TEAM_CREATED`（Leader 本地）
+* `TEAM_CREATED` (Leader local)
 * `TEAM_ADVERTISE_SENT/RECEIVED`
 * `TEAM_JOIN_REQUEST_SENT/RECEIVED`
 * `TEAM_JOIN_ACCEPT_SENT/RECEIVED`
 * `TEAM_JOIN_CONFIRM_SENT/RECEIVED`
 * `TEAM_STATUS_SENT/RECEIVED`
-* `TEAM_KEY_ROTATED`（含 old/new key_id）
+* `TEAM_KEY_ROTATED` (including old/new key_id)
 * `TEAM_DISBANDED` / `TEAM_LEFT`
 
-**行动**
+**Action**
 
-* `TEAM_POSITION_RX`（建议只存“采样后的”位置点）
+* `TEAM_POSITION_RX` (it is recommended to only save the "sampled" position points)
 * `TEAM_WAYPOINT_RX`
-* `TEAM_COMMAND_RX`（你未来的集合/求助等指令）
+* `TEAM_COMMAND_RX` (your future collection/help, etc. instructions)
 
-**异常**
+**Exception**
 
-* `DECRYPT_FAIL`（重要：复盘时能解释“为什么当时没显示”）
+* `DECRYPT_FAIL` (Important: can explain "why it was not displayed at the time" during review)
 * `REPLAY_DROP`
 * `MEMBER_LOST` / `MEMBER_RECOVERED`
 
 ---
 
-## 3) 日志存储位置：Flash vs SD 的现实选择
+## 3) Log storage location: A realistic choice between Flash vs SD
 
-### 如果你有 SD 卡（强烈推荐）
+### If you have an SD card (strongly recommended)
 
-* 用 SD 文件做**追加写日志**（Flash 磨损问题直接变小）
-* 文件系统好用（导出、查看、同步）
+* Use SD files to do **append log** (Flash wear and tear problem will be reduced directly)
+* The file system is easy to use (export, view, synchronize)
 
-### 只有 Flash（NVS/自定义分区）
+### Only Flash (NVS/custom partition)
 
-* 也能做，但要用**环形日志（ring buffer）**
-* 写放大、磨损要精心控制
-* 不适合存“高频位置点”
+* can also be done, but you need to use **ring buffer (ring buffer)**
+* Write amplification and wear must be carefully controlled
+* Not suitable for storing "high-frequency position points"
 
-> 结论：**位置轨迹复盘几乎必然要 SD**，否则你必须极度降采样。
-
----
-
-## 4) 最关键：复盘与“解散销毁密钥”如何兼容？
-
-你之前的安全模型是：Disband 立即销毁 TeamKey → 历史不可读。
-而复盘要求：解散后仍能读历史。
-
-所以你要引入一个独立的日志密钥：
-
-### 新增密钥：`LogKey`
-
-* `LogKey = KDF(TeamKey, "log")` **可以**，但如果 Disband 会销毁 TeamKey，那 LogKey 也丢了。
-* 更合理：**创建 Team 时生成独立随机 LogKey**，并设置“是否保留”的策略。
-
-### 两种策略（对应产品开关）
-
-1. **默认：Disband 销毁 LogKey**
-
-   * 不可复盘
-   * 最强隐私承诺（默认建议）
-
-2. **开启复盘：Disband 保留 LogKey（仅本机）**
-
-   * 日志文件仍然是加密的
-   * 只有该设备能复盘
-   * 你仍可承诺：**TeamKey 销毁，网络权限消失；但本机保留行动记录**
-
-这其实很符合户外真实需求：
-
-* **通信权限**随队伍结束而结束
-* **行动记录**可由个人/领队保留
+> Conclusion: **Position trajectory review is almost bound to be SD**, otherwise you must extremely downsample.
 
 ---
 
-## 5) 写入策略：怎样既完整又不爆存储？
+## 4) The most important thing: How is the review compatible with "dissolution and destruction of keys"?
 
-### 位置点不要“每包都落盘”
+Your previous security model was: Disband Destroy TeamKey immediately → History is unreadable.
+The review requirement: you can still read history after disbandment.
 
-位置是最高频数据，必须做降采样：
+So you need to introduce an independent log key:
 
-* 规则一：**按时间采样**（例如每 10s/30s 记录一次）
-* 规则二：**按距离采样**（移动超过 20m 才记）
-* 规则三：异常优先（SOS/集合时临时升频）
+### New key: `LogKey`
 
-### 事件日志推荐结构：Append-only + Checkpoint
+* `LogKey = KDF(TeamKey, "log")` **Yes**, but if Disband will destroy the TeamKey, the LogKey will also be lost.
+* More reasonable: **Generate an independent random LogKey** when creating a Team, and set the "whether to keep" policy.
 
-为了复盘速度与稳定性：
+### Two strategies (corresponding to product switches)
 
-* `events.log`：追加写（每条事件一条记录）
-* `snapshot.bin`：偶尔写一个“当前 Team 状态快照”（比如每 5 分钟或每 200 条事件）
+1. **Default: Disband destroys LogKey**
 
-  * 复盘时：从最近快照开始回放事件，速度快
+ * Cannot be restored
+ * Strongest privacy commitment (default recommendation)
+
+2. **Enable restoration: Disband retains LogKey (only local machine)**
+
+ * Log files are still encrypted
+ * Only this device can be restored
+ * You can still commit: **TeamKey Destroy, network permission disappears; but the machine retains action records**
+
+This is actually in line with the real needs of the outdoors:
+
+* **Communication permission** ends when the team ends
+* **Action records** can be retained by the individual/team leader
 
 ---
 
-## 6) 存储格式建议（别纠结，选一个能跑的）
+## 5) Writing strategy: How to be complete without exploding storage?
 
-你已经在 protobuf 体系里，最顺：
+### The position point should not be "dropped in every package"
 
-* **protobuf event**（一条 event message）
-* 外层封一层 `LogRecord`：
+The position is the highest frequency data and must be downsampled:
 
-  * `len`（u16/u32）
-  * `record_type`（event/snapshot）
+* Rule 1: **Sampling by time** (for example, record once every 10s/30s)
+* Rule 2: **Sampling by distance** (recorded only when moving more than 20m)
+* Rule 3: Exception priority (temporary upscaling during SOS/assembly)
+
+### Recommended structure of event log: Append-only + Checkpoint
+
+For review speed and stability:
+
+* `events.log`: additional writing (one record for each event)
+* `snapshot.bin`: Occasionally write a "current Team status snapshot" (such as every 5 minutes or every 200 events)
+
+ * During review: play back events from the latest snapshot, fast
+
+---
+
+## 6) Storage format suggestions (don't worry, choose one that can run)
+
+You are already in protobuf In the system, the most smooth:
+
+* **protobuf event** (an event message)
+* The outer layer is sealed with a layer of `LogRecord`:
+
+  * `len`(u16/u32)
+  * `record_type`(event/snapshot)
   * `ciphertext`
-  * `crc32`（可选）
+ * `crc32` (optional)
 
-日志内容建议 **AEAD(LogKey)** 加密，保证：
+ Log content is recommended to be encrypted with **AEAD(LogKey)** to ensure:
 
-* 落地文件被拷走也看不懂
-* 文件被篡改能检测出来
-
----
-
-## 7) 复盘的输出是什么样？
-
-### 最小可用复盘（MVP）
-
-* 时间线：加入/离开/集合/求助/掉线/恢复
-* 地图回放：按时间推进显示轨迹（不要求动画，先做“按时间跳点”）
-
-### Leader 复盘增强
-
-* 统计：队伍最大拉开距离、成员掉线次数、集合耗时
-* 异常：谁长时间静止、谁电量低、何时丢包严重
+* Even if the landing file is copied, it will not be readable
+* File tampering can be detected
 
 ---
 
-## 8) 最重要的落地决策：你要不要“复盘开关”？
+## 7) What is the output of the review?
 
-我强烈建议在建队时就决定：
+### Minimum available replication (MVP)
+
+* Timeline: Join/Leave/Assemble/Ask for help/Disconnect/Restore
+* Map playback: Display the trajectory according to time (no animation required, do "jump by time" first)
+
+### Leader review enhancement
+
+* Statistics: The maximum distance between the team, the number of members disconnected, and the assembly time
+* Abnormalities: Who is stationary for a long time, who has low battery, when packet loss is serious
+
+---
+
+## 8) The most important implementation decision: Do you want to "replay the switch"?
+
+I strongly recommend deciding when building a team:
 
 * `Record mode: Off / Local / Leader`
 * `Retention: 1 day / 7 days / manual delete`
 * `Privacy: Keep logs encrypted (default)`
 
-并且在解散时：
+And when disbanding:
 
-* 如果 record off → 删除日志 + 销毁 LogKey
-* 如果 record on → 写入 `TEAM_DISBANDED` 事件 + 关闭记录，但保留 LogKey（本机）
-
----
-
-## 9) 你问的“整理一下”：需要持久化的新增数据
-
-在你之前 `PersistentTeamState` 基础上，加这几项就够：
-
-**当 Record=ON 时：**
-
-* `log_enabled`（bool）
-* `log_mode`（enum: LOCAL / LEADER）
-* `log_key`（bytes）✅（独立于 TeamKey）
-* `log_file_id` / `log_path`（如果 SD）
-* `log_seq`（用于事件递增编号）
-* `last_snapshot_offset`（可选）
-
-**当 Record=OFF 时：**
-
-* 不持久化任何 log 相关内容
+* If record off → delete log + destroy LogKey
+* If record on → write `TEAM_DISBANDED` event + close logging, but keep LogKey (native)
 
 ---
 
-# 1) SD 文件布局
+## 9) You asked to "organize it": New data that needs to be persisted
 
-## 1.1 目录结构（按 Team 会话分桶）
+On the basis of your previous `PersistentTeamState`, it is enough to add these items:
 
-建议每次 Team 生命周期（Create→Disband）生成一个 **session_id**（随机 64-bit 或时间戳+随机），作为一个会话目录。
+**When Record=ON:**
+
+* `log_enabled`(bool)
+* `log_mode`(enum: LOCAL / LEADER)
+* `log_key` (bytes)✅ (independent of TeamKey)
+* `log_file_id` / `log_path` (if SD)
+* `log_seq` (for event increment numbering)
+* `last_snapshot_offset` (optional)
+
+**When Record=OFF:**
+
+* Do not persist any log related content
+
+---
+
+# 1) SD file layout
+
+## 1.1 Directory structure (bucketed by Team session)
+
+It is recommended that each Team life cycle (Create→Disband) generate a **session_id** (random 64-bit or timestamp + random) as a session directory.
 
 ```
 /trail-mate/
@@ -2580,35 +2580,35 @@ NVS 默认 wear leveling 足以支撑 **数十万次**。
         snapshots.bin
 ```
 
-### 文件职责
+### File Responsibilities
 
-* `meta.json`（明文、可读）
+* `meta.json` (plain text, readable)
 
-  * 仅放非敏感信息：创建时间、设备名、版本号、记录模式等
-* `keys.bin`（加密/保护）
+ * Only store non-sensitive information: creation time, device name, version number, recording mode, etc.
+* `keys.bin` (encryption/protection)
 
-  * 存 LogKey 的封装（详见 3）
-* `events.log`（核心追加写日志）
+ * Store the package of LogKey (see 3 for details)
+* `events.log` (core appended write log)
 
-  * 事件流（加密记录）
-* `snapshot.idx`（小索引，方便快速定位）
+ * Event stream (encrypted record)
+* `snapshot.idx` (small index, convenient for quick positioning)
 
-  * 每个快照对应 `events.log` 的 offset + `snapshots.bin` 的 offset
-* `snapshots.bin`（快照流，追加写）
+ * Each snapshot corresponds to the offset of `events.log` + the offset of `snapshots.bin`
+* `snapshots.bin` (snapshot stream, append writing)
 
-  * 复盘加速的状态快照（加密记录）
+ * State snapshot for recovery acceleration (encrypted record)
 
-> **MUST**：`events.log` 与 `snapshots.bin` 都是 *append-only*（只追加、不改写、不截断）。
-> **SHOULD**：每天分目录，方便清理/归档。
+> **MUST**: `events.log` and `snapshots.bin` They are all *append-only* (only append, no rewrite, no truncation).
+> **SHOULD**: Divide into directories every day to facilitate cleaning/archiving.
 
 ---
 
-# 2) LogRecord 二进制格式（通用记录容器）
+# 2) LogRecord binary format (universal recording container)
 
-`events.log` 和 `snapshots.bin` 使用同一种 record 容器：`LogRecord`。
-每条记录都是：**固定头 + 变长密文 + 可选 CRC**。
+`events.log` and `snapshots.bin` use the same record container: `LogRecord`.
+Each record is: **fixed header + variable length ciphertext + optional CRC**.
 
-## 2.1 LogRecord 结构（小端序 Little-endian）
+## 2.1 LogRecord structure (Little-endian)
 
 ```
 +-------------------------------+
@@ -2633,52 +2633,52 @@ NVS 默认 wear leveling 足以支撑 **数十万次**。
 +-------------------------------+
 ```
 
-### 固定头字段说明
+### Fixed header field description
 
-* `magic`：用于快速扫描与恢复
-* `version`：格式版本
-* `type`：EVENT / SNAP
-* `flags`：位标志（是否有 trailer_crc、是否压缩等）
-* `header_len`：头部总长度（方便未来扩展 AAD）
-* `body_len`：密文长度
-* `session_id`：会话绑定（防止混写）
-* `seq`：单调递增序号（掉电恢复、去重、对齐）
-* `ts_ms`：记录写入时间（或事件发生时间，看你定义）
-* `key_id`：LogKey 轮换版本（可选但强烈推荐）
-* `nonce(12)`：AEAD nonce（每条记录唯一）
-* `aad_crc32`：对 AAD 计算 CRC（用来快速判断 header 是否被破坏）
+* `magic`: used for fast scanning and recovery
+* `version`: format version
+* `type`:EVENT / SNAP
+* `flags`: bit flags (whether there is trailer_crc, compression, etc.)
+* `header_len`: total header length (to facilitate future expansion of AAD)
+* `body_len`: ciphertext length
+* `session_id`: session binding (preventing mixed writing)
+* `seq`: Monotonically increasing sequence number (power failure recovery, deduplication, alignment)
+* `ts_ms`: Record writing time (or event occurrence time, depending on your definition)
+* `key_id`: LogKey rotation version (optional but highly recommended)
+* `nonce(12)`: AEAD nonce (unique for each record)
+* `aad_crc32`: Calculate CRC for AAD (used to quickly determine whether the header is damaged)
 
-> **MUST**：`seq` 单调递增且不重复（同一 session 内）。
-> **MUST**：`nonce` 在同一 `key_id` 下不可重复。
-> **SHOULD**：`header_len` 允许携带扩展 AAD（比如 sender_id、event_type 等的明文字段）。
+> **MUST**: `seq` Monotonically increasing and not repeated (within the same session).
+> **MUST**: `nonce` cannot be repeated under the same `key_id`.
+> **SHOULD**: `header_len` allows carrying extended AAD (such as clear text fields of sender_id, event_type, etc.).
 
 ---
 
-## 2.2 flags 位定义（建议）
+## 2.2 flags bit definition (recommended)
 
-* bit0: `HAS_TRAILER_CRC`（记录末尾带 `trailer_crc32`）
-* bit1: `BODY_COMPRESSED`（密文内部的明文在加密前压缩）
-* bit2: `TS_IS_EVENT_TIME`（ts_ms 表示事件发生时间，否则表示写入时间）
+* bit0: `HAS_TRAILER_CRC` (with `trailer_crc32` at the end of the record)
+* bit1: `BODY_COMPRESSED` (the plaintext inside the ciphertext is compressed before encryption)
+* bit2: `TS_IS_EVENT_TIME` (ts_ms represents the event occurrence time, otherwise it represents the writing time)
 * bit3: `RESERVED`
 
-> 推荐默认打开 `HAS_TRAILER_CRC`。即使 AEAD 能校验密文完整性，CRC 仍对**快速定位损坏/截断**很有价值。
+> It is recommended to turn on `HAS_TRAILER_CRC` by default. Even though AEAD can verify ciphertext integrity, CRC is still valuable for **quickly locating corruption/truncation**.
 
 ---
 
-# 3) 加密与密钥存放（LogKey）
+# 3) Encryption and key storage (LogKey)
 
-## 3.1 LogKey 的定位
+## 3.1 Positioning of LogKey
 
-* TeamKey 用于 Team 通信（可能在 Disband 时销毁）
-* **LogKey 用于日志加密**，是否保留由 “Record Mode/Retention Policy” 决定
+* TeamKey is used for Team communication (may be destroyed during Disband)
+* **LogKey is used for log encryption**, whether to retain it is determined by "Record Mode/Retention Policy"
 
-> 你想要“可复盘”，就必须 **在 Disband 后仍可获得 LogKey**（至少在本机）。
+> If you want to be "recoverable", you must **still obtain it after Disband LogKey** (at least on this machine).
 
-## 3.2 keys.bin（推荐结构）
+## 3.2 keys.bin (recommended structure)
 
-`keys.bin` 不要明文放 LogKey。建议用设备唯一密钥封装（例如 ESP32 NVS 加密分区 / eFuse key / 或你自己的 device key）。
+`keys.bin` Do not put LogKey in plain text. It is recommended to wrap it with a device unique key (such as ESP32 NVS encrypted partition / eFuse key / or your own device key).
 
-`keys.bin` 内容建议也是一个小的 `KeyRecord`：
+`keys.bin` content suggestion is also a small `KeyRecord`:
 
 ```
 magic "TKEY" (4)
@@ -2692,99 +2692,99 @@ ciphertext (var) = AEAD(DeviceKey, LogKeyMaterial)
 crc32 (4)
 ```
 
-其中 `LogKeyMaterial` 至少包含：
+ Among them `LogKeyMaterial` contains at least:
 
 * `log_key` (32 bytes)
-* `kdf_info`/algo id（可选）
-* `created_ts`（可选）
+* `kdf_info`/algo id (optional)
+* `created_ts` (optional)
 
-> **MUST**：设备没有解封 `keys.bin` 的能力时，不允许进入复盘（避免误显示）。
+> **MUST**: The device is not unblocked When `keys.bin` has the ability, it is not allowed to enter the review (to avoid false display).
 
 ---
 
-# 4) events.log 里明文到底放什么（EVENT 内容）
+# 4) What is the plain text in events.log (EVENT content)
 
-EVENT 的明文建议用 protobuf（或你自定义 TLV），然后 AEAD 加密。
+It is recommended to use protobuf (or your own custom TLV) for the plain text of EVENT, and then encrypt it with AEAD.
 
-### 明文建议结构：`TeamEvent`（protobuf）
+### Plain text suggestion structure: `TeamEvent` (protobuf)
 
-包含：
+Contains:
 
 * `event_type`
 * `sender_id`
 * `team_id`
-* `payload`（按类型 oneof）
-* `mesh_ts`（可选）
-* `rx_rssi/snr`（可选）
-* `seq_in_mesh`（可选）
+* `payload` (by type oneof)
+* `mesh_ts` (optional)
+* `rx_rssi/snr` (optional)
+* `seq_in_mesh` (optional)
 
-> **SHOULD**：把 `event_type` 放到 LogRecord 的 AAD 扩展里（明文），这样你可以不解密就做快速过滤/统计；但会泄露“事件类别”——如果你非常在意隐私，就不要这么做，把一切放密文里。
-
----
-
-# 5) CRC 策略（掉电与损坏恢复的关键）
-
-你有三层完整性：
-
-1. AEAD tag：保证密文不可篡改（但无法判断“文件截断”位置）
-2. `aad_crc32`：快速判断 header 是否损坏
-3. `trailer_crc32`：对整个 record（从 magic 到 ciphertext）做 CRC，便于恢复扫描
-
-### trailer_crc32 计算范围（建议）
-
-对 `LogRecord` 从 `magic` 开始到 `ciphertext` 末尾（不含 trailer_crc32 本身）做 CRC32。
-
-> **MUST**：读取时若 CRC 不匹配，该 record 之后的数据可视为不可信，进入恢复扫描模式。
+> **SHOULD**: Put `event_type` in the AAD extension of LogRecord (plain text), so that you can do quick filtering/statistics without decryption; but it will leak the "event category" - if you care about privacy very much, don't do this, put everything in cipher text.
 
 ---
 
-# 6) 追加写策略（append-only）
+# 5) CRC strategy (the key to power-off and damage recovery)
 
-## 6.1 写入流程（每条 record）
+You have three levels of integrity:
 
-1. 组装明文 event
-2. 生成 nonce
-3. AEAD 加密得到 ciphertext
-4. 写入 LogRecord 头 + ciphertext
-5. 写入 trailer_crc32（若启用）
-6. `fsync/flush`（看你平台：至少在关键事件/周期性 flush）
+1. AEAD tag: ensure that the ciphertext cannot be tampered with (but cannot determine the "file truncation" position)
+2. `aad_crc32`: quickly determine whether the header is damaged
+3. `trailer_crc32`: Do CRC on the entire record (from magic to ciphertext) to facilitate recovery scanning
 
-### Flush 策略（SD 实用建议）
+### trailer_crc32 calculation range (recommended)
 
-* 普通事件：可每 N 条或每 T 秒 flush 一次（例如 2s）
-* 关键事件（TEAM_CREATED / DISBANDED / ROTATED / SOS）：**立即 flush**
+Do CRC32 on `LogRecord` starting from `magic` to the end of `ciphertext` (excluding trailer_crc32 itself).
 
-> **SHOULD**：实现一个 `LogWriter`，内部有小缓冲；但不要大到掉电损失太多。
+> **MUST**: If the CRC does not match when reading, the data after the record can be regarded as untrustworthy and the recovery scan mode will be entered.
 
 ---
 
-# 7) 快照策略（snapshot + index）
+# 6) Append writing strategy (append-only)
 
-复盘如果只靠 replay events，会越来越慢。快照就是为了“从某个点开始回放”。
+## 6.1 Writing process (each record)
 
-## 7.1 快照内容
+1. Assemble plaintext event
+2. Generate nonce
+3. AEAD encryption to get ciphertext
+4. Write LogRecord header + ciphertext
+5. Write trailer_crc32 (if enabled)
+6. `fsync/flush` (depends on your platform: at least during critical events/periodic flush)
 
-快照明文建议存：
+### Flush strategy (SD practical suggestions)
 
-* 当前 `key_id`
-* 成员表（最近可见成员、最后位置）
-* 当前 waypoint/assemble point
-* 关键参数（采样策略）
-* `last_event_seq`（快照覆盖到的最后事件序号）
+* Ordinary events: flush once every N items or every T seconds (for example, 2s)
+* Key events (TEAM_CREATED / DISBANDED / ROTATED / SOS): **flush immediately**
 
-然后 AEAD(LogKey) 加密，写入 `snapshots.bin`（同 LogRecord 格式，type=SNAP）。
+> **SHOULD**: implement a `LogWriter` has a small internal buffer; but it should not be so large that it will suffer too much loss due to power failure.
 
-## 7.2 何时写快照（建议）
+---
 
-* 每 **N 条事件**（例如 200）
-* 或每 **T 秒**（例如 60s）
-* 或关键事件后（rotate/disband）
+# 7) Snapshot strategy (snapshot + index)
 
-> **MUST**：快照写入不应影响实时通信，必须可丢弃（失败不影响主功能）。
+If the review only relies on replay events, it will become slower and slower. Snapshots are meant to "start playback from a certain point."
 
-## 7.3 snapshot.idx（小索引，明文）
+## 7.1 Snapshot content
 
-索引是一条条固定长度记录，追加写，便于快速定位最新快照：
+Snapshot text is recommended to be saved:
+
+* Current `key_id`
+* Member table (most recently visible member, last position)
+* Current waypoint/assemble point
+* Key parameters (sampling strategy)
+* `last_event_seq` (the last event sequence number covered by the snapshot)
+
+Then AEAD(LogKey) encrypts and writes to `snapshots.bin` (same as LogRecord format, type=SNAP).
+
+## 7.2 When to write snapshots (recommendations)
+
+* Every **N events** (for example, 200)
+* or every **T seconds** (for example, 60s)
+* or after key events (rotate/disband)
+
+> **MUST**: Snapshot writes should not affect real-time communication and must be discardable (failure does not affect main functionality).
+
+## 7.3 snapshot.idx (small index, plain text)
+
+The index is a fixed-length record, appended to write, to quickly locate the latest snapshot:
 
 ```
 IdxEntry (fixed 32 bytes):
@@ -2797,77 +2797,77 @@ IdxEntry (fixed 32 bytes):
 - snaps_offset (8)      // snapshots.bin offset for this snapshot
 ```
 
-> **SHOULD**：`snapshot.idx` 可明文，因为它只暴露 offset；如果你认为“有无快照/频率”也敏感，可把 idx 也加密，但工程复杂度会上升。
+> **SHOULD**: `snapshot.idx` can be plain text, because it only exposes offset; if you think "whether there is a snapshot/frequency" is also sensitive, you can put idx Also encrypted, but the engineering complexity will increase.
 
 ---
 
-# 8) 恢复与复盘读取流程（掉电后可自愈）
+# 8) Recovery and replication process (self-healing after power failure)
 
-## 8.1 打开一个 session 的复盘步骤
+## 8.1 Opening a session's replication steps
 
-1. 读取 `meta.json`（可选）
-2. 解封 `keys.bin` 得到 LogKey
-3. 读取 `snapshot.idx`，找到最后一个可用快照（校验 snap record CRC/AEAD）
-4. 从快照恢复状态
-5. 从 `events.log` 的 `events_offset` 开始，顺序读取 record：
+1. Read `meta.json` (optional)
+2. Unpack `keys.bin` to get LogKey
+3. Read `snapshot.idx` to find the last available snapshot (check snap record CRC/AEAD)
+4. Restore state from snapshot
+5. From Starting from `events_offset` of `events.log`, read records sequentially:
 
-   * magic 检查
-   * header/aad_crc32 检查
-   * trailer_crc32（若启用）
-   * AEAD 解密
-   * 解析 event → 回放更新状态
+ * magic check
+ * header/aad_crc32 check
+ * trailer_crc32 (if enabled)
+ * AEAD decryption
+ * parse event → playback update status
 
-## 8.2 恢复扫描（文件损坏/截断）
+## 8.2 Recovery scan (file corruption/truncation)
 
-当发现 CRC 不匹配或读到半条 record：
+When CRC found No match or half record read:
 
-* 进入扫描模式：按字节滑动找下一个 `"TLOG"` magic
-* 找到后尝试解析 header_len/body_len 是否合理
-* CRC 通过则继续
+* Enter scan mode: slide by byte to find the next `"TLOG"` magic
+* After finding it, try to parse header_len/body_len to see if it is reasonable
+* If the CRC passes, continue
 
-> **MUST**：扫描必须有上限（避免在损坏文件上死循环）。
+> **MUST**: The scan must have an upper limit (to avoid endless loops on damaged files).
 
 ---
 
-# 9) 文件滚动与保留策略（防止无限增长）
+# 9) File rolling and retention strategy (preventing unlimited growth)
 
-## 9.1 单 session 文件滚动
+## 9.1 Single session file rolling
 
-建议 `events.log` 达到阈值就切分：
+It is recommended that `events.log` be split when it reaches the threshold:
 
 * `events_0001.log`
 * `events_0002.log`
 
-同理快照。
+Similar to snapshots.
 
-阈值建议：
+Threshold recommendation:
 
-* 4MB / 16MB / 64MB 任选一个（看 SD/需求）
-* 位置点多的话建议更小，便于导出与修复
+* Choose one of 4MB / 16MB / 64MB (see SD/requirements)
+* If there are many locations, it is recommended to be smaller for easy export and repair
 
-## 9.2 Retention（保留期）
+## 9.2 Retention (retention period)
 
-* `meta.json` 里记录 retention policy
-* 定期清理 `YYYYMMDD` 目录
+* Record retention policy in `meta.json`
+* Regularly clean the `YYYYMMDD` directory
 
-> **MUST**：用户应能“一键删除某次行动记录”（删除整个 `T_<session_id>` 目录）。
+> **MUST**: Users should be able to "delete an action record with one click" (delete the entire `T_<session_id>` directory).
 
 ---
 
-# 10) 最小实现版本（你可以先落地这个）
+# 10) Minimum implementation version (you can implement this first)
 
-如果你要先快速跑起来，我建议 MVP：
+If you want to run quickly first, I recommend MVP:
 
-* 只要三个文件：
+* Only three files:
 
   * `meta.json`
   * `keys.bin`
   * `events.log`
-* `events.log`：LogRecord + AEAD + trailer_crc32
-* 不做快照、不做 idx
-* 位置事件做强制降采样（例如 10s 一条）
+* `events.log`:LogRecord + AEAD + trailer_crc32
+* No snapshots, no idx
+* Forced downsampling of location events (for example, one every 10s)
 
-后续再加：
+Added later:
 
 * `snapshots.bin` + `snapshot.idx`
 

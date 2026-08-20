@@ -1,8 +1,8 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>目标能力解析</title><style>:root{color-scheme:dark}body{background:#0b1219;color:#e8f2f8;font:15px/1.6 system-ui}main{max-width:900px;margin:auto;padding:28px}section{background:#111c26;border:1px solid #294052;border-radius:12px;padding:20px}a{color:#70d7ff}pre{white-space:pre-wrap;background:#081018;padding:18px;border-radius:8px}</style></head><body><main><h1>目标能力解析</h1><p><a href="model.html">返回设备目标、能力与权威模型</a></p><section><pre class="mermaid">flowchart LR
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Target capability analysis</title><style>:root{color-scheme:dark}body{background:#0b1219;color:#e8f2f8;font:15px/1.6 system-ui}main{max-width:900px;margin:auto;padding:28px}section{background:#111c26;border:1px solid #294052;border-radius:12px;padding:20px}a{color:#70d7ff}pre{white-space:pre-wrap;background:#081018;padding:18px;border-radius:8px}</style></head><body><main><h1>Target capability analysis</h1><p><a href="model.html">Return device target, capability and authority model</a></p><section><pre class="mermaid">flowchart LR
   Target --&gt; Manifest["TargetManifestView"]
   Manifest --&gt; Declared["Declared capability"]
   Probe --&gt; Status["CapabilityStatus"]
   Authority["AuthorityBinding"] --&gt; Status
   Declared --&gt; Status
   Status --&gt; Feature
-  Status --&gt; Reason</pre><p>编译成功不是能力证明；状态必须能解释不可用和降级。</p></section></main></body></html>
+  Status --&gt; Reason</pre><p>Successful compilation is not proof of capability; the status must be able to explain unavailability and degradation.</p></section></main></body></html>

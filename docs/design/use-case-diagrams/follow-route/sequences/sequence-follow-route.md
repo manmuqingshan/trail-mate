@@ -1,4 +1,4 @@
-# Sequence：Fix 到偏航投影
+# Sequence: Fix to yaw projection
 ```mermaid
 sequenceDiagram
   participant Store as Route Storage
@@ -10,25 +10,25 @@ sequenceDiagram
   UI->>Policy: nearest_route_distance_m(fix,segments)
   Policy->>Policy: apply enter/exit hysteresis
   Policy-->>UI: on-route / deviated + distance
-  Note over Policy: 这里是待迁出的设计责任，不是已形成领域服务
+ Note over Policy: Here are design responsibilities to be moved out, not formed domain services
 ```
 
-## 当前事实与目标边界
+## Current fact and target boundaries
 
-Route Storage、LocationService 和 UI runtime 是现有参与者。图中的 Policy 是当前 UI 内部逻辑的概念标签，不代表代码已有 `DeviationPolicy` 领域服务。
+Route Storage, LocationService and UI runtime are existing participants. The Policy in the figure is the conceptual label of the current UI internal logic. It does not mean that the code already has the `DeviationPolicy` domain service.
 
-## 顺序与 revision
+## Sequence and revision
 
-路线加载成功后形成 route revision；每个 valid fix revision 只评估一次。距离计算结果必须关联两者，旧路线或旧 fix 的迟到计算不能更新当前偏航投影。
+A route revision is formed after the route is loaded successfully; each valid fix revision is only evaluated once. The distance calculation must be correlated between the two, late calculations from old routes or old fixes cannot update the current yaw projection.
 
-## 状态连续性
+## State continuity
 
-最近 segment 和当前 on-route/deviated 状态属于 NavigationSession 才能稳定表达。当前 UI owner 应至少保持双阈值迟滞；未来迁移时不能把每次 fix 当成无状态函数调用。
+The most recent segment and the current on-route/deviated state belong to the NavigationSession to achieve stable expression. The current UI owner should maintain at least double-threshold hysteresis; in future migrations, each fix cannot be regarded as a stateless function call.
 
-## 暂停与恢复
+## Pause and resume
 
-无可信 fix 时停止评估并显示 paused/unknown，保留上一状态及其时间。路线读取失败不创建 session；路线发生 revision 变化时重新建立进度或要求用户确认。
+Stop evaluation and display paused/unknown when there is no trusted fix, and retain the previous state and its time. A session will not be created if the route reading fails; the progress will be re-established or the user will be asked to confirm when the route revision changes.
 
-## 设计缺口与测试
+## Design gaps and testing
 
-缺失 RouteProgress、目标点推进、到达事件和重入规则。现有测试应先锁定距离与迟滞行为，再为目标模型添加自交路线、平行 segment、旧 revision 和 fix 恢复场景。
+Missing RouteProgress, target point advancement, arrival events and reentrancy rules. Existing tests should first target distance and hysteresis behavior before adding self-intersecting routes, parallel segments, and old revision and fix recovery scenarios to the target model.

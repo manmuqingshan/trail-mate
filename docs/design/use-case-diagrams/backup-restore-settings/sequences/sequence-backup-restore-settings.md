@@ -1,7 +1,7 @@
-# Sequence：Settings Backup Store
+# Sequence:Settings Backup Store
 ```mermaid
 sequenceDiagram
-  actor U as 用户
+ actor U as user
   participant UI as Settings
   participant Backup as Settings Backup Runtime
   participant Config as Config Stores
@@ -19,22 +19,22 @@ sequenceDiagram
   Config-->>UI: reinitialize/reboot required
 ```
 
-## 场景与责任
+## Scenarios and responsibilities
 
-Settings 收集用户命令；Backup Runtime 定义版本化格式和事务；Config Stores 提供受支持字段与原子应用；SD Filesystem 只负责文件语义。UI 不直接遍历或覆盖各配置文件。
+Settings collects user commands; Backup Runtime defines versioned formats and transactions; Config Stores provides supported fields and atomic applications; SD Filesystem is only responsible for file semantics. The UI does not traverse or overwrite individual configuration files directly.
 
-## Backup 顺序
+## Backup sequence
 
-读取受支持设置形成不可变快照，写临时文件，flush/fsync/close 后原子 replace。任何阶段失败保留旧备份。UI 只有收到 replace 成功才显示新备份时间。
+Read supported settings to form an immutable snapshot, write temporary files, flush/fsync/close and then atomic replace. Any stage failure retains old backups. The UI will only display the new backup time after receiving replace successfully.
 
-## Restore 顺序
+## Restore order
 
-先完整 read、parse、版本迁移和字段验证，再调用 Config apply。验证失败不得写任何 owner。Apply 返回每个 owner 的生效策略：立即 reinitialize、下次启动或必须 reboot。
+First complete read, parse, version migration and field verification, and then call Config apply. No owner must be written if validation fails. Apply returns the effective policy for each owner: immediate reinitialize, next startup, or must reboot.
 
-## 一致性与敏感数据
+## Consistency and sensitive data
 
-跨多个 Config Store 的 apply 需要聚合 validation 和受控提交；否则中途失败会形成混合版本。备份格式明确标注敏感 key 是否包含，并避免在错误日志中输出值。
+Apply across multiple Config Stores requires aggregation of validation and controlled submission; otherwise, a mixed version will be formed if it fails midway. The backup format clearly marks whether sensitive keys are included and avoids outputting values ​​in the error log.
 
-## 测试
+## Tests
 
-覆盖 temp write/close/replace 失败、旧版本迁移、未知字段、跨 Store 验证失败、部分 apply 和 reboot-required 投影。
+Cover temp write/close/replace failure, old version migration, unknown fields, cross-Store verification failure, partial apply and reboot-required projections.

@@ -1,7 +1,7 @@
-# Sequence：Walkie Monitor
+# Sequence:Walkie Monitor
 ```mermaid
 sequenceDiagram
-  actor U as 用户
+ actor U as user
   participant UI as Walkie Page
   participant Runtime as Walkie Runtime
   participant Audio as Audio/Radio
@@ -16,22 +16,22 @@ sequenceDiagram
   UI->>Runtime: stop on exit
 ```
 
-## 场景与责任
+## Scenarios and responsibilities
 
-Walkie Page 发送生命周期命令并显示快照；Runtime 拥有 receiver session 和 monitor flag；Audio/Radio 拥有硬件。用户启用 monitor 只改变接收音频/测量，不产生发射命令。
+Walkie Page sends life cycle commands and displays snapshots; Runtime owns receiver session and monitor flag; Audio/Radio owns hardware. User enabled monitor only changes receive audio/measurements and does not generate transmit commands.
 
-## 启动顺序
+## Startup sequence
 
-图中省略的 capability 与 acquire 必须发生在 Runtime `start()` 内并先于硬件配置。start 失败返回不可用/忙原因，UI 不继续调用 monitor enable。
+The capabilities and acquires omitted in the figure must occur within Runtime `start()` and precede hardware configuration. If start fails, the reason is returned as unavailable/busy, and the UI does not continue to call monitor enable.
 
-## 刷新与新鲜度
+## Refresh and freshness
 
-status/levels 是有界频率的快照。每个快照带 session generation 和采样时间；迟到响应不能更新已退出或重新进入的页面。无新样本显示 unknown，而不是重复旧 RSSI。
+status/levels are snapshots of bounded frequencies. Each snapshot comes with a session generation and sampling time; late responses cannot update exited or re-entered pages. No new samples show unknown instead of repeating the old RSSI.
 
-## 停止与抢占
+## Stop and preemption
 
-页面退出、radio 抢占和硬件失败都调用同一 stop。stop 先停止刷新和音频，再释放 receiver/radio；重复 stop 安全。抢占后 UI 显示停止原因，不自动重新 acquire 形成争抢循环。
+The same stop is called for page exit, radio preemption and hardware failure. stop stops refresh and audio first, then releases receiver/radio; repeat stop for safety. After preemption, the UI displays the reason for the stop and does not automatically re-acquire, forming a contention loop.
 
-## 测试
+## Testing
 
-覆盖 capability 不支持、start 失败、enable/disable、刷新迟到、抢占和 exit/stop 幂等。
+Cover capability is not supported, start fails, enable/disable, refresh is late, preemption and exit/stop are idempotent.

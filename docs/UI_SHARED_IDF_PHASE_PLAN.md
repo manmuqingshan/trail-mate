@@ -1,70 +1,70 @@
-# UI Shared / IDF 迁移计划
+# UI Shared / IDF Migration Plan
 
-这份文档用于说明：如何把 UI 逻辑从各个 `apps/*` 中抽离出来，沉淀到可复用的 shared 层，并同时兼容 PlatformIO 与 ESP-IDF 两套入口。
-
----
-
-## 1. 目标
-
-### 1.1 总目标
-
-1. 把通用 UI 页面、shell、controller、runtime 接口集中到 `modules/ui_shared`
-2. 让 `apps/esp_pio` 与 `apps/esp_idf` 只保留各自平台入口、启动流程和适配器
-3. 避免 shared UI 直接依赖 Arduino 或 ESP-IDF 具体实现细节
-
-### 1.2 迁移原则
-
-- 页面结构、交互和状态逻辑优先沉淀到 shared 层
-- 平台差异收敛到 `platform/*` 和 app runtime adapter
-- 同一个页面不要在 PIO / IDF 各维护一份实现
-- 对暂时无法共享的能力，用 capability-gated fallback 占位
+This document is used to explain: how to extract UI logic from each `apps/*` and deposit it into a reusable shared layer that is compatible with both PlatformIO and ESP-IDF entrances.
 
 ---
 
-## 2. 分层边界
+## 1. Goal
+
+### 1.1 Overall goal
+
+1. Concentrate common UI pages, shells, controllers, and runtime interfaces into `modules/ui_shared`
+2. Let `apps/esp_pio` and `apps/esp_idf` Only keep the respective platform entrance, startup process and adapter
+3. Avoid shared UI directly relying on Arduino or ESP-IDF specific implementation details
+
+### 1.2 Migration principles
+
+- Page structure, interaction and state logic are first deposited into the shared layer
+- Platform differences converge to `platform/*` and app runtime adapter
+- Do not maintain an implementation of the same page in PIO / IDF respectively
+- For capabilities that cannot be shared temporarily, use capability-gated fallback to occupy the space
+
+---
+
+## 2. Layered boundary
 
 ### 2.1 `modules/ui_shared`
 
-承载：
+Host:
 
 - page shell
-- 页面组件
+- Page component
 - controller / presenter
-- runtime 抽象接口
-- 通用 fallback 页面
+- Runtime abstract interface
+- Universal fallback page
 
-不应直接依赖：
+Should not directly depend on:
 
 - `<Arduino.h>`
 - `<Preferences.h>`
 - `nvs.h`
-- 具体板级 API
+- Specific board-level API
 
 ### 2.2 `apps/esp_pio` / `apps/esp_idf`
 
-承载：
+Host:
 
 - startup / boot
-- menu / app catalog 入口
-- loop 驱动
-- 生命周期管理
-- facade / runtime adapter 装配
+- menu / app catalog entry
+- loop driver
+- life cycle management
+- facade / runtime adapter assembly
 
 ### 2.3 `platform/*`
 
-承载：
+Host:
 
-- 设备能力实现
-- 屏幕 / 睡眠 / 音频 / GPS / 存储等平台 API
-- Arduino 与 IDF 各自的 contract 实现
+- Device capability implementation
+- Screen/sleep/audio/GPS/storage and other platform APIs
+- Arduino and IDF respective contract implementation
 
 ---
 
-## 3. 当前状态（截至 2026-03-11）
+## 3. Current status (as of 2026-03-11)
 
-### 3.1 已经共享的页面骨架
+### 3.1 Shared page skeleton
 
-已经迁到 shared `shell + runtime/components/controller` 的页面：
+Has been moved to shared `shell + runtime/components/controller` page:
 
 - `Settings`
 - `Chat`
@@ -79,100 +79,100 @@
 - `Protocol Probe` (internal route: `energy_sweep`)
 - `Walkie Talkie`
 
-### 3.2 apps 侧现状
+### 3.2 apps side status
 
-`apps/esp_pio/src` 和 `apps/esp_idf/src` 已经逐步收敛到以下职责：
+`apps/esp_pio/src` and `apps/esp_idf/src` have gradually converged to the following responsibilities:
 
 - `startup_runtime.cpp`
 - `loop_runtime.cpp`
 - `app_runtime_access.cpp`
 - `app_registry.cpp`
 
-其中 `esp_idf` 还包含：
+Among them `esp_idf` Also included:
 
 - `runtime_config.cpp`
 - `app_facade_runtime.cpp`
 - `idf_entry.cpp`
 - `idf_component_anchor.cpp`
 
-### 3.3 已完成的清理
+### 3.3 Completed Cleanup
 
-- 一批旧的 IDF retired stub 已移除
-- `modules/ui_shared` 里的 `ui_common_stub.cpp` / `ui_status_stub.cpp` 已显著收缩
-- `apps/esp_pio/src` 下保留的 `ui_*.cpp` 多数只剩 wrapper 职责
-
----
-
-## 4. 分阶段计划
-
-## 阶段 0：盘点与止血
-
-### 目标
-
-- 先明确哪些页面已经 shared，哪些还残留 app 私有实现
-- 停止新增重复页面实现
-
-### 交付
-
-- 页面归属清单
-- app 私有 wrapper 清单
-- shared shell 缺口清单
+- A batch of old IDF retired stubs have been removed
+- `ui_common_stub.cpp` / `ui_status_stub.cpp` in `modules/ui_shared` has been significantly shrunk
+- Most of the `ui_*.cpp` retained under `apps/esp_pio/src` only have wrapper responsibilities
 
 ---
 
-## 阶段 1：apps 入口收敛
+## 4. Phased plan
 
-### 目标
+## Phase 0: Inventory and hemostasis
 
-把 `apps/esp_pio` 和 `apps/esp_idf` 收敛成“启动 + loop + runtime 接线”。
+### Goal
 
-### 任务
+- First clarify which pages have been shared and which ones still have app private implementation
+- Stop adding duplicate page implementation
 
-1. 把 `app_catalog` / `menu` / `startup` / `loop` 对齐到 shared 模式
-2. 清理 `apps/esp_pio` 中历史页面 wrapper / registry 特例
-3. 收敛 `app_runtime_access` 的生命周期与运行时访问
-4. 统一 `esp_pio` / `esp_idf` 的 startup / loop / event 驱动模式
+### Delivery
 
-### 完成标准
-
-- 两端 app 目录不再承载具体 UI 逻辑
-- app 入口能稳定驱动 shared app catalog / shared shell
+- Page ownership list
+- App private wrapper list
+- Shared shell gap list
 
 ---
 
-## 阶段 2：页面共享完成
+## Phase 1: apps entry convergence
 
-### 目标
+### Goal
 
-把页面层真正统一到 shared：
+Converge `apps/esp_pio` and `apps/esp_idf` into "start + loop + runtime wiring".
+
+### Tasks
+
+1. Align `app_catalog` / `menu` / `startup` / `loop` to shared mode
+2. Clean up the historical page wrapper / registry special case in `apps/esp_pio`
+3. Convergence Life cycle and runtime access of `app_runtime_access`
+4. Unify the startup / loop / event driver mode of `esp_pio` / `esp_idf`
+
+### Complete the standard
+
+- The app directories at both ends no longer carry specific UI logic
+- The app entry can stably drive the shared app catalog / shared shell
+
+---
+
+## Stage 2: Page sharing completed
+
+### Goal
+
+Really unify the page layer to shared:
 
 - shell
 - host
 - fallback
 - components / controller / runtime
 
-### 任务
+### Tasks
 
-1. 补齐 shared `shell + components/runtime`
-2. 移除 app 侧残留页面逻辑
-3. 统一 app catalog 与 shared page shell 的接线
-4. 对缺失能力使用 capability-gated fallback
+1. Complete shared `shell + components/runtime`
+2. Remove residual page logic on the app side
+3. Unify the wiring between app catalog and shared page shell
+4. Use capability-gated fallback for missing capabilities
 
-### 完成标准
+### Complete the standard
 
-- 页面结构只在 `modules/ui_shared` 维护
-- fallback 行为一致
-- app 侧不再复制页面实现
+- The page structure is only maintained in `modules/ui_shared`
+- The fallback behavior is consistent
+- The app side no longer copies the page implementation
 
 ---
 
-## 阶段 3：平台能力抽象完成
+## Phase 3: Platform capability abstraction completed
 
-### 目标
+### Goal
 
-把 shared UI 依赖的设备能力全部收敛到 adapter contract。
+Converge all the device capabilities that shared UI depends on into the adapter contract.
 
-### 需要抽象的能力
+### Requires the ability to abstract
 
 - restart
 - kv / config persistence
@@ -183,49 +183,49 @@
 - hostlink / USB capability hook
 - walkie / sstv / lora support
 
-### 落点
+### Placement
 
-- Arduino 实现在 `platform/esp/arduino_common`
-- IDF 实现在 `platform/esp/idf_common` 与 `apps/esp_idf/*runtime`
+- Arduino is implemented in `platform/esp/arduino_common`
+- IDF is implemented in `platform/esp/idf_common` and `apps/esp_idf/*runtime`
 
-### 完成标准
+### Complete the standard
 
-- `modules/ui_shared` 不再直接包含 ESP 专有头文件
-- shared 只依赖平台 contract
+- `modules/ui_shared` no longer directly contains ESP proprietary header files
+- shared only relies on platform contract
 
 ---
 
-## 阶段 4：配置与 profile 收敛
+## Phase 4: Configuration and profile convergence
 
-### 目标
+### Goal
 
-把设备 profile、视觉尺寸、能力差异统一到 runtime config / page profile。
+Unify device profile, visual size, and capability differences into runtime config / page profile.
 
-### 重点
+### Key points
 
 - `tab5`
 - `tdeck`
 - `pager`
 
-### 要求
+### Requirements
 
-- topbar、高度、间距、图标卡片等由 shared profile 驱动
-- 板级差异不散落在页面代码里
-
----
-
-## 5. 风险点
-
-- shared 页面已经完成结构迁移，但 runtime hook 仍可能带有平台耦合
-- PIO / IDF 两套入口的生命周期节奏不完全一致，容易出现事件顺序差异
-- fallback 如果设计过弱，短期内会掩盖真实缺口
-- profile 还未彻底统一前，不同设备上可能继续出现布局分叉
+- Topbar, height, spacing, icon cards, etc. are driven by shared profile
+- Board-level differences are not scattered in the page code
 
 ---
 
-## 6. 验收标准
+## 5. Risk points
 
-- `modules/ui_shared` 成为页面 UI 的唯一事实源
-- `apps/esp_pio` 与 `apps/esp_idf` 主要负责启动和装配
-- 平台差异只出现在 `platform/*` 与 runtime adapter
-- 新页面默认先落到 shared，而不是 app 私有目录
+- The shared page has completed structural migration, but the runtime hook may still have platform coupling
+- PIO / IDF The life cycle rhythms of the two sets of entrances are not completely consistent, and it is easy to have differences in the order of events
+- fallback If the design is too weak, it will cover up the real gaps in the short term
+- Before the profile is completely unified, layout bifurcation may continue to occur on different devices
+
+---
+
+## 6. Acceptance criteria
+
+- `modules/ui_shared` becomes the only source of truth for the page UI
+- `apps/esp_pio` and `apps/esp_idf` are mainly responsible for startup and assembly
+- Platform differences only appear in `platform/*` and runtime adapter
+-

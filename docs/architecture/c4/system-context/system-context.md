@@ -1,70 +1,70 @@
-# 系统上下文：trail-mate
+# System context: trail-mate
 
-C4 层级：System Context
-状态：candidate
-置信度：high
-项目版本：0.1.30-alpha
-Git：34aad0bffa2f / main / dirty
-更新于：2026-06-25T09:19:32.800Z
+C4 level: System Context
+Status: candidate
+Confidence: high
+Project version: 0.1.30-alpha
+Git:34aad0bffa2f / main / dirty
+Updated on: 2026-06-25T09:19:32.800Z
 
-## 定位
+## Positioning
 
-从 C4 System Context 层解释 trail-mate 这个目标软件系统所处的环境：谁使用它、它依赖或协作哪些外部系统，以及它作为一个黑盒的边界在哪里。
+Explain from the C4 System Context layer the environment in which the target software system of trail-mate is located: who uses it, which external systems it depends on or collaborates with, and where its boundaries are as a black box.
 
-## C4 层级路径
+## C4 hierarchy path
 
-- 当前层：System Context，解释目标软件系统与外部参与者、外部系统之间的边界。
-- 上层：无，这是当前 C4 树的根层。
-- 下层：Container，进入系统内部的应用、服务、数据存储或运行单元。
+- Current layer: System Context, explaining the boundaries between the target software system and external participants and external systems.
+- Upper level: None, this is the root level of the current C4 tree.
+- Lower layer: Container, which enters the applications, services, data storage or running units within the system.
 
-## 责任
+## Responsibility
 
-trail-mate 是当前打开并被分析的目标项目。System Context 只把它作为一个整体软件系统来观察，先说明谁会使用或调用它、它可能与哪些外部系统协作，再进入 Container 层解释内部边界。
+trail-mate is the currently open target project being analyzed. System Context only observes it as a whole software system, first explains who will use or call it, which external systems it may cooperate with, and then enters the Container layer to explain the internal boundaries.
 
-## 边界
+## Boundary
 
-System Context 必须围绕 trail-mate 这个目标系统本身；开发工具、模型服务、文档生成流程和 IDE 工作流不属于目标系统业务上下文，除非它们是目标项目自身实现的一部分。
+The System Context must surround the trail-mate target system itself; development tools, model services, document generation processes, and IDE workflows do not belong to the target system business context unless they are part of the implementation of the target project itself.
 
-## 关系
+## Relationships
 
-- trail-mate 是当前 C4 树的系统边界；内部实现只通过 Container 下钻展开。
-- 外部使用者、调用方或上游系统在当前仓库证据中没有被命名，因此本图只保留未命名外部参与者，不用工具侧角色代替真实业务角色。
-- 外部系统和第三方服务只有在仓库证据能够支撑时才细化；当前证据不足时，图中保留未命名外部系统占位并标注证据缺口。
+- trail-mate is the system boundary of the current C4 tree; the internal implementation is only expanded through Container drill-down.
+- External users, callers or upstream systems are not named in the current warehouse evidence, so this diagram only retains unnamed external actors and does not use tool-side roles to replace real business roles.
+- External systems and third-party services will only be detailed when the warehouse evidence can support them; when the current evidence is insufficient, the unnamed external system placeholder will be retained in the figure and the evidence gap will be marked.
 
-## 与业务复杂度的关联
+## Correlation with business complexity
 
-- 组织/过程模型负责解释业务故事和用例；System Context 只保留这些业务能力进入系统边界的外部角色或外部系统入口。
-- 如果业务参与者或业务外部系统尚未被文档确认，本图必须标记为候选，不得用工具侧角色替代真实业务上下文。
+- The organization/process model is responsible for explaining business stories and use cases; the System Context only retains the external roles or external system entrances for these business capabilities to enter the system boundary.
+- If the business actors or systems external to the business have not been documented, this diagram must be marked as a candidate and tool-side roles must not be used in place of the real business context.
 
-## 与技术复杂度的关联
+## Correlation with technical complexity
 
-- 软件结构模型基于本地仓库证据识别出 18 个 package/module、24 个 component 和 18 个复杂度候选点。
-- System Context 是架构视图的最高层入口；继续下钻到 5 个 Container 后，才能把系统边界落到可检查的应用、服务、数据存储或运行单元。
+- The software structure model identified 18 packages/modules, 24 components and 18 complexity candidates based on local repository evidence.
+- System Context is the top-level entrance to the architectural view; only after continuing to drill down to 5 Containers can the system boundaries be reduced to inspectable applications, services, data storage or running units.
 
-## C4 System Context 图
+## C4 System Context Diagram
 
 ```mermaid
 flowchart LR
-  actor["未命名外部参与者"]
+ actor["Unnamed external actor"]
   system["trail-mate"]
-  external["未命名外部系统"]
-  actor -->|使用 / 调用| system
-  system -.->|候选集成| external
+ external["Unnamed external system"]
+ actor -->|Use/call| system
+ system -.->|Candidate integration| external
 ```
 
-## 图内元素解释
+## Explanation of elements in the figure
 
-### 未命名外部参与者
+### Unnamed external actor
 
-- 层级：person
-- 说明：触发或使用 trail-mate 能力的人类角色、上游系统操作者或外部调用方。
-- 责任：触发或使用 trail-mate 能力的人类角色、上游系统操作者或外部调用方。
-- 边界：该参与者位于目标系统之外；当前只说明交互边界，不假设具体业务身份。
-- 关系意义：未命名外部参与者 是目标系统外部参与者；关系意义在于说明谁触发、使用或接收系统能力。
-- 为什么属于该层：它位于系统边界外或系统边界交界处，因此只在 System Context 层解释。
-- 下钻意图：围绕 未命名外部参与者 的下钻用于解释系统边界、外部协作或项目记忆证据。
-- 置信度：low
-- 证据：
+ - Level: person
+ - Description: A human role, upstream system operator, or external caller that triggers or uses the trail-mate capability.
+- Responsibility: The human actor, upstream system operator, or external caller who triggers or uses the trail-mate capability.
+- Boundary: The actor is outside the target system; currently only the interaction boundary is stated, no specific business identity is assumed.
+-Relationship meaning: The unnamed external actor is an external participant of the target system; the relationship meaning is to describe who triggers, uses or receives system capabilities.
+- Why it belongs to this layer: It is located outside the system boundary or at the junction of the system boundary, so it is only explained in the System Context layer.
+- Drill-down intent: Drill-down around Unnamed External Actors is used to explain system boundaries, external collaboration, or project memory evidence.
+- Confidence: low
+- Evidence:
   - apps/linux_uconsole_gtk
   - apps/esp32_lvgl
   - apps/nrf52_node
@@ -73,57 +73,57 @@ flowchart LR
 
 ### trail-mate
 
-- 层级：system_context
-- 说明：trail-mate 的整体软件系统边界。
-- 责任：trail-mate 的整体软件系统边界。
-- 边界：当前图只把目标项目作为一个整体系统，不展开内部模块、代码、文档生成流程或 IDE 运行机制。
-- 关系意义：trail-mate 是所有后续 Container、Component 和 Code View 的共同父边界；任何下钻都必须能回到这个目标系统，而不是开发工具自身的工作流。
-- 为什么属于该层：它代表整体系统边界，不展开内部实现。
-- 下钻意图：从 trail-mate 下钻到 Container，用来查看系统能力落在哪些架构边界。
-- 置信度：high
-- 证据：
+-Level: system_context
+-Description: The overall software system boundary of trail-mate.
+- Responsibility: overall software system boundaries for trail-mate.
+- Boundary: The current diagram only treats the target project as a whole system, and does not expand the internal modules, code, document generation process or IDE running mechanism.
+- Relationship meaning: trail-mate is the common parent boundary of all subsequent Containers, Components and Code Views; any drill-down must be able to return to this target system, not the workflow of the development tool itself.
+- Why it belongs to this layer: It represents the overall system boundary and does not expand the internal implementation.
+- Drill down intention: Drill down from trail-mate to Container to see which architectural boundaries the system capabilities fall on.
+- Confidence: high
+- Evidence:
   - apps/linux_uconsole_gtk
   - apps/esp32_lvgl
   - apps/nrf52_node
   - apps/linux_cardputer_zero
   - apps/linux_sim_shell
-- 可下钻：
-  - [容器边界：apps/linux_uconsole_gtk](../containers/apps-linux_uconsole_gtk/container.md) - 从系统上下文进入 容器边界：apps/linux_uconsole_gtk，是为了把目标系统放大到 apps/linux_uconsole_gtk 这个应用、服务、数据存储或运行单元，判断它如何承担系统内部的 C4 Container 职责。
-  - [容器边界：apps/esp32_lvgl](../containers/apps-esp32_lvgl/container.md) - 从系统上下文进入 容器边界：apps/esp32_lvgl，是为了把目标系统放大到 apps/esp32_lvgl 这个应用、服务、数据存储或运行单元，判断它如何承担系统内部的 C4 Container 职责。
-  - [容器边界：apps/nrf52_node](../containers/apps-nrf52_node/container.md) - 从系统上下文进入 容器边界：apps/nrf52_node，是为了把目标系统放大到 apps/nrf52_node 这个应用、服务、数据存储或运行单元，判断它如何承担系统内部的 C4 Container 职责。
-  - [容器边界：apps/linux_cardputer_zero](../containers/apps-linux_cardputer_zero/container.md) - 从系统上下文进入 容器边界：apps/linux_cardputer_zero，是为了把目标系统放大到 apps/linux_cardputer_zero 这个应用、服务、数据存储或运行单元，判断它如何承担系统内部的 C4 Container 职责。
-  - [容器边界：apps/linux_sim_shell](../containers/apps-linux_sim_shell/container.md) - 从系统上下文进入 容器边界：apps/linux_sim_shell，是为了把目标系统放大到 apps/linux_sim_shell 这个应用、服务、数据存储或运行单元，判断它如何承担系统内部的 C4 Container 职责。
+- Drill-down:
+ - [Container boundary: apps/linux_uconsole_gtk](../containers/apps-linux_uconsole_gtk/container.md) - Enter the container boundary: apps/linux_uconsole_gtk from the system context to enlarge the target system to apps/linux_uconsole_gtk This application, service, data store, or execution unit determines how it assumes C4 Container responsibilities within the system.
+ - [Container boundary: apps/esp32_lvgl](../containers/apps-esp32_lvgl/container.md) - Enter the container boundary: apps/esp32_lvgl from the system context in order to enlarge the target system to apps/esp32_lvgl, an application, service, data storage or running unit, and determine how it takes on the C4 Container inside the system. Responsibilities.
+ - [Container boundary: apps/nrf52_node](../containers/apps-nrf52_node/container.md) - Enter the container boundary: apps/nrf52_node from the system context in order to enlarge the target system to apps/nrf52_node, an application, service, data storage or running unit, and determine how it assumes the C4 Container responsibilities within the system.
+ - [Container boundary: apps/linux_cardputer_zero](../containers/apps-linux_cardputer_zero/container.md) - Enter the container boundary: apps/linux_cardputer_zero from the system context, in order to enlarge the target system to apps/linux_cardputer_zero, an application, service, data storage or running unit, and determine how it can bear the C4 inside the system. Container responsibilities.
+ - [Container boundary: apps/linux_sim_shell](../containers/apps-linux_sim_shell/container.md) - Enter the container boundary: apps/linux_sim_shell from the system context in order to enlarge the target system to apps/linux_sim_shell, an application, service, data storage or running unit, and determine how it assumes the C4 Container responsibilities within the system.
 
-### 未命名外部系统
+### Unnamed external system
 
-- 层级：external_system
-- 说明：trail-mate 可能调用或被调用的外部系统边界。
-- 责任：trail-mate 可能调用或被调用的外部系统边界。
-- 边界：当前仓库证据没有足够的接口、配置、依赖、部署或业务文档证据来命名具体外部系统，因此保留泛化边界。
-- 关系意义：这个节点表达外部协作证据不足的判定结果；不能用开发工具、模型服务或文档生成流程来填补目标系统的业务外部边界。
-- 为什么属于该层：它位于系统边界外或系统边界交界处，因此只在 System Context 层解释。
-- 下钻意图：围绕 未命名外部系统 的下钻用于解释系统边界、外部协作或项目记忆证据。
-- 置信度：low
-- 证据：
+ - Level: external_system
+ - Description: The boundary of an external system that trail-mate may call or be called on.
+- Responsibility: External system boundaries from which trail-mate may call or be called.
+- Boundary: The current warehouse evidence does not have enough interface, configuration, dependency, deployment or business documentation evidence to name a specific external system, so the general boundary is retained.
+-Relationship meaning: This node expresses the determination result that there is insufficient evidence of external collaboration; development tools, model services, or document generation processes cannot be used to fill the external business boundaries of the target system.
+- Why it belongs to this layer: It is located outside the system boundary or at the junction of the system boundary, so it is only explained in the System Context layer.
+- Drill down intent: Drill down around an unnamed external system to explain system boundaries, external collaboration, or project memory evidence.
+- Confidence: low
+- Evidence:
   - apps/linux_uconsole_gtk
   - apps/esp32_lvgl
   - apps/nrf52_node
   - apps/linux_cardputer_zero
   - apps/linux_sim_shell
 
-## 可下钻 C4
+## Can drill down to C4
 
-- [容器边界：apps/linux_uconsole_gtk](../containers/apps-linux_uconsole_gtk/container.md) - 从系统上下文进入 容器边界：apps/linux_uconsole_gtk，是为了把目标系统放大到 apps/linux_uconsole_gtk 这个应用、服务、数据存储或运行单元，判断它如何承担系统内部的 C4 Container 职责。
-- [容器边界：apps/esp32_lvgl](../containers/apps-esp32_lvgl/container.md) - 从系统上下文进入 容器边界：apps/esp32_lvgl，是为了把目标系统放大到 apps/esp32_lvgl 这个应用、服务、数据存储或运行单元，判断它如何承担系统内部的 C4 Container 职责。
-- [容器边界：apps/nrf52_node](../containers/apps-nrf52_node/container.md) - 从系统上下文进入 容器边界：apps/nrf52_node，是为了把目标系统放大到 apps/nrf52_node 这个应用、服务、数据存储或运行单元，判断它如何承担系统内部的 C4 Container 职责。
-- [容器边界：apps/linux_cardputer_zero](../containers/apps-linux_cardputer_zero/container.md) - 从系统上下文进入 容器边界：apps/linux_cardputer_zero，是为了把目标系统放大到 apps/linux_cardputer_zero 这个应用、服务、数据存储或运行单元，判断它如何承担系统内部的 C4 Container 职责。
-- [容器边界：apps/linux_sim_shell](../containers/apps-linux_sim_shell/container.md) - 从系统上下文进入 容器边界：apps/linux_sim_shell，是为了把目标系统放大到 apps/linux_sim_shell 这个应用、服务、数据存储或运行单元，判断它如何承担系统内部的 C4 Container 职责。
+- [Container boundary: apps/linux_uconsole_gtk](../containers/apps-linux_uconsole_gtk/container.md) - Enter the container boundary: apps/linux_uconsole_gtk from the system context, in order to enlarge the target system to apps/linux_uconsole_gtk, an application, service, data storage or running unit, and determine how it can bear the C4 inside the system. Container responsibilities.
+- [Container boundary: apps/esp32_lvgl](../containers/apps-esp32_lvgl/container.md) - Enter the container boundary: apps/esp32_lvgl from the system context, in order to enlarge the target system to apps/esp32_lvgl, an application, service, data storage or running unit, and determine how it takes on the C4 Container inside the system. Responsibilities.
+- [Container boundary: apps/nrf52_node](../containers/apps-nrf52_node/container.md) - Enter the container boundary: apps/nrf52_node from the system context in order to enlarge the target system to apps/nrf52_node, the application, service, data storage or running unit, and determine how it takes on the C4 Container inside the system. Responsibilities.
+- [Container boundary: apps/linux_cardputer_zero](../containers/apps-linux_cardputer_zero/container.md) - Enter the container boundary: apps/linux_cardputer_zero from the system context in order to enlarge the target system to apps/linux_cardputer_zero, an application, service, data storage or running unit, and determine how it can bear the C4 inside the system. Container responsibilities.
+- [Container boundary: apps/linux_sim_shell](../containers/apps-linux_sim_shell/container.md) - Enter the container boundary: apps/linux_sim_shell from the system context in order to enlarge the target system to apps/linux_sim_shell, an application, service, data storage or running unit, and determine how it assumes the C4 Container responsibilities within the system.
 
-## 关联软件结构模型
+## Associated software structural model
 
-- 当前没有关联 Engineering 文档。
+- There are currently no Engineering documents associated.
 
-## 证据
+## Evidence
 
 - apps/linux_uconsole_gtk
 - apps/esp32_lvgl
@@ -131,14 +131,14 @@ flowchart LR
 - apps/linux_cardputer_zero
 - apps/linux_sim_shell
 
-## 判定依据
+## Judgment basis
 
-- 当前本地证据尚未稳定命名真实外部使用者、调用方或上游系统，因此 System Context 保持黑盒系统与外部协作占位。
-- 外部系统、第三方服务或基础设施依赖只有在接口、配置、部署或业务文档提供证据时才细化为具体节点。
-- Container 候选必须来自运行入口、部署/构建配置、服务边界、应用边界或数据存储证据；普通目录、分层 package 和治理文件不会自动成为 Container。
+- Current local evidence does not yet stably name real external consumers, callers or upstream systems, so the System Context remains a black box system with external collaboration placeholders.
+- External systems, third-party services or infrastructure dependencies are only broken down to specific nodes when evidence is provided by interfaces, configuration, deployment or business documentation.
+- Container candidates must come from running portals, deployment/build configurations, service boundaries, application boundaries, or data storage evidence; ordinary directories, hierarchical packages, and governance files do not automatically become Containers.
 
-## 变更记录
+## Change record
 
 ### 0.1.30-alpha - 2026-06-25T09:19:32.800Z
 
-- 基于本地仓库证据重新生成 系统上下文：trail-mate。
+- Regenerate system context based on local repository evidence: trail-mate.

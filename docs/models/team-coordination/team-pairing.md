@@ -1,4 +1,4 @@
-# Leader / Member 配对消息交换
+# Leader / Member pairing message exchange
 
 ```mermaid
 sequenceDiagram
@@ -19,4 +19,4 @@ sequenceDiagram
   Member->>Member: state = Completed
 ```
 
-这是一条从 coordinator 方法与 handler 名称重建的交互图。消息字段、重试次数和超时必须继续以 `team_pairing_coordinator.cpp` 为准。
+This is an interaction diagram reconstructed from the coordinator method and handler name. Message fields, retries and timeouts must continue to be based on `team_pairing_coordinator.cpp`.

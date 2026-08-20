@@ -1,23 +1,23 @@
-# Design Explorer 覆盖审计
+# Design Explorer coverage audit
 
-评审日期：2026-07-23
+Review date: 2026-07-23
 
-结论：旧地图只有 7 个条目，既漏掉大量用户目标，也把不同状态 owner 的目标错误合并；多张 UML 是无源码语义的通用模板。
+Conclusion: The old map only has 7 entries, which not only misses a large number of user goals, but also incorrectly merges the goals of different status owners; multiple UMLs are common templates without source code semantics.
 
-## 旧地图的四类问题
+## Four types of problems with old maps
 
-1. **覆盖不足**：联系人、实时通话、GNSS 诊断、频谱扫描、Walkie、SSTV、Wi-Fi、Package、Firmware、Backup、USB 和 Phone BLE 均未进入地图。
-2. **错误合并**：轨迹记录与路线跟随、团队成员建立与团队态势共享分别属于不同规则和失败边界。
-3. **发起者错误**：接收消息由 radio/backend 事件发起，不是用户点击 UI 后调用 UseCase。
-4. **模板冒充设计**：`用户 → Presentation → Domain Use Case → Port → Platform` 没有说明实际参与者、提交点、回滚、资源仲裁和终态规则。
+1. **Insufficient coverage**: Contacts, Live Calls, GNSS Diagnostics, Spectrum Scan, Walkie, SSTV, Wi-Fi, Package, Firmware, Backup, USB and Phone BLE are not included in the map.
+2. **Error merge**: Track recording and route following, team member establishment and team situation sharing belong to different rules and failure boundaries respectively.
+3. **Initiator error**: Receiving messages is initiated by the radio/backend event, not by calling UseCase after the user clicks on the UI.
+4. **Template impersonation design**: `User → Presentation → Domain Use Case → Port → Platform` does not explain the actual participants, submission points, rollback, resource arbitration and final state rules.
 
-## 新地图判断
+## New Map Judgment
 
-- 21 个用例来自可定位的产品行为，不来自菜单数量。
-- 所有用例都必须写明目标、触发者、前置条件、成功承诺、失败/恢复、规则和源码证据。
-- 状态机存在不等于独立领域模型；Call、Package、Firmware 和 Wi-Fi Lease 仍由模型评审裁决其归属。
-- 路线跟随与团队成员建立保持 candidate，避免把缺失设计写成 confirmed。
+- 21 use cases come from targetable product behaviors, not from menu quantities.
+- All use cases must state the goal, trigger, preconditions, success commitment, failure/recovery, rules and source code evidence.
+- The existence of a state machine is not equivalent to an independent domain model; Call, Package, Firmware and Wi-Fi Lease are still determined by the model reviewer.
+- Route following and team members establish retention candidates to avoid writing missing designs as confirmed.
 
-## 非用例过滤
+## Non-use case filtering
 
-关机确认、返回键、页面轮询、纯显示设置、测试 helper 和平台启动步骤没有被提升为顶层业务用例。它们可以作为交互规则或实现步骤出现在相应文档里。
+Shutdown confirmation, return key, page polling, pure display settings, test helper and platform startup steps are not promoted to top-level business use cases. They can appear in the corresponding document as interaction rules or implementation steps.

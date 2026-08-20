@@ -2,94 +2,94 @@
 
 ## 1. Scope
 
-本文档定义 Trail Mate 固件界面的整体视觉语言。
+This document defines the overall visual language of the Trail Mate firmware interface.
 
-它约束的是：
+What it constrains is:
 
-- 色彩系统
-- 顶部 chrome 风格
-- 面板/按钮/弹窗的基础样式
-- 文本层级与对齐原则
-- 页面应该呈现出的整体气质
+-Color system
+-Top chrome style
+-Basic style of panel/button/pop-up window
+-Text level and alignment principles
+- The overall temperament that the page should present
 
-它**不**定义：
+It **not** defines:
 
-- 某个页面的像素级几何布局
-- 某个设备 profile 的固定尺寸
-- 某个组件的内部实现细节
+- The pixel-level geometric layout of a certain page
+- The fixed size of a certain device profile
+- The internal implementation details of a certain component
 
-这意味着：
+This means:
 
 - `480x222`
 - `pager`
 - `tdeck`
-- 任何具体 `x / y / w / h`
+- Any specific `x / y / w / h`
 
-都只能出现在“页面规格”或“设备/profile 示例”里，不能被提升为全固件通用布局法则。
+ can only appear in "page specifications" or "device/profile examples" and cannot be promoted to a general layout rule for the entire firmware.
 
-`docs/skyplot.md`、`docs/sstv/SSTV.md`、`docs/EnergySweep/uiux.md` 这类文档里的像素表，只能解释它们各自页面在各自目标 profile 上如何落地；它们共享的是视觉语言，不是同一套几何。
+The pixel tables in `docs/skyplot.md`, `docs/sstv/SSTV.md` and `docs/EnergySweep/uiux.md` can only explain how their respective pages are implemented on their respective target profiles; they share a visual language, not the same set of geometry.
 
 ---
 
 ## 2. Distinctions
 
-### 2.1 视觉风格 != 页面布局
+### 2.1 Visual style != Page layout
 
-视觉风格回答的是“这个固件看起来像什么”。
+Visual style answers "what does this firmware look like".
 
-页面布局回答的是“某个页面在某个 profile 上具体怎么摆”。
+Page layout answers "how a certain page is placed on a certain profile."
 
-前者是全局约束，后者是页面级约束。
+The former is a global constraint, and the latter is a page-level constraint.
 
-### 2.2 页面布局 != 设备 profile
+### 2.2 Page layout != device profile
 
-同一个页面在不同设备上可以保持同一视觉语言，但采用不同尺寸、边距、字号和控件密度。
+The same page can maintain the same visual language on different devices, but use different sizes, margins, font sizes and control densities.
 
-因此：
+Thus:
 
-- 视觉风格应跨设备稳定
-- 像素布局应跟随 `page_profile`、屏幕尺寸和交互模式调节
+- Visual style should be stable across devices
+- Pixel layout should follow `page_profile`, screen size and interaction mode adjustment
 
-### 2.3 页面 chrome != 页面内容
+### 2.3 Page chrome != Page content
 
-以下元素属于共享 chrome：
+The following elements belong to shared chrome:
 
 - TopBar
-- 返回入口
-- 电量/状态位
-- 固定悬浮控制按钮
-- 弹窗/底部弹层的基础样式
+- Return to entry
+- Power/status bit
+- Fixed floating control button
+- Basic style of pop-up window/bottom pop-up layer
 
-以下元素属于页面内容：
+The following elements belong to the page content:
 
-- 地图
-- 列表
-- 遥测信息
-- 图像区域
-- 图表/状态面板
+- Map
+- List
+- Telemetry information
+- Image area
+- Chart/status panel
 
-chrome 要保持全局一致；内容可以随页面语义变化。
+Chrome should maintain global consistency; content can change with the semantics of the page.
 
-### 2.4 语义色 != 装饰色
+### 2.4 Semantic Color != Decorative Color
 
-颜色首先用于表达层级和语义，不是为了制造“花哨”。
+Color is first used to express hierarchy and semantics, not to create "fancy".
 
-可接受的颜色分工是：
+Acceptable color divisions are:
 
-- 主强调：Amber
-- 主文本：Text
-- 次文本：TextDim
-- 信息：Info
-- 成功：Ok
-- 警告：Warn
+- Main emphasis: Amber
+- Main text: Text
+ - Subtext: TextDim
+ - Message: Info
+ - Success: Ok
+ - Warning: Warn
 
-不可接受的是为每一行、每一个标签随机发明一组风格无关的颜色。
+It is unacceptable to randomly invent a set of style-independent colors for each line and each label.
 
 ---
 
 ## 3. Canonical Tokens
 
-固件界面整体风格的基线 token 如下：
+The baseline tokens for the overall style of the firmware interface are as follows:
 
 - `Amber` = `#EBA341`
 - `AmberDark` = `#C98118`
@@ -102,141 +102,141 @@ chrome 要保持全局一致；内容可以随页面语义变化。
 - `Ok` = `#3E7D3E`
 - `Info` = `#2D6FB6`
 
-新页面和重构页面应优先围绕这组 token 建立视觉。
+New and refactored pages should prioritize building a visual around this set of tokens.
 
-如果实现层已经存在共享 theme/helper，则应让 helper 朝这组 token 收敛，而不是在页面里继续发散出新的暗色私有体系。
+If a shared theme/helper already exists in the implementation layer, the helper should be converged towards this set of tokens instead of continuing to emanate new dark private systems in the page.
 
 ---
 
 ## 4. Global Style Direction
 
-Trail Mate 的界面应统一成“暖色工程仪表风格”，而不是暗色 cyber / HUD 风格。
+Trail Mate's interface should be unified into a "warm engineering instrument style" rather than a dark cyber/HUD style.
 
-它的气质应当是：
+Its temperament should be:
 
-- 温暖
-- 克制
-- 可读
-- 工程化
-- 轻量仪表感
+- Warmth
+- Restraint
+- Readable
+- Engineering
+- Lightweight instrumentation
 
-它不应当是：
+It should not be:
 
-- 黑蓝霓虹 HUD
-- 调试面板堆叠
-- 高饱和赛博风
-- 到处阴影和浮雕的重装饰 UI
+- Black and blue neon HUD
+- Debug panel stacking
+- Highly saturated cyber style
+- Heavy decoration UI with shadows and reliefs everywhere
 
 ---
 
 ## 5. Layout Principles
 
-### 5.1 根背景
+### 5.1 Root background
 
-页面根背景优先使用 `WarmBG`。
+Use `WarmBG` first for the page root background.
 
-地图、图片、列表或图表所在的主要承载区，可在此基础上用 `PanelBG` 或内容专属底色分层，但不得背离整体暖色基调。
+The main carrying area where maps, pictures, lists or charts are located can be layered with `PanelBG` or a content-specific background color, but it must not deviate from the overall warm tone.
 
 ### 5.2 TopBar
 
-所有标准页面优先复用共享 `top_bar` 组件。
+All standard pages give priority to reusing the shared `top_bar` component.
 
-TopBar 的语义是“共享应用 chrome”，不是页面自己发明的新标题条。
+The semantics of TopBar is "shared application chrome", not a new title bar invented by the page itself.
 
-要求：
+Requirements:
 
-- 颜色与全局 theme 保持一致
-- 不允许页面局部自定义成另一套标题栏风格
-- 标题居中
-- 右侧状态信息维持弱层级
+-The color should be consistent with the global theme
+-Do not allow partial customization of the page into another set of title bar styles
+-The title should be centered
+-The status information on the right should remain weakly hierarchical
 
-### 5.3 面板与边框
+### 5.3 Panels and Borders
 
-如页面确实需要容器，应遵守：
+If the page really needs a container, it should comply with:
 
-- 背景优先 `PanelBG`
-- 边框优先 `Line` 或 `AmberDark`
-- 圆角统一 8~10px
-- 边框厚度优先 2px
+- Background priority `PanelBG`
+- Border priority `Line` or `AmberDark`
+- Uniform rounded corners 8~10px
+- Border thickness is preferred 2px
 
-不允许把所有信息都塞进多层嵌套卡片里。
+It is not allowed to cram all information into multiple levels of nested cards.
 
-### 5.4 按钮
+### 5.4 Buttons
 
-按钮应沿用暖色工程风格：
+Buttons should follow the warm engineering style:
 
-- 默认态：`PanelBG` + `AmberDark/Line` 边框
-- 聚焦态：`Amber` 外轮廓或高亮
-- 禁用态：弱化背景与边框，但仍保持可识别
+- Default state: `PanelBG` + `AmberDark/Line` border
+- Focused state: `Amber` outline or highlight
+- Disabled state: weaken the background and borders, but still remain recognizable
 
-不允许在单个页面中引入一套深色、金属蓝、玻璃态按钮体系。
+It is not allowed to introduce a dark, metallic blue, and glass button system into a single page.
 
-### 5.5 弹窗与弹层
+### 5.5 Pop-up windows and pop-up layers
 
-弹窗应继承全局风格，而不是成为一块风格孤岛。
+Pop-up windows should inherit the global style instead of becoming an island of style.
 
-要求：
+Requirements:
 
-- 背景使用暖色 panel
-- 边框使用 `AmberDark` 或 `Line`
-- 在小屏上优先用紧凑弹层/底部弹层，而不是巨大居中黑色模态块
-- 交互入口不能因为弹层遮挡而变得难以操作
+- Use a warm panel for the background
+- Use `AmberDark` or `Line` for the border
+- Prioritize the use of compact elastic layers/bottom elastic layers on small screens instead of huge centered black modal blocks
+- The interactive entrance cannot be difficult to operate due to the obstruction of elastic layers
 
-### 5.6 文本层级
+### 5.6 Text level
 
-文本层级应稳定：
+Text level should be stable:
 
-- 主对象名/主读数：`Text`
-- 次级说明/状态：`TextDim`
-- 强调信息：`AmberDark` 或 `Amber`
-- 状态语义：`Info / Ok / Warn`
+- Primary object name/primary reading: `Text`
+- Secondary description/status: `TextDim`
+- Emphasis on information: `AmberDark` or `Amber`
+- Status semantics: `Info / Ok / Warn`
 
-默认不要把页面做成“所有文字都用不同颜色”的彩条板。
+Do not make the page into a color bar board with "all text in different colors" by default.
 
-### 5.7 右侧遥测列
+### 5.7 Right Telemetry Column
 
-当页面右侧承担“遥测/链路/readout”职责时，这一列应按“右缘读数列”处理：
+When the right side of the page assumes the responsibility of "telemetry/link/readout", this column should be treated as a "right edge reading column":
 
-- 整体右对齐
-- 一行一项
-- 字段语义直接、短、可扫读
-- 不要做成“把左对齐段落搬到右边”
+- Overall right alignment
+- One item per line
+- Field semantics are direct, short, and scannable
+- Do not make it like "move left-aligned paragraphs to the right"
 
 ---
 
 ## 6. Geometry Rules
 
-全局视觉规格只规定几何原则，不规定统一像素。
+Global visual specifications only stipulate geometric principles, not unified pixels.
 
-允许的全局原则：
+Allowed global principles:
 
-- 顶部保留共享 TopBar 区
-- 内容区按页面语义自由分配
-- 边距、字号、按钮尺寸可随 `page_profile` 调整
+- Reserve the shared TopBar area at the top
+- Content area is freely allocated according to page semantics
+- Margins, font size, and button size can be adjusted with `page_profile`
 
-不允许的误读：
+Unallowed misreading:
 
-- 把某一页在 `pager` 上的 `480x222` 布局，当成所有页面或所有设备都必须照抄的布局
-- 把某一页的双栏布局，当成所有页面都必须双栏
-- 把某一页的按钮坐标，当成共享组件的唯一合法位置
+- Put a certain page in `480x222` on `pager` Layout, treat it as a layout that all pages or all devices must copy
+- Treat the double-column layout of a certain page as a double-column layout that all pages must copy
+- Treat the button coordinates of a certain page as the only legal position of a shared component
 
 ---
 
 ## 7. Guardrails
 
-后续页面设计与改造必须遵守以下约束：
+Subsequent page design and modification must comply with the following constraints:
 
-1. 不允许把暗色 HUD 风格引入到标准内容页面。
-2. 不允许把 `pager` 或任何单设备布局示例提升为全局几何规范。
-3. 不允许在共享 TopBar 之外私造一套风格冲突的标题栏。
-4. 不允许在右侧遥测列中使用“左对齐段落式文本”冒充读数列。
-5. 不允许弹窗做成风格割裂、遮挡严重且难以操作的深色模态块。
-6. 不允许为了“好看”而突破语义色边界，把颜色变成随机装饰。
+1. It is not allowed to introduce dark HUD styles into standard content pages.
+2. Promoting `pager` or any single-device layout example to a global geometry specification is not allowed.
+3. It is not allowed to create a title bar with conflicting styles outside of the shared TopBar.
+4. It is not allowed to use "left-aligned paragraph text" in the right telemetry column to pretend to be a reading column.
+5. Pop-up windows are not allowed to be made into dark modal blocks that are fragmented, severely obscured, and difficult to operate.
+6. It is not allowed to break through the boundaries of semantic colors and turn colors into random decorations for the sake of "looking good".
 
 ---
 
 ## 8. Summary Baseline
 
-一句话总结这份规格：
+To summarize this specification in one sentence:
 
-Trail Mate 的固件界面应统一成“暖色工程仪表风格”，而具体像素布局始终是页面级、profile 级决策，不能从某个设备示例反向立法为全局规则。
+The firmware interface of Trail Mate should be unified into a "warm engineering instrument style", and the specific pixel layout is always a page-level and profile-level decision, and cannot be reversely legislated from a certain device example into a global rule.

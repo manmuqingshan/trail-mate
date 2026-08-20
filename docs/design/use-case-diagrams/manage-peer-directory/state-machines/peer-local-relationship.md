@@ -1,6 +1,6 @@
-# State Machine：目录条目的本地关系状态
+# State Machine: Local relationship status of directory entries
 
-此状态机只描述用户在本机赋予目录条目的关系；协议观察是否在线、密钥是否被协议验证是正交维度。
+This state machine only describes the relationship assigned to directory entries by users on this machine; whether the protocol is online and whether the key is verified by the protocol are orthogonal dimensions.
 
 ```mermaid
 stateDiagram-v2
@@ -17,34 +17,34 @@ stateDiagram-v2
   Removed --> Observed: future protocol observation
 ```
 
-`manuallyVerified` 是附加 flag，不应伪造成上述单一状态；它要求节点存在，但当前尚未与跨协议 IdentityLink 闭合。
+`manuallyVerified` is an additional flag and should not be faked into the single state above; it requires that the node exists but is not currently closed with a cross-protocol IdentityLink.
 
-## 状态 owner 与持久化
+## State owner and persistence
 
-该状态由本地目录/联系人存储持有，而不是 radio backend。`Observed` 表示有协议事实但没有保存或忽略关系；`SavedContact` 表示存在用户赋予的 nickname 关系；`Ignored` 表示用户明确排除默认投影；`Removed` 是本地删除后的逻辑终点，未来新观察可以重新建立记录。
+This state is held by the local directory/contact store, not the radio backend. `Observed` means that there is an agreement fact but no saved or ignored relationship; `SavedContact` means that there is a nickname relationship given by the user; `Ignored` means that the user explicitly excludes the default projection; `Removed` is the logical end point after local deletion, and new observations can re-establish the record in the future.
 
-## Transition 表
+## Transition table
 
-| 当前状态 | 事件与 guard | 动作 | 下一状态 |
+| Current state | Events and guards | Actions | Next state |
 | --- | --- | --- | --- |
-| Observed | `addContact(nickname)`，nickname 合法 | 持久化本地关系 | SavedContact |
-| Observed / SavedContact | `setIgnored(true)` | 保留协议事实，设置 ignored | Ignored |
-| Ignored | `setIgnored(false)` | 清除 ignored | Observed |
-| SavedContact | `editContact` | 更新 nickname，不改变状态 | SavedContact |
-| 任意活动状态 | `removeNode` | 删除本地目录及关系 | Removed |
-| Removed | 新的合法协议观察 | 建立新 revision | Observed |
+| Observed | `addContact(nickname)`, nickname is valid | Persist local relationships | SavedContact |
+| Observed / SavedContact | `setIgnored(true)` | Preserve protocol facts, set ignored | Ignored |
+| Ignored | `setIgnored(false)` | Clear ignored | Observed |
+| SavedContact | `editContact` | Update nickname, do not change state | SavedContact |
+| Any active state | `removeNode` | Delete local directory and relationship | Removed |
+| Removed | New legal protocol observation | Create new revision | Observed |
 
-## 正交维度
+## Orthogonal dimensions
 
-在线/离线、协议密钥是否验证、Reticulum trusted、`manuallyVerified` 都不是上述状态的子状态。把它们塞进一个枚举会产生组合爆炸并混淆证明来源。人工验证必须记录证明语义，未来应通过显式 `IdentityLink` 关联业务联系人。
+Online/offline, whether the protocol key is verified, Reticulum trusted, `manuallyVerified` are not sub-states of the above state. Cramming them into an enum creates a combinatorial explosion and obfuscates the source of the proof. Human verification must document attestation semantics and should in the future be associated with business contacts via an explicit `IdentityLink`.
 
-## 禁止与恢复
+## Ban and restore
 
-- 不允许在节点不存在时直接进入 SavedContact 或 manually verified。
-- Ignored 不等于删除；协议事实仍可更新，但默认视图不可泄漏。
-- Removed 后的迟到旧事件不得复活旧 revision；只有新的有效观察才可重新进入 Observed。
-- 持久化失败保持原状态，不能仅回滚 UI 文案。
+ - Direct entry into SavedContact or manually verified is not allowed when the node does not exist.
+- Ignored does not equal deletion; protocol facts can still be updated, but the default view cannot be leaked.
+- Late old events after Removed may not resurrect old revisions; only new valid observations may re-enter Observed.
+- If persistence fails, the original state will be retained, and only the UI copy cannot be rolled back.
 
-## 测试
+## test
 
-状态机测试需要覆盖每条合法 transition、所有禁止 transition、重复命令的幂等性，以及 remove 与后台 observation 竞争时的 revision 规则。
+State machine testing needs to cover every legal transition, all prohibited transitions, idempotence of repeated commands, and revision rules when remove competes with background observations.
