@@ -1,29 +1,29 @@
-# P1 · 【设计未形成】路线导航规则仍由 UI Runtime 持有
+# P1 · [Design not yet formed] Route navigation rules are still held by UI Runtime
 
-状态：**acknowledged**
-类别：**设计缺陷 / 架构边界**
+Status: **acknowledged**
+Category: **Design defect / architectural boundary**
 
-## 结论
+## Conclusion
 
-路线导航能力已经出现，但没有形成领域模型。项目可读取路线、计算当前位置到路线的距离并更新偏航状态；关键规则 `nearest_route_distance_m` 与 `update_route_deviation_state` 位于 `gps_page_runtime.cpp`。
+Route navigation capability has emerged, but no domain model has been formed. The project can read the route, calculate the distance from the current position to the route and update the yaw state; the key rules `nearest_route_distance_m` and `update_route_deviation_state` are located in `gps_page_runtime.cpp`.
 
-这不是“工具漏掉了一个现有 Model”：当前确实缺少 Route aggregate、导航会话和策略 owner，因此它应留在 Review Queue，而不是成为 Model Explorer 的空壳模型。
+This is not "the tool missed an existing Model": the Route aggregate, navigation session, and policy owner are currently missing, so it should stay in the Review Queue rather than become a shell model for the Model Explorer.
 
-## 缺失的领域词汇
+## Missing domain vocabulary
 
-- `Route` / `RouteLeg`：路线及有序段。
-- `NavigationSession`：当前路线、开始/停止和重定位状态。
-- `RouteProgress`：最近段、沿线距离、完成度和最近有效匹配。
-- `DeviationPolicy`：阈值、迟滞、连续样本与恢复规则。
-- `NavigationEvent`：偏航、恢复、到达 waypoint / destination。
+- `Route` / `RouteLeg`: routes and ordered segments.
+- `NavigationSession`: Current route, start/stop and relocation status.
+- `RouteProgress`: the nearest segment, distance along the route, completion degree and the latest effective match.
+- `DeviationPolicy`: threshold, hysteresis, continuous samples and recovery rules.
+- `NavigationEvent`: yaw, recovery, arrival at waypoint/destination.
 
-## 风险
+## Risk
 
-- UI 与其他目标可能实现不同偏航阈值和状态机。
-- 无法独立测试迟滞、GPS 跳点、路线回环与重入。
-- route storage 的格式细节可能反向主导业务模型。
+ - UI may implement different yaw thresholds and state machines than other targets.
+- Unable to independently test lag, GPS hops, route loopbacks, and re-entry.
+- The format details of route storage may reversely dominate the business model.
 
-## 目标边界
+## Target boundary
 
 ```mermaid
 flowchart LR
@@ -36,4 +36,4 @@ flowchart LR
   Progress --> UI["Navigation projection"]
 ```
 
-建议在 `core_gps` 下独立 navigation package，或建立 `core_navigation`；UI 只提交意图并读取 projection。
+It is recommended to create an independent navigation package under `core_gps`, or build `core_navigation`; the UI only submits the intention and reads the projection.

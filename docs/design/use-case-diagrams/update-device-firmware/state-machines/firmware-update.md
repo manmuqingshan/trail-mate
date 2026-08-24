@@ -1,4 +1,4 @@
-# State Machine：Firmware Update
+# State Machine:Firmware Update
 ```mermaid
 stateDiagram-v2
   [*] --> Unsupported
@@ -16,30 +16,30 @@ stateDiagram-v2
   Error --> Checking: Retry
 ```
 
-## 状态 owner
+## Status owner
 
-Firmware Runtime 持有检查/安装 operation generation；平台 OTA metadata/boot partition 是持久事实。`Unsupported` 由目标能力决定，不能通过 Retry 离开；`Idle` 与 `Unsupported` 是互斥初始选择。
+Firmware Runtime holds check/installation operation generation; platform OTA metadata/boot partition is persistent fact. `Unsupported` is determined by the target's ability and cannot be left through Retry; `Idle` and `Unsupported` are mutually exclusive initial choices.
 
-## Transition 表
+## Transition table
 
-| 当前状态 | 事件/guard | 下一状态 |
+| Current state | Event/guard | Next state |
 | --- | --- | --- |
-| Idle/UpToDate/Error | Check 且 capability 支持 | Checking |
-| Checking | metadata valid，无新版本 | UpToDate |
-| Checking | metadata valid，有适用版本 | UpdateAvailable |
+| Idle/UpToDate/Error | Check and capability supported | Checking |
+| Checking | metadata valid, no new version | UpToDate |
+| Checking | metadata valid, there is an applicable version | UpdateAvailable |
 | UpdateAvailable | Install + OTA exclusive | Downloading |
-| Downloading | image 完整验证 | Installing |
+| Downloading | image Complete verification | Installing |
 | Installing | write/finalize/boot target committed | Rebooting |
-| 任意操作态 | 不可恢复错误 | Error |
+| Any operation state | Unrecoverable error | Error |
 
-## 取消与禁止
+## Cancellation and prohibition
 
-Downloading 在平台允许时可以取消并回 UpdateAvailable；Installing 是否可取消必须遵守 OTA writer contract，不能直接回 Idle。Rebooting 后禁止再次 Check/Install。旧 metadata generation 的回调不改变当前状态。
+Downloading can be canceled and returned when the platform allows UpdateAvailable; Installing Whether it can be canceled must comply with the OTA writer contract and cannot be returned to Idle directly. It is forbidden to Check/Install again after Rebooting. Callbacks for the old metadata generation do not change the current state.
 
-## 跨重启结果
+## Cross-restart results
 
-Rebooting 不是最终成功。新固件启动确认后才形成 Updated；bootloader rollback 则形成 Rollback/Error 诊断。当前图需由启动恢复逻辑补充这两个跨重启结果。
+Rebooting is not ultimately successful. Updated is formed after confirmation of new firmware startup; Rollback/Error diagnosis is formed after bootloader rollback. The current diagram needs to be supplemented by boot recovery logic for these two cross-reboot results.
 
-## 测试
+## Tests
 
-覆盖 capability Unsupported、metadata 过期、取消、write 期间错误、boot 标记、掉电点、回滚及迟到 progress。
+ Covers capability Unsupported, metadata expiration, cancellation, errors during write, boot mark, power-off point, rollback and late progress.

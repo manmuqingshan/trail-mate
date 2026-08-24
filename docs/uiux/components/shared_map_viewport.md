@@ -2,258 +2,258 @@
 
 ## 1. Scope
 
-本文档定义 Trail Mate 中“共享地图视口组件”的规格。
+This document defines the specifications for the Shared Map Viewport Component in Trail Mate.
 
-它约束的不是某一个页面，而是所有“以地图作为主背景或主内容承载层”的页面都应共同遵守的地图组件边界。
+It does not constrain a certain page, but the boundaries of the map component that all pages that use the map as the main background or main content carrier layer should abide by.
 
-当前直接受此文档约束的页面包括：
+The pages currently directly subject to this document include:
 
-- `GPS / 地图` 页面
-- `Node Info / 节点详情` 页面
+- `GPS / Map` page
+- `Node Info / Node Details` page
 
-后续任何新页面只要需要：
+ Any subsequent new pages as needed:
 
-- 地图底图渲染
-- 地图拖动
-- 地图缩放
-- 地图图层切换
-- 地图语义覆盖层投影
+- Map base map rendering
+- Map dragging
+- Map zooming
+- Map layer switching
+- Map semantic overlay projection
 
-都应优先复用本组件，而不是在页面内再次实现一套地图逻辑。
+ Priority should be given to reusing this component instead of implementing a set of map logic again within the page.
 
-本文档是“组件职责与边界规格”，不是具体代码设计稿；但后续实现必须能被本文档解释。
+This document is a "component responsibility and boundary specification", not a specific code design draft; however, subsequent implementation must be explained by this document.
 
 ---
 
 ## 2. Current Confusions
 
-在进入重构前，必须先承认当前系统中存在以下混淆：
+Before entering the reconstruction, you must first admit that there are following confusions in the current system:
 
-1. `GPS` 页面已经拥有一套相对完整的地图能力，但它和页面业务状态耦合过深，不能直接当成通用组件复用。
-2. `Node Info` 页面当前又实现了一套独立的地图逻辑，这不是复用，而是平行实现。
-3. “地图页面”和“地图组件”不是同一个对象。
-4. “瓦片引擎”也不是“地图组件”本身，它只是底层能力的一部分。
-5. 图层切换、拖动、缩放、投影这些语义应属于共享地图视口，而不是某个页面私有行为。
-6. `Layer` 按钮出现在不同页面的不同位置，不等于图层切换语义可以按页面各自定义。
+1. The `GPS` page already has a relatively complete set of map capabilities, but it is too deeply coupled with the page business status and cannot be directly reused as a general component.
+2. The `Node Info` page currently implements an independent set of map logic. This is not reuse, but parallel implementation.
+3. "Map page" and "map component" are not the same object.
+4. The "tile engine" is not the "map component" itself, it is only part of the underlying capabilities.
+5. The semantics of layer switching, dragging, zooming, and projection should belong to the shared map viewport, rather than private behaviors of a certain page.
+6. The `Layer` button appears in different locations on different pages, which does not mean that the layer switching semantics can be defined on a per-page basis.
 
-如果不先把这些混淆切开，后续任何“先支持功能再说”的实现，都会把系统重新带回双轨地图逻辑。
+If these confusions are not cut through first, any subsequent implementation of "support functions first, then talk about it" will bring the system back to the dual-track map logic.
 
 ---
 
 ## 3. Distinctions
 
-### 3.1 地图页面 != 地图组件
+### 3.1 Map page != Map component
 
-`GPS` 页面是一个完整页面对象，除了地图之外还包含：
+`GPS` page is a complete page object, which in addition to the map also contains:
 
-- GPS fix 状态
-- follow self 策略
-- 队友标记
-- 路线/轨迹覆盖层
-- 页面标题与状态信息
-- 页面快捷操作
+- GPS fix status
+- follow self strategy
+-Team tags
+-Route/track overlay
+-Page title and status information
+-Page shortcut operations
 
-这些都不是共享地图视口本体。
+These are not shared map viewport entities.
 
-共享地图视口组件只负责“地图如何被显示、平移、缩放、切图层、投影叠加层”，不负责页面的业务含义。
+The shared map viewport component is only responsible for "how the map is displayed, panned, zoomed, cut into layers, and projected overlays" and is not responsible for the business meaning of the page.
 
-### 3.2 瓦片引擎 != 地图视口
+### 3.2 Tile engine != map viewport
 
-现有 `map_tiles.*` 是底层瓦片与投影能力，负责：
+The existing `map_tiles.*` is the underlying tile and projection capabilities, responsible for:
 
-- tile 计算
-- tile 对象管理
-- tile 加载与缓存
-- 地图源目录与文件路径
-- 等高线叠加层
-- 屏幕投影
+- tile calculation
+- tile object management
+- tile loading and caching
+-Map source directory and file path
+-Contour overlay
+-Screen projection
 
-它是共享地图视口的后端基础，不应被页面直接当成页面组件来使用。
+It is the backend basis for sharing the map viewport and should not be used directly as a page component by the page.
 
-### 3.3 页面覆盖信息 != 地图语义覆盖层
+### 3.3 Page coverage information != Map semantic coverage layer
 
-以下元素属于页面覆盖信息：
+The following elements belong to page coverage information:
 
-- 顶部栏
-- 节点 ID
-- 左下角经纬度文本
-- 右侧信息列
-- 独立于地图移动的页面按钮
+- Top bar
+- Node ID
+- Longitude and latitude text in the lower left corner
+- Right information column
+-Page button that moves independently of the map
 
-以下元素属于地图语义覆盖层：
+The following elements belong to the map semantic overlay:
 
-- 节点标记
-- 自身标记
-- 队友标记
-- 连线
-- 距离标签
-- 路径/轨迹
+- node tag
+- self tag
+-Team tags
+- connection
+- distance tag
+- path/trajectory
 
-地图语义覆盖层必须和地图视口同步移动；页面覆盖信息必须稳定悬浮，不得跟随拖动漂移。
+The map semantic overlay must move synchronously with the map viewport; the page coverage information must be suspended stably and must not drift with dragging.
 
-### 3.4 视口状态 != 页面业务状态
+### 3.4 Viewport status != Page business status
 
-地图视口状态是：
+The map viewport status is:
 
-- 当前缩放级别
-- 当前平移偏移
-- 当前基础底图
-- 当前叠加图层开关
-- 当前是否允许交互
-- 当前视口是否有可用底图
+-Current zoom level
+-Current translation offset
+-Current base map
+- Current overlay layer switch
+- Whether interaction is currently allowed
+- Whether there is a basemap available in the current viewport
 
-页面业务状态是：
+ The business status of the page is:
 
-- GPS 页是否 follow self
-- Node Info 页当前查看的是哪个节点
-- 页面上显示哪些右侧信息项
-- 节点详情页的缩放锚点是谁
+- Whether the GPS page follows self
+- Which node the Node Info page is currently viewing
+- Which right information items are displayed on the page
+- Who is the zoom anchor point of the node details page?
 
-页面业务状态可以驱动地图视口，但不应与地图视口内部状态混在一起。
+ The business status of the page can drive the map viewport, but it should not be mixed with the internal state of the map viewport.
 
-### 3.5 基础底图 != 叠加图层
+### 3.5 Basic basemap != Overlay layer
 
-基础底图是“互斥的一选一”：
+The basic basemap is a "mutually exclusive choice":
 
 - OSM
 - Terrain
 - Satellite
 
-叠加图层是“附着在基础底图上的可选层”：
+The overlay layer is an "optional layer attached to the base basemap":
 
 - Contour Overlay
 
-切换基础底图与开关叠加图层，语义不同，不能混成一个随意的“layer mode”。
+Switching the base map and switching overlay layers have different semantics and cannot be mixed into a random "layer mode".
 
 ---
 
 ## 4. Component Goals
 
-### 4.1 核心目标
+### 4.1 Core Objectives
 
-共享地图视口组件必须提供以下稳定能力：
+The shared map viewport component must provide the following stable capabilities:
 
-1. 在统一组件模型下承载地图底图。
-2. 在统一状态语义下支持拖动与缩放。
-3. 在统一规则下支持图层切换。
-4. 为页面提供稳定的地理点到屏幕坐标投影能力。
-5. 允许页面在地图之上叠加页面私有的语义元素。
-6. 让多个页面共享同一套地图主流程，而不是共享几段 helper。
+1. Host the map basemap under the unified component model.
+2. Support dragging and zooming under unified state semantics.
+3. Support layer switching under unified rules.
+4. Provide stable geographical point to screen coordinate projection capability for the page.
+5. Allow the page to overlay page-private semantic elements on top of the map.
+6. Let multiple pages share the same map main process instead of sharing several helpers.
 
-### 4.2 非目标
+### 4.2 Non-target
 
-本组件当前不是：
+This component is currently not:
 
-- 页面导航容器
-- 联系人或节点业务模型
-- GPS 页面专属状态机
-- 团队页面专属状态机
-- 离线地图下载器
-- 地图数据准备工具
+- Page navigation container
+-Contact or node business model
+-GPS page exclusive state machine
+-Team page exclusive state machine
+-Offline map downloader
+-Map data preparation tool
 
 ---
 
 ## 5. Responsibilities
 
-共享地图视口组件负责：
+The shared map viewport component is responsible for:
 
-1. 创建并维护地图底图承载区域。
-2. 维护统一的 camera / viewport 状态。
-3. 协调基础底图与叠加图层渲染选项。
-4. 驱动底层瓦片后端进行 tile 计算、加载与布局。
-5. 向页面提供投影查询能力。
-6. 管理地图语义覆盖层宿主容器。
-7. 管理拖动、缩放、图层切换这三类交互的共同语义。
-8. 暴露“当前视口状态”和“当前地图可用性状态”。
+1. Create and maintain map basemap hosting areas.
+2. Maintain unified camera / viewport status.
+3. Coordinate basemap and overlay layer rendering options.
+4. Drive the underlying tile backend to perform tile calculation, loading and layout.
+5. Provide projection query capabilities to the page.
+6. Manage the map semantic overlay host container.
+7. Manage the common semantics of the three types of interactions: dragging, zooming, and layer switching.
+8. Expose "current viewport status" and "current map availability status".
 
-共享地图视口组件不负责：
+The shared map viewport component is not responsible for:
 
-1. 决定某个页面应该显示哪些业务字段。
-2. 决定页面右侧信息列内容。
-3. 直接持有联系人、节点、GPS 页面、团队页面的业务模型。
-4. 在页面里自行定义“某个标记代表什么”。
-5. 让页面直接操作 tile cache、tile record、文件路径拼接等底层细节。
+1. Decide which business fields should be displayed on a page.
+2. Determine the content of the information column on the right side of the page.
+3. Business model that directly holds contacts, nodes, GPS pages, and team pages.
+4. Define "what a certain mark represents" on the page.
+5. Let the page directly operate low-level details such as tile cache, tile record, file path splicing, etc.
 
 ---
 
 ## 6. Module Ownership
 
-### 6.1 `modules/ui_shared` 的职责
+### 6.1 Responsibilities of `modules/ui_shared`
 
-`modules/ui_shared` 负责共享地图视口的页面无关接口与组件壳层，至少包括：
+`modules/ui_shared` is responsible for sharing the page-independent interface and component shell of the map viewport, including at least:
 
-- 组件公开 API
-- 视口状态模型
-- 页面接入约束
-- 交互语义约束
-- 地图语义覆盖层宿主抽象
+-Component public API
+-Viewport state model
+- Page access constraints
+- Interactive semantic constraints
+- Map semantic overlay host abstraction
 
-换句话说，页面应该依赖 `ui_shared` 中的共享地图视口组件，而不是自己直接拼装底层瓦片逻辑。
+In other words, the page should rely on the shared map viewport component in `ui_shared` instead of directly assembling the underlying tile logic by itself.
 
-### 6.2 `platform/esp/*` 的职责
+### 6.2 Responsibilities of `platform/esp/*`
 
-平台层负责地图视口所依赖的具体后端能力，至少包括：
+The platform layer is responsible for the specific back-end capabilities that the map viewport depends on, including at least:
 
-- LVGL 对象级实现
-- 瓦片加载与缓存
-- 文件系统路径与资源查找
-- 等高线叠加渲染
-- 坐标系转换实现
-- 平台相关的内存/加载预算控制
+- LVGL object-level implementation
+-Tile loading and caching
+-File system path and resource search
+-Contour overlay rendering
+-Coordinate system conversion implementation
+-Platform-related memory/loading budget control
 
-平台层提供的是“后端适配”，不是页面语义。
+What the platform layer provides is "backend adaptation", not page semantics.
 
-### 6.3 页面层的职责
+### 6.3 Responsibilities of the page layer
 
-页面层只负责自己的业务使用方式，例如：
+The page layer is only responsible for its own business usage, such as:
 
-- `GPS` 页决定 self/队友/轨迹这些覆盖层语义
-- `Node Info` 页决定目标节点/自身节点/连线/距离这些覆盖层语义
-- 页面决定自己需要哪些固定信息栏与按钮
+- The `GPS` page determines the overlay semantics of self/teammates/tracks
+- The `Node Info` page determines the overlay semantics of target node/own node/connection/distance
+- The page decides which fixed information columns and buttons it needs
 
-页面层不再自建地图底图逻辑。
+The page layer no longer builds its own map basemap logic.
 
 ---
 
 ## 7. State Boundaries
 
-### 7.1 持久配置状态
+### 7.1 Persistent configuration status
 
-以下状态属于应用配置，组件读取但不私自定义：
+The following status belongs to the application configuration, and the component reads but does not customize it privately:
 
 - `map_source`
 - `map_contour_enabled`
 - `map_coord_system`
 
-这些状态的持久化归应用配置系统，组件只消费其当前值或接收页面显式下发。
+The persistence of these statuses belongs to the application configuration system, and the component only consumes its current value or receives an explicit delivery from the page.
 
-### 7.2 视口运行时状态
+### 7.2 Viewport runtime status
 
-以下状态属于共享地图视口组件本体：
+The following status belongs to the shared map viewport component itself:
 
-- 当前 zoom
-- 当前 pan_x / pan_y
-- 当前基础底图
-- 当前 contour 是否开启
-- 当前视口是否允许拖动
-- 当前视口是否允许缩放
-- 当前视口是否具备可用地图数据
-- 当前 anchor / projection cache
-- 当前渲染中的 tile state 摘要
+- Current zoom
+- Current pan_x / pan_y
+-Current base map
+- Whether the current contour is on
+- Whether the current viewport allows dragging
+- Whether the current viewport allows zooming
+- Whether the current viewport has available map data
+- Current anchor / projection cache
+- Summary of tile state in the current rendering
 
-### 7.3 页面驱动状态
+### 7.3 Page driver state
 
-以下状态由页面拥有，再作为输入喂给视口：
+The following states are owned by the page and then fed to the viewport as input:
 
-- 视口聚焦对象
-- 页面是否允许 follow
-- 页面希望缩放围绕谁发生
-- 页面要画哪些语义标记与线段
-- 页面是否要在视口之上显示固定 UI chrome
+- Viewport focus object
+- Whether the page allows follow
+- Who the page wants to zoom around
+- What semantic markers and line segments should be drawn on the page
+- Whether the page should display fixed UI chrome above the viewport
 
-### 7.4 后端缓存状态
+### 7.4 Backend cache status
 
-以下状态属于后端，不应越过组件边界暴露给页面自由操作：
+The following status belongs to the backend and should not be exposed across component boundaries to free page operations:
 
 - tile records
 - decoded image cache
@@ -261,205 +261,205 @@
 - contour overlay cache
 - tile object eviction state
 
-页面可以读到摘要，不可以改写内部细节。
+The page can read the summary, but cannot rewrite the internal details.
 
 ---
 
 ## 8. Layer Switching Semantics
 
-### 8.1 基础规则
+### 8.1 Basic Rules
 
-共享地图视口必须支持“页内图层切换”，且切换不应要求页面重建。
+Shared map viewports must support "in-page layer switching", and switching should not require page reconstruction.
 
-### 8.2 基础底图规则
+### 8.2 Basic basemap rules
 
-基础底图始终恰有一个 active source：
+The basic basemap always has exactly one active source:
 
 - `0 = OSM`
 - `1 = Terrain`
 - `2 = Satellite`
 
-切换基础底图时：
+When switching the basic basemap:
 
-1. 页面不重建。
-2. 地图视口对象不重建。
-3. 视口 camera 状态尽量保持。
-4. 地图语义覆盖层仍由页面持有，不因切底图而丢失。
-5. 底层 tile backend 应刷新底图渲染状态。
+1. The page is not rebuilt.
+2. The map viewport object is not rebuilt.
+3. The viewport camera status should be maintained as much as possible.
+4. The semantic overlay of the map is still held by the page and will not be lost due to cutting the base map.
+5. The underlying tile backend should refresh the basemap rendering state.
 
-### 8.3 叠加图层规则
+### 8.3 Overlay layer rules
 
-Contour Overlay 是叠加层，不是基础底图的一种。
+Contour Overlay is an overlay, not a type of base map.
 
-切换 contour 时：
+When switching contour:
 
-1. 不改变 active base source。
-2. 不改变页面语义覆盖层。
-3. 不改变页面的业务聚焦对象。
-4. 只改变地图底图之上的 contour 可见性与加载策略。
+1. Do not change the active base source.
+2. Do not change the semantic coverage of the page.
+3. Do not change the business focus object of the page.
+4. Only change the contour visibility and loading strategy above the map basemap.
 
-### 8.4 缺图语义
+### 8.4 Missing image semantics
 
-当切换到某图层而当前视口无图时：
+When switching to a layer and there is no image in the current viewport:
 
-1. 不允许页面崩塌成黑屏。
-2. 不允许页面 silently fail。
-3. 组件应维持稳定的地图容器结构。
-4. 组件应给出“当前图层缺图”的可观察状态或一次性通知。
+1. The page is not allowed to collapse into a black screen.
+2. Pages are not allowed to fail silently.
+3. The component should maintain a stable map container structure.
+4. The component should give an observable status or one-time notification of "the current layer is missing".
 
-页面可决定如何展示该通知，但不应自己再实现一套缺图判断。
+The page can decide how to display the notification, but it should not implement a set of missing image judgments by itself.
 
-### 8.5 图层切换入口语义
+### 8.5 Layer switching entry semantics
 
-共享地图视口约束的是“图层切换语义”，不是“按钮必须长在同一个坐标”。
+The shared map viewport constraint is "layer switching semantics", not "buttons must be at the same coordinates".
 
-允许：
+Allow:
 
-- `GPS / 地图` 页将 `Layer` 按钮放在自己的控制区
-- `Node Info` 页将 `Layer` 按钮放在底部中间
+- The `GPS/Map` page places the `Layer` button in its own control area
+- The `Node Info` page places the `Layer` button in the bottom middle
 
-不允许：
+Not allowed:
 
-- 不同页面拥有不同的基础底图枚举
-- 不同页面对 `Contour` 有不同含义
-- 不同页面各自实现不同的缺图判断和图层归一化逻辑
+- Different pages have different basic basemap enumerations
+- Different pages have different meanings for `Contour`
+- Different pages implement different missing image judgment and layer normalization logic
 
-因此，页面可以拥有自己的触发 chrome，但图层切换后的状态变化、合法值集合、缺图语义与持久化后果必须完全一致。
+Therefore, the page can have its own trigger chrome, but the state changes, legal value sets, missing image semantics and persistence consequences after layer switching must be completely consistent.
 
 ---
 
 ## 9. Camera and Interaction Semantics
 
-### 9.1 拖动
+### 9.1 Drag
 
-当页面允许拖动时：
+When the page allows dragging:
 
-- 拖动作用于地图视口
-- 地图语义覆盖层随之移动
-- 页面固定 chrome 不移动
+- Dragging is applied to the map viewport
+-The map semantic overlay moves accordingly
+-The page is fixed in chrome and does not move
 
-### 9.2 缩放
+### 9.2 Zoom
 
-共享地图视口必须支持“页面指定缩放锚点语义”。
+Shared map viewports must support "page-specified zoom anchor semantics".
 
-原因是不同页面的缩放锚点不同：
+The reason is that different pages have different zoom anchors:
 
-- `GPS` 页可能围绕 self / screen center / follow target
-- `Node Info` 页必须围绕目标节点
+- The `GPS` page may be around self / screen center / follow target
+- The `Node Info` page must be around the target node
 
-因此缩放行为不能硬编码为某一页面私有规则。
+So the zoom behavior cannot be hard-coded as a page-private rule.
 
-共享缩放等级契约固定为：
+The shared scaling level contract is fixed at:
 
-- 默认缩放：`12`
-- 最小缩放：`0`
-- 最大缩放：`18`
+-Default scaling: `12`
+-Minimum zoom: `0`
+-Maximum zoom: `18`
 
-页面可以决定“用户看到的首帧是否因为缺图而降级到其它最近可用级别”，但**不能**在页面内部再次私有化一套不同的最小/最大缩放范围。
+The page can decide "whether the first frame the user sees is downgraded to the other nearest available level due to missing images", but **cannot** privatize a different set of min/max zoom ranges again within the page.
 
-补充约束：
+Additional constraints:
 
-- “用户请求改变 zoom” 与 “当前 zoom 是否具备中心瓦片” 必须是两个分离判断
-- 首帧或自动选级可以参考瓦片可用性
-- 但交互缩放不得因为缺少中心瓦片而被静默拦截成 no-op
+- "User requests to change zoom" and "Whether the current zoom has a central tile" must be two separate judgments
+- The first frame or automatic selection can refer to tile availability
+- But interactive zooming must not be silently blocked as a no-op due to missing center tile
 
 ### 9.3 Follow
 
-`follow` 不是共享地图视口的通用默认行为，而是页面策略。
+`follow` is not a universal default behavior for shared map viewports, but a page policy.
 
-共享地图视口只提供：
+The shared map viewport only provides:
 
-- camera 移动能力
-- anchor 计算能力
-- 拖动后 camera 偏移保持能力
+- camera movement capability
+- anchor calculation capability
+- camera offset retention capability after dragging
 
-是否“自动跟随某个对象”，由页面自己声明。
+Whether to "automatically follow an object" is declared by the page itself.
 
-### 9.4 无地理目标时
+### 9.4 When there is no geographical target
 
-当页面没有可用地理目标时，组件必须允许进入“无地图语义能力”的降级态。
+When the page has no available geographical target, the component must be allowed to enter the degraded state of "no map semantic capability".
 
-在该状态下：
+In this state:
 
-- 地图底图可为空或仅为背景
-- 拖动可被禁用
-- 缩放可被禁用
-- 页面固定信息仍可正常显示
+- The map base can be empty or just a background
+- Dragging can be disabled
+- Zoom can be disabled
+- Page fixed information can still be displayed normally
 
 ---
 
 ## 10. Page Integration Contracts
 
-### 10.1 `Node Info` 页面接入要求
+### 10.1 `Node Info` page access requirements
 
-`Node Info` 页面通过共享地图视口组件获得：
+The `Node Info` page is obtained through the shared map viewport component:
 
-- 地图底图
-- 拖动能力
-- 缩放能力
-- 图层切换能力
-- 坐标投影能力
+- Map base map
+- Drag ability
+- Zoom ability
+- Layer switching ability
+- Coordinate projection ability
 
-`Node Info` 页面自己提供：
+`Node Info` page itself provides:
 
-- 目标节点标记
-- 自身标记
-- 两点连线
-- 距离标签
-- 左上 ID、左下经纬度、右侧信息列、右下缩放按钮、底部中间 `Layer` 按钮等固定 chrome
+- Target node mark
+- self tag
+- Two-point connection
+- distance tag
+- Fixed chrome for the upper left ID, lower left longitude and latitude, right information column, lower right zoom button, bottom middle `Layer` button, etc.
 
-补充约束：
+Additional constraints:
 
-- `Node Info` 页允许在地图上方叠加固定 chrome，但不得再覆盖持续存在的半透明雾化层或右侧遮罩来“压暗”底图
-- `Node Info` 页的拖动只改变 camera 偏移；其缩放锚点始终仍是目标节点
+- The `Node Info` page allows fixed chrome to be overlaid on top of the map, but it must no longer cover the persistent translucent fog layer or the right mask to "dark" the base map
+- Dragging on the `Node Info` page only changes the camera offset; its zoom anchor is always the target node
 
-### 10.2 `GPS` 页面接入要求
+### 10.2 `GPS` page access requirements
 
-`GPS` 页面通过共享地图视口组件获得：
+The `GPS` page is obtained through the shared map viewport component:
 
-- 地图底图
-- 拖动/缩放
-- 图层切换
-- 坐标投影
+- Map base map
+-Drag/zoom
+-Layer switching
+-Coordinate projection
 
-`GPS` 页面自己提供：
+`GPS` page itself provides:
 
 - self marker
 - team markers
-- 轨迹/路线覆盖层
-- follow 策略
-- 页面状态信息
+- Track/route overlay
+- follow policy
+- Page status information
 
 ---
 
 ## 11. Illegal Implementations
 
-以下实现方式在本规格下视为非法：
+The following implementations are considered illegal under this specification:
 
-1. 在页面文件中再次实现 `map_source` 归一化。
-2. 在页面文件中再次实现基础 tile 路径拼接规则。
-3. 在页面文件中再次实现世界像素投影主流程。
-4. 在页面文件中再次维护独立的 tile image 阵列与 tile 生命周期。
-5. 在页面中直接操纵底层 tile cache 细节。
-6. 把 `GPS` 页面整体当成组件硬复用到别的页面。
-7. 把页面固定 chrome 混入地图语义覆盖层一起拖动。
-8. 在页面内再次实现一套页面私有的图层归一化、等高线切换语义或缺图判定。
+1. Implement `map_source` normalization again in the page file.
+2. Implement the basic tile path splicing rules in the page file again.
+3. Implement the main process of world pixel projection again in the page file.
+4. Maintain an independent tile image array and tile life cycle in the page file again.
+5. Directly manipulate the underlying tile cache details in the page.
+6. Treat the entire `GPS` page as a component and hard-reuse it to other pages.
+7. Mix the page fixed chrome into the map semantic overlay and drag it together.
+8. Implement a set of page-private layer normalization, contour switching semantics or missing image determination in the page again.
 
 ---
 
 ## 12. Consequences
 
-一旦接受本规格，后续重构就会被明确约束为：
+Once this specification is accepted, subsequent refactoring will be explicitly constrained to:
 
-1. `Node Info` 当前那套平行地图实现必须被移除，而不是继续扩展。
-2. `GPS` 页面当前的地图主流程必须被剥离出页面专属状态。
-3. 共享地图视口组件会成为多个页面共同依赖的唯一地图主入口。
-4. 后续任何地图能力增强，例如更多图层、更多标记、更多交互，都优先加在共享组件，而不是加在页面私有分支上。
+1. `Node Info` The current set of parallel map implementations must be removed rather than continued to be expanded.
+2. The current main map process of the `GPS` page must be stripped out of the page-specific state.
+3. The shared map viewport component will become the only main map entrance that multiple pages depend on.
+4. Any subsequent enhancements to map capabilities, such as more layers, more markers, and more interactions, will be prioritized in shared components rather than in private branches of the page.
 
 ---
 
 ## 13. Summary Baseline
 
-一句话总结：
+Summary in one sentence:
 
-共享地图视口组件不是“另一个地图页面”，也不是“几段共用 helper”，而是 Trail Mate 中所有地图型页面共享的唯一地图主流程承载层。
+The shared map viewport component is not "another map page", nor is it "several shared helpers", but the only map main process carrying layer shared by all map-type pages in Trail Mate.

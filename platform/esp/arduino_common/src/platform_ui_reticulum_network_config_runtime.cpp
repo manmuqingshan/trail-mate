@@ -1,19 +1,9 @@
 #include "platform/ui/reticulum_network_config_runtime.h"
 
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
-#include "platform/ui/reticulum_call_runtime.h"
-
-#if defined(ARDUINO)
-#include <Arduino.h>
-#include <Preferences.h>
-#else
-#include "esp_timer.h"
-#include "nvs.h"
-#include "platform/esp/idf_common/bsp_runtime.h"
-#endif
 
 #if defined(ESP_PLATFORM)
-#include "esp_heap_caps.h"
+#include <esp_heap_caps.h>
 #endif
 
 #include "cJSON.h"
@@ -25,162 +15,290 @@
 
 namespace platform::ui::reticulum_network_config
 {
-
 namespace
 {
 
-constexpr const char* kConfigDirectory = "/trailmate/reticulum";
-constexpr const char* kConfigPath = "/trailmate/reticulum/config.json";
-constexpr const char* kConfigTempPath = "/trailmate/reticulum/config.tmp";
-constexpr const char* kSchema = "trail-mate.reticulum";
-constexpr const char* kPreferencesNamespace = "rt_net_cfg";
-constexpr const char* kLastKnownGoodKey = "last_good";
-constexpr std::size_t kMaxConfigBytes = 2U * 1024U;
-constexpr std::size_t kConfigBufferBytes = kMaxConfigBytes + 1U;
-constexpr std::size_t kMaxJsonDepth = 5U;
-constexpr std::size_t kMaxJsonStructuralTokens = 128U;
-constexpr std::size_t kMaxJsonStringBytes = 128U;
-constexpr uint32_t kSdProbeIntervalMs = 5000;
+using ::platform::esp::arduino_common::storage::SdRuntimeFile;
+using NetworkConfig = chat::reticulum::ReticulumNetworkConfig;
+using InterfaceConfig = chat::reticulum::NetworkInterfaceConfig;
 
-chat::reticulum::ReticulumNetworkConfig g_active{};
-chat::reticulum::ReticulumNetworkConfig* g_parse_scratch_storage = nullptr;
-Status g_status{};
-char* g_file_buffer = nullptr;
-bool g_file_buffer_allocation_failed_logged = false;
-bool g_parse_scratch_allocation_failed_logged = false;
-bool g_initialized = false;
-bool g_sd_checked = false;
-bool g_reload_deferred = false;
-uint32_t g_last_sd_probe_ms = 0;
+constexpr const char* kWorkingConfigPath = "/trailmate/config.tms";
+constexpr const char* kLegacyConfigPath = "/trailmate/reticulum/config.json";
+constexpr const char* kLegacyTempPath = "/trailmate/reticulum/config.tmp";
+constexpr const char* kLegacySchema = "trail-mate.reticulum";
+constexpr std::size_t kLegacyMaxBytes = 2U * 1024U;
 
-uint32_t uptime_ms()
+// This is the one long-lived Reticulum network configuration. It is allocated
+// in PSRAM because the Reticulum packet path reads it throughout normal
+// operation. No JSON document or second working configuration remains live.
+NetworkConfig* s_active = nullptr;
+Status s_status{};
+bool s_initialized = false;
+bool s_has_explicit_config = false;
+
+void copy_text(char* out, std::size_t out_len, const char* value)
 {
-#if defined(ARDUINO)
-    return millis();
-#else
-    return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
-#endif
+    if (!out || out_len == 0U)
+    {
+        return;
+    }
+    std::snprintf(out, out_len, "%s", value ? value : "");
 }
 
-bool ensure_file_buffer()
+void set_status(const char* message, const char* detail = kWorkingConfigPath)
 {
-    if (g_file_buffer)
+    copy_text(s_status.message, sizeof(s_status.message), message);
+    copy_text(s_status.detail, sizeof(s_status.detail), detail);
+    s_status.reload_deferred = false;
+}
+
+bool ensure_active()
+{
+    if (s_active)
     {
         return true;
     }
-
 #if defined(ESP_PLATFORM)
-    g_file_buffer = static_cast<char*>(
-        heap_caps_malloc(kConfigBufferBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    void* const raw = heap_caps_malloc(sizeof(NetworkConfig),
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 #else
-    g_file_buffer = static_cast<char*>(std::malloc(kConfigBufferBytes));
+    void* const raw = std::malloc(sizeof(NetworkConfig));
 #endif
-    if (!g_file_buffer)
+    s_active = raw ? new (raw) NetworkConfig{} : nullptr;
+    if (!s_active)
     {
-        if (!g_file_buffer_allocation_failed_logged)
-        {
-            std::printf("[Reticulum][Config] file_buffer allocation_failed "
-                        "memory=psram bytes=%u\n",
-                        static_cast<unsigned>(kConfigBufferBytes));
-            g_file_buffer_allocation_failed_logged = true;
-        }
+        s_status.supported = false;
+        set_status("Reticulum config memory unavailable");
+        std::printf("[Reticulum][Config] active allocation_failed memory=psram bytes=%u\n",
+                    static_cast<unsigned>(sizeof(NetworkConfig)));
         return false;
     }
-
-    g_file_buffer[0] = '\0';
-    std::printf("[Reticulum][Config] file_buffer allocated "
-                "memory=psram bytes=%u\n",
-                static_cast<unsigned>(kConfigBufferBytes));
+    s_status.supported = true;
     return true;
 }
 
-bool ensure_parse_scratch()
+bool sd_available()
 {
-    if (g_parse_scratch_storage)
-    {
-        return true;
-    }
-
-#if defined(ESP_PLATFORM)
-    void* const raw = heap_caps_malloc(
-        sizeof(chat::reticulum::ReticulumNetworkConfig),
-        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-#else
-    void* const raw = std::malloc(sizeof(chat::reticulum::ReticulumNetworkConfig));
-#endif
-    g_parse_scratch_storage = raw
-                                  ? new (raw) chat::reticulum::ReticulumNetworkConfig{}
-                                  : nullptr;
-    if (g_parse_scratch_storage)
-    {
-        return true;
-    }
-
-    if (!g_parse_scratch_allocation_failed_logged)
-    {
-        g_parse_scratch_allocation_failed_logged = true;
-        std::printf("[Reticulum][Config] parse_scratch allocation_failed bytes=%u\n",
-                    static_cast<unsigned>(
-                        sizeof(chat::reticulum::ReticulumNetworkConfig)));
-    }
-    return false;
+    return ::platform::esp::arduino_common::storage::sd_card_ready();
 }
 
-#define g_parse_scratch (*g_parse_scratch_storage)
-
-void copy_bounded(char* out, std::size_t out_len, const char* value)
+bool bounded_text(const char* value, std::size_t capacity, bool allow_empty)
 {
-    if (!out || out_len == 0)
+    if (!value || !std::memchr(value, '\0', capacity))
     {
-        return;
+        return false;
     }
-    out[0] = '\0';
-    if (!value)
-    {
-        return;
-    }
-    const auto max_copy_len = out_len - 1U;
-    const auto* terminator = static_cast<const char*>(std::memchr(value, '\0', max_copy_len));
-    const std::size_t copy_len =
-        terminator ? static_cast<std::size_t>(terminator - value) : max_copy_len;
-    std::memcpy(out, value, copy_len);
-    out[copy_len] = '\0';
+    return allow_empty || value[0] != '\0';
 }
 
-void reset_network_config(
-    chat::reticulum::ReticulumNetworkConfig& config)
+bool valid_port(uint16_t value)
 {
-    config.version =
-        chat::reticulum::ReticulumNetworkConfig::kSchemaVersion;
-    for (auto& interface_config : config.interfaces)
-    {
-        interface_config = chat::reticulum::NetworkInterfaceConfig{};
-    }
-    config.interface_count = 0;
-    config.propagation = chat::reticulum::LxmfPropagationClientConfig{};
+    return value != 0U;
 }
 
-void set_status(const char* message, const char* detail = nullptr)
-{
-    copy_bounded(g_status.message, sizeof(g_status.message), message);
-    copy_bounded(g_status.detail, sizeof(g_status.detail), detail);
-    g_status.reload_deferred = g_reload_deferred;
-}
-
-bool is_zero_hash(const uint8_t* hash, std::size_t len)
+bool zero_hash(const uint8_t* hash, std::size_t length)
 {
     if (!hash)
     {
         return true;
     }
-    for (std::size_t index = 0; index < len; ++index)
+    for (std::size_t index = 0U; index < length; ++index)
     {
-        if (hash[index] != 0)
+        if (hash[index] != 0U)
         {
             return false;
         }
     }
     return true;
+}
+
+void reset_config(NetworkConfig* config)
+{
+    if (!config)
+    {
+        return;
+    }
+    config->version = NetworkConfig::kSchemaVersion;
+    config->interface_count = 0U;
+    for (auto& interface_config : config->interfaces)
+    {
+        interface_config = InterfaceConfig{};
+    }
+    config->propagation = chat::reticulum::LxmfPropagationClientConfig{};
+}
+
+bool append_default_interface(NetworkConfig* config,
+                              chat::reticulum::NetworkInterfaceType type,
+                              const char* id,
+                              InterfaceConfig** out = nullptr)
+{
+    if (!config || config->interface_count >= chat::reticulum::kMaxNetworkInterfaces)
+    {
+        return false;
+    }
+    InterfaceConfig* const interface_config = &config->interfaces[config->interface_count++];
+    *interface_config = InterfaceConfig{};
+    interface_config->type = type;
+    interface_config->enabled = true;
+    std::snprintf(interface_config->id, sizeof(interface_config->id), "%s", id ? id : "");
+    if (out)
+    {
+        *out = interface_config;
+    }
+    return true;
+}
+
+bool build_defaults(const chat::MeshConfig& legacy_config, NetworkConfig* out)
+{
+    if (!out)
+    {
+        return false;
+    }
+    reset_config(out);
+    const bool allow_lora = legacy_config.reticulum_lora_enabled &&
+                            legacy_config.reticulum_interface_policy !=
+                                chat::ReticulumInterfacePolicy::WifiGatewayOnly;
+    const bool allow_ip = legacy_config.reticulum_wifi_gateway_enabled &&
+                          legacy_config.reticulum_interface_policy !=
+                              chat::ReticulumInterfacePolicy::LoRaOnly;
+    if (allow_lora &&
+        !append_default_interface(out,
+                                  chat::reticulum::NetworkInterfaceType::IntegratedLoRa,
+                                  "integrated-lora"))
+    {
+        return false;
+    }
+    if (allow_ip)
+    {
+        if (!append_default_interface(out,
+                                      chat::reticulum::NetworkInterfaceType::Auto,
+                                      "local-wifi"))
+        {
+            return false;
+        }
+        if (legacy_config.reticulum_wifi_gateway_host[0] != '\0')
+        {
+            InterfaceConfig* tcp = nullptr;
+            if (!append_default_interface(out,
+                                          chat::reticulum::NetworkInterfaceType::TcpClient,
+                                          "primary-tcp",
+                                          &tcp))
+            {
+                return false;
+            }
+            std::snprintf(tcp->target_host,
+                          sizeof(tcp->target_host),
+                          "%s",
+                          legacy_config.reticulum_wifi_gateway_host);
+            tcp->target_port = legacy_config.reticulum_wifi_gateway_port != 0U
+                                   ? legacy_config.reticulum_wifi_gateway_port
+                                   : 4242U;
+        }
+    }
+    return true;
+}
+
+bool validate_config(const NetworkConfig& config)
+{
+    if (config.version != NetworkConfig::kSchemaVersion ||
+        config.interface_count > chat::reticulum::kMaxNetworkInterfaces ||
+        static_cast<uint8_t>(config.propagation.delivery) >
+            static_cast<uint8_t>(chat::reticulum::LxmfDeliveryPreference::Automatic) ||
+        config.propagation.sync_interval_s < 60U ||
+        config.propagation.sync_interval_s > 24U * 60U * 60U ||
+        config.propagation.max_messages_per_sync == 0U ||
+        config.propagation.max_messages_per_sync > 64U ||
+        (config.propagation.automatic_node &&
+         !zero_hash(config.propagation.node_hash, sizeof(config.propagation.node_hash))) ||
+        (!config.propagation.automatic_node &&
+         zero_hash(config.propagation.node_hash, sizeof(config.propagation.node_hash))))
+    {
+        return false;
+    }
+
+    uint8_t lora_count = 0U;
+    uint8_t auto_count = 0U;
+    uint8_t tcp_count = 0U;
+    for (std::size_t index = 0U; index < config.interface_count; ++index)
+    {
+        const InterfaceConfig& interface_config = config.interfaces[index];
+        if (!bounded_text(interface_config.id, sizeof(interface_config.id), false))
+        {
+            return false;
+        }
+        for (std::size_t prior = 0U; prior < index; ++prior)
+        {
+            if (std::strcmp(interface_config.id, config.interfaces[prior].id) == 0)
+            {
+                return false;
+            }
+        }
+        switch (interface_config.type)
+        {
+        case chat::reticulum::NetworkInterfaceType::IntegratedLoRa:
+            if (++lora_count > 1U)
+            {
+                return false;
+            }
+            break;
+        case chat::reticulum::NetworkInterfaceType::Auto:
+            if (++auto_count > 1U ||
+                !bounded_text(interface_config.group_id,
+                              sizeof(interface_config.group_id),
+                              false) ||
+                !valid_port(interface_config.discovery_port) ||
+                !valid_port(interface_config.data_port))
+            {
+                return false;
+            }
+            break;
+        case chat::reticulum::NetworkInterfaceType::TcpClient:
+            if (++tcp_count > chat::reticulum::kMaxTcpClientInterfaces ||
+                !bounded_text(interface_config.target_host,
+                              sizeof(interface_config.target_host),
+                              false) ||
+                !valid_port(interface_config.target_port))
+            {
+                return false;
+            }
+            break;
+        default:
+            return false;
+        }
+    }
+    return true;
+}
+
+void activate(Source source, bool explicit_config)
+{
+    s_has_explicit_config = explicit_config;
+    s_status.source = source;
+    s_status.valid = s_active && validate_config(*s_active);
+    s_status.configured_interfaces = s_active ? s_active->interface_count : 0U;
+    ++s_status.generation;
+}
+
+cJSON* object_item(cJSON* object, const char* key)
+{
+    return cJSON_IsObject(object) ? cJSON_GetObjectItemCaseSensitive(object, key) : nullptr;
+}
+
+const char* json_string(cJSON* object, const char* key)
+{
+    cJSON* const item = object_item(object, key);
+    return cJSON_IsString(item) ? item->valuestring : nullptr;
+}
+
+int json_int(cJSON* object, const char* key, int fallback)
+{
+    cJSON* const item = object_item(object, key);
+    return cJSON_IsNumber(item) ? item->valueint : fallback;
+}
+
+bool json_bool(cJSON* object, const char* key, bool fallback)
+{
+    cJSON* const item = object_item(object, key);
+    return cJSON_IsBool(item) ? cJSON_IsTrue(item) : fallback;
 }
 
 int hex_nibble(char value)
@@ -206,7 +324,7 @@ bool parse_hash(const char* text, uint8_t* out, std::size_t out_len)
     {
         return false;
     }
-    for (std::size_t index = 0; index < out_len; ++index)
+    for (std::size_t index = 0U; index < out_len; ++index)
     {
         const int high = hex_nibble(text[index * 2U]);
         const int low = hex_nibble(text[index * 2U + 1U]);
@@ -219,1189 +337,377 @@ bool parse_hash(const char* text, uint8_t* out, std::size_t out_len)
     return true;
 }
 
-void format_hash(const uint8_t* hash, std::size_t len, char* out, std::size_t out_len)
+bool parse_legacy_interface(cJSON* object,
+                            InterfaceConfig* out,
+                            uint8_t* lora_count,
+                            uint8_t* auto_count,
+                            uint8_t* tcp_count)
 {
-    static constexpr char kHex[] = "0123456789ABCDEF";
-    if (!hash || !out || out_len < len * 2U + 1U)
-    {
-        return;
-    }
-    for (std::size_t index = 0; index < len; ++index)
-    {
-        out[index * 2U] = kHex[(hash[index] >> 4U) & 0x0FU];
-        out[index * 2U + 1U] = kHex[hash[index] & 0x0FU];
-    }
-    out[len * 2U] = '\0';
-}
-
-cJSON* object_item(cJSON* object, const char* key)
-{
-    return cJSON_IsObject(object)
-               ? cJSON_GetObjectItemCaseSensitive(object, key)
-               : nullptr;
-}
-
-bool json_bool(cJSON* object, const char* key, bool fallback)
-{
-    cJSON* item = object_item(object, key);
-    return cJSON_IsBool(item) ? cJSON_IsTrue(item) : fallback;
-}
-
-int json_int(cJSON* object, const char* key, int fallback)
-{
-    cJSON* item = object_item(object, key);
-    return cJSON_IsNumber(item) ? item->valueint : fallback;
-}
-
-const char* json_string(cJSON* object, const char* key)
-{
-    cJSON* item = object_item(object, key);
-    return cJSON_IsString(item) ? item->valuestring : nullptr;
-}
-
-bool validate_json_budget(const char* data,
-                          std::size_t len,
-                          char* error,
-                          std::size_t error_len)
-{
-    if (!data || len == 0)
-    {
-        copy_bounded(error, error_len, "Configuration is empty");
-        return false;
-    }
-    if (len > kMaxConfigBytes)
-    {
-        copy_bounded(error, error_len, "Configuration exceeds 2 KB limit");
-        return false;
-    }
-
-    std::size_t depth = 0;
-    std::size_t structural_tokens = 0;
-    std::size_t string_bytes = 0;
-    bool in_string = false;
-    bool escaped = false;
-    for (std::size_t index = 0; index < len; ++index)
-    {
-        const unsigned char value = static_cast<unsigned char>(data[index]);
-        if (value == '\0')
-        {
-            copy_bounded(error, error_len, "Configuration contains a null byte");
-            return false;
-        }
-        if (in_string)
-        {
-            if (escaped)
-            {
-                escaped = false;
-                ++string_bytes;
-            }
-            else if (value == '\\')
-            {
-                escaped = true;
-                ++string_bytes;
-            }
-            else if (value == '"')
-            {
-                in_string = false;
-            }
-            else
-            {
-                if (value < 0x20U)
-                {
-                    copy_bounded(error, error_len, "Configuration string contains a control byte");
-                    return false;
-                }
-                ++string_bytes;
-            }
-            if (string_bytes > kMaxJsonStringBytes)
-            {
-                copy_bounded(error, error_len, "Configuration string exceeds 128 bytes");
-                return false;
-            }
-            continue;
-        }
-
-        if (value == '"')
-        {
-            in_string = true;
-            string_bytes = 0;
-            continue;
-        }
-        if (value == '{' || value == '[')
-        {
-            ++depth;
-            ++structural_tokens;
-            if (depth > kMaxJsonDepth)
-            {
-                copy_bounded(error, error_len, "Configuration nesting exceeds 5 levels");
-                return false;
-            }
-        }
-        else if (value == '}' || value == ']')
-        {
-            if (depth == 0)
-            {
-                copy_bounded(error, error_len, "Configuration JSON structure is invalid");
-                return false;
-            }
-            --depth;
-            ++structural_tokens;
-        }
-        else if (value == ',' || value == ':')
-        {
-            ++structural_tokens;
-        }
-
-        if (structural_tokens > kMaxJsonStructuralTokens)
-        {
-            copy_bounded(error, error_len, "Configuration structure exceeds embedded budget");
-            return false;
-        }
-    }
-
-    if (in_string || escaped || depth != 0)
-    {
-        copy_bounded(error, error_len, "Configuration JSON structure is incomplete");
-        return false;
-    }
-    return true;
-}
-
-bool add_json_string(cJSON* object, const char* key, const char* value)
-{
-    return object && value && cJSON_AddStringToObject(object, key, value);
-}
-
-bool add_json_number(cJSON* object, const char* key, double value)
-{
-    return object && cJSON_AddNumberToObject(object, key, value);
-}
-
-bool add_json_bool(cJSON* object, const char* key, bool value)
-{
-    return object && cJSON_AddBoolToObject(object, key, value);
-}
-
-bool append_default_interface(chat::reticulum::NetworkInterfaceType type,
-                              const char* id,
-                              chat::reticulum::NetworkInterfaceConfig** out)
-{
-    if (g_parse_scratch.interface_count >= chat::reticulum::kMaxNetworkInterfaces)
+    if (!object || !out || !lora_count || !auto_count || !tcp_count)
     {
         return false;
     }
-    auto& interface_config =
-        g_parse_scratch.interfaces[g_parse_scratch.interface_count++];
-    interface_config = chat::reticulum::NetworkInterfaceConfig{};
-    interface_config.type = type;
-    interface_config.enabled = true;
-    interface_config.target_port = 4242;
-    interface_config.discovery_port = 29716;
-    interface_config.data_port = 42671;
-    copy_bounded(interface_config.id, sizeof(interface_config.id), id);
-    copy_bounded(interface_config.group_id,
-                 sizeof(interface_config.group_id),
-                 "reticulum");
-    if (out)
-    {
-        *out = &interface_config;
-    }
-    return true;
-}
-
-bool build_defaults(const chat::MeshConfig& legacy_config)
-{
-    if (!ensure_parse_scratch())
+    const char* const id = json_string(object, "id");
+    const char* const type = json_string(object, "type");
+    if (!id || !type || id[0] == '\0' || std::strlen(id) > chat::reticulum::kInterfaceIdMaxLen)
     {
         return false;
     }
-
-    reset_network_config(g_parse_scratch);
-    g_parse_scratch.version =
-        chat::reticulum::ReticulumNetworkConfig::kSchemaVersion;
-
-    const bool allow_lora = legacy_config.reticulum_lora_enabled &&
-                            legacy_config.reticulum_interface_policy !=
-                                chat::ReticulumInterfacePolicy::WifiGatewayOnly;
-    const bool allow_ip = legacy_config.reticulum_wifi_gateway_enabled &&
-                          legacy_config.reticulum_interface_policy !=
-                              chat::ReticulumInterfacePolicy::LoRaOnly;
-
-    if (allow_lora)
-    {
-        (void)append_default_interface(
-            chat::reticulum::NetworkInterfaceType::IntegratedLoRa,
-            "integrated-lora",
-            nullptr);
-    }
-    if (allow_ip)
-    {
-        (void)append_default_interface(chat::reticulum::NetworkInterfaceType::Auto,
-                                       "local-wifi",
-                                       nullptr);
-        if (legacy_config.reticulum_wifi_gateway_host[0] != '\0')
-        {
-            chat::reticulum::NetworkInterfaceConfig* tcp = nullptr;
-            if (append_default_interface(
-                    chat::reticulum::NetworkInterfaceType::TcpClient,
-                    "primary-tcp",
-                    &tcp))
-            {
-                copy_bounded(tcp->target_host,
-                             sizeof(tcp->target_host),
-                             legacy_config.reticulum_wifi_gateway_host);
-                tcp->target_port = legacy_config.reticulum_wifi_gateway_port != 0
-                                       ? legacy_config.reticulum_wifi_gateway_port
-                                       : 4242;
-            }
-        }
-    }
-
-    g_parse_scratch.propagation.enabled = true;
-    g_parse_scratch.propagation.delivery =
-        chat::reticulum::LxmfDeliveryPreference::Automatic;
-    g_parse_scratch.propagation.automatic_node = true;
-    g_parse_scratch.propagation.sync_on_start = true;
-    g_parse_scratch.propagation.sync_interval_s = 15U * 60U;
-    g_parse_scratch.propagation.max_messages_per_sync = 32;
-    return true;
-}
-
-bool id_is_unique(const chat::reticulum::ReticulumNetworkConfig& config,
-                  const char* id,
-                  std::size_t count)
-{
-    for (std::size_t index = 0; index < count; ++index)
-    {
-        if (std::strcmp(config.interfaces[index].id, id) == 0)
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
-bool parse_interface(cJSON* object,
-                     chat::reticulum::NetworkInterfaceConfig& out,
-                     std::size_t prior_count,
-                     uint8_t& lora_count,
-                     uint8_t& auto_count,
-                     uint8_t& tcp_count,
-                     char* error,
-                     std::size_t error_len)
-{
-    const char* id = json_string(object, "id");
-    const char* type = json_string(object, "type");
-    if (!id || id[0] == '\0' || std::strlen(id) > chat::reticulum::kInterfaceIdMaxLen)
-    {
-        copy_bounded(error, error_len, "Interface id is missing or too long");
-        return false;
-    }
-    if (!id_is_unique(g_parse_scratch, id, prior_count))
-    {
-        copy_bounded(error, error_len, "Interface ids must be unique");
-        return false;
-    }
-    if (!type)
-    {
-        copy_bounded(error, error_len, "Interface type is missing");
-        return false;
-    }
-
-    out = chat::reticulum::NetworkInterfaceConfig{};
-    copy_bounded(out.id, sizeof(out.id), id);
-    out.enabled = json_bool(object, "enabled", true);
-    out.target_port = 4242;
-    out.discovery_port = 29716;
-    out.data_port = 42671;
-    copy_bounded(out.group_id, sizeof(out.group_id), "reticulum");
-
+    *out = InterfaceConfig{};
+    std::snprintf(out->id, sizeof(out->id), "%s", id);
+    out->enabled = json_bool(object, "enabled", true);
     if (std::strcmp(type, "IntegratedLoRaInterface") == 0)
     {
-        out.type = chat::reticulum::NetworkInterfaceType::IntegratedLoRa;
-        if (++lora_count > 1)
-        {
-            copy_bounded(error, error_len, "Only one integrated LoRa interface is supported");
-            return false;
-        }
+        out->type = chat::reticulum::NetworkInterfaceType::IntegratedLoRa;
+        return ++(*lora_count) <= 1U;
     }
-    else if (std::strcmp(type, "AutoInterface") == 0)
+    if (std::strcmp(type, "AutoInterface") == 0)
     {
-        out.type = chat::reticulum::NetworkInterfaceType::Auto;
-        if (++auto_count > 1)
-        {
-            copy_bounded(error, error_len, "Only one AutoInterface is supported");
-            return false;
-        }
-        const char* group_id = json_string(object, "group_id");
-        if (group_id)
-        {
-            if (group_id[0] == '\0' ||
-                std::strlen(group_id) > chat::reticulum::kAutoInterfaceGroupMaxLen)
-            {
-                copy_bounded(error, error_len, "AutoInterface group_id is invalid");
-                return false;
-            }
-            copy_bounded(out.group_id, sizeof(out.group_id), group_id);
-        }
-        const char* scope = json_string(object, "discovery_scope");
-        if (scope && std::strcmp(scope, "link") != 0)
-        {
-            copy_bounded(error, error_len, "Embedded AutoInterface supports link scope only");
-            return false;
-        }
+        const char* const group_id = json_string(object, "group_id");
+        const char* const scope = json_string(object, "discovery_scope");
         const int discovery_port = json_int(object, "discovery_port", 29716);
         const int data_port = json_int(object, "data_port", 42671);
-        if (discovery_port <= 0 || discovery_port >= 65535 ||
-            data_port <= 0 || data_port > 65535)
+        if (++(*auto_count) > 1U ||
+            (group_id && (group_id[0] == '\0' ||
+                          std::strlen(group_id) > chat::reticulum::kAutoInterfaceGroupMaxLen)) ||
+            (scope && std::strcmp(scope, "link") != 0) || discovery_port <= 0 ||
+            discovery_port > 65535 || data_port <= 0 || data_port > 65535)
         {
-            copy_bounded(error, error_len, "AutoInterface port is invalid");
             return false;
         }
-        out.discovery_port = static_cast<uint16_t>(discovery_port);
-        out.data_port = static_cast<uint16_t>(data_port);
-    }
-    else if (std::strcmp(type, "TCPClientInterface") == 0)
-    {
-        out.type = chat::reticulum::NetworkInterfaceType::TcpClient;
-        if (++tcp_count > chat::reticulum::kMaxTcpClientInterfaces)
+        out->type = chat::reticulum::NetworkInterfaceType::Auto;
+        if (group_id)
         {
-            copy_bounded(error, error_len, "Too many TCPClientInterface entries");
-            return false;
+            std::snprintf(out->group_id, sizeof(out->group_id), "%s", group_id);
         }
-        const char* host = json_string(object, "target_host");
-        const int port = json_int(object, "target_port", 4242);
-        if (!host || host[0] == '\0' ||
-            std::strlen(host) > chat::reticulum::kInterfaceHostMaxLen ||
-            port <= 0 || port > 65535)
-        {
-            copy_bounded(error, error_len, "TCPClientInterface endpoint is invalid");
-            return false;
-        }
-        copy_bounded(out.target_host, sizeof(out.target_host), host);
-        out.target_port = static_cast<uint16_t>(port);
-    }
-    else
-    {
-        copy_bounded(error, error_len, "Unsupported Interface type");
-        return false;
-    }
-
-    return true;
-}
-
-bool parse_propagation(cJSON* object,
-                       chat::reticulum::LxmfPropagationClientConfig& out,
-                       char* error,
-                       std::size_t error_len)
-{
-    if (!object)
-    {
+        out->discovery_port = static_cast<uint16_t>(discovery_port);
+        out->data_port = static_cast<uint16_t>(data_port);
         return true;
     }
-    if (!cJSON_IsObject(object))
+    if (std::strcmp(type, "TCPClientInterface") == 0)
     {
-        copy_bounded(error, error_len, "lxmf.propagation must be an object");
-        return false;
-    }
-
-    out.enabled = json_bool(object, "enabled", out.enabled);
-    out.service_enabled =
-        json_bool(object, "service_enabled", out.service_enabled);
-    out.sync_on_start = json_bool(object, "sync_on_start", out.sync_on_start);
-    const char* delivery = json_string(object, "delivery_method");
-    if (delivery)
-    {
-        if (std::strcmp(delivery, "direct") == 0)
+        const char* const host = json_string(object, "target_host");
+        const int port = json_int(object, "target_port", 4242);
+        if (++(*tcp_count) > chat::reticulum::kMaxTcpClientInterfaces || !host ||
+            host[0] == '\0' || std::strlen(host) > chat::reticulum::kInterfaceHostMaxLen ||
+            port <= 0 || port > 65535)
         {
-            out.delivery = chat::reticulum::LxmfDeliveryPreference::Direct;
-        }
-        else if (std::strcmp(delivery, "propagated") == 0)
-        {
-            out.delivery = chat::reticulum::LxmfDeliveryPreference::Propagated;
-        }
-        else if (std::strcmp(delivery, "auto") == 0)
-        {
-            out.delivery = chat::reticulum::LxmfDeliveryPreference::Automatic;
-        }
-        else
-        {
-            copy_bounded(error, error_len, "Unknown LXMF delivery_method");
             return false;
         }
+        out->type = chat::reticulum::NetworkInterfaceType::TcpClient;
+        std::snprintf(out->target_host, sizeof(out->target_host), "%s", host);
+        out->target_port = static_cast<uint16_t>(port);
+        return true;
     }
-
-    const char* node = json_string(object, "propagation_node");
-    if (node && std::strcmp(node, "auto") != 0)
-    {
-        if (!parse_hash(node, out.node_hash, sizeof(out.node_hash)))
-        {
-            copy_bounded(error, error_len, "propagation_node must be auto or a destination hash");
-            return false;
-        }
-        out.automatic_node = false;
-    }
-    else
-    {
-        out.automatic_node = true;
-        std::memset(out.node_hash, 0, sizeof(out.node_hash));
-    }
-
-    const int interval = json_int(object,
-                                  "sync_interval_seconds",
-                                  static_cast<int>(out.sync_interval_s));
-    const int max_messages = json_int(object,
-                                      "max_messages_per_sync",
-                                      out.max_messages_per_sync);
-    if (interval < 60 || interval > 24 * 60 * 60 ||
-        max_messages < 1 || max_messages > 64)
-    {
-        copy_bounded(error, error_len, "Propagation sync limits are invalid");
-        return false;
-    }
-    out.sync_interval_s = static_cast<uint32_t>(interval);
-    out.max_messages_per_sync = static_cast<uint8_t>(max_messages);
-    return true;
+    return false;
 }
 
-bool parse_document(const char* data,
-                    std::size_t len,
-                    char* error,
-                    std::size_t error_len)
+bool parse_legacy_document(const char* data, std::size_t length)
 {
-    if (!ensure_parse_scratch())
-    {
-        copy_bounded(error, error_len, "Reticulum configuration memory unavailable");
-        return false;
-    }
-    if (!validate_json_budget(data, len, error, error_len))
-    {
-        return false;
-    }
-
     const char* parse_end = nullptr;
-    cJSON* root = cJSON_ParseWithLengthOpts(data, len, &parse_end, false);
-    while (parse_end && parse_end < data + len &&
+    cJSON* const root = cJSON_ParseWithLengthOpts(data, length, &parse_end, false);
+    while (parse_end && parse_end < data + length &&
            (*parse_end == ' ' || *parse_end == '\t' || *parse_end == '\r' ||
             *parse_end == '\n'))
     {
         ++parse_end;
     }
-    if (!cJSON_IsObject(root) || parse_end != data + len)
+    if (!root || !cJSON_IsObject(root) || parse_end != data + length ||
+        !s_active || std::strcmp(json_string(root, "schema") ? json_string(root, "schema") : "", kLegacySchema) != 0 ||
+        json_int(root, "version", 0) != NetworkConfig::kSchemaVersion)
     {
         cJSON_Delete(root);
-        copy_bounded(error, error_len, "Configuration JSON is invalid");
         return false;
     }
 
-    const char* schema = json_string(root, "schema");
-    const int version = json_int(root, "version", 0);
-    if (!schema || std::strcmp(schema, kSchema) != 0 ||
-        version != chat::reticulum::ReticulumNetworkConfig::kSchemaVersion)
-    {
-        cJSON_Delete(root);
-        copy_bounded(error, error_len, "Unsupported Reticulum configuration schema");
-        return false;
-    }
-
-    reset_network_config(g_parse_scratch);
-    g_parse_scratch.version = static_cast<uint16_t>(version);
-    g_parse_scratch.propagation = {};
-
-    cJSON* interfaces = object_item(root, "interfaces");
-    if (!cJSON_IsArray(interfaces))
-    {
-        cJSON_Delete(root);
-        copy_bounded(error, error_len, "interfaces must be an array");
-        return false;
-    }
-
-    const int count = cJSON_GetArraySize(interfaces);
+    cJSON* const interfaces = object_item(root, "interfaces");
+    const int count = cJSON_IsArray(interfaces) ? cJSON_GetArraySize(interfaces) : 0;
     if (count <= 0 || count > static_cast<int>(chat::reticulum::kMaxNetworkInterfaces))
     {
         cJSON_Delete(root);
-        copy_bounded(error, error_len, "Interface count is outside the supported range");
         return false;
     }
-
-    uint8_t lora_count = 0;
-    uint8_t auto_count = 0;
-    uint8_t tcp_count = 0;
-    uint8_t enabled_count = 0;
+    reset_config(s_active);
+    uint8_t lora_count = 0U;
+    uint8_t auto_count = 0U;
+    uint8_t tcp_count = 0U;
     for (int index = 0; index < count; ++index)
     {
-        cJSON* item = cJSON_GetArrayItem(interfaces, index);
-        if (!cJSON_IsObject(item) ||
-            !parse_interface(item,
-                             g_parse_scratch.interfaces[index],
-                             static_cast<std::size_t>(index),
-                             lora_count,
-                             auto_count,
-                             tcp_count,
-                             error,
-                             error_len))
+        if (!parse_legacy_interface(cJSON_GetArrayItem(interfaces, index),
+                                    &s_active->interfaces[index],
+                                    &lora_count,
+                                    &auto_count,
+                                    &tcp_count))
         {
             cJSON_Delete(root);
             return false;
         }
-        if (g_parse_scratch.interfaces[index].enabled)
-        {
-            ++enabled_count;
-        }
     }
-    if (enabled_count == 0)
-    {
-        cJSON_Delete(root);
-        copy_bounded(error, error_len, "At least one Interface must be enabled");
-        return false;
-    }
-    g_parse_scratch.interface_count = static_cast<uint8_t>(count);
+    s_active->interface_count = static_cast<uint8_t>(count);
 
-    cJSON* lxmf = object_item(root, "lxmf");
+    cJSON* const lxmf = object_item(root, "lxmf");
+    cJSON* const propagation = object_item(lxmf, "propagation");
     if (lxmf && !cJSON_IsObject(lxmf))
     {
         cJSON_Delete(root);
-        copy_bounded(error, error_len, "lxmf must be an object");
         return false;
     }
-    if (!parse_propagation(object_item(lxmf, "propagation"),
-                           g_parse_scratch.propagation,
-                           error,
-                           error_len))
+    if (propagation)
     {
-        cJSON_Delete(root);
-        return false;
-    }
-
-    cJSON_Delete(root);
-    return true;
-}
-
-cJSON* create_document(const chat::reticulum::ReticulumNetworkConfig& config)
-{
-    cJSON* root = cJSON_CreateObject();
-    if (!root)
-    {
-        return nullptr;
-    }
-    auto fail = [&root]() -> cJSON*
-    {
-        cJSON_Delete(root);
-        return nullptr;
-    };
-    if (!add_json_string(root, "schema", kSchema) ||
-        !add_json_number(root, "version", config.version))
-    {
-        return fail();
-    }
-    cJSON* interfaces = cJSON_AddArrayToObject(root, "interfaces");
-    if (!interfaces)
-    {
-        return fail();
-    }
-    for (std::size_t index = 0; index < config.interface_count; ++index)
-    {
-        const auto& source = config.interfaces[index];
-        cJSON* item = cJSON_CreateObject();
-        if (!item)
+        if (!cJSON_IsObject(propagation))
         {
-            return fail();
-        }
-        const char* type = "IntegratedLoRaInterface";
-        if (source.type == chat::reticulum::NetworkInterfaceType::Auto)
-        {
-            type = "AutoInterface";
-        }
-        else if (source.type == chat::reticulum::NetworkInterfaceType::TcpClient)
-        {
-            type = "TCPClientInterface";
-        }
-        bool valid = add_json_string(item, "id", source.id) &&
-                     add_json_string(item, "type", type) &&
-                     add_json_bool(item, "enabled", source.enabled);
-        if (source.type == chat::reticulum::NetworkInterfaceType::Auto)
-        {
-            valid = valid && add_json_string(item, "group_id", source.group_id) &&
-                    add_json_string(item, "discovery_scope", "link") &&
-                    add_json_number(item, "discovery_port", source.discovery_port) &&
-                    add_json_number(item, "data_port", source.data_port);
-        }
-        else if (source.type == chat::reticulum::NetworkInterfaceType::TcpClient)
-        {
-            valid = valid &&
-                    add_json_string(item, "target_host", source.target_host) &&
-                    add_json_number(item, "target_port", source.target_port);
-        }
-        if (!valid || !cJSON_AddItemToArray(interfaces, item))
-        {
-            cJSON_Delete(item);
-            return fail();
-        }
-    }
-
-    cJSON* lxmf = cJSON_AddObjectToObject(root, "lxmf");
-    if (!lxmf)
-    {
-        return fail();
-    }
-    cJSON* propagation = cJSON_AddObjectToObject(lxmf, "propagation");
-    if (!propagation ||
-        !add_json_bool(propagation, "enabled", config.propagation.enabled) ||
-        !add_json_bool(propagation,
-                       "service_enabled",
-                       config.propagation.service_enabled))
-    {
-        return fail();
-    }
-    const char* delivery = "auto";
-    if (config.propagation.delivery == chat::reticulum::LxmfDeliveryPreference::Direct)
-    {
-        delivery = "direct";
-    }
-    else if (config.propagation.delivery ==
-             chat::reticulum::LxmfDeliveryPreference::Propagated)
-    {
-        delivery = "propagated";
-    }
-    if (!add_json_string(propagation, "delivery_method", delivery))
-    {
-        return fail();
-    }
-    if (config.propagation.automatic_node ||
-        is_zero_hash(config.propagation.node_hash,
-                     sizeof(config.propagation.node_hash)))
-    {
-        if (!add_json_string(propagation, "propagation_node", "auto"))
-        {
-            return fail();
-        }
-    }
-    else
-    {
-        char hash[(chat::reticulum::kTruncatedHashSize * 2U) + 1U] = {};
-        format_hash(config.propagation.node_hash,
-                    sizeof(config.propagation.node_hash),
-                    hash,
-                    sizeof(hash));
-        if (!add_json_string(propagation, "propagation_node", hash))
-        {
-            return fail();
-        }
-    }
-    if (!add_json_bool(propagation,
-                       "sync_on_start",
-                       config.propagation.sync_on_start) ||
-        !add_json_number(propagation,
-                         "sync_interval_seconds",
-                         config.propagation.sync_interval_s) ||
-        !add_json_number(propagation,
-                         "max_messages_per_sync",
-                         config.propagation.max_messages_per_sync))
-    {
-        return fail();
-    }
-    return root;
-}
-
-#if !defined(ARDUINO) && !defined(ESP_PLATFORM)
-void native_path(const char* path, char* out, std::size_t out_len)
-{
-    const char* mount_point =
-        ::platform::esp::idf_common::bsp_runtime::sdcard_mount_point();
-    std::snprintf(out,
-                  out_len,
-                  "%s%s",
-                  mount_point ? mount_point : "/sdcard",
-                  path ? path : "");
-}
-#endif
-
-bool sd_available()
-{
-#if defined(ARDUINO)
-    return ::platform::esp::arduino_common::storage::sd_card_ready();
-#else
-    return ::platform::esp::idf_common::bsp_runtime::ensure_sdcard_ready() &&
-           ::platform::esp::idf_common::bsp_runtime::sdcard_ready();
-#endif
-}
-
-bool sd_exists(const char* path)
-{
-#if defined(ARDUINO) || defined(ESP_PLATFORM)
-    return ::platform::esp::arduino_common::storage::sd_exists(path);
-#else
-    char native[192] = {};
-    native_path(path, native, sizeof(native));
-    struct stat info
-    {
-    };
-    return stat(native, &info) == 0;
-#endif
-}
-
-bool ensure_directory()
-{
-#if defined(ARDUINO) || defined(ESP_PLATFORM)
-    if (!::platform::esp::arduino_common::storage::sd_exists("/trailmate") &&
-        !::platform::esp::arduino_common::storage::sd_mkdir("/trailmate"))
-    {
-        return false;
-    }
-    return ::platform::esp::arduino_common::storage::sd_exists(kConfigDirectory) ||
-           ::platform::esp::arduino_common::storage::sd_mkdir(kConfigDirectory);
-#else
-    char trailmate[192] = {};
-    char directory[192] = {};
-    native_path("/trailmate", trailmate, sizeof(trailmate));
-    native_path(kConfigDirectory, directory, sizeof(directory));
-    return (mkdir(trailmate, 0775) == 0 || errno == EEXIST) &&
-           (mkdir(directory, 0775) == 0 || errno == EEXIST);
-#endif
-}
-
-bool read_sd_file(const char* path, std::size_t* out_len)
-{
-    if (!out_len || !ensure_file_buffer())
-    {
-        return false;
-    }
-    *out_len = 0;
-#if defined(ARDUINO) || defined(ESP_PLATFORM)
-    ::platform::esp::arduino_common::storage::SdRuntimeFile file;
-    if (!file.open(path, "r"))
-    {
-        return false;
-    }
-    const std::size_t size = file.size();
-    if (size == 0 || size > kMaxConfigBytes)
-    {
-        file.close();
-        return false;
-    }
-    const std::size_t read = file.read_bytes(g_file_buffer, size);
-    file.close();
-#else
-    char native[192] = {};
-    native_path(path, native, sizeof(native));
-    std::FILE* file = std::fopen(native, "rb");
-    if (!file || std::fseek(file, 0, SEEK_END) != 0)
-    {
-        if (file)
-        {
-            std::fclose(file);
-        }
-        return false;
-    }
-    const long file_size = std::ftell(file);
-    if (file_size <= 0 || file_size > static_cast<long>(kMaxConfigBytes) ||
-        std::fseek(file, 0, SEEK_SET) != 0)
-    {
-        std::fclose(file);
-        return false;
-    }
-    const std::size_t size = static_cast<std::size_t>(file_size);
-    const std::size_t read = std::fread(g_file_buffer, 1, size, file);
-    std::fclose(file);
-#endif
-    if (read != size)
-    {
-        return false;
-    }
-    g_file_buffer[size] = '\0';
-    *out_len = size;
-    return true;
-}
-
-bool write_sd_file_atomic(const char* text, std::size_t len)
-{
-    if (!text || len == 0 || len > kMaxConfigBytes || !ensure_directory())
-    {
-        return false;
-    }
-#if defined(ARDUINO) || defined(ESP_PLATFORM)
-    if (::platform::esp::arduino_common::storage::sd_exists(kConfigTempPath))
-    {
-        ::platform::esp::arduino_common::storage::sd_remove(kConfigTempPath);
-    }
-    ::platform::esp::arduino_common::storage::SdRuntimeFile file;
-    if (!file.open(kConfigTempPath, "w"))
-    {
-        return false;
-    }
-    const bool wrote =
-        file.write(reinterpret_cast<const uint8_t*>(text), len) == len;
-    file.close();
-    if (!wrote)
-    {
-        ::platform::esp::arduino_common::storage::sd_remove(kConfigTempPath);
-        return false;
-    }
-    if (::platform::esp::arduino_common::storage::sd_exists(kConfigPath))
-    {
-        ::platform::esp::arduino_common::storage::sd_remove(kConfigPath);
-    }
-    return ::platform::esp::arduino_common::storage::sd_rename(kConfigTempPath,
-                                                               kConfigPath);
-#else
-    char path[192] = {};
-    char temp_path[192] = {};
-    native_path(kConfigPath, path, sizeof(path));
-    native_path(kConfigTempPath, temp_path, sizeof(temp_path));
-    std::remove(temp_path);
-    std::FILE* file = std::fopen(temp_path, "wb");
-    if (!file)
-    {
-        return false;
-    }
-    const bool wrote = std::fwrite(text, 1, len, file) == len &&
-                       std::fflush(file) == 0;
-    std::fclose(file);
-    if (!wrote)
-    {
-        std::remove(temp_path);
-        return false;
-    }
-    std::remove(path);
-    return std::rename(temp_path, path) == 0;
-#endif
-}
-
-bool read_last_known_good(std::size_t* out_len)
-{
-    if (!out_len || !ensure_file_buffer())
-    {
-        return false;
-    }
-    *out_len = 0;
-#if defined(ARDUINO)
-    Preferences preferences;
-    if (!preferences.begin(kPreferencesNamespace, true))
-    {
-        return false;
-    }
-    const std::size_t size = preferences.getBytesLength(kLastKnownGoodKey);
-    const bool valid_size = size > 0 && size <= kMaxConfigBytes;
-    const std::size_t read = valid_size
-                                 ? preferences.getBytes(kLastKnownGoodKey,
-                                                        g_file_buffer,
-                                                        size)
-                                 : 0;
-    preferences.end();
-#else
-    nvs_handle_t handle = 0;
-    if (nvs_open(kPreferencesNamespace, NVS_READONLY, &handle) != ESP_OK)
-    {
-        return false;
-    }
-    std::size_t size = 0;
-    esp_err_t error = nvs_get_blob(handle, kLastKnownGoodKey, nullptr, &size);
-    const bool valid_size = error == ESP_OK && size > 0 && size <= kMaxConfigBytes;
-    if (valid_size)
-    {
-        error = nvs_get_blob(handle, kLastKnownGoodKey, g_file_buffer, &size);
-    }
-    nvs_close(handle);
-    const std::size_t read = error == ESP_OK && valid_size ? size : 0;
-#endif
-    if (!valid_size || read != size)
-    {
-        return false;
-    }
-    g_file_buffer[size] = '\0';
-    *out_len = size;
-    return true;
-}
-
-bool write_last_known_good(const char* text, std::size_t len)
-{
-    if (!text || len == 0 || len > kMaxConfigBytes)
-    {
-        return false;
-    }
-#if defined(ARDUINO)
-    Preferences preferences;
-    if (!preferences.begin(kPreferencesNamespace, false))
-    {
-        return false;
-    }
-    const bool wrote =
-        preferences.putBytes(kLastKnownGoodKey, text, len) == len;
-    preferences.end();
-    return wrote;
-#else
-    nvs_handle_t handle = 0;
-    if (nvs_open(kPreferencesNamespace, NVS_READWRITE, &handle) != ESP_OK)
-    {
-        return false;
-    }
-    const bool wrote = nvs_set_blob(handle, kLastKnownGoodKey, text, len) == ESP_OK &&
-                       nvs_commit(handle) == ESP_OK;
-    nvs_close(handle);
-    return wrote;
-#endif
-}
-
-bool persist_last_known_good(const chat::reticulum::ReticulumNetworkConfig& config)
-{
-    if (!ensure_file_buffer())
-    {
-        return false;
-    }
-
-    cJSON* root = create_document(config);
-    g_file_buffer[0] = '\0';
-    const bool printed = root &&
-                         cJSON_PrintPreallocated(root,
-                                                 g_file_buffer,
-                                                 kConfigBufferBytes,
-                                                 false);
-    cJSON_Delete(root);
-    return printed &&
-           write_last_known_good(g_file_buffer, std::strlen(g_file_buffer));
-}
-
-void activate(const chat::reticulum::ReticulumNetworkConfig& config,
-              Source source)
-{
-    g_active = config;
-    g_status.source = source;
-    g_status.valid = true;
-    g_status.configured_interfaces = config.interface_count;
-    ++g_status.generation;
-}
-
-bool same_interface_config(const chat::reticulum::NetworkInterfaceConfig& lhs,
-                           const chat::reticulum::NetworkInterfaceConfig& rhs)
-{
-    return std::strcmp(lhs.id, rhs.id) == 0 && lhs.type == rhs.type &&
-           lhs.enabled == rhs.enabled &&
-           std::strcmp(lhs.target_host, rhs.target_host) == 0 &&
-           lhs.target_port == rhs.target_port &&
-           std::strcmp(lhs.group_id, rhs.group_id) == 0 &&
-           lhs.discovery_port == rhs.discovery_port &&
-           lhs.data_port == rhs.data_port;
-}
-
-bool same_propagation_config(
-    const chat::reticulum::LxmfPropagationClientConfig& lhs,
-    const chat::reticulum::LxmfPropagationClientConfig& rhs)
-{
-    return lhs.enabled == rhs.enabled &&
-           lhs.service_enabled == rhs.service_enabled &&
-           lhs.delivery == rhs.delivery &&
-           lhs.automatic_node == rhs.automatic_node &&
-           std::memcmp(lhs.node_hash, rhs.node_hash, sizeof(lhs.node_hash)) == 0 &&
-           lhs.sync_on_start == rhs.sync_on_start &&
-           lhs.sync_interval_s == rhs.sync_interval_s &&
-           lhs.max_messages_per_sync == rhs.max_messages_per_sync;
-}
-
-bool same_network_config(const chat::reticulum::ReticulumNetworkConfig& lhs,
-                         const chat::reticulum::ReticulumNetworkConfig& rhs)
-{
-    if (lhs.version != rhs.version || lhs.interface_count != rhs.interface_count ||
-        !same_propagation_config(lhs.propagation, rhs.propagation))
-    {
-        return false;
-    }
-    for (std::size_t index = 0; index < lhs.interface_count; ++index)
-    {
-        if (!same_interface_config(lhs.interfaces[index], rhs.interfaces[index]))
-        {
+            cJSON_Delete(root);
             return false;
         }
+        auto& out = s_active->propagation;
+        out.enabled = json_bool(propagation, "enabled", out.enabled);
+        out.service_enabled = json_bool(propagation, "service_enabled", out.service_enabled);
+        out.sync_on_start = json_bool(propagation, "sync_on_start", out.sync_on_start);
+        const char* const delivery = json_string(propagation, "delivery_method");
+        if (delivery && std::strcmp(delivery, "direct") == 0)
+        {
+            out.delivery = chat::reticulum::LxmfDeliveryPreference::Direct;
+        }
+        else if (delivery && std::strcmp(delivery, "propagated") == 0)
+        {
+            out.delivery = chat::reticulum::LxmfDeliveryPreference::Propagated;
+        }
+        else if (delivery && std::strcmp(delivery, "auto") != 0)
+        {
+            cJSON_Delete(root);
+            return false;
+        }
+        const char* const node = json_string(propagation, "propagation_node");
+        if (node && std::strcmp(node, "auto") != 0)
+        {
+            if (!parse_hash(node, out.node_hash, sizeof(out.node_hash)))
+            {
+                cJSON_Delete(root);
+                return false;
+            }
+            out.automatic_node = false;
+        }
+        else
+        {
+            out.automatic_node = true;
+            std::memset(out.node_hash, 0, sizeof(out.node_hash));
+        }
+        const int interval = json_int(propagation,
+                                      "sync_interval_seconds",
+                                      static_cast<int>(out.sync_interval_s));
+        const int maximum = json_int(propagation,
+                                     "max_messages_per_sync",
+                                     static_cast<int>(out.max_messages_per_sync));
+        if (interval < 60 || interval > 24 * 60 * 60 || maximum < 1 || maximum > 64)
+        {
+            cJSON_Delete(root);
+            return false;
+        }
+        out.sync_interval_s = static_cast<uint32_t>(interval);
+        out.max_messages_per_sync = static_cast<uint8_t>(maximum);
     }
-    return true;
+    const bool valid = validate_config(*s_active);
+    cJSON_Delete(root);
+    return valid;
 }
 
-void refresh_default_projection(const chat::MeshConfig& legacy_config,
-                                bool force)
+char* allocate_legacy_buffer(std::size_t size)
 {
-    if (!build_defaults(legacy_config))
-    {
-        set_status("Reticulum config memory unavailable", kConfigPath);
-        return;
-    }
-    if (!force && g_status.source == Source::Defaults &&
-        same_network_config(g_active, g_parse_scratch))
-    {
-        return;
-    }
-
-    activate(g_parse_scratch, Source::Defaults);
-    set_status("Using Reticulum defaults", kConfigPath);
+#if defined(ESP_PLATFORM)
+    return static_cast<char*>(
+        heap_caps_malloc(size + 1U, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+#else
+    return static_cast<char*>(std::malloc(size + 1U));
+#endif
 }
 
-bool load_sd_config()
+void free_legacy_buffer(char* buffer)
 {
-    g_status.sd_present = sd_available();
-    if (!g_status.sd_present)
-    {
-        set_status("SD unavailable", kConfigPath);
-        return false;
-    }
-    g_status.file_present = sd_exists(kConfigPath);
-    if (!g_status.file_present)
-    {
-        set_status("Reticulum config not found", kConfigPath);
-        return false;
-    }
-
-    std::size_t len = 0;
-    if (!read_sd_file(kConfigPath, &len))
-    {
-        set_status("Cannot read Reticulum config", kConfigPath);
-        return false;
-    }
-    char error[96] = {};
-    if (!parse_document(g_file_buffer, len, error, sizeof(error)))
-    {
-        set_status("Invalid Reticulum config", error);
-        return false;
-    }
-
-    activate(g_parse_scratch, Source::SdCard);
-    (void)persist_last_known_good(g_active);
-    set_status("Reticulum config loaded", kConfigPath);
-    return true;
+#if defined(ESP_PLATFORM)
+    heap_caps_free(buffer);
+#else
+    std::free(buffer);
+#endif
 }
 
 } // namespace
 
 void initialize(const chat::MeshConfig& legacy_config)
 {
-    if (g_initialized)
+    if (s_initialized)
     {
         return;
     }
-    g_status = {};
-    g_status.supported = true;
-    if (!build_defaults(legacy_config))
+    if (!ensure_active())
     {
-        g_status.supported = false;
-        set_status("Reticulum config memory unavailable", kConfigPath);
-        g_initialized = true;
         return;
     }
-    activate(g_parse_scratch, Source::Defaults);
-    set_status("Using Reticulum defaults", kConfigPath);
-
-    const bool file_buffer_ready = ensure_file_buffer();
-    std::size_t len = 0;
-    char error[96] = {};
-    if (file_buffer_ready && read_last_known_good(&len) &&
-        parse_document(g_file_buffer, len, error, sizeof(error)))
+    if (!s_has_explicit_config)
     {
-        activate(g_parse_scratch, Source::LastKnownGood);
-        set_status("Using cached Reticulum config", kConfigPath);
+        if (!build_defaults(legacy_config, s_active))
+        {
+            s_status.valid = false;
+            set_status("Reticulum defaults unavailable");
+            s_initialized = true;
+            return;
+        }
+        activate(Source::Defaults, false);
+        set_status("Using Reticulum defaults");
     }
-    g_initialized = true;
+    s_initialized = true;
 }
 
 void poll(const chat::MeshConfig& legacy_config)
 {
     initialize(legacy_config);
-    if (g_reload_deferred && !::platform::ui::reticulum_call::resource_preempt_active())
-    {
-        g_reload_deferred = false;
-        g_status.reload_deferred = false;
-        g_sd_checked = true;
-        (void)load_sd_config();
-        return;
-    }
-    if (g_sd_checked)
-    {
-        refresh_default_projection(legacy_config, false);
-        return;
-    }
-    const uint32_t now_ms = uptime_ms();
-    if (g_last_sd_probe_ms != 0 &&
-        now_ms - g_last_sd_probe_ms < kSdProbeIntervalMs)
-    {
-        return;
-    }
-    g_last_sd_probe_ms = now_ms;
-    if (sd_available())
-    {
-        if (::platform::ui::reticulum_call::resource_preempt_active())
-        {
-            g_reload_deferred = true;
-            set_status("Reload deferred until call closes", kConfigPath);
-            return;
-        }
-        g_sd_checked = true;
-        if (!load_sd_config() && !g_status.file_present)
-        {
-            refresh_default_projection(legacy_config, true);
-        }
-    }
 }
 
-const chat::reticulum::ReticulumNetworkConfig& active()
+const NetworkConfig& active()
 {
-    return g_active;
+    if (!ensure_active())
+    {
+        std::printf("[Reticulum][Config] active configuration unavailable\n");
+        std::abort();
+    }
+    return *s_active;
+}
+
+bool validateForTms(const NetworkConfig& config)
+{
+    return validate_config(config);
+}
+
+bool setFromTms(const NetworkConfig& config)
+{
+    if (!ensure_active() || !validate_config(config))
+    {
+        return false;
+    }
+    *s_active = config;
+    activate(Source::Tms, true);
+    set_status("Reticulum configuration loaded from TMS");
+    return true;
+}
+
+bool snapshotForTms(const chat::MeshConfig& legacy_config, NetworkConfig* out)
+{
+    if (!out || !ensure_active())
+    {
+        return false;
+    }
+    if (s_has_explicit_config)
+    {
+        *out = *s_active;
+        return true;
+    }
+    return build_defaults(legacy_config, out);
+}
+
+LegacyImportResult importLegacy(const chat::MeshConfig&)
+{
+    if (!sd_available())
+    {
+        return LegacyImportResult::Unavailable;
+    }
+    if (!::platform::esp::arduino_common::storage::sd_exists(kLegacyConfigPath))
+    {
+        return LegacyImportResult::NotPresent;
+    }
+    if (!ensure_active())
+    {
+        return LegacyImportResult::Invalid;
+    }
+
+    SdRuntimeFile file;
+    if (!file.open(kLegacyConfigPath, "r"))
+    {
+        return LegacyImportResult::Invalid;
+    }
+    const std::size_t size = static_cast<std::size_t>(file.size());
+    if (size == 0U || size > kLegacyMaxBytes)
+    {
+        file.close();
+        return LegacyImportResult::Invalid;
+    }
+    char* const buffer = allocate_legacy_buffer(size);
+    if (!buffer)
+    {
+        file.close();
+        set_status("Reticulum legacy migration memory unavailable", kLegacyConfigPath);
+        return LegacyImportResult::Invalid;
+    }
+    const bool read = file.read_bytes(buffer, size) == size;
+    file.close();
+    buffer[size] = '\0';
+    const bool parsed = read && parse_legacy_document(buffer, size);
+    free_legacy_buffer(buffer);
+    if (!parsed)
+    {
+        set_status("Invalid legacy Reticulum configuration", kLegacyConfigPath);
+        return LegacyImportResult::Invalid;
+    }
+    activate(Source::LegacyJson, true);
+    set_status("Legacy Reticulum configuration imported", kLegacyConfigPath);
+    return LegacyImportResult::Imported;
+}
+
+bool discardLegacySource()
+{
+    if (!sd_available())
+    {
+        return false;
+    }
+    const bool removed_config =
+        !::platform::esp::arduino_common::storage::sd_exists(kLegacyConfigPath) ||
+        ::platform::esp::arduino_common::storage::sd_remove(kLegacyConfigPath);
+    const bool removed_temp =
+        !::platform::esp::arduino_common::storage::sd_exists(kLegacyTempPath) ||
+        ::platform::esp::arduino_common::storage::sd_remove(kLegacyTempPath);
+    return removed_config && removed_temp;
 }
 
 Status status()
 {
-    g_status.reload_deferred = g_reload_deferred;
-    return g_status;
+    return s_status;
 }
 
 bool reload(const chat::MeshConfig& legacy_config)
 {
     initialize(legacy_config);
-    if (::platform::ui::reticulum_call::resource_preempt_active())
-    {
-        g_reload_deferred = true;
-        set_status("Reload deferred until call closes", kConfigPath);
-        return true;
-    }
-    g_sd_checked = true;
-    return load_sd_config();
+    return s_status.valid;
 }
 
-bool export_template(const chat::MeshConfig& legacy_config)
+bool export_template(const chat::MeshConfig&)
 {
-    initialize(legacy_config);
-    if (::platform::ui::reticulum_call::resource_preempt_active() ||
-        !sd_available() || !ensure_file_buffer())
+    set_status("Reticulum configuration is stored in config.tms");
+    return false;
+}
+
+bool reset(const chat::MeshConfig& legacy_config)
+{
+    if (!ensure_active() || !build_defaults(legacy_config, s_active))
     {
         return false;
     }
-    cJSON* root = create_document(g_active);
-    g_file_buffer[0] = '\0';
-    const bool printed = root &&
-                         cJSON_PrintPreallocated(root,
-                                                 g_file_buffer,
-                                                 kConfigBufferBytes,
-                                                 true);
-    const bool wrote = printed &&
-                       write_sd_file_atomic(g_file_buffer,
-                                            std::strlen(g_file_buffer));
-    cJSON_Delete(root);
-    if (wrote)
-    {
-        g_status.file_present = true;
-        set_status("Reticulum config exported", kConfigPath);
-    }
-    return wrote;
+    activate(Source::Defaults, false);
+    s_initialized = true;
+    set_status("Reticulum configuration reset");
+    return true;
 }
 
 const char* config_path()
 {
-    return kConfigPath;
+    return kWorkingConfigPath;
 }
 
 const char* source_name(Source source)
 {
     switch (source)
     {
-    case Source::SdCard:
-        return "SD";
-    case Source::LastKnownGood:
-        return "Cached";
+    case Source::Tms:
+        return "TMS";
+    case Source::LegacyJson:
+        return "Legacy JSON";
     case Source::Defaults:
     default:
         return "Defaults";

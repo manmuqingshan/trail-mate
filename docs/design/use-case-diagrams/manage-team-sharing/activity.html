@@ -1,8 +1,8 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：团队配对</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="candidate"><h1>配对到成员状态</h1><pre class="mermaid">flowchart TD
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Activity: Team Pairing</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="candidate"><h1>Pair to member status</h1><pre class="mermaid">flowchart TD
 Request --> Confirm{"user confirms?"}
-Confirm -- 否 --> Reject
-Confirm -- 是 --> Exchange["confirm + keys"]
+Confirm -- No--> Reject
+Confirm -- Yes--> Exchange["confirm + keys"]
 Exchange --> Verify{"valid?"}
-Verify -- 是 --> Persist["keys + roster projection"]
+Verify -- Yes--> Persist["keys + roster projection"]
 Persist --> Active
 Active --> Admin["kick/transfer/key request"]</pre></main></body></html>

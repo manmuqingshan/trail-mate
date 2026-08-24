@@ -1,56 +1,56 @@
-# 组件职责：apps/nrf52_node
+# Component responsibility: apps/nrf52_node
 
-C4 层级：Component
-状态：candidate
-置信度：high
-项目版本：0.1.30-alpha
-Git：34aad0bffa2f / main / dirty
-更新于：2026-06-25T09:19:32.800Z
+C4 Level: Component
+Status: candidate
+Confidence: high
+Project version: 0.1.30-alpha
+Git:34aad0bffa2f / main / dirty
+Updated on: 2026-06-25T09:19:32.800Z
 
-## 定位
+## Positioning
 
-从 C4 Component 层解释 apps/nrf52_node 内部的关键职责单元：入口、页面、命令、接口、注册表、adapter 或共享对象。
+Explain the key responsibility units inside apps/nrf52_node from the C4 Component layer: entry, page, command, interface, registry, adapter or shared object.
 
-## C4 层级路径
+## C4 hierarchy path
 
-- 当前层：Component，解释某个 Container 内部的关键职责单元。
-- 上层：Container，限定这些组件所属的架构边界。
-- 下层：Code View，只在需要追溯实现入口或变更影响面时进入少量关键代码锚点。
+- Current layer: Component, explaining the key responsibility units within a Container.
+- Upper layer: Container, which defines the architectural boundaries to which these components belong.
+- Lower layer: Code View, only enter a small number of key code anchors when you need to trace the implementation entrance or change the impact surface.
 
-## 责任
+## Responsibility
 
-解释 apps/nrf52_node 这个 Container 内部由哪些关键组件承担架构职责。Component 层不是全量类/函数列表，只保留对理解系统边界、协作或变更影响有帮助的对象。
+Explain which key components within the apps/nrf52_node Container bear architectural responsibilities. The Component layer is not a comprehensive list of classes/functions, only objects that are helpful for understanding system boundaries, collaboration, or the impact of changes.
 
-## 边界
+## Boundary
 
-Component View 的边界被限制在 apps/nrf52_node Container 内；跨容器关系应该回到 Container 或 Engineering Sequence 视角解释。
+The boundary of Component View is limited to apps/nrf52_node Container; cross-container relationships should be explained back to the Container or Engineering Sequence perspective.
 
-## 关系
+## Relationships
 
-- ChatService: ChatService 是 apps/nrf52_node 内的应用服务或处理组件，证据来自 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23。
-- ContactService: ContactService 是 apps/nrf52_node 内的应用服务或处理组件，证据来自 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L30。
-- IMeshAdapter: IMeshAdapter 是 apps/nrf52_node 内的外部系统适配组件，证据来自 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L25。
-- ScopedGpsSuspend: ScopedGpsSuspend 是 apps/nrf52_node 内的主要架构组件，证据来自 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L45。
-- AppFacadeRuntime: AppFacadeRuntime 是 apps/nrf52_node 内的主要架构组件，证据来自 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L42。
-- ChatModel: ChatModel 是 apps/nrf52_node 内的主要架构组件，证据来自 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L22。
-- SelfIdentityBridge: SelfIdentityBridge 是 apps/nrf52_node 内的主要架构组件，证据来自 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L36。
-- IChatStore: IChatStore 是 apps/nrf52_node 内的持久化访问组件，证据来自 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L24。
-- IContactStore: IContactStore 是 apps/nrf52_node 内的持久化访问组件，证据来自 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L29。
-- INodeStore: INodeStore 是 apps/nrf52_node 内的持久化访问组件，证据来自 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L28。
-- nrf52_node_app_facade_runtime: nrf52_node_app_facade_runtime 是 apps/nrf52_node 内的应用服务或处理组件，证据来自 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp。
-- nrf52_node_runtime_config: nrf52_node_runtime_config 是 apps/nrf52_node 内的运行配置组件，证据来自 apps/nrf52_node/src/nrf52_node_runtime_config.cpp。
+- ChatService: ChatService is an application service or processing component within apps/nrf52_node, evidenced by apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23.
+- ContactService: ContactService is an application service or processing component within apps/nrf52_node, evidenced by apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L30.
+- IMeshAdapter: IMeshAdapter is an external system adapter component within apps/nrf52_node, evidenced by apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L25.
+- ScopedGpsSuspend: ScopedGpsSuspend is a major architectural component within apps/nrf52_node, evidenced by apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L45.
+- AppFacadeRuntime: AppFacadeRuntime is the main architectural component within apps/nrf52_node, evidence from apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L42.
+- ChatModel: ChatModel is the main architectural component within apps/nrf52_node, as evidenced by apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L22.
+- SelfIdentityBridge: SelfIdentityBridge is the main architectural component within apps/nrf52_node, as evidenced by apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L36.
+- IChatStore: IChatStore is a persistent access component within apps/nrf52_node, evidenced by apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L24.
+- IContactStore: IContactStore is a persistent access component within apps/nrf52_node, evidence from apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L29.
+- INodeStore: INodeStore is a persistent access component within apps/nrf52_node, evidence from apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L28.
+- nrf52_node_app_facade_runtime: nrf52_node_app_facade_runtime is an application service or processing component within apps/nrf52_node, evidence from apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp.
+- nrf52_node_runtime_config: nrf52_node_runtime_config is the runtime configuration component within apps/nrf52_node, evidenced by apps/nrf52_node/src/nrf52_node_runtime_config.cpp.
 
-## 与业务复杂度的关联
+## Correlation with business complexity
 
-- 组件层帮助把业务故事连接到实际入口、编排、适配或基础设施对象。
-- 如果某个组件直接承载 Use Case，应在组织/过程模型的下钻文档中出现对应证据。
+- The component layer helps connect business stories to actual portal, orchestration, adaptation or infrastructure objects.
+- If a component directly hosts a Use Case, corresponding evidence should appear in the drill-down document of the organization/process model.
 
-## 与技术复杂度的关联
+## Correlation with technical complexity
 
-- 对应 Engineering Class / Structural Diagram：docs/engineering/class-structural-diagrams/apps-nrf52_node/class-structural-diagram.html。
-- 组件级复用迹象、外部协作迹象和复杂度候选点仍由软件结构模型负责解释。
+ - Corresponds to Engineering Class / Structural Diagram: docs/engineering/class-structural-diagrams/apps-nrf52_node/class-structural-diagram.html.
+- Component-level reuse signs, external collaboration signs, and complexity candidates are still explained by the software structural model.
 
-## C4 Component 图
+## C4 Component diagram
 
 ```mermaid
 flowchart TB
@@ -77,197 +77,197 @@ flowchart TB
   container --> component_10
 ```
 
-## 图内元素解释
+## Explanation of elements in the figure
 
 ### ChatService
 
-- 层级：component
-- 说明：ChatService 是 apps/nrf52_node 内的 class 候选组件，证据锚点是 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：ChatService 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/nrf52_node Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：ChatService 被放入 Component View，是因为它能把 apps/nrf52_node 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/nrf52_node 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 ChatService 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：high
-- 证据：
+-Level: component
+- Description: ChatService is a class candidate component in apps/nrf52_node, and the evidence anchor is apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23; the current warehouse evidence shows that it has Local signs of relationships, suitable as candidate anchors rather than complete conclusions.
+- Responsibility: ChatService is considered a candidate architectural component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23, class type and local relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/nrf52_node Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+- Relational meaning: ChatService is put into Component View because it can offload the architectural responsibilities of apps/nrf52_node to an inspectable entry, orchestration, adaptation, contract or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how the internal responsibilities of apps/nrf52_node are split, so it belongs to the C4 Component layer.
+- Drill-down intent: Drill down to the Component Diagram of the Code View or software structure model to view the file anchor points of ChatService, direct collaboration, and whether there is a risk of change diffusion.
+- Confidence: high
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Signs of reuse: There are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### ContactService
 
-- 层级：component
-- 说明：ContactService 是 apps/nrf52_node 内的 class 候选组件，证据锚点是 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L30；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：ContactService 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L30、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/nrf52_node Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：ContactService 被放入 Component View，是因为它能把 apps/nrf52_node 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/nrf52_node 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 ContactService 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：high
-- 证据：
+-Level: component
+- Description: ContactService is a class candidate component in apps/nrf52_node, and the evidence anchor is apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L30; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: ContactService is considered a candidate architectural component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L30, class type and local relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/nrf52_node Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+- Relational meaning: ContactService is put into Component View because it can offload the architectural responsibilities of apps/nrf52_node to an inspectable entry, orchestration, adaptation, contract or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how the internal responsibilities of apps/nrf52_node are split, so it belongs to the C4 Component layer.
+- Drill-down intent: Drill down to the Component Diagram of the Code View or software structure model to view the file anchors of ContactService, direct collaboration, and whether there is a risk of change diffusion.
+- Confidence: high
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L30
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Signs of reuse: There are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### IMeshAdapter
 
-- 层级：component
-- 说明：IMeshAdapter 是 apps/nrf52_node 内的 class 候选组件，证据锚点是 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L25；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：IMeshAdapter 在当前 C4 Component View 中被视为外部能力适配组件。这个判断不是由名称单独决定，而是由 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L25、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/nrf52_node Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：IMeshAdapter 被放入 Component View，是因为它能把 apps/nrf52_node 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/nrf52_node 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 IMeshAdapter 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：high
-- 证据：
+-Level: component
+- Description: IMeshAdapter is a class candidate component in apps/nrf52_node, and the evidence anchor is apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L25; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: IMeshAdapter is considered an external capability adapter component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L25, class type and local relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/nrf52_node Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+- Relational meaning: IMeshAdapter is put into Component View because it can offload the architectural responsibilities of apps/nrf52_node to an inspectable entry, orchestration, adaptation, contract or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how the internal responsibilities of apps/nrf52_node are split, so it belongs to the C4 Component layer.
+- Drill-down intention: Drill down to the Component Diagram of the Code View or software structure model to view the IMeshAdapter's file anchor points, direct collaboration, and whether there is a risk of change diffusion.
+- Confidence: high
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L25
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Signs of reuse: There are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### ScopedGpsSuspend
 
-- 层级：component
-- 说明：ScopedGpsSuspend 是 apps/nrf52_node 内的 class 候选组件，证据锚点是 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L45；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：ScopedGpsSuspend 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L45、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/nrf52_node Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：ScopedGpsSuspend 被放入 Component View，是因为它能把 apps/nrf52_node 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/nrf52_node 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 ScopedGpsSuspend 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：medium
-- 证据：
+-Level: component
+- Description: ScopedGpsSuspend is a class candidate component in apps/nrf52_node, and the evidence anchor is apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L45; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: ScopedGpsSuspend is considered a candidate architecture component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L45, class type, and local relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/nrf52_node Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+ - Relational meaning: ScopedGpsSuspend is put into the Component View because it can offload the architectural responsibilities of apps/nrf52_node to an inspectable entry, orchestration, adaptation, contract or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how the internal responsibilities of apps/nrf52_node are split, so it belongs to the C4 Component layer.
+- Drill-down intent: Drill down to the Component Diagram of the Code View or software structure model to view the file anchors of ScopedGpsSuspend, direct collaboration, and whether there is a risk of change diffusion.
+- Confidence: medium
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp#L45
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：存在局部外部协作线索
+ - Signs of reuse: There are local reuse or dependency clues
+ - Signs of external collaboration: There are local external collaboration clues
 
 ### AppFacadeRuntime
 
-- 层级：component
-- 说明：AppFacadeRuntime 是 apps/nrf52_node 内的 class 候选组件，证据锚点是 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L42；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：AppFacadeRuntime 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L42、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/nrf52_node Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：AppFacadeRuntime 被放入 Component View，是因为它能把 apps/nrf52_node 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/nrf52_node 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 AppFacadeRuntime 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：medium
-- 证据：
+-Level: component
+ - Description: AppFacadeRuntime is a class candidate component within apps/nrf52_node, and the evidence anchor is apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L42; the current warehouse evidence shows that it has signs of local relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: AppFacadeRuntime is considered a candidate architectural component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L42, class type and local relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/nrf52_node Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+ - Relational meaning: AppFacadeRuntime is put into Component View because it offloads the architectural responsibilities of apps/nrf52_node to an inspectable entry, orchestration, adaptation, contract, or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how the internal responsibilities of apps/nrf52_node are split, so it belongs to the C4 Component layer.
+- Drill-down intent: Drill down to the Component Diagram of the Code View or software structure model to view the file anchor points of AppFacadeRuntime, direct collaboration, and whether there is a risk of change diffusion.
+- Confidence: medium
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L42
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：存在局部外部协作线索
+ - Signs of reuse: There are local reuse or dependency clues
+ - Signs of external collaboration: There are local external collaboration clues
 
 ### ChatModel
 
-- 层级：component
-- 说明：ChatModel 是 apps/nrf52_node 内的 class 候选组件，证据锚点是 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L22；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：ChatModel 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L22、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/nrf52_node Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：ChatModel 被放入 Component View，是因为它能把 apps/nrf52_node 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/nrf52_node 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 ChatModel 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：medium
-- 证据：
+-Level: component
+- Description: ChatModel is a class candidate component in apps/nrf52_node, and the evidence anchor is apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L22; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: ChatModel is considered a candidate architectural component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L22, class type and local relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/nrf52_node Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+ - Relational meaning: ChatModel is put into Component View because it offloads the architectural responsibilities of apps/nrf52_node to an inspectable entry, orchestration, adaptation, contract or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how the internal responsibilities of apps/nrf52_node are split, so it belongs to the C4 Component layer.
+- Drill-down intent: Drill down to the Component Diagram of the Code View or software structure model to view the ChatModel's file anchors, direct collaboration, and whether there is a risk of change diffusion.
+- Confidence: medium
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L22
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Signs of reuse: There are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### SelfIdentityBridge
 
-- 层级：component
-- 说明：SelfIdentityBridge 是 apps/nrf52_node 内的 class 候选组件，证据锚点是 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L36；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：SelfIdentityBridge 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L36、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/nrf52_node Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：SelfIdentityBridge 被放入 Component View，是因为它能把 apps/nrf52_node 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/nrf52_node 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 SelfIdentityBridge 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：medium
-- 证据：
+-Level: component
+- Description: SelfIdentityBridge is a class candidate component in apps/nrf52_node, and the evidence anchor is apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L36; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: SelfIdentityBridge is considered a candidate schema component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L36, class type and local relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/nrf52_node Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+- Relational significance: SelfIdentityBridge is put into Component View because it can offload the architectural responsibility of apps/nrf52_node to an inspectable entry, orchestration, adaptation, contract or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how the internal responsibilities of apps/nrf52_node are split, so it belongs to the C4 Component layer.
+- Drill-down intent: Drill down to the Code View or Component Diagram of the software structure model to view SelfIdentityBridge's file anchors, direct collaboration, and whether there is a risk of change propagation.
+- Confidence: medium
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L36
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Signs of reuse: There are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### IChatStore
 
-- 层级：component
-- 说明：IChatStore 是 apps/nrf52_node 内的 class 候选组件，证据锚点是 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L24；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：IChatStore 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L24、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/nrf52_node Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：IChatStore 被放入 Component View，是因为它能把 apps/nrf52_node 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/nrf52_node 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 IChatStore 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：medium
-- 证据：
+-Level: component
+- Description: IChatStore is a class candidate component in apps/nrf52_node, and the evidence anchor is apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L24; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: IChatStore is considered a candidate architectural component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L24, class type and local relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/nrf52_node Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+- Relational meaning: IChatStore is put into the Component View because it offloads the architectural responsibilities of apps/nrf52_node onto an inspectable entry, orchestration, adaptation, contract, or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how the internal responsibilities of apps/nrf52_node are split, so it belongs to the C4 Component layer.
+- Drill-down intent: Drill down to the Code View or Component Diagram of the software structure model to view the file anchors of IChatStore, direct collaboration, and whether there is a risk of change diffusion.
+- Confidence: medium
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L24
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Signs of reuse: There are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### IContactStore
 
-- 层级：component
-- 说明：IContactStore 是 apps/nrf52_node 内的 class 候选组件，证据锚点是 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L29；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：IContactStore 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L29、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/nrf52_node Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：IContactStore 被放入 Component View，是因为它能把 apps/nrf52_node 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/nrf52_node 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 IContactStore 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：medium
-- 证据：
+-Level: component
+- Description: IContactStore is a class candidate component in apps/nrf52_node, and the evidence anchor is apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L29; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: IContactStore is considered a candidate architectural component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L29, class type and local relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/nrf52_node Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+- Relational significance: IContactStore is put into Component View because it can offload the architectural responsibility of apps/nrf52_node to an inspectable entry, orchestration, adaptation, contract or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how the internal responsibilities of apps/nrf52_node are split, so it belongs to the C4 Component layer.
+- Drill-down intent: Drill down to the Component Diagram of the Code View or software structure model to view the file anchor points of IContactStore, direct collaboration, and whether there is a risk of change diffusion.
+- Confidence: medium
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L29
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Signs of reuse: There are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### INodeStore
 
-- 层级：component
-- 说明：INodeStore 是 apps/nrf52_node 内的 class 候选组件，证据锚点是 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L28；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：INodeStore 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L28、class 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/nrf52_node Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：INodeStore 被放入 Component View，是因为它能把 apps/nrf52_node 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/nrf52_node 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 INodeStore 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：medium
-- 证据：
+-Level: component
+- Description: INodeStore is a class candidate component in apps/nrf52_node, and the evidence anchor is apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L28; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+- Responsibility: INodeStore is considered a candidate architectural component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L28, class type and local relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/nrf52_node Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+- Relational meaning: INodeStore is put into the Component View because it offloads the architectural responsibilities of apps/nrf52_node to an inspectable entry, orchestration, adaptation, contract, or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how the internal responsibilities of apps/nrf52_node are split, so it belongs to the C4 Component layer.
+- Drill-down intent: Drill down to the Component Diagram of the Code View or software structure model to view the file anchor points of INodeStore, direct collaboration, and whether there is a risk of change diffusion.
+- Confidence: medium
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L28
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Signs of reuse: There are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### nrf52_node_app_facade_runtime
 
-- 层级：component
-- 说明：nrf52_node_app_facade_runtime 是 apps/nrf52_node 内的 import 候选组件，证据锚点是 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：nrf52_node_app_facade_runtime 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp、import 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/nrf52_node Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：nrf52_node_app_facade_runtime 被放入 Component View，是因为它能把 apps/nrf52_node 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/nrf52_node 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 nrf52_node_app_facade_runtime 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：high
-- 证据：
+-Level: component
+- Description: nrf52_node_app_facade_runtime is an import candidate component in apps/nrf52_node, and the evidence anchor is apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+ - Responsibility: nrf52_node_app_facade_runtime is considered a candidate architecture component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp, import type, and partial relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/nrf52_node Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+ - Relational meaning: nrf52_node_app_facade_runtime is placed in the Component View because it enables the architectural responsibilities of apps/nrf52_node to fall onto an inspectable entry, orchestration, adaptation, contract or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how the internal responsibilities of apps/nrf52_node are split, so it belongs to the C4 Component layer.
+- Drill down intention: Drill down to the Component Diagram of Code View or software structure model to view the file anchor point of nrf52_node_app_facade_runtime, direct collaboration and whether there is a risk of change diffusion.
+- Confidence: high
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Signs of reuse: There are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
 ### nrf52_node_runtime_config
 
-- 层级：component
-- 说明：nrf52_node_runtime_config 是 apps/nrf52_node 内的 import 候选组件，证据锚点是 apps/nrf52_node/src/nrf52_node_runtime_config.cpp；当前仓库证据显示它有 局部关系迹象，适合作为候选锚点而非完整结论。
-- 责任：nrf52_node_runtime_config 在当前 C4 Component View 中被视为候选架构组件。这个判断不是由名称单独决定，而是由 apps/nrf52_node/src/nrf52_node_runtime_config.cpp、import 类型和 局部关系迹象，适合作为候选锚点而非完整结论 共同支撑。
-- 边界：它属于 apps/nrf52_node Container 内部；超出该路径的协作应回到 Container 或软件结构模型中的 Sequence 视角解释。
-- 关系意义：nrf52_node_runtime_config 被放入 Component View，是因为它能把 apps/nrf52_node 的架构职责落到一个可检查的入口、编排、适配、契约或共享对象上。复用迹象和外部协作迹象用于提示它更像共享核心、对外编排者，还是普通局部对象。
-- 为什么属于该层：它有明确代码锚点，但当前解释目标不是源码细节，而是 apps/nrf52_node 内部职责如何拆分，所以属于 C4 Component 层。
-- 下钻意图：下钻到 Code View 或软件结构模型的 Component Diagram，用来查看 nrf52_node_runtime_config 的文件锚点、直接协作和是否存在变更扩散风险。
-- 置信度：medium
-- 证据：
+-Level: component
+- Description: nrf52_node_runtime_config is an import candidate component in apps/nrf52_node, and the evidence anchor is apps/nrf52_node/src/nrf52_node_runtime_config.cpp; the current warehouse evidence shows that it has signs of partial relationships and is suitable as a candidate anchor rather than a complete conclusion.
+ - Responsibility: nrf52_node_runtime_config is considered a candidate architecture component in the current C4 Component View. This judgment is not determined by the name alone, but is jointly supported by apps/nrf52_node/src/nrf52_node_runtime_config.cpp, import type, and partial relationship signs, which are suitable as candidate anchors rather than complete conclusions.
+- Boundary: It belongs inside apps/nrf52_node Container; collaboration beyond this path should be interpreted back to the Container or Sequence perspective in the software structure model.
+ - Relational meaning: nrf52_node_runtime_config is placed in the Component View because it offloads the architectural responsibilities of apps/nrf52_node onto an inspectable entry, orchestration, adaptation, contract, or shared object. Reuse signs and external collaboration signs are used to indicate whether it is more like a shared core, an external orchestrator, or a normal local object.
+- Why it belongs to this layer: It has a clear code anchor, but the current explanation target is not the source code details, but how the internal responsibilities of apps/nrf52_node are split, so it belongs to the C4 Component layer.
+- Drill-down intent: Drill down to the Component Diagram of the Code View or software structure model to view the file anchor point of nrf52_node_runtime_config, direct collaboration, and whether there is a risk of change diffusion.
+- Confidence: medium
+- Evidence:
   - apps/nrf52_node/src/nrf52_node_runtime_config.cpp
-  - 复用迹象：存在局部复用或依赖线索
-  - 外部协作迹象：当前未观察到明显外部协作线索
+ - Signs of reuse: There are local reuse or dependency clues
+ - Signs of external collaboration: No obvious clues of external collaboration are currently observed
 
-## 可下钻 C4
+## Can drill down to C4
 
-- [代码锚点：apps/nrf52_node](../../code/apps-nrf52_node/code.md) - 进入 代码锚点：apps/nrf52_node 是为了把 组件职责：apps/nrf52_node 的架构职责追溯到具体文件/符号锚点；只有需要判断实现入口或变更影响面时才应下钻到 Code。
+- [Code anchor: apps/nrf52_node](../../code/apps-nrf52_node/code.md) - Enter code anchor: apps/nrf52_node to put component responsibility: apps/nrf52_node The architectural responsibilities can be traced back to specific files/symbol anchors; you should drill down to Code only when you need to determine the implementation entry or the impact of changes.
 
-## 关联软件结构模型
+## Associated software structural model
 
-- [apps/nrf52_node Class / Structural Diagram](../../../../engineering/class-structural-diagrams/apps-nrf52_node/class-structural-diagram.md) - 查看该 Container 内部结构协作和关键技术对象。
+- [apps/nrf52_node Class / Structural Diagram](../../../../engineering/class-structural-diagrams/apps-nrf52_node/class-structural-diagram.md) - View the internal structure collaboration and key technical objects of this Container.
 
-## 证据
+## Evidence
 
 - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L23
 - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h#L30
@@ -282,12 +282,12 @@ flowchart TB
 - apps/nrf52_node/src/nrf52_node_app_facade_runtime.cpp
 - apps/nrf52_node/src/nrf52_node_runtime_config.cpp
 
-## 判定依据
+## Judgment basis
 
-- Component 候选只保留入口、编排、接口、适配器、配置、任务、消费者或生产者等组件级职责对象；方法、路由和局部函数下沉到 Code View。
+- Component candidates only retain component-level responsibility objects such as entrances, orchestrations, interfaces, adapters, configurations, tasks, consumers or producers; methods, routes and local functions are dropped to Code View.
 
-## 变更记录
+## Change record
 
 ### 0.1.30-alpha - 2026-06-25T09:19:32.800Z
 
-- 基于本地仓库证据重新生成 组件职责：apps/nrf52_node。
+ - Regenerate based on local warehouse evidence Component responsibility: apps/nrf52_node.

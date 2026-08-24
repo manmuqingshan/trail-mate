@@ -2,105 +2,105 @@
 
 Status: normative
 
-本文档冻结 Trail Mate runtime 关键机制的 ownership 边界。它不是阶段计划，也不是事故复盘。
-后续修改必须先遵守这里的 owner 关系，再考虑局部实现。不能再用页面补丁、协议旁路、
-storage 双写侥幸、或资源临时判断去绕开主路径。
+This document freezes ownership boundaries for key mechanisms of the Trail Mate runtime. It is not a stage plan or an accident review.
+Subsequent modifications must first comply with the owner relationship here, and then consider local implementation. You can no longer use page patches, protocol bypasses,
+storage double-write luck, or resource temporary judgments to bypass the main path.
 
-如果本文档与旧的实现说明冲突，以本文档为准；旧文档必须被更新，而不是让代码继续选择
-更方便的旁路。
+If this document conflicts with older implementation specifications, this document shall prevail; the old document must be updated, rather than having the code continue to choose the
+ more convenient bypass.
 
 ## One Rule
 
-一个事实只能有一个权威 owner。
+A fact can only have one authoritative owner.
 
-其他模块只能提交 intent、消费 projection、或执行 owner 给出的 effect。任何模块只要同时
-“读取事实、改写事实、解释失败、刷新 UI”，就已经越界。
+Other modules can only submit intent, consume projection, or execute the effect given by owner. Any module that simultaneously
+ "reads facts, rewrites facts, fails to interpret, and refreshes the UI" has crossed the line.
 
 ## Scope
 
-本文档冻结以下机制：
+This document freezes the following mechanisms:
 
-1. UI 与 runtime 的分工。
-2. MT / MC / RT 三协议消息投递状态。
-3. read / unread / badge 状态。
-4. Reticulum direct / propagation 去重与确认。
-5. Reticulum Sideband/LXST call 与 realtime resource lease。
-6. MQTT downlink 到 LoRa 的空口预算与 UI 非阻塞关系。
-7. 外部字体和语言包加载。
-8. Contacts / Network 投影分类。
-9. God file 拆解后的 owner 迁移规则。
+1. The division of labor between UI and runtime.
+2. MT / MC / RT three protocol message delivery status.
+3. read / unread / badge status.
+4. Reticulum direct / propagation deduplication and confirmation.
+5. Reticulum Sideband/LXST call and realtime resource lease.
+6. The air interface budget and UI non-blocking relationship between MQTT downlink to LoRa.
+7. External fonts and language packs are loaded.
+8. Contacts / Network projection classification.
+9. Owner migration rules after God file disassembly.
 
 ## Non-Negotiable Boundaries
 
 ### UI
 
-UI 只允许：
+UI only allows:
 
-1. 发出用户 intent。
-2. 展示 projection snapshot。
-3. 展示 runtime 明确给出的 pending / failure / progress。
-4. 管理页面本地选择、滚动位置、焦点和可见导航。
+1. Issuing user intent.
+2. Show projection snapshot.
+3. Display the pending / failure / progress clearly given by the runtime.
+4. Manage page local selection, scroll position, focus and visible navigation.
 
-UI 不允许：
+UI not allowed:
 
-1. 直接解析协议包、announce、LXMF envelope、Meshtastic protobuf 或 MeshCore frame。
-2. 直接改 read/unread、delivery、contact、path、link、call、font loaded 状态。
-3. 为了解决显示问题私自加载字体或访问 SD 字体文件。
-4. 为了 call、download、MQTT 或 LoRa 直接停止硬件资源。
-5. 通过隐藏 badge、刷新列表、删除 item 等方式伪装业务状态已经改变。
+1. Directly parse protocol packets, announce, LXMF envelope, Meshtastic protobuf or MeshCore frame.
+2. Directly change read/unread, delivery, contact, path, link, call, font loaded status.
+3. To solve display problems, load fonts privately or access SD font files.
+4. Directly stop hardware resources for call, download, MQTT or LoRa.
+5. Pretend that the business status has changed by hiding the badge, refreshing the list, deleting the item, etc.
 
 ### Settings
 
-Settings 只提交 product intent。
+Settings only submits product intent.
 
-Settings 不允许决定协议内部 wire profile、packet context、call fallback、resource lease 或
-字体加载策略。Settings 可以选择 active protocol、Wi-Fi profile、Reticulum gateway、通知策略、
-音量和 locale，但不能把这些选择实现成绕过 runtime owner 的私有分支。
+Settings does not allow determining protocol internal wire profile, packet context, call fallback, resource lease or
+font loading strategy. Settings can select active protocol, Wi-Fi profile, Reticulum gateway, notification policy,
+volume, and locale, but these selections cannot be implemented as a private branch that bypasses the runtime owner.
 
 ### Protocol Adapters
 
-MT / MC / RT adapter 可以拥有 wire codec、平台 IO 适配、队列接入和协议 runtime 组合。
+MT / MC / RT adapter can have wire codec, platform IO adaptation, queue access and protocol runtime combination.
 
-它们不允许拥有通用业务状态。消息状态、read/unread、conversation badge、联系人投影、
-发送重试、去重 ledger 必须进入共享 owner，再投影给 UI。
+They are not allowed to have common business states. Message status, read/unread, conversation badge, contact projection,
+send retry, and deduplication ledger must enter the shared owner and then be projected to the UI.
 
-协议差异必须以 protocol-aware event 表达，而不是把 UI 或 ChatService 退回到 bare msg_id、
-node id 或 packet id。
+Protocol differences must be expressed as protocol-aware events, rather than falling back to bare msg_id,
+node id or packet id by the UI or ChatService.
 
 ### Store And Index
 
-index、conversation list、message list cache、header mirror 都是 projection 或 cache。它们可以
-加速显示，但不能成为业务事实权威。
+Index, conversation list, message list cache, header mirror are all projection or cache. They can
+speed up the presentation, but they cannot become the authority on business facts.
 
-如果一个状态重启后应该保持一致，它必须有独立 owner 或 ledger。靠多个文件同时写成功来维持
-状态，属于未收敛设计。
+If a state should remain consistent after restarting, it must have an independent owner or ledger. Maintaining the
+ status by successfully writing multiple files at the same time is an unconverged design.
 
 ## Authoritative Owners
 
 | Fact | Owner | Projection | Hard invariant |
 | --- | --- | --- | --- |
-| Outgoing/incoming message identity | `MessageLedger` | Chat message rows | MT/MC/RT 都必须带 protocol-aware identity，不得只靠裸 `msg_id` |
-| Delivery state | `MessageLedger` + `ChatDeliveryEventProjector` | Message badge, feedback | `Delivered` 必须来自 ACK/proof/receipt 或协议等价事实 |
-| Read/unread state | `ReadStateLedger` | Conversation badge, unread budget, app badge | Index/header 只能镜像，不能是权威 |
-| Conversation list | `ConversationProjectionStore` | Chat workspace snapshot | 可重建，不得反向改 ledger |
-| UI chat state | `ChatWorkspaceModel` | Renderer | 只保存 selection/offset，不保存业务状态 |
-| Runtime events | `ChatPageRuntimeEventPump` | UI refresh sink | 事件泵路由事件，不渲染、不推断业务结果 |
-| Reticulum destination | `DestinationRegistry` | Contacts/Network row | Full destination hash/aspect 是权威，projected node id 不是 |
-| Reticulum path | `PathManager` | Path diagnostics, send eligibility | Freshness/replay/coalescing/expiry 只能在一个地方裁决 |
-| Reticulum link | `LinkManager` | Call/link status | Link open/identify/keepalive/close 只有一个 lifecycle owner |
-| Reticulum announce ingest | `AnnounceIngestor` | Contacts/Network/propagation metadata | 验签、identity/destination 关联、path observation 统一完成 |
-| Reticulum packet routing | `ReticulumPacketRouter` | Domain events | Packet type/context 到 owner 的路由只有一个入口 |
-| Propagation sync | `PropagationClient` + propagation seen/ack ledger | Chat projection | 重复 offer 不能产生重复消息或重复 unread |
-| Reticulum call | `LxstTelephonyClient` | Call Page projection | 产品 call path 只支持 Sideband/LXST |
-| Call resources | Call realtime leases + `WifiAccessRuntime` | Call Page progress/failure | UI 不直接抢占 Wi-Fi/LoRa/GPS/audio |
-| Audio hardware | Platform audio adapter | Ring/call volume projection | ES8311/I2S/mic/speaker setup teardown 只有一个 owner |
-| Notification policy | Notification policy runtime | Tone/vibration/notice intents | 消息提示、联系人提示、静音/震动/音量只消费业务 projection |
-| Font loading | `FontRuntimeCoordinator` + `ResourcePackRegistry` | Loading page/modal + refreshed font chain | 缺字不得被 active locale 或 hot-path 永久拦掉 |
-| MQTT downlink relay | Meshtastic runtime TX queue / air-time budget owner | Send/deferred/drop state | UI 不等待 LoRa TX，MQTT burst 不直接占满 UI tick |
+| Outgoing/incoming message identity | `MessageLedger` | Chat message rows | MT/MC/RT must have protocol-aware identity, and must not rely solely on bare `msg_id` |
+| Delivery state | `MessageLedger` + `ChatDeliveryEventProjector` | Message badge, feedback | `Delivered` must come from ACK/proof/receipt or protocol equivalent fact |
+| Read/unread state | `ReadStateLedger` | Conversation badge, unread budget, app badge | Index/header can only be mirrored, not authoritative |
+| Conversation list | `ConversationProjectionStore` | Chat workspace snapshot | Can be rebuilt, cannot be reversed ledger |
+| UI chat state | `ChatWorkspaceModel` | Renderer | Only saves selection/offset, not business status |
+| Runtime events | `ChatPageRuntimeEventPump` | UI refresh sink | Event pump routing events, no rendering, no inference of business results |
+| Reticulum destination | `DestinationRegistry` | Contacts/Network row | Full destination hash/aspect is authoritative, projected node id is not |
+| Reticulum path | `PathManager` | Path diagnostics, send eligibility | Freshness/replay/coalescing/expiry can only be adjudicated in one place |
+| Reticulum link | `LinkManager` | Call/link status | Link open/identify/keepalive/close There is only one lifecycle owner |
+| Reticulum announce ingest | `AnnounceIngestor` | Contacts/Network/propagation metadata | Signature verification, identity/destination association, path observation are completed uniformly |
+| Reticulum packet routing | `ReticulumPacketRouter` | Domain events | The route from Packet type/context to owner has only one entry |
+| Propagation sync | `PropagationClient` + propagation seen/ack ledger | Chat projection | Repeated offer cannot generate repeated messages or repeated unread |
+| Reticulum call | `LxstTelephonyClient` | Call Page projection | Product call path only supports Sideband/LXST |
+| Call resources | Call realtime leases + `WifiAccessRuntime` | Call Page progress/failure | UI does not directly preempt Wi-Fi/LoRa/GPS/audio |
+| Audio hardware | Platform audio adapter | Ring/call volume projection | ES8311/I2S/mic/speaker setup teardown only one owner |
+| Notification policy | Notification policy runtime | Tone/vibration/notice intents | Message prompts, contact prompts, mute/vibration/volume only consume business projection |
+| Font loading | `FontRuntimeCoordinator` + `ResourcePackRegistry` | Loading page/modal + refreshed font chain | Missing fonts must not be permanently blocked by active locale or hot-path |
+| MQTT downlink relay | Meshtastic runtime TX queue / air-time budget owner | Send/deferred/drop state | UI does not wait for LoRa TX, MQTT burst does not directly fill up UI tick |
 
 ## Runtime Overview Design
 
-概要设计固定为四个 runtime 面向产品组合，而不是页面补丁组合：
+The outline design is fixed to four runtime-oriented product combinations, rather than page patch combinations:
 
 ```text
 Product intent
@@ -111,170 +111,170 @@ Product intent
   -> UI renderer
 ```
 
-1. Reticulum call 由 `LxstTelephonyClient` 拥有协议事实，由 Call realtime leases
-   拥有 Wi-Fi/LoRa/GPS/sleep/audio 资源事实，由 Call Page 展示 projection。
-2. Notification 由 Notification runtime 拥有产品策略事实，platform audio adapter 拥有
-   ES8311/I2S/扬声器/麦克风硬件事实。消息事件、联系人事件和 Settings 预览只能提交
-   notification intent。
-3. Contacts 只消费 person/contact projection。Network 消费 service/relay/web/unknown
-   projection。二者都不解析 Reticulum announce。
-4. LoRa TX 由协议 adapter 的 TX scheduler 拥有空口事实。业务层只能 enqueue。
-   `sendAppData()` 成功表示进入 scheduler，不表示已经占用空口发射完成。
-5. `LxmfAdapter` 只能作为 Reticulum facade/coordinator shell 存在。新增功能必须优先落在
+1. Reticulum call has the protocol fact owned by `LxstTelephonyClient`, and has the Wi-Fi/LoRa/GPS/sleep/audio resource fact by Call realtime leases
+, which is displayed by Call Page projection.
+2. Notification is owned by the Notification runtime and the product policy fact is owned by the platform audio adapter.
+ ES8311/I2S/speaker/microphone hardware fact is owned by the platform audio adapter. Message events, contact events and Settings previews can only be submitted
+   notification intent.
+3. Contacts only consumes person/contact projection. Network consumption service/relay/web/unknown
+ projection. Neither parses Reticulum announce.
+4. LoRa TX is owned by the TX scheduler of the protocol adapter. The business layer can only enqueue.
+ Success of `sendAppData()` means entering the scheduler, but does not mean that the air interface has been occupied and the transmission is completed.
+5. `LxmfAdapter` can only exist as Reticulum facade/coordinator shell. New functions must first fall on
    DestinationRegistry、PathManager、LinkManager、AnnounceIngestor、ReticulumPacketRouter、
-   PropagationClient、PingService、NetworkPageClient 或 LxstTelephonyClient。
-6. Adapter 内不允许重新引入独立的调度状态、RX 统计状态、deferred discovery queue
-   或 MTU scratch 数组；这些事实分别属于 `RuntimeBudget`、`RawRxTelemetry`、
-   `DeferredDiscoveryQueue` 和 `AdapterScratchBuffers`。
+ PropagationClient, PingService, NetworkPageClient or LxstTelephonyClient.
+6. The independent scheduling status, RX statistical status, and deferred discovery queue are not allowed to be reintroduced in the Adapter
+ or MTU scratch array; these facts belong to `RuntimeBudget`, `RawRxTelemetry`,
+ `DeferredDiscoveryQueue` and `AdapterScratchBuffers` respectively.
 
 ## Runtime Detailed Design
 
 ### Reticulum Call
 
-详细设计：
+Detailed design:
 
-1. 产品 call profile 固定为 Sideband-compatible `lxst.telephony`。
-2. 用户主动拨出直接进入 hard preempt，因为用户已经明确提交通话 intent。
-3. 来电 LinkRequest 可进入 identifying/ringing 资源阶段；接听前不报告已接通。
-4. 接听必须先拿到 hard realtime lease，再启动 media session。任一步失败都进入明确失败，
-   不自动接听。
-5. 通话中只允许当前 `link_id` 的 LXST audio RX/TX。
-6. 挂断/远端关闭/媒体失败/timeout 必须统一进入 Closing，再释放 lease。
-7. MeshChat `call.audio` 只允许作为默认不注册的源代码兼容 adapter，不允许进入 product
-   Settings、不允许自动 fallback、不允许主 LXST path 分支依赖它。
+1. The product call profile is fixed to Sideband-compatible `lxst.telephony`.
+2. The user actively dials out and enters hard preempt directly, because the user has explicitly submitted the call intent.
+3. Incoming calls LinkRequest can enter the identifying/ringing resource stage; it will not report that it has been connected before answering.
+4. To answer the call, you must first obtain a hard realtime lease and then start the media session. If any step fails, it will enter clear failure and
+ will not answer automatically.
+5. Only LXST audio RX/TX of the current `link_id` is allowed during the call.
+6. Hang-up/remote shutdown/media failure/timeout must all enter Closing and then release the lease.
+7. MeshChat `call.audio` is only allowed as a source code compatible adapter that is not registered by default. It is not allowed to enter product
+ Settings, automatic fallback is not allowed, and the main LXST path branch is not allowed to depend on it.
 
 ### Notification And Audio
 
-详细设计：
+Detailed design:
 
-1. `ChatNewMessageEvent`、`NodeInfoUpdateEvent`、Settings 音量预览都必须调用
-   Notification runtime。
-2. Notification runtime 读取 message alerts、contact alerts、vibration、tone volume 等
-   product policy，输出 tone/vibration intent。
-3. Notification runtime 不允许解析消息协议、不允许改 unread、不允许绕过 platform audio
-   adapter。
-4. Call ring 和 call media 仍由 Call realtime/audio owner 控制；Notification runtime
-   不得在 `ActiveCall` 抢占通话音频。
-5. Platform audio adapter 是唯一硬件 owner，负责 ES8311/I2S/mic/speaker session open、
-   volume、gain、mute、teardown。
+1. `ChatNewMessageEvent`, `NodeInfoUpdateEvent`, and Settings volume preview must be called
+   Notification runtime.
+2. Notification runtime reads message alerts, contact alerts, vibration, tone volume, etc.
+ product policy, and outputs tone/vibration intent.
+3. Notification runtime is not allowed to parse the message protocol, change unread, and bypass platform audio
+   adapter.
+4. Call ring and call media are still controlled by the Call realtime/audio owner; Notification runtime
+ Call audio must not be preempted in `ActiveCall`.
+5. Platform audio adapter is the only hardware owner, responsible for ES8311/I2S/mic/speaker session open,
+   volume、gain、mute、teardown.
 
 ### Contacts / Network
 
-详细设计：
+Detailed design:
 
-1. Contacts 使用 `ReticulumContactProjectionPolicy`，只投影有效 LXMF address/person 记录：
-   favorite/manual/import 为 Contact，runtime announce 为 Announced，ignored 为 Ignored。
-2. Contacts 不显示 propagation、Nomad/web/service、unknown、gateway、interface 或 path hop。
-3. Network 使用 `ReticulumNetworkProjectionPolicy`，投影非联系人 announce：
-   `lxmf.propagation` 为 Message Relay，`nomadnetwork.node` 为 Web/Service，
-   `lxst.telephony`/legacy `call.audio` 为 Telephony Service，unknown 为 Unknown Service。
-4. PropagationClient 可以后台维护 relay metadata；UI 是否显示 relay 由 Network projection
-   policy 决定，不能通过 Contacts 旁路显示。
-5. Destination hash 和 projected node id 只是地址/搜索 metadata，不是联系人身份权威。
-6. `PeerDirectoryService` 拥有 Reticulum peer directory 的读写、热加载和投影队列；
-   adapter 只作为 `IPeerProjectionSink` 发布最终 NodeInfo/Protocol update event。
+1. Contacts uses `ReticulumContactProjectionPolicy`, only projects valid LXMF address/person records:
+ favorite/manual/import is Contact, runtime announce is Announced, ignored means Ignored.
+2. Contacts does not display propagation, Nomad/web/service, unknown, gateway, interface or path hop.
+3. Network uses `ReticulumNetworkProjectionPolicy` to project non-contact announce:
+ `lxmf.propagation` is Message Relay, `nomadnetwork.node` is Web/Service,
+ `lxst.telephony`/legacy `call.audio` is Telephony Service, unknown is Unknown Service.
+4. PropagationClient can maintain relay metadata in the background; whether the UI displays relay is determined by Network projection
+ policy and cannot be bypassed through Contacts.
+5. Destination hash and projected node id are only address/search metadata, not contact identity authority.
+6. `PeerDirectoryService` owns the read-write, hot-loading and projection queues of the Reticulum peer directory;
+ The adapter only publishes the final NodeInfo/Protocol update event as `IPeerProjectionSink`.
 
 ### Reticulum Runtime Owners
 
-详细设计：
+Detailed design:
 
-1. `RuntimeBudget` 是 call/nomad/sleep/saver/P4 screen 阶段的唯一调度策略输出。
-   adapter 只能提供输入事实，不能复制阶段判定。
-2. `AnnounceScheduler` 拥有本机 announce pending、retry、interval 和 rebroadcast
-   节流状态。adapter 只执行签名、组包和实际 TX。
-3. `DeferredDiscoveryQueue` 拥有 public discovery 的 bounded queue、drop-oldest 和
-   packet-hash 去重。adapter 只判断是否 defer 和如何 replay。
-4. `RawRxTelemetry` 拥有 RX summary counters、LoRa discovery detail 抑制和 LoRa
-   ignored announce 抑制。adapter 不保存这些 counter。
-5. `AdapterScratchBuffers` 是 MTU 级 packet scratch 的长期 owner。新增 MTU buffer
-   不能以裸字段散落在 adapter。
+1. `RuntimeBudget` is the only scheduling strategy output in the call/nomad/sleep/saver/P4 screen stage.
+ The adapter can only provide input facts and cannot copy stage determinations.
+2. `AnnounceScheduler` has native announce pending, retry, interval and rebroadcast
+ Throttle status. The adapter only performs signing, packaging and actual TX.
+3. `DeferredDiscoveryQueue` has public discovery bounded queue, drop-oldest and
+ packet-hash deduplication. The adapter only determines whether to defer and how to replay.
+4. `RawRxTelemetry` has RX summary counters, LoRa discovery detail suppression and LoRa
+ ignored announce suppression. The adapter does not save these counters.
+5. `AdapterScratchBuffers` is the long-term owner of MTU-level packet scratch. Added MTU buffer
+ cannot litter the adapter with bare fields.
 
 ### LoRa TX Scheduler
 
-详细设计：
+Detailed design:
 
-1. 所有会占用 LoRa 空口的发送都必须进入同一个 scheduler tick。
+1. All transmissions that will occupy the LoRa air interface must enter the same scheduler tick.
 2. `sendText()`、`sendAppData()`、key verification、runtime protocol effects、MQTT
-   downlink relay、ACK retry 都不能从 UI/event/RX path 直接同步阻塞 radio TX。
-3. 每个 tick 持有 `kLoRaAirTxBudgetPerTick`。协议动作、ACK retry、普通消息、MQTT
-   downlink 成功 enqueue radio TX 时都消耗这个预算。
-4. `min_tx_interval_ms_` 是跨 TX owner 的共享节流，不是某个队列自己的局部判断。
-5. MQTT downlink 保持官方 gateway relay 语义，但必须按 `from + id + channel` 去重，
-   入队，按预算 drain；队列满必须产生 drop/deferred reason，而不是卡 UI。
-6. UI 只能展示 Queued/Sending/Sent/Delivered/Failed 或 deferred/drop projection，不能等待
-   LoRa TX 完成后才继续渲染。
+ Neither downlink relay nor ACK retry can directly and synchronously block radio TX from the UI/event/RX path.
+3. Each tick holds `kLoRaAirTxBudgetPerTick`. This budget is consumed when protocol actions, ACK retry, ordinary messages, and MQTT
+ downlink successfully enqueue radio TX.
+4. `min_tx_interval_ms_` is a shared throttling across TX owners, not a local judgment of a queue itself.
+5. MQTT downlink maintains the official gateway relay semantics, but it must be deduplicated according to `from + id + channel`,
+ join the queue, and drain according to the budget; when the queue is full, a drop/deferred reason must be generated instead of a stuck UI.
+6. The UI can only display Queued/Sending/Sent/Delivered/Failed or deferred/drop projection, and cannot wait for
+ LoRa TX to complete before continuing to render.
 
 ## Notification Policy Contract
 
-通知策略是 product policy，不是消息存储、协议 adapter 或音频驱动的副作用。
+Notification policy is product policy, not a side effect of the message store, protocol adapter, or audio driver.
 
-Settings 可以配置：
+Settings can be configured:
 
-1. message alerts enabled/disabled。
-2. contact alerts: none / contacts only / all discovered people，或等价用户可理解选项。
-3. vibration enabled/disabled。
-4. message tone volume。
-5. call ring volume。
+1. message alerts enabled/disabled.
+2. contact alerts: none / contacts only / all discovered people, or equivalent user-understandable options.
+3. vibration enabled/disabled.
+4. message tone volume.
+5. call ring volume.
 
-通知 runtime 只能消费：
+Notification runtime can only consume:
 
-1. message projection。
-2. contact/person projection。
-3. read/unread projection。
-4. user notification policy。
-5. active interruption/call state。
+1. message projection.
+2. contact/person projection.
+3. read/unread projection.
+4. user notification policy.
+5. active interruption/call state.
 
-通知 runtime 可以输出：
+Notification runtime can output:
 
-1. play message tone intent。
-2. start/stop call ring intent。
-3. vibrate intent。
-4. on-screen notice intent。
+1. play message tone intent.
+2. start/stop call ring intent.
+3. vibrate intent.
+4. on-screen notice intent.
 
-它不允许：
+It does not allow:
 
-1. 自己判定消息 delivered。
-2. 自己清 unread。
-3. 直接解析 protocol packet。
-4. 绕过 platform audio adapter 播放声音。
-5. 在 call active/exclusive 时启动非通话音频。
+1. Determine the message delivered yourself.
+2. Clear unread by yourself.
+3. Directly parse the protocol packet.
+4. Bypass the platform audio adapter to play sound.
+5. Start non-call audio when call active/exclusive.
 
-消息提示音、来电铃声、Settings 音量预览、通话播放都必须经过同一个 platform audio owner。
-如果音频 owner 不可用，通知 runtime 只能得到显式失败或 deferred 结果，不能静默吞掉声音。
+Message tone, incoming call ringtone, Settings volume preview, and call playback must go through the same platform audio owner.
+If the audio owner is unavailable, the notification runtime can only get an explicit failure or deferred result, and cannot swallow the sound silently.
 
 ## Message State Contract
 
-消息状态是抽象业务状态，协议 adapter 只负责把协议事实映射进它。
+The message state is an abstract business state, and the protocol adapter is only responsible for mapping the protocol facts into it.
 
-允许的业务状态：
+Allowed business status:
 
-1. `Queued`: 已进入本地 outbox 或等待 runtime 机会。
-2. `Sending`: 正在发送或等待协议收据。
-3. `Sent`: 已发出但协议没有或不承诺端到端送达证明。
-4. `Delivered`: 已收到 ACK、proof、receipt 或协议定义的等价送达事实。
-5. `Failed`: 发送被拒绝、无线发送失败、ACK 超时、资源不可用或协议不支持。
+1. `Queued`: has entered the local outbox or is waiting for a runtime opportunity.
+2. `Sending`: Sending or waiting for protocol receipt.
+3. `Sent`: Sent but the protocol does not have or does not promise end-to-end delivery proof.
+4. `Delivered`: ACK, proof, receipt or equivalent delivery fact defined by the protocol has been received.
+5. `Failed`: Sending refused, wireless sending failed, ACK timeout, resource unavailable or protocol not supported.
 
-规则：
+Rules:
 
-1. MT direct 且需要 ACK：`Queued -> Sending -> Delivered/Failed`。
-2. MT broadcast/group 或 ackless 成功：`Queued -> Sending -> Sent`。
-3. MC app ACK 完成：进入 `Delivered`。
-4. MC app ACK 超时：进入 `Failed(AckTimeout)`。
-5. RT LXMF proof/receipt 完成：进入 `Delivered`。
-6. RT propagation 本地接收成功不等于远端 delivered；它只证明本机 durable accepted。
-7. 同一个裸 `msg_id` 出现在 MT/MC/RT 时，只能更新匹配 protocol 的 message ref。
-8. UI badge 可以只显示简化文字，但状态来源必须是 ledger/projection。
+1. MT direct and requires ACK: `Queued -> Sending -> Delivered/Failed`.
+2. MT broadcast/group or ackless success: `Queued -> Sending -> Sent`.
+3. MC app ACK completed: Enter `Delivered`.
+4. MC app ACK timeout: enter `Failed(AckTimeout)`.
+5. RT LXMF proof/receipt completed: Enter `Delivered`.
+6. Successful RT propagation local reception does not equal remote delivery; it only proves that the local machine is durable accepted.
+7. When the same bare `msg_id` appears in MT/MC/RT, only the message ref matching the protocol can be updated.
+8. UI badge can only display simplified text, but the status source must be ledger/projection.
 
-禁止：
+Forbidden:
 
-1. 继续发只有 `msg_id + bool` 的最终业务事件作为新路径。
-2. 让 renderer 根据“发送函数返回 true”显示已送达。
-3. 在 retry、delivery action、presentation lookup 中丢掉 protocol 字段。
-4. 因为找不到消息就创建另一个同内容 outgoing item。
+1. Continue to send the final business event with only `msg_id + bool` as the new path.
+2. Let the renderer show that it has been delivered based on "send function returns true".
+3. Discard the protocol field in retry, delivery action, and presentation lookup.
+4. Because the message cannot be found, create another outgoing item with the same content.
 
 ### Message Persistence And Publication
 
-消息内容、发送状态和 UI/通知事件必须走同一条 ledger 主路径：
+Message content, sending status and UI/notification events must go through the same ledger main path:
 
 ```text
 decoded incoming
@@ -289,124 +289,124 @@ outgoing protocol acceptance
   -> conversation projection
 ```
 
-硬约束：
+Hard constraints:
 
-1. incoming 只有在 authoritative message record、dedup identity 和 read-state commit
-   成功后才能发布 `ChatNewMessageEvent`、通知、震动或声音。
-2. SD/SPI 暂时不可用时，incoming 进入固定深度 deferred queue；重试成功后只提交和发布
-   一次。队列满必须输出明确 rejected/drop reason，并向支持 two-phase commit 的协议返回失败。
-3. outgoing record 或后续 status 写入失败时，由 `MessageLedger` 保留 bounded pending write；
-   message page、conversation page 和 lookup 必须合并该 pending state，不能谎报 `stored`，
-   也不能让 UI 另造临时消息。
-4. pending write 每个 runtime tick 只允许执行有限预算。ESP chat store 必须调用 storage
-   service 的非阻塞语义接口；设备暂时不可用时立即 deferred，不能在同一 tick 连续等待多个
-   250ms SD 操作。
-5. conversation index、header mirror 和 UI cache 仍然只是 projection。projection 写失败可以让
-   ledger operation 保持 pending，但不得触发收发热路径中的同步全盘 `rebuildIndex()`。
-6. message/status retry 必须幂等。已经写入 conversation log、但后续 ledger/projection 写失败的
-   消息，重试时只能完成未完成的提交，不能追加第二条相同记录。
-7. chat workspace 最新页固定为 10 条；翻页继续使用同一个 ledger page API。runtime event 对
-   当前会话最多触发一次 snapshot reload，不允许辅助函数和调用者各做一次全量重建。
+1. incoming only occurs when authoritative message record, dedup identity and read-state commit
+ Publish `ChatNewMessageEvent`, notification, vibration or sound only after success.
+2. When SD/SPI is temporarily unavailable, the incoming message enters the fixed-depth deferred queue; after a successful retry, it is only submitted and published
+ once. When the queue is full, a clear rejected/drop reason must be output, and failure must be returned to the protocol that supports two-phase commit.
+3. When the outgoing record or subsequent status writing fails, the bounded pending write is retained by `MessageLedger`;
+ The message page, conversation page and lookup must merge the pending state, and cannot falsely report `stored`,
+ nor allow the UI to create temporary messages.
+4. pending write is only allowed to execute a limited budget per runtime tick. ESP chat store must call the non-blocking semantic interface of storage
+ service; deferred immediately when the device is temporarily unavailable, and cannot wait for multiple
+ 250ms SD operations in the same tick.
+5. conversation index, header mirror and UI cache are still just projections. Projection write failure can keep the
+ ledger operation pending, but it must not trigger the synchronous full disk `rebuildIndex()` in the sending and receiving hot path.
+6. message/status retry must be idempotent. The conversation log has been written, but subsequent ledger/projection writing failed
+Message, only unfinished submissions can be completed when retrying, and a second identical record cannot be appended.
+7. The latest page of the chat workspace is fixed at 10 items; turning pages continues to use the same ledger page API. runtime event pair
+The current session can trigger snapshot reload at most once, and the auxiliary function and the caller are not allowed to do a full rebuild each.
 
-禁止：
+Forbidden:
 
-1. `appendIncomingDurably(...) == false` 后直接 `continue` 并丢弃消息。
-2. 调用返回 `void append(...)` 后无条件记录 `stored`。
-3. UI 监听 raw MQTT/LoRa packet，或在持久化失败时自行合成 message bubble。
-4. 为了修复通知而绕过 durable commit 直接调用 notification/audio。
-5. index 写失败后在消息收发 tick 内同步扫描所有 conversation log。
+1. `continue` directly after `appendIncomingDurably(...) == false` and discard the message.
+2. Unconditionally record `stored` after the call returns `void append(...)`.
+3. The UI monitors raw MQTT/LoRa packets, or synthesizes message bubbles by itself when persistence fails.
+4. In order to fix notifications, bypass durable commit and call notification/audio directly.
+5. After the index writing fails, all conversation logs are scanned synchronously within the message sending and receiving tick.
 
 ## Read And Unread Contract
 
-`ReadStateLedger` 是 read/unread 的唯一权威。
+`ReadStateLedger` is the only authority for read/unread.
 
-它必须表达：
+It must express:
 
-1. protocol。
-2. conversation identity。
-3. last read durable cursor 或等价 read watermark。
-4. commit 状态。
-5. 必要时的 pending/failed mark-read 结果。
+1. protocol.
+2. conversation identity.
+3. last read durable cursor or equivalent read watermark.
+4. commit status.
+5. pending/failed mark-read results when necessary.
 
-读取规则：
+Reading rules:
 
-1. unread count 由 `MessageLedger + ReadStateLedger` 推导。
-2. conversation index、SD header、app badge、screen badge 都是投影。
-3. 重启后必须从 ledger 恢复同一个 unread 结果。
-4. projection 可以落后，但不能与 ledger 长期冲突。
+1. unread count is derived from `MessageLedger + ReadStateLedger`.
+2. conversation index, SD header, app badge, screen badge are all projections.
+3. The same unread result must be restored from the ledger after restarting.
+4. The projection can lag behind, but cannot conflict with the ledger for a long time.
 
-写入规则：
+Writing rules:
 
-1. `ChatWorkspaceModel::markRead(...)` 只是 UI intent。
-2. `IChatActionSink` 把 intent 交给 app/runtime service。
-3. app/runtime service 提交 `ReadStateLedger`。
-4. projection store 收到 committed 或 pending 事实后刷新 badge。
-5. durable commit 失败时必须保留可解释失败或 pending，而不是 UI 假成功。
+1. `ChatWorkspaceModel::markRead(...)` is just a UI intent.
+2. `IChatActionSink` hands the intent to the app/runtime service.
+3. app/runtime service submits `ReadStateLedger`.
+4. The projection store refreshes the badge after receiving the committed or pending fact.
+5. When durable commit fails, explainable failure or pending must be retained instead of UI false success.
 
-禁止：
+Forbidden:
 
-1. 只改 index/header 却不改 ledger。
-2. 只在 UI 隐藏 unread badge。
-3. read 状态以某个页面是否打开作为权威。
-4. Reticulum direct 和 propagation 两条路径各自增加 unread。
+1. Only change the index/header but not the ledger.
+2. Hide the unread badge only in the UI.
+3. The read status is based on whether a page is open as the authority.
+4. Reticulum direct and propagation paths each increase unread.
 
 ## Reticulum Client Contract
 
-Trail Mate 是 Reticulum client，不是通用 transport node、propagation node、gateway 或 service host。
+Trail Mate is a Reticulum client, not a general transport node, propagation node, gateway, or service host.
 
-产品能力固定为：
+The product capabilities are fixed as:
 
-1. LXMF direct delivery。
-2. LXMF propagation retrieval。
-3. client 所需的 path discovery、identity recall、link lifecycle、proof/receipt。
-4. Sideband-compatible `lxst.telephony` call。
-5. Nomad/Micron 服务发现和浏览，投影到 Network。
+1. LXMF direct delivery.
+2. LXMF propagation retrieval.
+3. Path discovery, identity recall, link lifecycle, proof/receipt required by the client.
+4. Sideband-compatible `lxst.telephony` call.
+5. Nomad/Micron service discovery and browsing, projected to Network.
 
-Reticulum 主路径必须遵守：
+Reticulum main path must comply with:
 
-1. `ReticulumPacketRouter` 是唯一入口。
-2. `AnnounceIngestor` 统一完成 announce 验签、identity/destination 关联和 path observation。
-3. `DestinationRegistry` 拥有 destination truth。
-4. `PathManager` 拥有 path truth。
-5. `LinkManager` 拥有 link truth。
-6. `MessageLedger` 拥有 LXMF idempotency。
-7. `PropagationClient` 拥有 propagation offer/ack/seen。
-8. `LxstTelephonyClient` 拥有 call truth。
+1. `ReticulumPacketRouter` is the only entry.
+2. `AnnounceIngestor` uniformly completes announce signature verification, identity/destination association and path observation.
+3. `DestinationRegistry` has destination truth.
+4. `PathManager` owns path truth.
+5. `LinkManager` owns link truth.
+6. `MessageLedger` has LXMF idempotency.
+7. `PropagationClient` owns propagation offer/ack/seen.
+8. `LxstTelephonyClient` has call truth.
 
-禁止：
+Forbidden:
 
-1. UI、notification、Settings 或 Contacts 解析 Reticulum wire bytes。
-2. `LxmfAdapter` 再次拥有 path、link、message、propagation、call 主状态。
-3. 在主 LXST call path 中加入 MeshChat `call.audio` fallback 分支。
-4. 在 product Settings 中显示 call protocol selector。
+1. UI, notification, Settings or Contacts parse Reticulum wire bytes.
+2. `LxmfAdapter` once again has the main states of path, link, message, propagation and call.
+3. Add the MeshChat `call.audio` fallback branch to the main LXST call path.
+4. Display the call protocol selector in product Settings.
 
-MeshChat `call.audio` 可以保留为源代码兼容/协议研究 adapter，但默认不注册、不进入产品图、
-不自动 fallback、不作为用户可选配置。
+MeshChat `call.audio` can be retained as a source code compatibility/protocol research adapter, but it will not be registered by default, will not enter the product image,
+ will not fallback automatically, and will not be an optional configuration for users.
 
 ## Reticulum Propagation Contract
 
-Propagation 的重复 offer 是 Reticulum/LXMF 网络行为的一部分；重复展示给用户不是可接受行为。
+Duplicate offers for Propagation are part of the Reticulum/LXMF network behavior; showing them repeatedly to users is not acceptable behavior.
 
-规则：
+Rules:
 
-1. Direct 和 propagation 必须在 LXMF envelope validation 之前或之中汇合到同一 message ledger。
-2. 完整 LXMF message hash 是跨重启、跨 direct/propagation 的 idempotency key。
-3. 重复 offer 可以更新 transport metadata、last seen、source path，但不能创建新消息。
-4. 本机只有在消息 durable accepted 后才发送 propagation acknowledgement。
-5. ack/seen ledger 必须能跨重启阻止重复用户可见 delivery。
+1. Direct and propagation must converge to the same message ledger before or during LXMF envelope validation.
+2. The complete LXMF message hash is the idempotency key across restarts and direct/propagation.
+3. Repeated offers can update transport metadata, last seen, and source path, but cannot create new messages.
+4. This machine only sends propagation acknowledgment after the message durable accepted.
+5. The ack/seen ledger must be able to prevent repeated user-visible delivery across restarts.
 
-禁止：
+Forbidden:
 
-1. propagation 每次拉取都 append 聊天记录。
-2. ack 在 durable message commit 前发出。
-3. 用 sender + timestamp + text 这种弱 key 替代 LXMF hash。
-4. direct 和 propagation 各自维护重复检测。
+1. propagation appends chat records every time it is pulled.
+2. ack is issued before durable message commit.
+3. Use sender + timestamp + text as a weak key instead of LXMF hash.
+4. Direct and propagation each maintain duplicate detection.
 
 ## Call Realtime Contract
 
-产品 call path 是 Sideband-compatible LXST。接听体验是 Call Page，不是 UI modal。
+The product call path is Sideband-compatible LXST. The answering experience is Call Page, not UI modal.
 
-状态：
+Status:
 
 1. `Idle`
 2. `IncomingIdentifying`
@@ -418,152 +418,152 @@ Propagation 的重复 offer 是 Reticulum/LXMF 网络行为的一部分；重复
 8. `Active`
 9. `Closing`
 
-资源规则：
+Resource rules:
 
-1. Incoming identifying/ringing 拥有 Call Page，并 soft-preempt Wi-Fi。
-2. Incoming ringing 暂停 LoRa 和 GPS。BLE 在 ESP 产品固件中不编译，不存在 runtime lease。
-3. 用户主动拨出直接进入 hard preempt。
-4. 用户接听后先获取 hard preempt 和 audio session，再报告接听成功。
-5. Active/Closing 阶段只允许当前 call link 的音频流量。
-6. 非可中断 critical operation 导致接听/拨出失败，不自动接听。
-7. 同时来电或通话中来电必须快速失败，不能排队成另一个 UI call。
-8. Closing 持有 exclusive lease，直到 LinkClose 发出/观察到或 bounded cleanup 完成。
+1. Incoming identifying/ringing has Call Page and soft-preempt Wi-Fi.
+2. Incoming ringing suspends LoRa and GPS. BLE is not compiled in the ESP product firmware and there is no runtime lease.
+3. The user actively dials out and enters hard preempt directly.
+4. After answering, the user first obtains the hard preempt and audio session, and then reports that the answer is successful.
+5. The Active/Closing phase only allows audio traffic of the current call link.
+6. Non-interruptible critical operation causes the answer/dialout to fail and the call will not be answered automatically.
+7. Incoming calls at the same time or during a call must fail quickly and cannot be queued into another UI call.
+8. Closing holds an exclusive lease until LinkClose is issued/observed or bounded cleanup is completed.
 
-UI 规则：
+UI rules:
 
-1. Call Page 展示 caller、identifying/connecting/active/closing/failure。
-2. 接听、拒接、挂断、音量快捷键是页面 action。
-3. 页面底部展示通话期间可用的快捷键。
-4. Call Page 不直接停止 Wi-Fi、LoRa、GPS、audio 或 MQTT。
+1. Call Page displays caller, identifying/connecting/active/closing/failure.
+2. Answer, reject, hang up, and volume shortcut keys are page actions.
+3. The bottom of the page displays the shortcut keys available during the call.
+4. Call Page does not directly stop Wi-Fi, LoRa, GPS, audio or MQTT.
 
-Audio 规则：
+Audio rules:
 
-1. Platform audio adapter 拥有 ES8311/I2S/mic/speaker setup/teardown。
-2. Ring tone、message tone、settings tone、call playback 都必须进入同一 audio owner。
-3. 接听后默认 speaker volume 可提升到通话 profile 的最大安全音量。
-4. RX decode/playback 与 TX capture/encode 不能互相阻塞。
-5. 任何 echo suppression、gain、jitter buffer 改动必须属于 media session，不得散落在 UI。
+1. Platform audio adapter has ES8311/I2S/mic/speaker setup/teardown.
+2. Ring tone, message tone, settings tone, and call playback must all enter the same audio owner.
+3. After answering, the default speaker volume can be increased to the maximum safe volume of the call profile.
+4. RX decode/playback and TX capture/encode cannot block each other.
+5. Any echo suppression, gain, and jitter buffer changes must belong to the media session and must not be scattered in the UI.
 
 ## MQTT Downlink And LoRa Air-Time Contract
 
-Meshtastic MQTT downlink 可以保持 gateway 语义，但必须经过统一空口预算。
+Meshtastic MQTT downlink can maintain gateway semantics, but must go through a unified air interface budget.
 
-规则：
+Rules:
 
-1. MQTT downlink 先进入 projection/ingest，不直接在 MQTT callback 中同步 LoRa TX。
-2. LoRa TX 进入统一 TX queue 和 air-time budget。
-3. downlink relay 必须按 `from + packet id + channel` 强去重。
-4. 每个 tick 限制 downlink drain 数量。
-5. UI 只消费 projection，不等待 LoRa TX 完成。
-6. 队列满或预算不足时，消息状态进入 queued/deferred/drop reason，而不是卡住 UI。
-7. LoRa 空口长包、重复 burst、route flood 不能占用 display/input wake path。
+1. MQTT downlink enters projection/ingest first and does not directly synchronize LoRa TX in MQTT callback.
+2. LoRa TX enters the unified TX queue and air-time budget.
+3. Downlink relay must press `from + packet id + channel` to force deduplication.
+4. Limit the number of downlink drains per tick.
+5. UI only consumes projection and does not wait for LoRa TX to complete.
+6. When the queue is full or the budget is insufficient, the message status enters queued/deferred/drop reason instead of blocking the UI.
+7. LoRa air interface long packets, repeated bursts, and route floods cannot occupy the display/input wake path.
 
-禁止：
+Forbidden:
 
-1. MQTT callback 直接循环发 LoRa。
-2. 为了防卡死永久禁掉 downlink-to-LoRa 官方语义。
-3. 让 UI tick 承担 relay flush。
-4. 没有去重地把同一 downlink burst 多次打到空口。
+1. MQTT callback directly sends LoRa in a loop.
+2. To prevent stuck, permanently disable downlink-to-LoRa official semantics.
+3. Let UI tick bear relay flush.
+4. The same downlink burst is sent to the air interface multiple times without deduplication.
 
 ## Network Page Cache Worker Contract
 
-Nomad page cache 读取属于后台存储工作，Network 页面只提交请求和读取投影。
+Nomad page cache reading is background storage work, and the Network page only submits requests and reads projections.
 
-规则：
+Rules:
 
-1. page body、完成状态和请求状态必须由 `PageCacheLoadState` 唯一持有；大块 state 必须放在
-   PSRAM，不允许静默回退到 internal heap。
-2. PageCache worker 的 stack/TCB 必须在进入 Network 前具有确定的内存所有权，不能在页面
-   tick 中反复动态分配 task stack。
-3. worker 只有 `not-started -> running` 或 `not-started -> unavailable` 两条启动路径；启动失败
-   是可观察的终止状态，不能把 mutex/queue 已创建误认为 worker 可用。
-4. `request_cached_page_load()` 和 `poll_cached_page_load()` 在 worker unavailable 时必须快速返回
-   明确状态，不能继续排队、等待 SD，或在每帧重新创建 task。
-5. cache read/write 必须经过 PageCache storage service；UI 不等待设备存储事务完成。
+1. The page body, completion status and request status must be uniquely held by `PageCacheLoadState`; large blocks of state must be placed in
+ PSRAM, and silent fallback to internal heap is not allowed.
+2. The stack/TCB of the PageCache worker must have definite memory ownership before entering the Network, and the task stack cannot be dynamically allocated repeatedly in the page
+ tick.
+3. Workers only have two startup paths: `not-started -> running` or `not-started -> unavailable`; startup failure
+ is an observable termination status, and the creation of mutex/queue cannot be mistaken for worker availability.
+4. `request_cached_page_load()` and `poll_cached_page_load()` must quickly return
+ to a clear status when the worker is unavailable, and cannot continue to queue, wait for SD, or recreate the task in each frame.
+5. cache read/write must go through the PageCache storage service; the UI does not wait for the device storage transaction to complete.
 
-禁止：
+Forbidden:
 
-1. `xTaskCreate()` 失败后保留一个看似可用、实际没有 consumer 的 queue。
-2. 在 Network render/timer 路径逐帧重试 task 创建并刷日志。
-3. 为解决 internal heap 碎片而把 PageCache state 或不适合的 task stack 随意回退到 PSRAM。
-4. task 创建失败后退回 UI 线程同步读取 Nomad page cache。
+1. After `xTaskCreate()` fails, a queue that appears to be available but actually has no consumer is retained.
+2. Retry task creation frame by frame in the Network render/timer path and flush the log.
+3. Freely roll back PageCache state or unsuitable task stack to PSRAM to resolve internal heap fragmentation.
+4. After task creation fails, it returns to the UI thread and reads the Nomad page cache synchronously.
 
 ## Font And Localization Runtime Contract
 
-字体是 runtime resource，不是页面私有修复点。
+The font is a runtime resource, not a page private repair point.
 
-核心规则：
+Core rules:
 
-1. CJK/Japanese/Korean/Arabic 等 content text 的字形需求不由 active display locale 决定。
-2. `active_locale=en` 时，如果聊天、Network、Contacts 或 Nomad 页面出现中文内容，已安装且可用的
-   `zh-hans-core` 等 content supplement 仍必须允许加载和加入 content font chain。
-3. 缺字检测可以发生在内容路径，但加载决策必须交给 `FontRuntimeCoordinator` /
-   `ResourcePackRegistry`。
-4. 同步外部字体加载是允许的，但只能作为用户可见的 foreground operation：
-   显示 loading/progress/busy 页面或 modal，flush 到屏幕，然后交给字体设备服务加载。
-5. 普通 render/list/timer 路径不得无主静默阻塞 SD IO。
-6. 总线忙、内存不足、文件损坏必须形成可解释诊断和重试/失败状态，不能被永久 hard skip。
-7. 页面不得因为 `ui_hot_path`、`active_locale`、或 `content_supplement` 标签直接否决字体加载。
+1. The glyph requirements of content text such as CJK/Japanese/Korean/Arabic are not determined by the active display locale.
+2. When `active_locale=en` is set, if Chinese content appears on the chat, Network, Contacts or Nomad page, the installed and available
+ `zh-hans-core` and other content supplements must still allow loading and joining the content font chain.
+3. Missing word detection can occur in the content path, but the loading decision must be handed over to `FontRuntimeCoordinator` /
+   `ResourcePackRegistry`.
+4. Synchronous external font loading is allowed, but only as a user-visible foreground operation:
+ Display the loading/progress/busy page or modal, flush to the screen, and then hand it to the font device service for loading.
+5. Ordinary render/list/timer paths must not block SD IO silently without an owner.
+6. Bus busy, insufficient memory, and file corruption must form interpretable diagnostics and retry/failure status, and cannot be permanently hard skipped.
+7. Pages must not directly deny font loading due to `ui_hot_path`, `active_locale`, or `content_supplement` tags.
 
-禁止：
+Forbidden:
 
-1. 页面/widget 直接读取 `font.bin`。
-2. 在 renderer 中用“非 ASCII 就切 CJK 字体”的旁路替代 font chain。
-3. 以 active locale 不是中文为理由阻止中文 content font。
-4. 以保护 UI 为理由让中文永久显示 tofu boxes。
-5. 创建 LVGL modal 但未 flush 就进入 `lv_binfont_create()`。
+1. Page/widget reads `font.bin` directly.
+2. Replace the font chain in the renderer with the bypass of "cut CJK fonts if they are not ASCII".
+3. Block Chinese content fonts on the grounds that the active locale is not Chinese.
+4. Let Chinese tofu boxes be permanently displayed on the grounds of protecting UI.
+5. Create LVGL modal but enter `lv_binfont_create()` without flushing.
 
 ## Contacts And Network Projection Contract
 
-Contacts 按字面意思，只显示可通信的人或身份。
+Contacts literally only displays people or identities that can be communicated with.
 
-允许进入 Contacts：
+Allow entry to Contacts:
 
-1. verified LXMF person destination。
-2. verified LXST telephony destination。
-3. 能关联到同一个身份的人名、短名、地址和可通信 destination。
+1. verified LXMF person destination.
+2. verified LXST telephony destination.
+3. Names, short names, addresses and communication destinations that can be associated with the same identity.
 
-不得进入 Contacts：
+No access to Contacts:
 
-1. propagation node。
-2. gateway/interface/path hop。
-3. Nomad/web/service。
-4. unknown announce。
-5. relay-only 或 message infrastructure。
+1. propagation node.
+2. gateway/interface/path hop.
+3. Nomad/web/service.
+4. unknown announce.
+5. relay-only or message infrastructure.
 
-Network 显示网络能力和服务：
+Network displays network capabilities and services:
 
-1. Nomad/Micron service。
-2. web/service destination。
-3. propagation node 状态。
-4. gateway/interface diagnostics。
-5. path/interface health。
+1. Nomad/Micron service.
+2. web/service destination.
+3. propagation node status.
+4. gateway/interface diagnostics.
+5. path/interface health.
 
-Contacts 和 Network 都只能消费 projection，不允许读取 raw announce 或直接维护 protocol truth。
+Contacts and Network can only consume projection and are not allowed to read raw announce or directly maintain protocol truth.
 
 ## God File Burn-Down Contract
 
-拆 God file 不是物理拆文件，而是 owner 迁移。
+Removing the God file is not a physical removal of the file, but an owner migration.
 
-每迁移一个事实必须一次完成：
+Each fact must be migrated once:
 
-1. 建立 owner。
-2. 迁移状态和不变量。
-3. Adapter 调用 owner。
-4. 删除 Adapter 中旧状态和旧 mutation。
-5. 增加或更新合同测试。
+1. Create owner.
+2. Migration status and invariants.
+3. Adapter calls owner.
+4. Delete the old state and mutation in the Adapter.
+5. Add or update contract testing.
 
-完成前不得宣称 facade 化。`LxmfAdapter` 只有在以下条件满足时才算 facade：
+Facadeization cannot be declared before completion. `LxmfAdapter` is a facade only when the following conditions are met:
 
-1. 对外方法只转发 use-case。
-2. path/link/destination/message/propagation/call state 不在 adapter 内直接写。
-3. UI 和 Settings 不读 adapter 内部协议细节。
-4. old mutation 已删除，而不是留作 fallback。
-5. compatibility code 与 product graph 隔离。
+1. External methods only forward use-case.
+2. path/link/destination/message/propagation/call state is not written directly in the adapter.
+3. UI and Settings do not read adapter internal protocol details.
+4. The old mutation has been removed instead of being left as fallback.
+5. The compatibility code is isolated from the product graph.
 
 ## Protocol-Partitioned Storage V2 Contract
 
-ESP Arduino 产品运行时的 Chat/Peer/Contact 持久化只允许使用：
+Chat/Peer/Contact persistence during ESP Arduino product runtime is only allowed to use:
 
 ```text
 /data/v2/mt
@@ -571,20 +571,20 @@ ESP Arduino 产品运行时的 Chat/Peer/Contact 持久化只允许使用：
 /data/v2/rt
 ```
 
-权威规则：
+Authority rules:
 
-1. message journal 是消息事实；catalog/read/status 是可重建 projection。
-2. RT message journal 是 LXMF seen ledger 的重建来源。
-3. `SdProtocolPeerRepository` 是 peer facts 和 contact user facts 的唯一 owner。
-4. `INodeStore`、`IContactStore` 是 repository view，不是独立 store。
-5. contact alias/favorite/ignored/trusted 只写 contact journal，不重复写 peer slot。
-6. active protocol 必须在 application query 边界过滤，UI 不读取三协议全量后再过滤。
-7. nearby 只能淘汰 unprotected peer；contact 和 conversation reference 永远受保护。
-8. snapshot 只能通过 temp/backup/final 原子替换；掉电后只恢复 v2 backup。
-9. 大 projection/peer/contact/pending buffer 优先使用唯一的 strict PSRAM allocator。
-10. 启动阶段可以做有界 compaction；普通 UI tick 不得反复扫描或重写完整 projection。
+1. The message journal is the message fact; the catalog/read/status is the rebuildable projection.
+2. RT message journal is the reconstruction source of LXMF seen ledger.
+3. `SdProtocolPeerRepository` is the sole owner of peer facts and contact user facts.
+4. `INodeStore` and `IContactStore` are repository views, not independent stores.
+5. contact alias/favorite/ignored/trusted only writes the contact journal, and does not write the peer slot repeatedly.
+6. Active protocol must be filtered at the application query boundary, and the UI does not read all three protocols before filtering.
+7. nearby can only eliminate unprotected peers; contact and conversation reference are always protected.
+8. Snapshot can only be replaced atomically through temp/backup/final; only v2 backup can be restored after power failure.
+9. For large projection/peer/contact/pending buffers, the only strict PSRAM allocator is preferred.
+10. Bounded compaction can be done during the startup phase; ordinary UI ticks must not repeatedly scan or rewrite the complete projection.
 
-ESP product graph 禁止重新注册：
+ESP product graph re-registration is prohibited:
 
 ```text
 /chat/*
@@ -593,69 +593,69 @@ ESP product graph 禁止重新注册：
 /mesh/peers.bin
 ```
 
-禁止以“兼容”为名在 v2 失败后读取旧格式。完整规则见
-`PROTOCOL_PARTITIONED_STORAGE_V2_SPEC.md`。
+Reading the old format after v2 fails in the name of "compatibility" is prohibited. For complete rules, see
+`PROTOCOL_PARTITIONED_STORAGE_V2_SPEC.md`.
 
 ## Prohibited Patch Patterns
 
-以下修改方式禁止进入主线：
+The following modifications are prohibited from entering the mainline:
 
-1. 页面级特殊判断修复协议或存储问题。
-2. `if (reticulum_call::realtime_mode_active()) return;` 这类散落资源判断。
-3. 绕开 `ChatDeliveryEventProjector` 更新消息状态。
-4. 绕开 `ReadStateLedger` 更新 unread。
-5. 绕开 `MessageLedger` 接收 direct/propagation 消息。
-6. 绕开 `FontRuntimeCoordinator` 加载或拒绝字体。
-7. 绕开 `WifiAccessRuntime` 抢占 Wi-Fi。
-8. 在 Settings 中暴露尚未形成产品闭环的兼容/实验协议分支。
-9. 为了让当前 case 通过而让主路径永远不命中。
-10. 新增一个 owner 但不删除旧 owner。
+1. Page-level special judgment to fix protocol or storage issues.
+2. `if (reticulum_call::realtime_mode_active()) return;` This type of scattered resource judgment.
+3. Bypass `ChatDeliveryEventProjector` to update message status.
+4. Bypass `ReadStateLedger` to update unread.
+5. Bypass `MessageLedger` to receive direct/propagation messages.
+6. Bypass `FontRuntimeCoordinator` to load or reject fonts.
+7. Bypass `WifiAccessRuntime` to seize Wi-Fi.
+8. Expose compatible/experimental protocol branches that have not yet formed a product closed loop in Settings.
+9. In order to let the current case pass, the main path will never hit.
+10. Add a new owner but do not delete the old owner.
 
 ## Change Gate
 
-修改实现前必须回答：
+Before modifying the implementation, you must answer:
 
-1. 这次改动的事实 owner 是谁？
-2. intent 从哪里进入？
-3. effect 由谁执行？
-4. projection 从哪里产生？
-5. durable state 在哪里提交？
-6. 重启后如何恢复？
-7. 协议字段是否保留 protocol-aware identity？
-8. UI 是否只看 snapshot/projection？
-9. 资源 lease 是否由 runtime owner 申请？
-10. 是否存在旧旁路仍可命中？
+1. Who is the owner of this change?
+2. Where does the intent enter?
+3. Who executes the effect?
+4. Where does projection come from?
+5. Where is durable state submitted?
+6. How to recover after restarting?
+7. Does the protocol field retain protocol-aware identity?
+8. Does the UI only look at snapshot/projection?
+9. Is the resource lease applied for by the runtime owner?
+10. Are there old bypasses that can still be hit?
 
-如果任一问题没有答案，先补 owner/spec/test，再改实现。
+If there is no answer to any question, first add owner/spec/test, and then change the implementation.
 
 ## Required Regression Contracts
 
-后续相关修改至少需要覆盖以下合同：
+Subsequent related modifications need to cover at least the following contracts:
 
-1. `active_locale=en` 时中文聊天、Network/Nomad 内容能触发受控字体加载并最终使用 content font。
-2. 字体加载前用户能看到 loading/progress/busy 状态，且不是静默 SD 阻塞。
-3. mark-read durable commit 后重启 unread 不复活。
-4. mark-read commit 失败不会让 UI 假装成功。
-5. direct 与 propagation 同一 LXMF hash 只产生一条消息和一次 unread transition。
-6. MT/MC/RT 相同裸 id 只更新对应 protocol 的 delivery/read 状态。
-7. ackless send 不会永久显示 Sending。
-8. failed send 有 protocol-aware failure kind。
-9. MQTT downlink burst 不阻塞 UI wake/render。
-10. MQTT downlink relay 经 LoRa queue/air-time budget 和去重。
-11. Incoming/active call resource lease 阶段与 UI Call Page 状态一致。
-12. 通话中再次来电快速失败。
-13. call ring、message tone、settings tone 和 call playback 都经过同一个 audio owner。
-14. message alerts/contact alerts/vibration/audio volume 策略不改变 delivery 或 unread 事实。
-15. Contacts 不出现 propagation、service、gateway/interface、unknown announce。
-16. Network 能呈现服务和网络基础设施，不污染 Contacts。
-17. MQTT/LoRa/RT durable message 不因 catalog projection 失败而不展示或不通知。
-18. peer refresh 不会覆盖 contact alias/flags 或已验证 key。
-19. nearby 达到容量时不会淘汰 contact 或已有 conversation peer。
-20. RT seen journal 损坏后从 authoritative RT message journal 重建，历史消息不重复投影。
+1. When `active_locale=en`, Chinese chat and Network/Nomad content can trigger controlled font loading and eventually use content font.
+2. The user can see the loading/progress/busy status before the font is loaded, and it is not silent SD blocking.
+3. Mark-read durable commit will not revive after restarting unread.
+4. Failure of mark-read commit will not let the UI pretend to be successful.
+5. Direct is the same as propagation. LXMF hash only generates one message and one unread transition.
+6. MT/MC/RT with the same naked ID will only update the delivery/read status of the corresponding protocol.
+7. ackless send will not permanently display Sending.
+8. failed send has protocol-aware failure kind.
+9. MQTT downlink burst does not block UI wake/render.
+10. MQTT downlink relay via LoRa queue/air-time budget and deduplication.
+11. The Incoming/active call resource lease phase is consistent with the UI Call Page status.
+12. Incoming calls quickly fail during a call.
+13. The call ring, message tone, settings tone and call playback all pass through the same audio owner.
+14. The message alerts/contact alerts/vibration/audio volume policy does not change the delivery or unread facts.
+15. Propagation, service, gateway/interface, and unknown announce do not appear in Contacts.
+16. Network can present services and network infrastructure without polluting Contacts.
+17. MQTT/LoRa/RT durable messages will not be displayed or notified due to catalog projection failure.
+18. Peer refresh will not overwrite contact alias/flags or verified key.
+19. Contact or existing conversation peers will not be eliminated when nearby reaches capacity.
+20. After the RT seen journal is damaged, it will be rebuilt from the authoritative RT message journal, and historical messages will not be re-projected.
 
 ## Relationship To Existing Specs
 
-本文档是总边界冻结文档。相关细节继续由以下文档维护：
+This document is a total boundary frozen document. Relevant details continue to be maintained by the following documents:
 
 1. `docs/specification/CHAT_DELIVERY_RUNTIME_SPEC.md`
 2. `docs/specification/CHAT_WORKSPACE_MODEL_SPEC.md`
@@ -669,4 +669,4 @@ ESP product graph 禁止重新注册：
 10. `docs/design/PROTOCOL_PARTITIONED_STORAGE_V2_OVERVIEW.md`
 11. `docs/design/PROTOCOL_PARTITIONED_STORAGE_V2_DETAILED_DESIGN.md`
 
-当实现与本文档冲突时，不能通过局部代码补丁解决；必须回到 owner 边界，修正主路径。
+When the implementation conflicts with this document, it cannot be solved by partial code patch; it must go back to the owner boundary and correct the main path.

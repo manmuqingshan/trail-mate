@@ -135,10 +135,13 @@ void scan_micron_link(const char* data, FixtureSummary& summary)
 
 void scan_inline(const std::string& text, FixtureSummary& summary)
 {
-    if (std::strstr(text.c_str(), "中文") != nullptr ||
-        std::strstr(text.c_str(), "网络") != nullptr)
+    for (const unsigned char ch : text)
     {
-        summary.saw_unicode_text = true;
+        if (ch >= 0x80U)
+        {
+            summary.saw_unicode_text = true;
+            break;
+        }
     }
     bool escape = false;
     for (std::size_t i = 0; i < text.size();)
@@ -421,7 +424,8 @@ int main()
     assert(summary.dividers >= 2);
     assert(summary.color_tokens >= 7);
     assert(summary.unknown_tags >= 1);
-    assert(summary.saw_unicode_text);
+    const FixtureSummary unicode = summarize_fixture("UTF-8 sample: \xE2\x9C\x93\n");
+    assert(unicode.saw_unicode_text);
 
     const FixtureSummary message_board = summarize_fixture(read_text_file(
         repo_root() + "docs/reticulum/pages/corpus/nomadnet-messageboard.mu"));

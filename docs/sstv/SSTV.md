@@ -1,165 +1,165 @@
-﻿你是资深嵌入式 GUI 工程师，请用 LVGL 9.x（C/C++）实现一个 SSTV 接收页面（仅接收端 UI）。
-屏幕分辨率：横屏 480(w) x 222(h)。
-TopBar 高度：30px（必须严格）。
-目标：按以下像素布局复刻 UI；整体尽量简洁；不画外框、不加多余容器效果；图片展示区域最大化；右侧显示状态文字 + 模式 + 音频电平；底部显示一条简洁的接收进度条（横向）。
+You are a senior embedded GUI engineer, please use LVGL 9.x (C/C++) to implement an SSTV receiving page (receiving end UI only).
+Screen resolution: landscape 480(w) x 222(h).
+TopBar height: 30px (must be strict).
+Goal: Replicate the UI according to the following pixel layout; keep the whole thing as simple as possible; do not draw outer frames or add redundant container effects; maximize the picture display area; display status text + mode + audio level on the right; display a simple receiving progress bar (horizontal) at the bottom.
 
 ============================================================
-1) 全局颜色与样式 token（固定，统一风格）
+1) Global color and style token (fixed, unified style)
 ============================================================
-主色（Amber）：        #EBA341  (0xEBA341)
-主色深（AmberDark）：  #C98118
-背景（WarmBG）：       #F6E6C6
-面板浅底（PanelBG）：  #FAF0D8
-边线（Line）：         #E7C98F
-文字主（Text）：       #6B4A1E
-文字弱（TextDim）：    #8A6A3A
-成功（Ok）：           #3E7D3E
-警告（Warn）：         #B94A2C
-灰（Gray）：           #6E6E6E
+Main color (Amber): #EBA341 (0xEBA341)
+Main Color Dark (AmberDark): #C98118
+Background (WarmBG): #F6E6C6
+Panel light bottom (PanelBG): #FAF0D8
+Line: #E7C98F
+Text: #6B4A1E
+Weak text (TextDim): #8A6A3A
+Success (Ok): #3E7D3E
+Warn (Warn): #B94A2C
+Gray (Gray): #6E6E6E
 
-字体建议：
-- TopBar 标题：跟随系统主题默认字号
-- 状态文本：14px
-- 子状态/提示：14px
-- 小标签：12~14px
+Font suggestion:
+- TopBar title: Follow the system theme default font size
+- Status text: 14px
+- Substate/hint: 14px
+- Small tag: 12~14px
 
-圆角：统一 8px（图片框也用 8px），不需要复杂阴影/浮雕。
-
-============================================================
-2) 页面总体布局（像素级）
-============================================================
-root：480x222，背景 WarmBG。
-
-分区：
-A) TopBar：x=0, y=0, w=480, h=30
-B) Main：x=0, y=30, w=480, h=192
-
-Main 内部布局：
-- 左侧：ImageArea（3:2 容器）用于显示接收的图片
-- 右侧：InfoArea（文字信息 + 音频电平）
-- 底部：ProgressBar 横向进度条（位于右侧 InfoArea 底部，不覆盖图片）
-
-(1) 图片容器（严格 3:2）
-- img_box：x=8, y=0, w=288, h=192
-  说明：img_box 高度必须为 192（Main 全高），为满足 3:2，宽=192*1.5=288。
-  这样左侧图片最大化且比例正确。
-- img_box 样式：背景 PanelBG；边框 2px Line；圆角 8px；无额外内框。
-- 图片对象 img：
-  - 放在 img_box 内部，内容按“等比居中适配”：
-    - 若收到的 SSTV 图为 3:2，直接填满；
-    - 若不是，保持等比，留空用 PanelBG。
-
-(2) 右侧信息区
-- info_area：x=304, y=0, w=168, h=192
-  （因为 8px 左边距 + 288 图片 + 8px 间距 => 304 起）
-  宽度 480 - 304 - 8(右边距) = 168
-
-(3) 进度条位置
-- prog_bg：x=304, y=208, w=168, h=8（绝对坐标）
-  （等价于 Main 内 y=178）
+Rounded corners: uniform 8px (also use 8px for picture boxes), no need for complex shadows/embossing.
 
 ============================================================
-3) TopBar（30px，简洁）
+2) Overall page layout (pixel level)
 ============================================================
-TopBar 容器：与系统现有 UI 一致（复用 top_bar 组件）
-元素：
-- btn_back：x=8, y=4, w=22, h=22，显示返回图标，颜色 TextDim
-- title：居中对齐，文本 "SSTV RECEIVER"，颜色 Text，字号 20
-- battery：右侧 x=420, y=6 显示电池图标（占位）+ 文本 "100%"（x=446, y=5），颜色 TextDim
+root: 480x222, background WarmBG.
+
+Partition:
+A) TopBar:x=0, y=0, w=480, h=30
+B) Main:x=0, y=30, w=480, h=192
+
+Main internal layout:
+- Left: ImageArea (3:2 container) used to display received pictures
+- Right: InfoArea (text information + audio level)
+- Bottom: ProgressBar horizontal progress bar (located at the bottom of the right InfoArea, not covering the picture)
+
+(1) Image container (strictly 3:2)
+- img_box:x=8, y=0, w=288, h=192
+ Note: img_box height must be 192 (Main full height), to meet 3:2, width = 192*1.5=288.
+ This way the image on the left is maximized and proportioned correctly.
+- img_box style: background PanelBG; border 2px Line; rounded corners 8px; no additional inner frame.
+- Picture object img:
+ - Place it inside the img_box, and the content is "equal-ratio centered and adapted":
+ - If the received SSTV picture is 3:2, fill it directly;
+ - If not, keep it equal to the ratio, leave it blank and use PanelBG.
+
+(2) Right information area
+- info_area:x=304, y=0, w=168, h=192
+ (because 8px left margin + 288 image + 8px spacing => 304)
+ Width 480 - 304 - 8 (right margin) = 168
+
+(3) Progress bar position
+- prog_bg: x=304, y=208, w=168, h=8 (absolute coordinates)
+ (equivalent to y=178 in Main)
 
 ============================================================
-4) 右侧信息区（info_area）
+3) TopBar (30px, simple)
 ============================================================
-布局区域：info_area，位于图片右侧
+TopBar container: consistent with the existing UI of the system (reusing top_bar component)
+Element:
+- btn_back: x=8, y=4, w=22, h=22, display return icon, color TextDim
+- title: Center-aligned, text "SSTV RECEIVER", color Text, font size 20
+- battery: x=420, y=6 on the right displays the battery icon (placeholder) + text "100%" (x=446, y=5), color TextDim
 
-(1) 状态/提示文本（label_state_sub）
+============================================================
+4) Right information area (info_area)
+============================================================
+Layout area: info_area, located on the right side of the picture
+
+(1) Status/prompt text (label_state_sub)
 - label_state_sub
-  x=0, y=6, w=140（相对 info_area）
-  文本示例：
+ x=0, y=6, w=140 (relative to info_area)
+ Text example:
     - "Listening for SSTV signal..."
     - "Decoding line: 120/240"
     - "Saved: /sstv/2026-02-09_001.bmp"
-  字体：14，颜色 TextDim
+ Font: 14, color TextDim
 
-(2) 解析指标（新增 3 行）
-位置：label_state_sub 与 label_mode 之间，约 80px 高度、140px 宽度
-- label_metric_sync：x=0, y=34, w=140，文本 "SYNC: LOCK" / "SYNC: --"
-- label_metric_slant：x=0, y=54, w=140，文本 "SLANT: --"
-- label_metric_level：x=0, y=74, w=140，文本 "LEVEL: 42%"
-字体：14，颜色 TextDim
+(2) Parse metrics (added 3 lines)
+Position: between label_state_sub and label_mode, about 80px height, 140px width
+- label_metric_sync: x=0, y=34, w=140, text "SYNC: LOCK" / "SYNC: --"
+- label_metric_slant: x=0, y=54, w=140, text "SLANT: --"
+- label_metric_level: x=0, y=74, w=140, text "LEVEL: 42%"
+Font: 14, color TextDim
 
-(3) 模式显示
+(3) Mode display
 - label_mode
   x=0, y=106, w=140
-  文本示例："MODE: Auto" / "MODE: Scottie 1" / "MODE: PD240"
-  字体：14，颜色 TextDim
+ Text example: "MODE: Auto" / "MODE: Scottie 1" / "MODE: PD240"
+ Font: 14, color TextDim
 
-(4) 就绪/状态提示
+(4) Ready/status prompt
 - label_ready
   x=0, y=142, w=140
-  文本示例：
-    - WAITING： "SSTV RX READY"（Text）
-    - RECEIVING： "RECEIVING"（Ok + Text）
-    - COMPLETE： "COMPLETE"（Ok）
-    - ERROR： "ERROR"（Warn）
-  字体：14
+ Text example:
+    - WAITING: "SSTV RX READY"(Text)
+    - RECEIVING: "RECEIVING"(Ok + Text)
+    - COMPLETE: "COMPLETE"(Ok)
+    - ERROR: "ERROR"(Warn)
+ Font: 14
 
 ============================================================
-5) 音频电平（右侧竖直电平表，必须）
+5) Audio level (vertical level meter on the right, required)
 ============================================================
-位置：info_area 的最右侧贯穿中上区
-- meter_box：x=136, y=34, w=32, h=120（相对 info_area）
+Position: the far right side of info_area running through the upper middle area
+- meter_box: x=136, y=34, w=32, h=120 (relative to info_area)
 
-样式：
-- 竖向 12 段，每段高 8px，段间距 2px
-- 底部段颜色 Ok（绿）
-- 中部段颜色 #C18B2C（黄棕）
-- 顶部段颜色 Warn（橙）
-- 未点亮段：Line 或 Gray（偏暗）
-- 外框：1~2px Line；背景透明或 PanelBG
+Style:
+-vertical 12 segments, each segment is 8px high, and the segment spacing is 2px
+- Bottom segment color Ok (green)
+- Middle segment color #C18B2C (yellow brown)
+- Top segment color Warn (orange)
+- Unlit segment: Line or Gray (dark)
+- Frame: 1~2px Line; background transparent or PanelBG
 
-实现：
-- 12 个小矩形 lv_obj 组成
-- 接口 ui_sstv_set_audio_level(float level_0_1)
-  - level_0_1 映射点亮段数 n = round(level*12)
-  - 从底部点亮 n 段
-
-============================================================
-6) 底部进度条（简洁）
-============================================================
-放在右侧 InfoArea 底部，不覆盖图片内容：
-- prog_bg：x=304, y=208, w=168, h=8（绝对坐标）
-- 进度条背景：Line
-- 进度条填充：Amber
-- 圆角：2~4px
-- 接口 ui_sstv_set_progress(float p_0_1)
+ Implementation:
+- Composed of 12 small rectangles lv_obj
+-Interface ui_sstv_set_audio_level(float level_0_1)
+ - level_0_1 maps the number of lit segments n = round(level*12)
+ - Lit n segments from the bottom
 
 ============================================================
-7) 状态机（至少支持 WAITING / RECEIVING / COMPLETE / ERROR）
+6) Bottom progress bar (concise)
 ============================================================
-WAITING：
-- img_box 显示占位
+Place it on the right InfoArea Bottom, without covering the image content:
+- prog_bg: x=304, y=208, w=168, h=8 (absolute coordinates)
+- Progress bar background: Line
+- Progress bar filling: Amber
+- Rounded corners: 2~4px
+-Interface ui_sstv_set_progress(float p_0_1)
+
+============================================================
+7) State machine (supports at least WAITING / RECEIVING / COMPLETE / ERROR)
+============================================================
+WAITING:
+- img_box display placeholder
 - label_state_sub = "Listening for SSTV signal..."
-- label_ready = "SSTV RX READY"（Text）
+- label_ready = "SSTV RX READY"(Text)
 - progress = 0
 
-RECEIVING：
-- img 逐行刷新
+RECEIVING:
+- img refresh line by line
 - label_state_sub = "Decoding line: x/xxx"
-- label_ready = "RECEIVING"（Ok）
-- progress 跟随解码进度
+- label_ready = "RECEIVING"(Ok)
+- progress follow the decoding progress
 
-COMPLETE：
-- img 显示最终图
-- label_state_sub = "Image received" 或 "Saved: ..."
-- label_ready = "COMPLETE"（Ok）
+COMPLETE:
+- img display the final image
+- label_state_sub = "Image received" or "Saved: ..."
+- label_ready = "COMPLETE"(Ok)
 - progress = 1.0
 
-ERROR：
-- label_state_sub = 错误描述
-- label_ready = "ERROR"（Warn）
+ERROR:
+- label_state_sub = error description
+- label_ready = "ERROR"(Warn)
 
-必要接口：
+Required interface:
 - void ui_sstv_set_state(enum State s)
 - void ui_sstv_set_mode(const char* mode_str)
 - void ui_sstv_set_audio_level(float level_0_1)
@@ -167,257 +167,257 @@ ERROR：
 - void ui_sstv_set_image(const void* img_src_or_lv_img_dsc)
 
 ============================================================
-8) 交付要求
+8) Delivery Requirements
 ============================================================
-- 提供 ui_sstv_create(lv_obj_t* parent) 返回 root 页面对象
-- 不使用任何外部 PNG/图标资源（返回箭头、电池可用字符或简单矢量绘制）
-- 严格 480x222，TopBar=30，img_box=288x192，3:2
-- UI 必须足够简洁：禁止额外卡片、禁止厚重边框/阴影、禁止多余按钮（Mode/Clear/Save 不要）
-- 代码可编译，不要伪代码
-
-============================================================
-9) Scottie 模式（协议说明）
-============================================================
-VIS 码：
-- Scottie 1：60（十进制）
-- Scottie 2：56（十进制）
-- Scottie DX：76（十进制）
-
-颜色扫描顺序：绿、蓝、红（RGB）
-亮度频率范围：1500–2300 Hz
-行数：256（Scottie 1/2）
-标准显示：320x256（包含 16 行头）
-
-Scottie 1 时序：
-- 起始同步（仅首行）：9.0 ms @ 1200 Hz
-- 分隔/porch：1.5 ms @ 1500 Hz
-- 绿扫描：138.240 ms
-- 分隔/porch：1.5 ms @ 1500 Hz
-- 蓝扫描：138.240 ms
-- 同步脉冲：9.0 ms @ 1200 Hz（位于蓝与红之间）
-- 同步 porch：1.5 ms @ 1500 Hz
-- 红扫描：138.240 ms
-
-首行之后，从“绿之前的分隔/porch”开始重复（不再有起始同步）。
-注意：Scottie 的同步位于行中（蓝与红之间），不是行起始。
-Scottie 2 时序差异：
-- 绿/蓝/红扫描：88.064 ms（320 px 时 0.2752 ms/像素）
-Scottie DX 时序差异：
-- 绿/蓝/红扫描：345.6 ms（320 px 时 1.0800 ms/像素）
-其他时序（同步/porch）与 Scottie 1 相同。
+ - Provide ui_sstv_create(lv_obj_t* parent) returns the root page object
+ - Do not use any external PNG/icon resources (return arrows, battery life characters or simple vector drawing)
+ - Strict 480x222, TopBar=30, img_box=288x192, 3:2
+- The UI must be simple enough: no extra cards, no thick borders/shadows, no extra buttons (no Mode/Clear/Save)
+- The code is compilable, no pseudocode
 
 ============================================================
-10) VIS 头（JL Barber 提案）
+9) Scottie mode (protocol description)
 ============================================================
-来源："Proposal for SSTV Mode Specifications"（Dayton SSTV forum，2000-05-20）。
-该描述用于 VIS 解码对齐与奇偶校验的参考。
+VIS code:
+- Scottie 1: 60 (decimal)
+- Scottie 2: 56 (decimal)
+- Scottie DX: 76 (decimal)
 
-VIS / 校准头序列：
-- 300 ms @ 1900 Hz（leader）
-- 10 ms @ 1200 Hz（break）
-- 300 ms @ 1900 Hz（leader）
-- 30 ms @ 1200 Hz（VIS 起始位）
-- 7 个数据位，LSB 先行，每位 30 ms
-  - 1100 Hz = “1”
-  - 1300 Hz = “0”
-- 30 ms 奇偶校验位
-  - 偶校验 = 1300 Hz
-  - 奇校验 = 1100 Hz
-- 30 ms @ 1200 Hz（VIS 停止位）
+Color scanning order: green, blue, red (RGB)
+Brightness frequency range: 1500–2300 Hz
+Number of lines: 256 (Scottie 1/2)
+Standard display: 320x256 (including 16 line headers)
 
-注意：模式时序在 VIS 停止位之后立即开始。
+Scottie 1 timing:
+-Start sync (first line only): 9.0 ms @ 1200 Hz
+- split/porch: 1.5 ms @ 1500 Hz
+- Green scan: 138.240 ms
+- split/porch: 1.5 ms @ 1500 Hz
+- Blue scan: 138.240 ms
+- Sync pulse: 9.0 ms @ 1200 Hz (between blue and red)
+- Sync porch: 1.5 ms @ 1500 Hz
+- Red scan: 138.240 ms
 
-============================================================
-11) Robot 72 彩色（模式说明）
-============================================================
-VIS 码：12（十进制）
-颜色模式：Y, R-Y, B-Y
-扫描顺序：Y, R-Y, B-Y
-行数：240
-
-单行时序：
-- 同步脉冲：9.0 ms @ 1200 Hz
-- 同步 porch：3.0 ms @ 1500 Hz
-- Y 扫描：138 ms
-- 分隔脉冲：4.5 ms @ 1500 Hz
-- Porch：1.5 ms @ 1900 Hz
-- R-Y 扫描：69 ms
-- 分隔脉冲：4.5 ms @ 2300 Hz
-- Porch：1.5 ms @ 1500 Hz
-- B-Y 扫描：69 ms
-
-重复以上序列共 240 行。
+After the first line, repeat from "separation before green/porch" (no more starting sync).
+Note: Scottie's sync is in the middle of the line (between blue and red), not at the beginning of the line.
+Scottie 2 Timing Difference:
+ - Green/Blue/Red Scan: 88.064 ms (0.2752 ms/pixel at 320 px)
+Scottie DX Timing Difference:
+ - Green/Blue/Red Scan: 345.6 ms (1.0800 ms/pixel at 320 px)
+Other timing (sync/porch) is the same as Scottie 1.
 
 ============================================================
-12) Robot 36 彩色（模式说明）
+10) VIS header (JL Barber proposal)
 ============================================================
-VIS 码：8（十进制）
-颜色模式：Y, R-Y, B-Y
-扫描顺序：Y, R-Y（偶数行），Y, B-Y（奇数行）
-行数：240
+Source: "Proposal for SSTV Mode Specifications" (Dayton SSTV forum, 2000-05-20).
+This description is used as a reference for VIS decoding alignment and parity checking.
 
-两行示例时序：
-偶数行：
-- 同步脉冲：9.0 ms @ 1200 Hz
-- 同步 porch：3.0 ms @ 1500 Hz
-- Y 扫描：88.0 ms
-- “偶数”分隔脉冲：4.5 ms @ 1500 Hz
-- Porch：1.5 ms @ 1900 Hz
-- R-Y 扫描：44.0 ms
+VIS / calibration head sequence:
+- 300 ms @ 1900 Hz(leader)
+- 10 ms @ 1200 Hz(break)
+- 300 ms @ 1900 Hz(leader)
+- 30 ms @ 1200 Hz (VIS start bit)
+- 7 data bits, LSB first, 30 ms per bit
+  - 1100 Hz = "1"
+  - 1300 Hz = "0"
+- 30 ms Parity bits
+ - Even = 1300 Hz
+ - Odd = 1100 Hz
+- 30 ms @ 1200 Hz (VIS stop bit)
 
-奇数行：
-- 同步脉冲：9.0 ms @ 1200 Hz
-- 同步 porch：3.0 ms @ 1500 Hz
-- Y 扫描：88.0 ms
-- “奇数”分隔脉冲：4.5 ms @ 2300 Hz
-- Porch：1.5 ms @ 1900 Hz
-- B-Y 扫描：44.0 ms
-
-重复以上序列共 240 行。
-注意：R-Y 在偶数行发送，B-Y 在奇数行发送。
+Note: Mode timing begins immediately after the VIS stop bit.
 
 ============================================================
-13) Martin 模式（模式说明）
+11) Robot 72 color (mode description)
 ============================================================
-VIS 码：
-- Martin 1：44（十进制）
-- Martin 2：40（十进制）
+VIS code: 12 (decimal)
+Color mode: Y, R-Y, B-Y
+Scan order: Y, R-Y, B-Y
+Number of lines: 240
 
-颜色模式：RGB（1500–2300 Hz）
-扫描顺序：绿、蓝、红
-行数：256
+Single line timing:
+- Sync Pulse: 9.0 ms @ 1200 Hz
+- Sync Porch: 3.0 ms @ 1500 Hz
+- Y Scan: 138 ms
+- Separate Pulse: 4.5 ms @ 1500 Hz
+- Porch:1.5 ms @ 1900 Hz
+- R-Y Sweep: 69 ms
+ - Separate Pulse: 4.5 ms @ 2300 Hz
+- Porch:1.5 ms @ 1500 Hz
+- B-Y scan: 69 ms
 
-颜色扫描时间：
-- Martin 1：146.432 ms（320 px 时 0.4576 ms/像素）
-- Martin 2：73.216 ms（320 px 时 0.2288 ms/像素）
-
-每行时序：
-- 同步脉冲：4.862 ms @ 1200 Hz
-- 同步 porch：0.572 ms @ 1500 Hz
-- 绿扫描
-- 分隔脉冲：0.572 ms @ 1500 Hz
-- 蓝扫描
-- 分隔脉冲：0.572 ms @ 1500 Hz
-- 红扫描
-- 分隔脉冲：0.572 ms @ 1500 Hz
-
-重复以上序列共 256 行。
+Repeat the above sequence for a total of 240 lines.
 
 ============================================================
-14) PD 模式（模式说明）
+12) Robot 36 color (mode description)
 ============================================================
-VIS 码：
-- PD50：93（十进制）
-- PD90：99（十进制）
-- PD120：95（十进制）
-- PD160：98（十进制）
-- PD180：96（十进制）
-- PD240：97（十进制）
-- PD290：94（十进制）
+VIS code: 8 (decimal)
+Color mode: Y, R-Y, B-Y
+Scan order: Y, R-Y (even lines), Y, B-Y (odd lines)
+Number of lines: 240
 
-颜色模式：Y, R-Y, B-Y
-扫描顺序：Y（奇数行）、R-Y（两行平均）、B-Y（两行平均）、Y（偶数行）
-同步脉冲：20.0 ms @ 1200 Hz
-Porch：2.080 ms @ 1500 Hz
+Two row example timing:
+Even row:
+- Sync Pulse: 9.0 ms @ 1200 Hz
+- Sync Porch: 3.0 ms @ 1500 Hz
+- Y scan: 88.0 ms
+- "Even" separated pulses: 4.5 ms @ 1500 Hz
+- Porch:1.5 ms @ 1900 Hz
+- R-Y scan: 44.0 ms
 
-颜色扫描时间（Y、R-Y、B-Y）：
-- PD50：91.520 ms
-- PD90：170.240 ms
-- PD120：121.600 ms
-- PD160：195.584 ms
-- PD180：183.040 ms
-- PD240：244.480 ms
-- PD290：228.800 ms
+Odd rows:
+- Sync Pulse: 9.0 ms @ 1200 Hz
+- Sync Porch: 3.0 ms @ 1500 Hz
+- Y scan: 88.0 ms
+- "Odd" separated pulses: 4.5 ms @ 2300 Hz
+- Porch:1.5 ms @ 1900 Hz
+- B-Y scan: 44.0 ms
 
-标称分辨率（均包含 16 行头）：
-- PD50：320x256
-- PD90：320x256
-- PD120：640x496
-- PD160：512x400
-- PD180：640x496
-- PD240：640x496
-- PD290：800x616
-
-注意：本接收端以 320 像素宽解码，并在垂直方向缩放到显示高度。
+Repeat the above sequence for a total of 240 lines.
+Note: R-Y is sent on even lines and B-Y is sent on odd lines.
 
 ============================================================
-15) Pasokon “P” 模式（模式说明）
+13) Martin mode (mode description)
 ============================================================
-VIS 码：
-- P3：113（十进制）
-- P5：114（十进制）
-- P7：115（十进制）
+VIS code:
+-Martin 1:44 (decimal)
+-Martin 2:40 (decimal)
 
-颜色模式：RGB（1500–2300 Hz）
-扫描顺序：红、绿、蓝
-行数：496（包含 16 行头）
+Color mode: RGB (1500–2300 Hz)
+Scan order: green, blue, red
+Number of lines: 256
 
-颜色扫描时间：
-- P3：133.333 ms
-- P5：200.000 ms
-- P7：266.666 ms
+Color scanning time:
+- Martin 1: 146.432 ms (0.4576 ms/pixel at 320 px)
+- Martin 2: 73.216 ms (0.2288 ms/pixel at 320 px)
 
-同步/porch 时长：
-- P3：同步 5.208 ms，porch 1.042 ms
-- P5：同步 7.813 ms，porch 1.563 ms
-- P7：同步 10.417 ms，porch 2.083 ms
+Timing per row:
+- Sync pulse: 4.862 ms @ 1200 Hz
+- Sync porch: 0.572 ms @ 1500 Hz
+- Green scan
+- Separated pulse: 0.572 ms @ 1500 Hz
+- Blue scan
+- Separated pulse: 0.572 ms @ 1500 Hz
+- Red scan
+- Separated pulse: 0.572 ms @ 1500 Hz
 
-每行时序：
-- 同步脉冲
+Repeat the above sequence for a total of 256 lines.
+
+============================================================
+14) PD mode (mode description)
+============================================================
+VIS code:
+- PD50: 93 (decimal)
+- PD90: 99 (decimal)
+- PD120: 95 (decimal)
+- PD160: 98 (decimal)
+- PD180: 96 (decimal)
+- PD240: 97 (decimal)
+- PD290: 94 (decimal)
+
+Color mode: Y, R-Y, B-Y
+Scan order: Y (odd lines), R-Y (average of two lines), B-Y (average of two lines), Y (even lines)
+Sync pulse: 20.0 ms @ 1200 Hz
+Porch:2.080 ms @ 1500 Hz
+
+Color scan time (Y, R-Y, B-Y):
+- PD50:91.520 ms
+- PD90:170.240 ms
+- PD120:121.600 ms
+- PD160:195.584 ms
+- PD180:183.040 ms
+- PD240:244.480 ms
+- PD290:228.800 ms
+
+Nominal resolution (all with 16 line headers):
+- PD50:320x256
+- PD90:320x256
+- PD120:640x496
+- PD160:512x400
+- PD180:640x496
+- PD240:640x496
+- PD290:800x616
+
+Note: This sink decodes at 320 pixels wide and scales vertically to the display height.
+
+============================================================
+15) Pasokon "P" mode (mode description)
+============================================================
+VIS code:
+- P3: 113 (decimal)
+- P5: 114 (decimal)
+- P7: 115 (decimal)
+
+Color mode: RGB (1500–2300 Hz)
+Scan order: red, green, blue
+Number of lines: 496 (including 16 line headers)
+
+Color scanning time:
+- P3:133.333 ms
+- P5:200.000 ms
+- P7:266.666 ms
+
+Sync/porch duration:
+- P3: Sync 5.208 ms, Porch 1.042 ms
+- P5: Sync 7.813 ms, Porch 1.563 ms
+- P7: Sync 10.417 ms, Porch 2.083 ms
+
+Timing per row:
+- sync pulse
 - Porch
-- 红扫描
+- Red scan
 - Porch
-- 绿扫描
+- Green scan
 - Porch
-- 蓝扫描
+- Blue scan
 - Porch
 
-重复以上序列共 496 行。
-注意：本接收端以 320 像素宽解码，并在垂直方向缩放到显示高度。
+Repeat the above sequence for a total of 496 lines.
+Note: This sink decodes at 320 pixels wide and scales vertically to the display height.
 
 ============================================================
-16) PicoSSTV 解码算法概述
+16) Overview of PicoSSTV decoding algorithm
 ============================================================
-算法描述参考：
+Algorithm description reference:
 - https://101-things.readthedocs.io/en/latest/sstv_decoder.html
 
-核心实现（PicoSSTV）基于以下流程：
-1) 音频采集与预处理
-   - ADC 以 15000 Hz 采样
-   - 直流偏置去除：dc = dc + (sample - dc) / 2
-   - 使用去直流后的 sample 进入解码
+Core implementation (PicoSSTV) is based on the following process:
+1) Audio acquisition and preprocessing
+ - ADC sampling at 15000 Hz
+ - DC offset removal: dc = dc + (sample - dc) / 2
+ - Use the DC-removed sample to enter decoding
 
-2) SSB/IQ 解调（decode_audio）
-   - 4 相移的 Fs/4 频移：audio -> (I,Q) 旋转
-   - 半带滤波（half_band_filter2）低通去镜像
-   - 再次旋转回基带得到 sample_i/sample_q
+2) SSB/IQ demodulation (decode_audio)
+ - Fs/4 frequency shift with 4 phase shifts: audio -> (I,Q) rotation
+ - Half-band filtering (half_band_filter2) low-pass demirroring
+ - Rotate back to baseband again to get sample_i/sample_q
 
-3) 频率估计与平滑（decode_iq）
-   - CORDIC 计算相位
-   - 频率 = last_phase - phase
-   - 频率缩放：sample = (frequency * 15000) >> 16
-   - IIR 平滑：smoothed = (smoothed*7 + sample) / 8
-   - 夹紧到 1000..2500 Hz
+3) Frequency estimation and smoothing (decode_iq)
+ - CORDIC phase calculation
+ - frequency = last_phase - phase
+ - frequency scaling: sample = (frequency * 15000) >> 16
+ - IIR smoothing: smoothed = (smoothed*7 + sample) / 8
+ - clamped to 1000..2500 Hz
 
-4) 行同步检测 + 模式识别（decode）
-   - 同步条件：频率从 >=1300 跳到 <1300
-   - confirm 累积 10 个低于 1300 的采样点判定有效 hsync
-   - 计算 line_length = sample_number - last_hsync_sample
-   - Auto 模式：与各模式 samples_per_line 做 +/-1% 匹配，取误差最小模式
-   - 二次确认：下一条 sync 仍满足阈值才进入 decode_line
-   - 注意：不依赖 VIS 头，仅靠行同步长度识别模式
+4) Line synchronization detection + pattern recognition (decode)
+ - Synchronization condition: frequency jumps from >=1300 to <1300
+ - confirm Accumulate 10 sampling points below 1300 to determine valid hsync
+ - Calculate line_length = sample_number - last_hsync_sample
+ - Auto mode: +/-1% match with samples_per_line of each mode, choose the mode with the smallest error
+ - Secondary confirmation: next sync Only enter decode_line if the threshold is still met
+ - Note: Do not rely on VIS header, only rely on line synchronization length to identify the mode
 
-5) 像素映射与输出
-   - sample_to_pixel 将 image_sample 映射到 (x,y,colour)
-   - 亮度：1500..2300 Hz -> 0..255
-   - 同一像素多次采样累积平均
-   - 行结束或 y 达到 max_height 后结束图像，回到 detect_sync
+5) Pixel mapping and output
+ - sample_to_pixel maps image_sample to (x,y,colour)
+ - Brightness: 1500..2300 Hz -> 0..255
+ - Cumulative average of multiple samples of the same pixel
+ - End image after end of line or y reaches max_height, return to detect_sync
 
-6) 自动斜率校正（Auto Slant）
-   - 每次有效 sync 后，用实际 line_length 更新 mean_samples_per_line
-   - 通过 IIR 降低整图倾斜
+6) Automatic slope correction (Auto Slant)
+ - After each valid sync, update mean_samples_per_line with the actual line_length
+ - Reduce the tilt of the entire image through IIR
 
-7) 颜色与模式渲染
-   - Martin/Scottie：RGB 顺序映射
-   - Robot/PD：Y/Cr/Cb 转 RGB
-   - BW：灰度直映射
+7) Color and mode rendering
+ - Martin/Scottie: RGB sequential mapping
+ - Robot/PD: Y/Cr/Cb to RGB
+ - BW: Grayscale direct mapping

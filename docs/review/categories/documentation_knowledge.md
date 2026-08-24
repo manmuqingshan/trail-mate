@@ -1,15 +1,15 @@
-# 模型发现与作者文档
+# Model discovery and author documentation
 
-状态：**has_unresolved** · 1 unresolved · 1 resolved
+Status: **has_unresolved** · 1 unresolved · 1 resolved
 
-## 已有模型未发现
+## Existing models are not discovered
 
-- P1：[联系人、对端目录与本地信任未进入 Model Explorer](../issues/contact-peer-directory-not-discovered.md) · acknowledged
+- P1: [Contact, peer directory and local trust are not entered into Model Explorer](../issues/contact-peer-directory-not-discovered.md) · acknowledged
 
-该边界已经存在于 `MeshPeerRecord`、`IMeshPeerDirectory`、`ContactService` 和 stores 中。作者 Registry 已补入第九个 Model；finding 等待 Model Explorer 的可见性和下钻验收。
+This boundary already exists in `MeshPeerRecord`, `IMeshPeerDirectory`, `ContactService` and stores. The author has added the ninth Model to the Registry; finding is waiting for visibility and drill-down acceptance in Model Explorer.
 
-## 历史发现缺陷
+## History found defects
 
-- P1：[固定三模板曾遮蔽真实模型](../issues/domain-models-existed-but-were-not-discovered.md) · resolved
+- P1: [Fixed three templates had obscured the real model](../issues/domain-models-existed-but-were-not-discovered.md) · resolved
 
-固定 Model 数量的产品问题已经修复。以后必须逐个报告具体漏识别模型，不能再用一条概括性 finding 冒充完整性审计。
+The fixed Model number product issue has been fixed. In the future, specific missing identification models must be reported one by one, and a general finding cannot be used to pretend to be a complete audit.

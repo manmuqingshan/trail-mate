@@ -1,4 +1,4 @@
-# State Machine：Call State 与 RealtimePhase
+# State Machine: Call State and RealtimePhase
 
 ```mermaid
 stateDiagram-v2
@@ -20,31 +20,31 @@ stateDiagram-v2
   Failed --> Idle: resources released
 ```
 
-实现还有 `AcceptedStarting / ActiveCall / ClosingCall` 的 RealtimePhase；它细化资源阶段，不替代外层用户可见 State。
+Implements the RealtimePhase of `AcceptedStarting / ActiveCall / ClosingCall`; it refines the resource stage and does not replace the outer user-visible State.
 
-## 状态 owner
+## Status owner
 
-Call Runtime 以 call/link generation 持有外层用户状态和内部 RealtimePhase。UI 只能投影，LXST/link callback 只能提交事件。资源 owner、Media Engine 和远端 link 不各自维护一份“当前通话状态”。
+Call Runtime holds outer user state and internal RealtimePhase in call/link generation. UI can only project, LXST/link callback can only submit events. Resource owner, Media Engine and remote link do not each maintain a "current call state".
 
-## 关键 transition
+## Key transition
 
-| 当前状态 | 事件/guard | 动作 | 下一状态 |
+| Current state | event/guard | action | next state |
 | --- | --- | --- | --- |
-| Idle | incoming link | 保存 generation，开始 identity | Incoming |
-| Incoming | accept 且 link/media/独占就绪 | 启动媒体投影 | Active |
-| Incoming | reject/remote close | 关闭 link、释放 soft preempt | Ended |
-| Outgoing | link/media/独占就绪 | 启动媒体 | Active |
-| Active | hangup/remote close | 阻止新帧，收束资源 | Ended |
-| 任意活动态 |不可恢复资源/媒体失败 | 记录原因并关闭 | Failed |
+| Idle | incoming link | Save generation, start identity | Incoming |
+| Incoming | accept and link/media/exclusively ready | Start media projection | Active |
+| Incoming | reject/remote close | Close link, release soft preempt | Ended |
+| Outgoing | link/media/exclusively ready | Start media | Active |
+| Active | hangup/remote close | Block new frames and close resources | Ended |
+| Any active state | Unrecoverable resource/media failure | Record the reason and close | Failed |
 
-## 正交的 RealtimePhase
+## Orthogonal RealtimePhase
 
-`IncomingIdentifying`、`IncomingRinging`、`AcceptedStarting`、`ActiveCall`、`ClosingCall` 表达资源与媒体准备细节。它们不能代替外层 State，否则 UI 会把“用户已接受但媒体未就绪”误显示为 Active。
+`IncomingIdentifying`, `IncomingRinging`, `AcceptedStarting`, `ActiveCall`, `ClosingCall` express resource and media preparation details. They cannot replace the outer State, otherwise the UI will mistakenly display "User accepted but media not ready" as Active.
 
-## 禁止与幂等
+## Prohibited and idempotent
 
-Ended/Failed 后的 accept、linkActive 和 mediaReady 全部无效；不同 generation 的回调不匹配当前 session。close finalized 和资源 release 允许重复调用，但只发布一次终态。
+Accept, linkActive and mediaReady after Ended/Failed are all invalid; callbacks of different generations do not match the current session. close finalized and resource release allow repeated calls, but only release the final state once.
 
-## 恢复与测试
+## Recovery and testing
 
-通话状态不跨设备重启恢复；启动时任何残留 session 归 Idle，并清理平台资源。测试覆盖所有合法 transition、乱序汇合、终态迟到事件及资源释放失败。
+The call status will not be restored across device restarts; any remaining sessions at startup will be returned to Idle and platform resources will be cleaned up. The test covers all legal transitions, out-of-order rendezvous, late final state events and resource release failures.

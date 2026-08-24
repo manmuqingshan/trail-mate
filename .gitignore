@@ -261,3 +261,16 @@ CMakeCache.txt
 
 # sdkconfig local override
 sdkconfig.old
+
+# Codex local artifacts (logs, build outputs, crash captures, and test backups)
+/.codex/
+/.codex_build_logs/
+/.codex-build/
+/.codex-build-logs/
+/.codex-coredump/
+/.codex-coredumps/
+/.codex-idf-settings-backup/
+/.codex-logs/
+/.codex-settings-backup-contract/
+**/.codex-build/
+**/.codex-cmake-build/

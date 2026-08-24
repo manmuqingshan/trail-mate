@@ -1,97 +1,97 @@
-# 联系人、对端目录与本地信任模型
+# Contact, peer directory and local trust model
 
-模型状态：**confirmed / boundary split**
-权威代码：`core_chat` 的 `MeshPeerRecord`、`IMeshPeerDirectory`、`ContactService` 及其 stores
+Model status: **confirmed / boundary split**
+Authority code: `core_chat`'s `MeshPeerRecord`, `IMeshPeerDirectory`, `ContactService` and their stores
 
-## 这个模型回答什么
+## What does this model answer?
 
-Trail Mate 从无线协议观察到一个节点之后，必须决定四件不同的事：它在协议中是谁、系统知道它哪些事实、用户是否把它保存为联系人，以及本机是否忽略或信任它。
+Trail After Mate observes a node from a wireless protocol, it must decide four different things: who it is within the protocol, what facts the system knows about it, whether the user saved it as a contact, and whether the machine ignores or trusts it.
 
-这些决策已经形成可运行的模型，不能继续被埋在“聊天”或“Mesh 身份”的附属类型中。它和消息模型的区别是：消息模型拥有会话与投递状态；本模型拥有本地目录、用户别名、可见性、忽略与信任投影。
+These decisions have become operational models and cannot continue to be buried in the adjunct types of "Chat" or "Mesh Identity". The difference between it and the message model is that the message model has session and delivery states; this model has local directories, user aliases, visibility, ignore and trust projections.
 
-## 核心语言
+## Core language
 
-| 概念 | 代码表达 | 含义 | 当前 owner |
+| Concept | Code expression | Meaning | Current owner |
 | --- | --- | --- | --- |
-| 对端身份 | `MeshPeerIdentity` | 由 protocol 与 NodeId、公钥或 Reticulum destination 组成的目录键 | `MeshPeerRecord` / directory |
-| 协议事实 | `MeshtasticPeerFacts`、`MeshCorePeerFacts`、`ReticulumPeerFacts` | 协议观察到的名称、路由、公钥与能力 | `MeshPeerRecord` |
-| 观察事实 | `MeshPeerObservations` | SNR、RSSI、设备指标和最后位置 | `MeshPeerRecord` |
-| 用户事实 | `MeshPeerUserFlags`、`user_alias` | favorite、ignored、trusted 与用户别名 | local directory |
-| 节点投影 | `NodeInfo` / `NodeEntry` | 面向旧联系人服务和 UI 的节点表示 | `INodeStore` |
-| 联系人 | nickname attached to a node id | 用户主动保存并命名的节点 | `IContactStore` |
+| Peer identity | `MeshPeerIdentity` | Directory key consisting of protocol and NodeId, public key or Reticulum destination | `MeshPeerRecord` / directory |
+| Protocol facts | `MeshtasticPeerFacts`, `MeshCorePeerFacts`, `ReticulumPeerFacts` | Protocol observed names, routes, public keys and capabilities | `MeshPeerRecord` |
+| Observation facts | `MeshPeerObservations` | SNR, RSSI, device metrics and last position | `MeshPeerRecord` |
+| User facts | `MeshPeerUserFlags`, `user_alias` | favorite, ignored, trusted and user aliases | local directory |
+| Node projection | `NodeInfo` / `NodeEntry` | Node representation for legacy contact services and UI | `INodeStore` |
+| Contacts | nickname attached to a node id | User actively saved and named nodes | `IContactStore` |
 
-`PeerPublicKey` 属于 Mesh 密钥身份模型；`MeshPeerIdentity` 是目录索引。二者相关，但不能因为名字相似就当成同一个实体。
+`PeerPublicKey` belongs to Mesh Key identity model; `MeshPeerIdentity` is a directory index. The two are related, but they cannot be regarded as the same entity just because the names are similar.
 
-## 对端进入目录的路径
+## The path of the peer into the directory
 
-1. Meshtastic、MeshCore 或 Reticulum adapter 产生协议观察。
-2. 观察被归一化为 `MeshPeerIdentity` 与协议 facts。
-3. `IMeshPeerDirectory::record` 按稳定身份插入或合并 `MeshPeerRecord`。
-4. 旧路径通过 `ContactService::applyNodeUpdate` 更新 `INodeStore` 中的 `NodeEntry`。
-5. 联系人页面根据当前 active protocol 读取联系人、附近节点和被忽略节点。
-6. 用户可以设置 nickname、ignored 或 manually verified；这些是本机事实，不应被后续无线观察静默覆盖。
+1. Meshtastic, MeshCore or Reticulum adapter generates protocol observations.
+2. Observations are normalized to `MeshPeerIdentity` and protocol facts.
+3. `IMeshPeerDirectory::record` inserts or merges `MeshPeerRecord` according to stable identity.
+4. The old path updates `NodeEntry` in `INodeStore` through `ContactService::applyNodeUpdate`.
+5. The contact page reads contacts, nearby nodes and ignored nodes according to the current active protocol.
+6. The user can set nickname, ignored, or manually verified; these are native facts and should not be silently overwritten by subsequent wireless observations.
 
-## 已经存在的规则
+## Already existing rules
 
-### 身份必须有效
+### The identity must be valid
 
-`meshPeerIdentityIsValid` 对三类目录键分别检查：NodeId 不能为零，公钥必须有非零有界字节，Reticulum destination 必须有效且 hash 非零。没有有效身份的记录不能成为目录事实。
+`meshPeerIdentityIsValid` checks three types of directory keys respectively: NodeId cannot be zero, public key must have non-zero bounded bytes, Reticulum destination must be valid and hash is non-zero. A record without a valid identity cannot become a directory fact.
 
-### 协议分区是查询边界
+### The protocol partition is the query boundary
 
-`ContactService::setActiveProtocol` 同时切换 node store 与 contact store，并清空缓存。RNode 被归一化到 Reticulum。联系人查询不应该把不同协议的同值 NodeId 直接视为同一个人。
+`ContactService::setActiveProtocol` switches node store and contact store at the same time, and clears the cache. RNode is normalized to Reticulum. Contact queries should not directly treat NodeIds with the same value in different protocols as the same person.
 
-### 联系人与节点不是同一个生命周期
+### The contact and the node are not in the same life cycle
 
-- `removeContact` 只删除 nickname，节点观察仍可保留。
-- `removeNode` 同时尝试删除 nickname 和节点记录。
-- `addContact` / `editContact` 会先确保 node entry 存在；因此联系人动作依赖目录记录，但联系人状态不是无线观察本身。
+- `removeContact` only deletes the nickname, and the node observation can still be retained.
+- `removeNode` attempts to delete nickname and node records at the same time.
+- `addContact` / `editContact` will first ensure that the node entry exists; therefore the contact action relies on the directory record, but the contact status is not the wireless observation itself.
 
-### 本机信任只能修改已存在节点
+### Native trust can only modify existing nodes
 
-`setNodeIgnored` 与 `setNodeKeyManuallyVerified` 在 node entry 不存在时返回失败。它们通过 `NodeUpdate` 写回 store，不凭空创建可信身份。
+`setNodeIgnored` and `setNodeKeyManuallyVerified` return failure when the node entry does not exist. They are written back to the store via `NodeUpdate` and do not create trusted identities out of thin air.
 
-### 显示名称有确定的降级次序
+### The display name has a certain downgrade order
 
-普通协议优先 nickname，再使用节点名称；Reticulum 路径优先协议 announce/long name，在缺少协议名称时再使用 nickname。该差异是现有行为，不应由 UI 各自重新猜测。
+Common protocols give priority to nickname, and then use the node name; Reticulum path priority protocol announce/long name, and then use nickname when the protocol name is missing. This difference is existing behavior and should not be re-guessed by the UI individually.
 
-## 当前没有闭合的地方
+## There is currently no closed place
 
-### 两套目录表达并存
+### Two sets of directory expressions coexist
 
-`MeshPeerRecord / IMeshPeerDirectory` 已经能表达协议身份、来源、首次/最后观察、用户 flags 和跨协议 facts；`NodeInfo / NodeEntry / ContactService` 仍拥有另一套位置、指标、ignored 和 verified 字段。平台 adapter 需要在两套结构之间投影，容易产生双写和覆盖顺序不一致。
+`MeshPeerRecord / IMeshPeerDirectory` can already express protocol identity, source, first/last observation, user flags and cross-protocol facts; `NodeInfo / NodeEntry / ContactService` still has another set of location, indicator, ignored and verified fields. The platform adapter needs to project between two sets of structures, which can easily lead to double writing and inconsistent coverage order.
 
-### “附近节点”没有实际新鲜度门槛
+### There is no actual freshness threshold for "nearby nodes"
 
-`ContactService` 的接口注释写着附近节点只保留六天可见性，但当前 `isNodeVisible` 无条件返回 `true`。`formatTimeStatus` 虽然计算 Online/Seen/Offline，却没有成为查询不变量。因此文档不能宣称代码已经执行六天过期策略。
+ The interface annotation of `ContactService` says that nearby nodes only retain visibility for six days, but currently `isNodeVisible` returns `true` unconditionally. Although `formatTimeStatus` calculates Online/Seen/Offline, it does not become a query invariant. Therefore the documentation cannot claim that the code has implemented the six-day expiration policy.
 
-### trusted、manually verified 与 Mesh verified key 尚未统一
+### Trusted, manually verified and Mesh verified keys have not been unified yet
 
-目录中同时有 `MeshPeerUserFlags::trusted`、Meshtastic `key_manually_verified`、MeshCore `public_key_verified`，Mesh 密钥模型还有 `PeerPublicKey::verified`。它们的证明来源、撤销和优先级没有单一 owner。
+There are `MeshPeerUserFlags::trusted`, Meshtastic `key_manually_verified`, MeshCore `public_key_verified` in the directory, and the Mesh key model also has `PeerPublicKey::verified`. There is no single owner of their provenance, revocation, and priority.
 
-### 缺少业务身份链接
+### Missing business identity link
 
-协议节点、目录记录、联系人和未来的团队成员仍通过 NodeId、destination hash 或临时映射关联。代码没有显式、可撤销的 `IdentityLink`。这个缺口留在 Review Queue，不在本文虚构一个已经存在的类。
+Protocol nodes, directory records, contacts, and future team members are still related through NodeId, destination hash, or temporary mapping. The code has no explicit, revocable `IdentityLink`. This gap remains in Review Queue, and this article does not create an existing class.
 
-## 与其他模型的关系
+## Relationship to other models
 
-- Mesh 身份模型提供经过验证的密钥事实；本模型决定如何在本地目录中索引、命名和投影对端。
-- 通信模型引用联系人显示名称，但不拥有联系人生命周期。
-- Team 模型目前用 NodeId 维护 roster；未来成员身份应通过明确链接引用本模型，而不是复制联系人结构。
-- Positioning 提供本机 fix；本模型保存的是对端报告的位置观察，两者的可信度和新鲜度不能混用。
+ - The Mesh identity model provides authenticated key facts; this model determines how peers are indexed, named, and projected in the local directory.
+- The communication model references the contact display name but does not own the contact lifecycle.
+- The Team model currently uses NodeId to maintain the roster; future memberships should reference this model through explicit links rather than duplicating the contact structure.
+- Positioning provides native fix; this model saves the position observations reported by the peer, and the credibility and freshness of the two cannot be mixed.
 
-## 源码证据
+## Source code evidence
 
-| 证据 | 说明 |
+| Evidence | Description |
 | --- | --- |
-| `modules/core_chat/include/chat/domain/mesh_peer_directory.h` | 新目录的身份、记录、协议 facts、观察与用户 flags |
-| `modules/core_chat/include/chat/ports/i_mesh_peer_directory.h` | record/find/search/flags/remove/flush 契约 |
-| `modules/core_chat/include/chat/domain/contact_types.h` | 旧节点与联系人查询投影 |
-| `modules/core_chat/include/chat/usecase/contact_service.h` | 联系人和节点目录用例入口 |
-| `modules/core_chat/src/usecase/contact_service.cpp` | 协议分区、nickname、ignored、verified 和删除语义 |
-| `modules/core_chat/tests/test_mesh_peer_directory_contract.cpp` | first-seen 合并与 verified key 防覆盖契约 |
+| `modules/core_chat/include/chat/domain/mesh_peer_directory.h` | Identity, records, protocol facts, observations and user flags for the new directory |
+| `modules/core_chat/include/chat/ports/i_mesh_peer_directory.h` | record/find/search/flags/remove/flush contract |
+| `modules/core_chat/include/chat/domain/contact_types.h` | Old node and contact query projection |
+| `modules/core_chat/include/chat/usecase/contact_service.h` | Contact and node directory use case entry |
+| `modules/core_chat/src/usecase/contact_service.cpp` | Protocol partitioning, nickname, ignored, verified and delete semantics |
+| `modules/core_chat/tests/test_mesh_peer_directory_contract.cpp` | first-seen merge and verified key anti-coverage contract |
 
-## 下钻
+## Drill down
 
-- [对端观察、联系人提升与本地信任](peer-directory-lifecycle.md)
-- Review Queue：IdentityLink 缺失、目录双重表达、团队成员身份缺失
+- [Peer observation, contact promotion and local trust] (peer-directory-lifecycle.md)
+- Review Queue: IdentityLink Missing, double expression of directory, missing team member identity

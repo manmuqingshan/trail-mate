@@ -1,4 +1,4 @@
-# LinkState 与 handshake 生命周期
+# LinkState and handshake life cycle
 
 ```mermaid
 stateDiagram-v2
@@ -13,4 +13,4 @@ stateDiagram-v2
   Waiting --> Stopped: stop_session
 ```
 
-Observed 状态只有 `Stopped / Waiting / Connected / Handshaking / Ready / Error`。原图中的 Offline、Recovering、Incompatible 不在 `LinkState` 中，已经移除。
+Observed status is only `Stopped / Waiting / Connected / Handshaking / Ready / Error`. Offline, Recovering, and Incompatible in the original image are not in `LinkState` and have been removed.

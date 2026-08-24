@@ -1,15 +1,21 @@
-# Sequence：Application SD 到 USB Host
+# Sequence: Application SD to USB Host
 ```mermaid
 sequenceDiagram
-  actor U as 用户
+ actor U as user
   participant UI as USB Page
   participant USB as USB Support Runtime
-  participant Owners as GPS/Radio/Track/File Workers
+  participant WiFi as Wi-Fi Runtime
+  participant LoRa as LoRa Task + Board Owner
+  participant GPS as GPS Runtime
+  participant Owners as Track/File Workers
   participant SD as Application SD Host
   participant MSC as USB MSC Backend
   U->>UI: enter USB Disk
   UI->>USB: start
-  USB->>Owners: quiesce + flush + pause
+  USB->>WiFi: suspend (no persisted setting change)
+  USB->>LoRa: pause tasks + radio standby
+  USB->>GPS: suspend
+  USB->>Owners: quiesce + flush
   USB->>SD: unmount/deinit
   USB->>MSC: start(media)
   MSC-->>UI: Active / failed
@@ -17,25 +23,35 @@ sequenceDiagram
   UI->>USB: stop
   USB->>MSC: stop
   USB->>SD: remount application SD
-  USB->>Owners: resume
+  USB->>GPS: resume
+  USB->>LoRa: resume tasks + RX
+  USB->>WiFi: resume if saved setting enabled
 ```
 
-## 场景与参与者
+## Scenarios and participants
 
-USB Support Runtime 是所有权切换协调者；GPS/Radio/Track/File Workers 是可能持有文件或任务的 owner；Application SD Host 与 USB MSC Backend 是互斥介质 owner；UI 只发 start/stop。
+USB Support Runtime is the coordinator of ownership switching; Wi-Fi, LoRa,
+GPS, Track, and File workers retain ownership of their own hardware/runtime
+lifecycles and only acknowledge suspend/resume. Application SD Host and USB
+MSC Backend are mutually exclusive media owners; UI only sends start/stop.
 
-## 移交栅栏
+## Handover fence
 
-Owners 的 quiesce 返回 token/确认，证明不再产生新 I/O 且已 flush。全部确认后才 unmount/deinit。MSC 只有在 unmount 成功后启动。缺少任一确认都按逆序 resume 已暂停 owner。
+The Wi-Fi runtime confirms that driver/transport work is suspended without
+persisting `wifi.enabled`; the LoRa task owner confirms paused tasks and a
+successful board standby; GPS and storage owners confirm their own quiesce.
+Unmount/deinit occurs only after every confirmation. MSC starts only after
+successful unmount. The absence of any acknowledgment resumes completed stages
+in reverse order.
 
-## 归还栅栏
+## Return fence
 
-stop MSC 必须等待主机 I/O 终止，再 remount 和检查文件系统；remount 成功后才 resume。Host disconnect 也走相同顺序，不能跳过 stop。
+stop MSC must wait for host I/O to terminate before remounting and checking the file system; resume only after remounting is successful. Host disconnect also follows the same sequence and cannot skip stop.
 
-## 故障补偿
+## Failure compensation
 
-MSC start 失败执行 stop-if-needed + remount。Remount 失败保持 Owners paused 并显示 recovery-required。重复 stop/start 按 session generation 幂等。
+ MSC start fails to execute stop-if-needed + remount. Remount failure leaves Owners paused and displays recovery-required. Repeated stop/start per session generation is idempotent.
 
-## 测试
+## Tests
 
-覆盖某 owner 拒绝 quiesce、unmount 失败、MSC start 失败、突然断连、remount 失败、重复退出和所有权互斥断言。
+Cover an owner's rejection of quiesce, unmount failure, MSC start failure, sudden disconnection, remount failure, repeated exit and ownership mutual exclusion assertion.

@@ -1,6 +1,6 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：Walkie Monitor</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed"><h1>Walkie Monitor</h1><pre class="mermaid">flowchart TD
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Activity:Walkie Monitor</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed"><h1>Walkie Monitor</h1><pre class="mermaid">flowchart TD
 Enter --> Support{"supported?"}
-Support -- 是 --> Start["start receiver"]
+Support -- Y--> Start["start receiver"]
 Start --> Monitor["toggle monitor"]
 Monitor --> Levels["RSSI/audio levels"]
 Levels --> Stop["exit + release"]</pre></main></body></html>

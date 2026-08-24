@@ -1,7 +1,6 @@
 ﻿#include "platform/ui/usb_support_runtime.h"
 
 #include "app/app_facade_access.h"
-#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "platform/esp/arduino_common/app_tasks.h"
@@ -9,6 +8,7 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/screen_runtime.h"
+#include "platform/ui/wifi_runtime.h"
 #include "screen_sleep.h"
 #include "team/usecase/team_pairing_service.h"
 
@@ -17,6 +17,7 @@
 #if defined(ARDUINO_USB_MODE)
 #include <USB.h>
 #include <USBMSC.h>
+#include <esp_attr.h>
 #include <esp_event.h>
 
 #include <cstring>
@@ -31,6 +32,9 @@ Status s_status{};
 char s_message[96] = "";
 bool s_prepared = false;
 bool s_radio_tasks_paused_by_usb = false;
+bool s_radio_hardware_quiesced_by_usb = false;
+TaskHandle_t s_gps_task_suspended_by_usb = nullptr;
+::platform::ui::wifi::ExternalStorageSuspension s_wifi_suspension{};
 
 #define USB_MSC_LOG(...) std::printf("[USBMSC] " __VA_ARGS__)
 
@@ -43,6 +47,10 @@ void set_status_message(const char* message)
 
 void stop_pairing()
 {
+    if (!app::hasAppFacade())
+    {
+        return;
+    }
     if (team::TeamPairingService* pairing = app::teamFacade().getTeamPairing())
     {
         pairing->stop();
@@ -63,25 +71,33 @@ class UsbMscStorageSession final
             return true;
         }
 
-        // This is semantic ownership only: it blocks application filesystem
-        // mutations while the host owns the card. Each raw sector operation
-        // below obtains its own physical shared-SPI transaction through the
-        // SdFat driver hook.
-        ::platform::esp::arduino_common::storage::sd_set_external_block_owner_active(
-            true);
+        // The transition takes the same runtime lock as every SD operation,
+        // so no application access can cross the point at which USB MSC
+        // becomes the card's sole logical owner. Each raw sector operation
+        // below still obtains its own physical shared-SPI transaction through
+        // the SdFat driver hook.
+        if (!::platform::esp::arduino_common::storage::sd_set_external_block_owner_active(
+                true))
+        {
+            return false;
+        }
         active_ = true;
         return true;
     }
 
-    void end()
+    bool end()
     {
         if (!active_)
         {
-            return;
+            return true;
         }
-        ::platform::esp::arduino_common::storage::sd_set_external_block_owner_active(
-            false);
+        if (!::platform::esp::arduino_common::storage::sd_set_external_block_owner_active(
+                false))
+        {
+            return false;
+        }
         active_ = false;
+        return true;
     }
 
     bool active() const
@@ -95,6 +111,70 @@ class UsbMscStorageSession final
 
 UsbMscStorageSession s_storage_session;
 uint8_t s_usb_msc_sector_scratch[512];
+
+enum class ExitTracePhase : uint8_t
+{
+    None = 0,
+    StopRequested,
+    MscCallbacksEnded,
+    SdOwnershipReleased,
+    RestartRequested,
+};
+
+constexpr uint32_t k_exit_trace_magic = 0x554D5343U; // "UMSC"
+constexpr uint32_t k_exit_trace_msc_ended = 1U << 0;
+constexpr uint32_t k_exit_trace_sd_released = 1U << 1;
+constexpr uint32_t k_exit_trace_restart_requested = 1U << 2;
+
+struct UsbMscExitTrace
+{
+    uint32_t magic;
+    uint32_t session;
+    uint32_t flags;
+    uint8_t phase;
+    uint8_t sd_release_succeeded;
+    uint16_t reserved;
+};
+
+// RTC_NOINIT_ATTR is deliberately uninitialized: the ESP restart path must
+// preserve this tiny record until the next normal boot can report it.
+RTC_NOINIT_ATTR volatile UsbMscExitTrace s_exit_trace;
+
+const char* exit_trace_phase_name(uint8_t phase)
+{
+    switch (static_cast<ExitTracePhase>(phase))
+    {
+    case ExitTracePhase::None:
+        return "none";
+    case ExitTracePhase::StopRequested:
+        return "stop_requested";
+    case ExitTracePhase::MscCallbacksEnded:
+        return "msc_callbacks_ended";
+    case ExitTracePhase::SdOwnershipReleased:
+        return "sd_ownership_released";
+    case ExitTracePhase::RestartRequested:
+        return "restart_requested";
+    }
+    return "unknown";
+}
+
+void begin_exit_trace()
+{
+    const uint32_t previous_session =
+        s_exit_trace.magic == k_exit_trace_magic ? s_exit_trace.session : 0U;
+    s_exit_trace.magic = k_exit_trace_magic;
+    s_exit_trace.session = previous_session + 1U;
+    s_exit_trace.flags = 0U;
+    s_exit_trace.phase = static_cast<uint8_t>(ExitTracePhase::StopRequested);
+    s_exit_trace.sd_release_succeeded = 0U;
+    s_exit_trace.reserved = 0U;
+}
+
+void mark_exit_trace(ExitTracePhase phase, uint32_t flag)
+{
+    s_exit_trace.phase = static_cast<uint8_t>(phase);
+    s_exit_trace.flags |= flag;
+}
 
 int32_t usbReadCallback(uint32_t lba, uint32_t offset, void* buffer, uint32_t bufsize)
 {
@@ -318,48 +398,81 @@ bool is_supported()
 #endif
 }
 
-void prepare_mass_storage_mode()
+bool prepare_mass_storage_mode()
 {
-    stop_pairing();
-    esp_wifi_stop();
-    ::platform::ui::screen::disable_sleep();
-
-    if (!app::AppTasks::areRadioTasksPaused())
+    if (!::platform::ui::wifi::suspend_for_external_storage(&s_wifi_suspension))
     {
-        if (app::AppTasks::pauseRadioTasks())
-        {
-            s_radio_tasks_paused_by_usb = true;
-            USB_MSC_LOG("radio tasks paused for USB mass storage\n");
-        }
-        else
-        {
-            USB_MSC_LOG("radio task quiesce failed for USB mass storage\n");
-        }
+        USB_MSC_LOG("Wi-Fi quiesce failed for USB mass storage\n");
+        set_status_message("Wi-Fi Busy");
+        return false;
     }
+
+    if (app::AppTasks::areRadioTasksPaused())
+    {
+        USB_MSC_LOG("radio already owned by another exclusive session\n");
+        ::platform::ui::wifi::resume_after_external_storage(&s_wifi_suspension);
+        set_status_message("Radio Busy");
+        return false;
+    }
+
+    if (app::AppTasks::pauseRadioTasks())
+    {
+        s_radio_tasks_paused_by_usb = true;
+        USB_MSC_LOG("radio tasks paused for USB mass storage\n");
+    }
+    else
+    {
+        USB_MSC_LOG("radio task quiesce failed for USB mass storage\n");
+        ::platform::ui::wifi::resume_after_external_storage(&s_wifi_suspension);
+        set_status_message("Radio Busy");
+        return false;
+    }
+
+    if (!app::AppTasks::quiesceRadioHardwareForExternalStorage())
+    {
+        USB_MSC_LOG("radio hardware standby failed for USB mass storage\n");
+        app::AppTasks::resumeRadioTasks();
+        s_radio_tasks_paused_by_usb = false;
+        ::platform::ui::wifi::resume_after_external_storage(&s_wifi_suspension);
+        set_status_message("Radio Busy");
+        return false;
+    }
+    s_radio_hardware_quiesced_by_usb = true;
 
     TaskHandle_t gps_task_handle = gps::gps_get_task_handle();
-    if (gps_task_handle != nullptr)
+    if (gps_task_handle != nullptr && eTaskGetState(gps_task_handle) != eSuspended)
     {
         vTaskSuspend(gps_task_handle);
+        s_gps_task_suspended_by_usb = gps_task_handle;
     }
+
+    stop_pairing();
+    ::platform::ui::screen::disable_sleep();
+    return true;
 }
 
 void restore_mass_storage_mode()
 {
     ::platform::ui::screen::enable_sleep();
 
-    TaskHandle_t gps_task_handle = gps::gps_get_task_handle();
-    if (gps_task_handle != nullptr)
+    if (s_gps_task_suspended_by_usb != nullptr)
     {
-        vTaskResume(gps_task_handle);
+        vTaskResume(s_gps_task_suspended_by_usb);
+        s_gps_task_suspended_by_usb = nullptr;
     }
 
-    if (s_radio_tasks_paused_by_usb)
+    if (s_radio_hardware_quiesced_by_usb)
     {
-        app::AppTasks::resumeRadioTasks();
-        s_radio_tasks_paused_by_usb = false;
-        USB_MSC_LOG("radio tasks resumed after USB mass storage\n");
+        if (s_radio_tasks_paused_by_usb)
+        {
+            app::AppTasks::resumeRadioTasks();
+            s_radio_tasks_paused_by_usb = false;
+            USB_MSC_LOG("radio tasks resumed after USB mass storage\n");
+        }
+        s_radio_hardware_quiesced_by_usb = false;
     }
+
+    ::platform::ui::wifi::resume_after_external_storage(&s_wifi_suspension);
 }
 
 bool start()
@@ -393,7 +506,11 @@ bool start()
         return false;
     }
 
-    prepare_mass_storage_mode();
+    if (!prepare_mass_storage_mode())
+    {
+        s_status.active = false;
+        return false;
+    }
     s_prepared = true;
     if (!s_storage_session.begin())
     {
@@ -429,8 +546,22 @@ void stop()
 #if defined(ARDUINO_USB_MODE)
     if (s_backend_started)
     {
+        // Arduino-ESP32 exposes no TinyUSB teardown. End MSC, release the SD
+        // lease, then let a normal restart rebuild every application service.
+        begin_exit_trace();
         s_msc.end();
+        mark_exit_trace(ExitTracePhase::MscCallbacksEnded, k_exit_trace_msc_ended);
+        s_exit_trace.sd_release_succeeded = s_storage_session.end() ? 1U : 0U;
+        if (s_exit_trace.sd_release_succeeded != 0U)
+        {
+            mark_exit_trace(ExitTracePhase::SdOwnershipReleased,
+                            k_exit_trace_sd_released);
+        }
         s_backend_started = false;
+        mark_exit_trace(ExitTracePhase::RestartRequested,
+                        k_exit_trace_restart_requested);
+        platform::ui::device::restart();
+        return;
     }
     s_storage_session.end();
 #endif
@@ -444,6 +575,29 @@ void stop()
     s_status.active = false;
     s_status.stop_requested = false;
     set_status_message("USB Stopped");
+}
+
+void report_previous_exit_trace()
+{
+#if defined(ARDUINO_USB_MODE)
+    if (s_exit_trace.magic != k_exit_trace_magic)
+    {
+        return;
+    }
+
+    USB_MSC_LOG(
+        "previous exit trace session=%lu phase=%s(%u) flags=0x%08lx sd_release=%u\n",
+        static_cast<unsigned long>(s_exit_trace.session),
+        exit_trace_phase_name(s_exit_trace.phase),
+        static_cast<unsigned>(s_exit_trace.phase),
+        static_cast<unsigned long>(s_exit_trace.flags),
+        static_cast<unsigned>(s_exit_trace.sd_release_succeeded));
+    USB_MSC_LOG("previous exit trace stages: msc_end=%u sd_owner=%u restart=%u\n",
+                (s_exit_trace.flags & k_exit_trace_msc_ended) != 0U ? 1U : 0U,
+                (s_exit_trace.flags & k_exit_trace_sd_released) != 0U ? 1U : 0U,
+                (s_exit_trace.flags & k_exit_trace_restart_requested) != 0U ? 1U : 0U);
+    s_exit_trace.magic = 0U;
+#endif
 }
 
 Status get_status()

@@ -1,26 +1,26 @@
-# Use Case：加载路线并判断偏航与恢复
+# Use Case: Load route and determine yaw and recovery
 
-状态：**candidate；行为存在，领域 owner 未形成**
-业务边界：地图、定位与现场感知
+Status: **candidate; behavior exists, domain owner has not been formed**
+Business boundary: map, positioning and on-site perception
 
-## 用户目标
+## User goal
 
-从本地加载一条路线，看到当前位置相对路线的进展，在偏离时收到稳定告警，回到路线后自动恢复，且定位跳变不会造成告警抖动。
+Load a route locally, see the progress of the current position relative to the route, receive a stable alarm when deviating, and automatically recover after returning to the route, and positioning jumps will not cause alarm jitter.
 
-## 当前实际行为
+## Current actual behavior
 
-1. Route storage 加载 route points。
-2. GPS page runtime 对当前位置与每个 route segment 计算最近距离。
-3. `update_route_deviation_state` 使用 enter/exit 双阈值形成迟滞，避免临界点反复切换。
-4. UI 投影 on-route/deviated 和距离；路线文件或 fix 不可用时停止判断。
+1. Route storage loads route points.
+2. GPS page runtime calculates the closest distance between the current position and each route segment.
+3. `update_route_deviation_state` uses enter/exit dual thresholds to form hysteresis to avoid repeated switching of critical points.
+4. UI projection on-route/deviated and distance; stop judging when route file or fix is ​​unavailable.
 
-## 设计缺口
+## Design gaps
 
-`Route / NavigationSession / RouteProgress / DeviationPolicy` 没有核心 owner；路线进度、目标点推进、重入、路线版本变化和告警节流没有统一模型。因此本文确认用户目标和现有算法，不把完整导航生命周期标成 confirmed。
+`Route / NavigationSession / RouteProgress / DeviationPolicy` has no core owner; there is no unified model for route progress, target point advancement, reentrancy, route version changes and alarm throttling. Therefore, this article confirms the user goals and existing algorithms, and does not mark the complete navigation life cycle as confirmed.
 
-源码：`modules/ui_shared/src/ui/screens/gps/gps_page_runtime.cpp`、`modules/core_sys/include/platform/ui/route_storage.h`。
+Source code: `modules/ui_shared/src/ui/screens/gps/gps_page_runtime.cpp`, `modules/core_sys/include/platform/ui/route_storage.h`.
 
-## 下钻
+## Drill down
 
 - [Activity](follow-route/activity.md)
 - [Sequence](follow-route/sequences/sequence-follow-route.md)

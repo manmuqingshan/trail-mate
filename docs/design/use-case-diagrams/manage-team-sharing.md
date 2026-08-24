@@ -1,31 +1,31 @@
-# Use Case：建立团队凭据与成员关系
+# Use Case: Establish team credentials and member relationships
 
-状态：**candidate；配对行为确认，成员模型未闭合**
-业务边界：团队协作
+Status: **candidate; pairing behavior confirmed, member model not closed**
+Business boundary: team collaboration
 
-## 用户目标
+## User goal
 
-创建一个受密钥保护的团队，邀请或加入对端，明确谁是 leader/member，并能请求/分发密钥、移除成员或转移 leader，而不会把未确认配对当成永久成员。
+Create a key-protected team, invite or join the peer, clarify who is the leader/member, and be able to request/distribute keys, remove members or transfer the leader, without treating unconfirmed pairs as permanent members.
 
-## 已实现行为
+## Implemented behavior
 
-1. leader 创建/恢复 TeamId 与 TeamKeys，启动 pairing 并产生配对消息。
-2. candidate member 接收请求，用户确认后交换确认/密钥材料。
-3. key distribution 成功后 UI store 恢复 team mode；`TeamService` 记住 NodeId roster。
-4. key request、kick、leader transfer 和 status 通过独立 Team payload 发送并由 reducer 更新页面状态。
-5. kick self 会清理本地 team membership；leader transfer 改变后续权限投影。
+1. The leader creates/restores TeamId and TeamKeys, starts pairing and generates pairing messages.
+2. The candidate member receives the request, exchanges confirmation/key material after the user confirms.
+3. After the key distribution is successful, the UI store restores team mode; `TeamService` remembers the NodeId roster.
+4. Key request, kick, leader transfer and status are sent through independent Team payload and the page status is updated by reducer.
+5. kick self will clear the local team membership; leader transfer will change subsequent permission projections.
 
-## 不变量与失败
+## Invariants and failure
 
-- 未确认或超时不建立永久成员。
-- team key 解密/验证失败不改变 roster。
-- leader-only action 在发送前校验角色。
-- 当前 roster 主要是 `vector<NodeId>`，没有 membership revision、来源、撤销证明和稳定跨协议 IdentityLink；因此完整成员生命周期仍是 candidate。
+- Unacknowledged or timed out without establishing permanent member.
+- Team key decryption/verification failure does not change the roster.
+- leader-only action verifies roles before sending.
+ - The current roster is mainly `vector<NodeId>`, without membership revision, origin, revocation proof and stable cross-protocol IdentityLink; therefore the full member life cycle is still a candidate.
 
-源码：`modules/core_team/src/usecase/team_pairing_coordinator.cpp`、`modules/core_team/src/usecase/team_service.cpp`、`modules/ui_shared/src/ui/screens/team/team_page_event_reducer.cpp`。
+Source code: `modules/core_team/src/usecase/team_pairing_coordinator.cpp`, `modules/core_team/src/usecase/team_service.cpp`, `modules/ui_shared/src/ui/screens/team/team_page_event_reducer.cpp`.
 
-## 下钻
+## Drill down
 
-- [Activity：配对到成员状态](manage-team-sharing/activity.md)
-- [Sequence：Leader 与 Candidate 配对](manage-team-sharing/sequences/sequence-manage-team-sharing.md)
-- [State Machine：Pairing 与本地成员投影](manage-team-sharing/state-machines/team-membership.md)
+- [Activity: Pairing to member state](manage-team-sharing/activity.md)
+- [Sequence: Leader and Candidate pairing](manage-team-sharing/sequences/sequence-manage-team-sharing.md)
+- [State Machine: Pairing Projection with local members](manage-team-sharing/state-machines/team-membership.md)

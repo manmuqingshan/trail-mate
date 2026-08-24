@@ -1,46 +1,46 @@
-# Activity：轨迹记录与关闭
+# Activity: Track recording and closing
 ```mermaid
 flowchart TD
-  Start --> Open{"writer 创建成功?"}
-  Open -- 否 --> Error
-  Open -- 是 --> Recording
-  Recording --> Fix{"新 fix 有效且满足采样策略?"}
-  Fix -- 否 --> Recording
-  Fix -- 是 --> Buffer{"buffer 有空间?"}
-  Buffer -- 否 --> Drop["计数/drop policy"]
-  Buffer -- 是 --> Worker["批量写入"]
-  Worker --> Write{"写入成功?"}
-  Write -- 否 --> Error["停止接受点；保留诊断"]
-  Write -- 是 --> Recording
-  Recording --> Stop["用户 Stop"]
+ Start --> Open{"Writer created successfully?"}
+ Open -- No --> Error
+ Open -- Yes --> Recording
+ Recording --> Fix{"Is the new fix valid and meets the sampling strategy?"}
+ Fix -- No --> Recording
+ Fix -- Yes --> Buffer{"Buffer has space?"}
+ Buffer -- No --> Drop["Count/drop policy"]
+ Buffer -- Yes --> Worker["Batch write"]
+ Worker --> Write{"Write successfully?"}
+ Write -- No --> Error["Stop accepting point; retain diagnostics"]
+ Write -- Yes --> Recording
+ Recording --> Stop["User Stop"]
   Stop --> Drain["drain buffer"]
   Drain --> Close["flush + close"]
 ```
 
-## 本图回答的问题
+## Questions answered by this picture
 
-一次轨迹记录如何从创建 writer 开始，在有限内存与可能繁忙的存储上持续接收定位点，并在 Stop 时保证已接受的数据得到明确处理。
+How a trace record starts from creating a writer, continues to receive anchor points on limited memory and potentially busy storage, and ensures that the accepted data is clearly processed when Stop.
 
-## 会话与采样
+## Sessions and Sampling
 
-Start 创建唯一 recording session 和 writer。只有可信 fix 且满足时间/距离采样策略的点进入固定容量 buffer。无效 fix 或未达到采样门槛不算 drop，也不改变会话健康状态。
+Start creates a unique recording session and writer. Only points with credible fixes and satisfying the time/distance sampling strategy enter the fixed capacity buffer. Invalid fixes or failure to reach the sampling threshold are not considered drops and do not change the session health status.
 
-## 缓冲与背压
+## Buffering and backpressure
 
-buffer 满时执行显式 drop policy 并累计计数；不得覆盖尚未写出的点或在 GNSS 回调中阻塞等待 SD。storage worker 批量取点，writer 是文件格式和 flush/close 的唯一 owner。
+Explicit drop policy is executed when the buffer is full and the count is accumulated; points not yet written out must not be overwritten or blocked in GNSS callbacks waiting for SD. The storage worker fetches points in batches, and the writer is the only owner of the file format and flush/close.
 
-## 错误与停止
+## Error and Stop
 
-写入失败后立即停止接受新点，保留失败原因、已写点数和 drop 计数。用户 Stop 是受控关闭：先禁止新入队，再 drain 已接受 buffer，最后 flush + close。Close 完成才可以报告轨迹文件稳定可用。
+Stop accepting new points immediately after writing failure, retaining the failure reason, number of written points and drop count. User Stop is a controlled shutdown: first prohibit new entries into the queue, then drain the accepted buffer, and finally flush + close. Only after Close is completed can the trajectory file be reported to be stable and available.
 
-## 重复事件与重启
+## Repeated events and restarts
 
-重复 Stop 必须幂等；Stop 与写入失败竞争时只执行一次 close。应用重启后未正常 close 的文件需要格式级恢复或明确标为 incomplete，不能假定最后缓冲区已写入。
+ Repeated Stop must be idempotent; only close will be executed once when Stop competes with write failure. Files that are not closed properly after an application restart require format-level recovery or are explicitly marked as incomplete, and the last buffer cannot be assumed to have been written.
 
-## ESP 栈与所有权
+## ESP stack and ownership
 
-轨迹点批次、文件缓冲和协议对象不能作为大型自动局部变量放在任务栈上；使用固定深度成员 ring、caller-provided storage 或明确静态所有权。
+Trajectory point batches, file buffers, and protocol objects cannot be placed on the task stack as large automatic local variables; use fixed-depth member rings, caller-provided storage, or explicit static ownership.
 
-## 测试
+## test
 
-覆盖 writer 创建失败、采样过滤、buffer 满、部分写、Stop 时仍有点、重复 Stop、SD 移除及 incomplete 文件恢复。
+ Covers writer creation failure, sampling filtering, buffer full, partial writing, still a bit when Stop, repeated Stop, SD removal and incomplete file recovery.

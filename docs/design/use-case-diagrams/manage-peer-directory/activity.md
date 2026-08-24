@@ -1,49 +1,49 @@
-# Activity Diagram：从协议观察到本地联系人
+# Activity Diagram: local contact from protocol observation
 
 ```mermaid
 flowchart TD
-  Rx["协议观察：node info / LXMF address"] --> Valid{"身份形状有效?"}
-  Valid -- 否 --> Drop["拒绝进入目录"]
-  Valid -- 是 --> Key["以 protocol + protocol identity 查找"]
-  Key --> Upsert["保留 first seen；更新 facts / last seen"]
-  Upsert --> Project{"本地 flags?"}
-  Project -- ignored --> Ignored["Ignored 投影"]
-  Project -- saved --> Contacts["Contacts 投影 + nickname"]
-  Project -- neither --> Nearby["Nearby 投影"]
-  Contacts --> Action{"用户动作"}
+ Rx["Protocol observation: node info / LXMF address"] --> Valid{"Identity shape valid?"}
+ Valid -- No --> Drop["Denyed to enter directory"]
+ Valid -- Yes --> Key["With protocol + protocol identity Find"]
+ Key --> Upsert["Keep first seen; update facts / last seen"]
+ Upsert --> Project{"Local flags?"}
+ Project -- ignored --> Ignored["Ignored projection"]
+ Project -- saved --> Contacts["Contacts projection + nickname"]
+ Project -- neither --> Nearby["Nearby projection"]
+ Contacts --> Action{"User Action"}
   Nearby --> Action
   Ignored --> Action
-  Action -- 保存/编辑 --> Save["提交 ContactStore"]
-  Action -- 忽略 --> Flag["提交 ignored flag"]
-  Action -- 验证 --> Verify{"节点存在且证据可检查?"}
-  Verify -- 是 --> Verified["提交 manually verified"]
-  Verify -- 否 --> Error["解释无法验证"]
+ Action -- Save/Edit --> Save["Submit ContactStore"]
+ Action -- Ignore --> Flag["Submit ignored flag"]
+ Action -- Verification --> Verify{"Node exists and evidence can be checked?"}
+ Verify -- Yes --> Verified["Submit manually verified"]
+ Verify -- No --> Error["Explanation cannot be verified"]
 ```
 
-## 本图回答的问题
+## Questions answered by this picture
 
-协议广播或 Reticulum 地址如何成为可管理的本地目录记录，以及用户保存、忽略、重命名或人工验证时究竟改变哪一层事实。它不负责把不同协议的 peer 猜测成同一个人。
+Protocol Broadcast or Reticulum How an address becomes a manageable local directory record, and exactly which layer of facts is changed when a user saves, ignores, renames, or manually verifies it. It is not responsible for guessing peers of different protocols as the same person.
 
-## 身份键与投影
+## Identity key and projection
 
-目录键由 `protocol namespace + protocol identity` 构成。Meshtastic NodeId、MeshCore identity 与 Reticulum destination hash 不能因为名称相似而合并。协议观察更新 `lastSeen` 和可变事实，同时保留首次观察时间；Contacts、Nearby、Ignored 是本地关系投影，不是三份独立 peer。
+The directory key consists of `protocol namespace + protocol identity`. Meshtastic NodeId, MeshCore identity and Reticulum destination hash cannot be merged due to similar names. The protocol observes updates `lastSeen` and mutable facts while retaining the first observation time; Contacts, Nearby, and Ignored are local relationship projections, not three independent peers.
 
-## 分支与不变量
+## Branching and invariants
 
-| 分支 | 必须保持的规则 |
+| Branching | Rules that must be maintained |
 | --- | --- |
-| 无效身份形状 | 不建立空记录，不污染联系人存储 |
-| 新观察 | 建立 protocol-scoped key 和 `firstSeen` |
-| 重复观察 | 更新事实和 `lastSeen`，不得覆盖本地 nickname/flags |
-| 保存联系人 | 建立本地 nickname 关系，不改变协议身份 |
-| 忽略 | 从默认 Nearby/Contacts 视图隐藏，但保留可撤销记录 |
-| 人工验证 | 节点必须已存在；只写本地证明 flag |
-| removeNode | 删除本地记录；未来合法观察允许重新出现 |
+| Invalid identity shape | Do not create empty records, do not pollute the contact store |
+| New observation | Create protocol-scoped key and `firstSeen` |
+| Repeat observation | Update facts and `lastSeen`, must not override local nickname/flags |
+| Save contact | Establish local nickname relationship, do not change protocol identity |
+| Ignore | Hide from default Nearby/Contacts view, but keep revocable records |
+| Manual verification | Node must already exist; only write local certification flag |
+| removeNode | Delete local record; future legal observations are allowed to reappear |
 
-## 失败与恢复
+## Failure and recovery
 
-持久化失败时 UI 继续显示原提交状态，并返回可重试错误；不能先乐观删除后丢失失败信息。Nearby 的时间过滤必须使用可测试时钟；当前实现存在可见性策略未真正执行的问题，不能在图中写成已解决。
+When persistence fails, the UI continues to display the original submission status and returns a retryable error; you cannot delete optimistically first and then lose the failure information. Nearby's time filtering must use a testable clock; the current implementation has a problem where the visibility policy is not actually enforced and cannot be written as solved in the diagram.
 
-## 源码证据
+## Source code evidence
 
-`ContactService`、`IMeshPeerDirectory`、`NodeStore / ContactStore` 以及各平台 `reticulum_directory_runtime.cpp` 构成当前 owner。跨协议 `IdentityLink` 尚不存在，因此人工验证、Reticulum trusted 和 Mesh verified key 保持为不同证明语义。
+`ContactService`, `IMeshPeerDirectory`, `NodeStore / ContactStore` and each platform `reticulum_directory_runtime.cpp` constitute the current owner. Cross-protocol `IdentityLink` does not yet exist, so human verification, Reticulum trusted and Mesh verified keys remain with different attestation semantics.

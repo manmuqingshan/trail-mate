@@ -1,9 +1,9 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：偏航与恢复</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="candidate"><h1>偏航与恢复</h1><pre class="mermaid">flowchart TD
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Activity: Yaw and Recovery</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="candidate"><h1>Yaw and Recovery</h1><pre class="mermaid">flowchart TD
 Fix --> Distance
 Distance --> Current{"deviated?"}
-Current -- 否 --> Enter{"above enter?"}
-Enter -- 是 --> Deviated
-Enter -- 否 --> OnRoute
-Current -- 是 --> Exit{"below exit?"}
-Exit -- 是 --> OnRoute
-Exit -- 否 --> Deviated</pre></main></body></html>
+Current -- No--> Enter{"above enter?"}
+Enter -- Yes--> Deviated
+Enter -- No--> OnRoute
+Current -- Yes--> Exit{"below exit?"}
+Exit -- Yes--> OnRoute
+Exit -- No--> Deviated</pre></main></body></html>

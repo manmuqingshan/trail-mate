@@ -393,7 +393,8 @@ The old repeat switch still controls whether this node repeats at all. The new
 forwarding policy controls which packet profiles may be repeated when repeat is
 enabled.
 
-Settings backup/restore must include the new values with stable JSON keys.
+The SD-first working configuration must include the new values with stable TMS
+keys, alongside their NVS mirror.
 
 ## BLE And Phone Protocol Extension
 
@@ -450,7 +451,7 @@ model:
    adapter must at least use explicit profile headers, V2 peer/anonymous
    request hashes/MACs when pubkeys are available, and `sendRawDataEx` for
    external V2 path reuse.
-10. Extend settings persistence, UI settings, and backup/restore.
+10. Extend settings persistence, UI settings, and the SD-first working configuration.
 11. Extend BLE/phone path/contact protocol so V2 paths can be displayed and
    reused.
 12. Update docs and tests.

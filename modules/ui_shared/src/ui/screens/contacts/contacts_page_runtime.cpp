@@ -9,7 +9,6 @@
 #include "chat/usecase/contact_service.h"
 #include "platform/ui/reticulum_contact_projection_policy.h"
 #include "platform/ui/reticulum_directory_runtime.h"
-#include "platform/ui/reticulum_group_config_runtime.h"
 #include "ui/app_runtime.h"
 #include "ui/screens/chat/chat_conversation_components.h"
 #include "ui/screens/contacts/contacts_page_components.h"
@@ -318,28 +317,6 @@ void contacts_refresh_timer_cb(lv_timer_t* timer)
     }
 }
 
-void copy_text(char* out, size_t out_len, const char* text)
-{
-    if (!out || out_len == 0)
-    {
-        return;
-    }
-    std::snprintf(out, out_len, "%s", text ? text : "");
-}
-
-void refresh_reticulum_group_storage_state(const platform::ui::reticulum_groups::Status& status)
-{
-    g_contacts_state.reticulum_group_storage_supported = status.supported;
-    g_contacts_state.reticulum_group_storage_ready = status.sd_present;
-    g_contacts_state.reticulum_group_storage_loaded = status.loaded;
-    copy_text(g_contacts_state.reticulum_group_storage_message,
-              sizeof(g_contacts_state.reticulum_group_storage_message),
-              status.message);
-    copy_text(g_contacts_state.reticulum_group_storage_detail,
-              sizeof(g_contacts_state.reticulum_group_storage_detail),
-              status.detail);
-}
-
 bool node_matches_active_protocol(const chat::contacts::PeerDirectoryItem& node)
 {
     const chat::MeshProtocol active_protocol =
@@ -547,9 +524,9 @@ void merge_reticulum_directory_projection()
 void refresh_reticulum_groups_data()
 {
     g_contacts_state.reticulum_group_list.clear();
+    const app::AppConfig& config = app::configFacade().readConfig();
     const chat::MeshProtocol active_protocol =
-        chat::infra::normalizeMeshProtocol(
-            app::configFacade().readConfig().mesh_protocol);
+        chat::infra::normalizeMeshProtocol(config.mesh_protocol);
     if (!chat::infra::isReticulumMeshProtocol(active_protocol))
     {
         g_contacts_state.reticulum_group_storage_supported = false;
@@ -560,23 +537,12 @@ void refresh_reticulum_groups_data()
         return;
     }
 
-    auto groups = std::unique_ptr<chat::ReticulumGroupDestinationConfig[]>(
-        new (std::nothrow)
-            chat::ReticulumGroupDestinationConfig[chat::kReticulumGroupDestinationMaxCount]);
-    if (!groups)
-    {
-        g_contacts_state.reticulum_group_storage_loaded = false;
-        std::snprintf(g_contacts_state.reticulum_group_storage_message,
-                      sizeof(g_contacts_state.reticulum_group_storage_message),
-                      "%s",
-                      "Reticulum groups unavailable");
-        return;
-    }
-
-    const auto status = platform::ui::reticulum_groups::load(
-        groups.get(),
-        chat::kReticulumGroupDestinationMaxCount);
-    refresh_reticulum_group_storage_state(status);
+    g_contacts_state.reticulum_group_storage_supported = true;
+    g_contacts_state.reticulum_group_storage_ready = true;
+    g_contacts_state.reticulum_group_storage_loaded = true;
+    g_contacts_state.reticulum_group_storage_message[0] = '\0';
+    g_contacts_state.reticulum_group_storage_detail[0] = '\0';
+    const auto& groups = config.reticulumConfig().reticulum_groups;
 
     for (std::size_t index = 0; index < chat::kReticulumGroupDestinationMaxCount; ++index)
     {

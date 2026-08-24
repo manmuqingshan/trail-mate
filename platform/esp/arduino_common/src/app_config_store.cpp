@@ -1,4 +1,8 @@
 #include "platform/esp/arduino_common/app_config_store.h"
+#include "platform/esp/arduino_common/app_config_sd_tms_runtime.h"
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/ui/reticulum_group_config_runtime.h"
+#include "platform/ui/reticulum_network_config_runtime.h"
 
 #include <Arduino.h>
 #include <Preferences.h>
@@ -1589,14 +1593,155 @@ uint8_t loadMessageToneVolume()
 
 bool loadAppConfig(AppConfig& config)
 {
+    const sd_tms::LoadResult sd_result = sd_tms::loadWorkingConfig(config);
+    if (sd_result == sd_tms::LoadResult::Applied)
+    {
+        Preferences preferences;
+        const bool mirrored = saveAppConfigToPreferences(
+            config, preferences, AppConfigChangeSet::allPersisted(), true);
+        Serial.printf("[AppCfg][TMS] startup source=sd nvs_mirror=%u\n",
+                      mirrored ? 1U : 0U);
+        sd_tms::bindWorkingConfig(config);
+        return true;
+    }
+    if (sd_result == sd_tms::LoadResult::Invalid)
+    {
+        // A present but malformed current TMS document is an operator-repair
+        // condition.  Never merge or replace it from NVS.
+        Serial.printf("[AppCfg][TMS] startup repair_required=1\n");
+        return false;
+    }
+
     Preferences prefs;
-    return loadAppConfigFromPreferences(config, prefs, true);
+    const bool nvs_loaded = loadAppConfigFromPreferences(config, prefs, true);
+    if (!nvs_loaded)
+    {
+        return false;
+    }
+
+    bool migrated = false;
+    if (sd_result == sd_tms::LoadResult::Legacy)
+    {
+        // Legacy TMS was never a complete document.  It is deliberately
+        // applied only after the NVS migration baseline is loaded, then
+        // immediately materialized as a complete strict TMS document.
+        migrated = sd_tms::applyLegacyWorkingConfig(config);
+        if (!migrated)
+        {
+            Serial.printf("[AppCfg][TMS] legacy migration apply failed\n");
+            return false;
+        }
+    }
+
+    bool legacy_network_imported = false;
+    bool legacy_groups_imported = false;
+    if (sd_result == sd_tms::LoadResult::Missing || migrated)
+    {
+        const auto network_import =
+            ::platform::ui::reticulum_network_config::importLegacy(config.reticulumConfig());
+        if (network_import ==
+                ::platform::ui::reticulum_network_config::LegacyImportResult::Invalid ||
+            network_import ==
+                ::platform::ui::reticulum_network_config::LegacyImportResult::Unavailable)
+        {
+            Serial.printf("[AppCfg][TMS] legacy Reticulum network requires repair\n");
+            sd_tms::requireWorkingConfigRepair();
+            return false;
+        }
+        legacy_network_imported =
+            network_import ==
+            ::platform::ui::reticulum_network_config::LegacyImportResult::Imported;
+
+        const auto import_result = ::platform::ui::reticulum_groups::importLegacy(
+            config.reticulumConfig().reticulum_groups,
+            chat::kReticulumGroupDestinationMaxCount);
+        if (import_result == ::platform::ui::reticulum_groups::LegacyImportResult::Invalid ||
+            import_result == ::platform::ui::reticulum_groups::LegacyImportResult::Unavailable)
+        {
+            Serial.printf("[AppCfg][TMS] legacy Reticulum groups require repair\n");
+            sd_tms::requireWorkingConfigRepair();
+            return false;
+        }
+        legacy_groups_imported =
+            import_result == ::platform::ui::reticulum_groups::LegacyImportResult::Imported;
+    }
+
+    if (migrated)
+    {
+        Preferences mirror;
+        (void)saveAppConfigToPreferences(
+            config, mirror, AppConfigChangeSet::allPersisted(), true);
+    }
+
+    const bool should_materialize =
+        sd_result == sd_tms::LoadResult::Missing || migrated;
+    if (should_materialize)
+    {
+        const bool synced = sd_tms::syncWorkingConfig(config);
+        Serial.printf("[AppCfg][TMS] startup source=nvs reason=%s sync=%u\n",
+                      sd_tms::loadResultName(sd_result),
+                      synced ? 1U : 0U);
+        if (!synced)
+        {
+            sd_tms::requestWorkingConfigSync();
+        }
+        else
+        {
+            const bool groups_cleaned =
+                !legacy_groups_imported ||
+                ::platform::ui::reticulum_groups::discardLegacySource();
+            const bool network_cleaned =
+                !legacy_network_imported ||
+                ::platform::ui::reticulum_network_config::discardLegacySource();
+            if (!groups_cleaned || !network_cleaned)
+            {
+                Serial.printf("[AppCfg][TMS] legacy Reticulum cleanup failed\n");
+            }
+        }
+    }
+    else
+    {
+        Serial.printf("[AppCfg][TMS] startup source=nvs reason=%s\n",
+                      sd_tms::loadResultName(sd_result));
+        if (sd_result == sd_tms::LoadResult::Unavailable)
+        {
+            sd_tms::requestWorkingConfigSync();
+        }
+    }
+    sd_tms::bindWorkingConfig(config);
+    return true;
 }
 
 bool saveAppConfig(const AppConfig& config, AppConfigChangeSet changes)
 {
+    sd_tms::bindWorkingConfig(config);
+    const bool sd_present =
+        ::platform::esp::arduino_common::storage::sd_card_ready();
+    if (sd_present)
+    {
+        if (!sd_tms::syncWorkingConfig(config))
+        {
+            Serial.printf("[AppCfg][TMS] save canonical=0 nvs_mirror=skipped\n");
+            return false;
+        }
+        Preferences mirror;
+        const bool mirrored = saveAppConfigToPreferences(config, mirror, changes, true);
+        Serial.printf("[AppCfg][TMS] save canonical=1 nvs_mirror=%u\n",
+                      mirrored ? 1U : 0U);
+        // SD has already committed the authoritative state.  A mirror failure
+        // must not cause a retry that overwrites a subsequent card edit.
+        return true;
+    }
+
     Preferences prefs;
-    return saveAppConfigToPreferences(config, prefs, changes, true);
+    const bool nvs_saved = saveAppConfigToPreferences(config, prefs, changes, true);
+    if (nvs_saved)
+    {
+        sd_tms::requestWorkingConfigSync();
+    }
+    Serial.printf("[AppCfg][TMS] save source=nvs_no_sd ok=%u\n",
+                  nvs_saved ? 1U : 0U);
+    return nvs_saved;
 }
 
 } // namespace app

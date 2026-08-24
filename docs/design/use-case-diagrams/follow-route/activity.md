@@ -1,47 +1,47 @@
-# Activity：偏航与恢复
+# Activity: Yaw and recovery
 ```mermaid
 flowchart TD
-  Load{"路线加载成功?"} -- 否 --> Error
-  Load -- 是 --> Fix{"可信 fix?"}
-  Fix -- 否 --> Unknown["暂停偏航判断"]
-  Fix -- 是 --> Distance["计算到最近 segment 的距离"]
-  Distance --> Current{"当前已偏航?"}
-  Current -- 否 --> Enter{"distance > enter threshold?"}
-  Enter -- 是 --> Deviated["进入偏航"]
-  Enter -- 否 --> OnRoute["保持 on-route"]
-  Current -- 是 --> Exit{"distance < exit threshold?"}
-  Exit -- 是 --> OnRoute
-  Exit -- 否 --> Deviated
+ Load{"Route loaded successfully?"} -- No --> Error
+ Load -- Yes --> Fix{"Trusted fix?"}
+ Fix -- No --> Unknown["Pause yaw judgment"]
+ Fix -- Yes --> Distance["Calculate to the nearest segment distance"]
+ Distance --> Current{"Currently yaw?"}
+ Current -- No --> Enter{"distance > enter threshold?"}
+ Enter -- Yes --> Deviated["Enter yaw"]
+ Enter -- No --> OnRoute["Stay on-route"]
+ Current -- Yes --> Exit{"distance < exit threshold?"}
+ Exit -- Yes --> OnRoute
+ Exit -- No --> Deviated
 ```
 
-## 本图回答的问题
+## Questions answered by this picture
 
-加载一条路线后，系统如何依据可信位置判断 on-route、进入偏航和恢复，并通过双阈值避免在边界附近抖动。该活动确认现有行为，但不宣称完整导航领域模型已经形成。
+After loading a route, how does the system determine on-route, enter yaw and recovery based on the trusted position, and avoid jittering near the boundary through dual thresholds. This activity confirms existing behavior but does not claim that a complete navigation domain model has been developed.
 
-## 输入与计算
+## Input and calculation
 
-Route 至少提供有序 segment；Fix 必须通过定位可信检查。每次评估计算当前位置到最近 segment 的距离，同时需要保留最近 segment/progress，避免在自交路线或平行路段之间任意跳转。
+Route provides at least ordered segments; Fix must pass the location trust check. Each evaluation calculates the distance from the current position to the nearest segment. At the same time, the nearest segment/progress needs to be retained to avoid arbitrary jumps between self-intersecting routes or parallel road segments.
 
-## 偏航迟滞
+## Yaw hysteresis
 
-| 当前状态 | 条件 | 结果 |
+| Current status | Condition | Result |
 | --- | --- | --- |
-| OnRoute | `distance > enterThreshold` | 进入 Deviated |
-| OnRoute | 其他 | 保持 OnRoute |
-| Deviated | `distance < exitThreshold` | 恢复 OnRoute |
-| Deviated | 其他 | 保持 Deviated |
-| 任意 | fix 不可信 | 暂停判断，状态不凭空反转 |
+| OnRoute | `distance > enterThreshold` | Enter Deviated |
+| OnRoute | Other | Keep OnRoute |
+| Deviated | `distance < exitThreshold` | Restore OnRoute |
+| Deviated | Other | Keep Deviated |
+| Arbitrary | fix untrustworthy | Suspension of judgment, status will not be reversed out of thin air |
 
-必须满足 `exitThreshold < enterThreshold`。如果阈值相等，GNSS 抖动会导致状态频繁翻转。
+Must satisfy `exitThreshold < enterThreshold`. If the thresholds are equal, GNSS jitter will cause frequent state flips.
 
-## 缺失的设计 owner
+## Missing design owner
 
-当前实现能计算最近距离和迟滞状态，但 `NavigationSession`、`RouteProgress`、目标点推进、路线 revision、重定位和告警节流尚未形成闭合 owner。因此路线加载后“完成导航”的定义仍是 candidate。
+The current implementation can calculate the closest distance and hysteresis status, but `NavigationSession`, `RouteProgress`, target point advancement, route revision, relocation and alarm throttling have not yet formed a closed owner. So the definition of "complete navigation" is still candidate after the route is loaded.
 
-## 失败与恢复
+## Failure and recovery
 
-路线解析失败保持原会话未启动；运行中路线文件变化需要显式 revision，不能静默换轨。Fix 暂时丢失显示 unknown/paused，恢复后使用新 fix 继续，而不是立刻报告偏航。
+Failure to parse the route keeps the original session unstarted; changes to the route file during operation require explicit revision and cannot be silently changed. Fix is ​​​​temporarily lost and displays unknown/paused. After recovery, use the new fix to continue instead of reporting yaw immediately.
 
-## 测试
+## Tests
 
-覆盖阈值两侧抖动、平行 segment、自交路线、无 fix、路线只有一个点、路线 revision 变化及恢复时最近 segment 连续性。
+Covering jitter on both sides of the threshold, parallel segments, self-intersecting routes, no fix, route only one point, route revision changes and the continuity of the most recent segment during recovery.

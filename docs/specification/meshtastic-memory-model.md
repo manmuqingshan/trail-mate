@@ -1,55 +1,55 @@
 # Meshtastic Protocol Bridge Memory Model
 
-本规格定义 Trail Mate 在 Meshtastic BLE / MQTT / LoRa / UI / GPS 交错运行时的
-内存所有权模型。它不是 C++ 标准里的 atomic memory model，而是固件协议桥的
-crash-prevention 规格：一块内存由谁拥有、可以活多久、什么时候可以复用、哪些
-路径允许丢弃、哪些路径绝不能借用短生命周期数据。
+This specification defines Trail Mate's memory ownership model for Meshtastic BLE / MQTT / LoRa / UI / GPS interleaved runtimes
+. It is not the atomic memory model in the C++ standard, but the
+crash-prevention specifications of the firmware protocol bridge: who owns a piece of memory, how long it can live, when it can be reused, which
+ paths are allowed to be discarded, and which paths must not borrow short-lifecycle data.
 
-目标很明确：
+The goal is very clear:
 
 ```text
-宁可丢低优先级投影，也不能 crash。
-宁可降低吞吐，也不能让共享 buffer、队列 slot 或 callback stack 进入未定义状态。
+I would rather lose low-priority projections than crash.
+It is better to reduce throughput than to allow shared buffers, queue slots, or callback stacks to enter an undefined state.
 ```
 
-本规格适用于 ESP32、nRF52、Linux simulator/test runtime。平台可以选择不同容量和
-阈值，但不能改变 ownership / lifecycle / backpressure 的语义。
+This specification is applicable to ESP32, nRF52, and Linux simulator/test runtime. The platform can choose different capacities and
+thresholds, but cannot change the semantics of ownership / lifecycle / backpressure.
 
 ## Relationship To Existing Specifications
 
-并发入口、线程/任务边界见 `RUNTIME_CONCURRENCY_SPEC.md`。
+See `RUNTIME_CONCURRENCY_SPEC.md` for concurrency entry and thread/task boundaries.
 
-Meshtastic Android App 的 BLE 连接、`ToRadio` / `FromRadio` / `FromNum`
-drain、配置快照、response-drain-before-save 规则见
-`MESHTASTIC_ANDROID_BLE_CONNECTION_SPEC.md`。
+Meshtastic Android App's BLE connection, `ToRadio` / `FromRadio` / `FromNum`
+drain, configuration snapshot, response-drain-before-save rules, see
+`MESHTASTIC_ANDROID_BLE_CONNECTION_SPEC.md`.
 
-Meshtastic 协议业务规则 owner 见 `MESHTASTIC_PROTOCOL_POLICY_SPEC.md`。
+Meshtastic protocol business rules owner see `MESHTASTIC_PROTOCOL_POLICY_SPEC.md`.
 
-跨平台协议行为一致性见 `PROTOCOL_ADAPTER_PARITY_SPEC.md`。
+For cross-platform protocol behavior consistency, see `PROTOCOL_ADAPTER_PARITY_SPEC.md`.
 
-本规格只定义内存所有权、生命周期、队列背压和 scratch 复用规则。它不重新定义
-Meshtastic 协议业务语义。
+This specification only defines memory ownership, life cycle, queue backpressure and scratch reuse rules. It does not redefine
+Meshtastic protocol business semantics.
 
 ## Core Distinctions
 
 ### Memory Capacity vs Memory Ownership
 
-内存容量问题是“系统还能不能放下更多对象”。PSRAM、较小队列、减少 cache 可以缓解。
+The problem of memory capacity is "can the system be able to put down more objects?" PSRAM, smaller queues, and reduced cache can alleviate this problem.
 
-内存所有权问题是“A 还在使用一块 buffer，B 已经覆盖或释放了它”。PSRAM 不能修复
-这个问题。
+The memory ownership problem is "A is still using a buffer, but B has overwritten or released it". PSRAM cannot be repaired
+This question.
 
-因此以下问题必须按 ownership defect 处理，而不是按 RAM 不足处理：
+Therefore the following issues must be handled as ownership defects rather than insufficient RAM:
 
-- published BLE `FromRadio` slot 在手机读取前被覆盖；
-- queue item 保存了 stack local、callback buffer 或 scratch 指针；
-- MQTT downlink decode 和 MQTT publish encode 复用同一块 scratch；
-- BLE callback / radio RX / MQTT handler 在栈上创建大型 protobuf/frame/config 对象；
-- 事实层对象借用了投影层或 scratch 的 backing storage。
+- published BLE `FromRadio` slot is overwritten before the phone reads it;
+- queue item saves stack local, callback buffer or scratch pointer;
+- MQTT downlink decode and MQTT publish encode reuse the same block scratch;
+- BLE callback / radio RX / MQTT handler creates large protobuf/frame/config objects on the stack;
+- The fact layer object borrows the backing storage of the projection layer or scratch.
 
 ### Facts vs Projections
 
-事实层是系统对 mesh 世界的稳定记录：
+The fact layer is the system's stable record of the mesh world:
 
 ```text
 MeshPacket
@@ -61,7 +61,7 @@ dedup state
 pending admin/status action
 ```
 
-投影层是某个消费者需要的视图：
+The projection layer is the view required by a certain consumer:
 
 ```text
 BLE FromRadio frame
@@ -72,21 +72,21 @@ GPS display event
 telemetry display event
 ```
 
-事实层必须稳定拥有自己的数据。投影层可以丢弃、合并或重建。投影层不得成为唯一真相，
-也不得把自己的生命周期反向污染事实层。
+The fact layer must stably own its own data. Projection layers can be discarded, merged, or reconstructed. The projected layer must not be the only truth,
+You must not contaminate the fact layer with your own life cycle.
 
 ### Scratch vs Stable Storage
 
-scratch 是单个执行阶段的临时工作台。它只能在 owner 的同步调用阶段内使用。
+scratch is a temporary workbench for a single execution phase. It can only be used within the owner's synchronous call phase.
 
-stable storage 是 queue slot、store、domain object 或持久化 buffer。它可以跨上下文、
-跨 callback、跨 event pump step 存活。
+Stable storage is a queue slot, store, domain object, or persistent buffer. It can work across contexts,
+Survives across callbacks and event pump steps.
 
-禁止把 scratch 当作 stable storage 使用。
+It is forbidden to use scratch as stable storage.
 
 ## Execution Contexts
 
-以下上下文可能交错运行：
+The following contexts may be interleaved:
 
 ```text
 BLE stack callback
@@ -101,24 +101,24 @@ config save/load task
 storage/filesystem callback
 ```
 
-单核平台也必须按并发系统处理。风险来自 callback 插入、任务切换、事件嵌套和同步
-调用链重入，不只来自多核同时执行。
+Single-core platforms must also be treated as concurrent systems. Risks come from callback insertion, task switching, event nesting and synchronization
+Call chain reentrancy does not only come from simultaneous execution on multiple cores.
 
 ## Object Classes
 
 | Class | Examples | Owner | Lifetime Rule |
 | --- | --- | --- | --- |
-| External input buffer | BLE write bytes, radio RX bytes, MQTT envelope bytes | SDK/driver/callback | 只在当前 callback 或 poll step 有效；必须复制后才能跨边界使用。 |
-| Ingress slot | fixed ring item containing copied bytes | ingress queue | 从 enqueue 到 protocol worker consume 稳定有效。 |
-| Protocol fact | MeshPacket, User, NodeInfo, config, local message | shared protocol/domain store | 不得借用 callback、stack 或 scratch storage。 |
-| Projection | BLE FromRadio, UI item, MQTT publish envelope | target output queue | 可丢、可合并、可重建；不得反向定义事实层。 |
-| Queue slot | BLE/radio/MQTT/UI fixed ring slot | queue owner | slot 发布后，在消费完成前不可覆盖。 |
-| Runtime payload bytes | `IncomingPacket.payload`, `SendPacketEffect.payload`, route/update payload | protocol runtime caller/effect consumer | 必须是固定上限的 owned bytes；不得用 hot-path `std::vector` 作为协议事实载体。 |
-| Scratch | decode/encode/temp protobuf/log buffer | declaring owner | 不可跨异步边界，不可进入 queue/store，不可嵌套复用。 |
+| External input buffer | BLE write bytes, radio RX bytes, MQTT envelope bytes | SDK/driver/callback | Only valid in the current callback or poll step; must be copied before it can be used across boundaries. |
+| Ingress slot | fixed ring item containing copied bytes | ingress queue | Stable and effective from enqueue to protocol worker consume. |
+| Protocol fact | MeshPacket, User, NodeInfo, config, local message | shared protocol/domain store | May not borrow callback, stack, or scratch storage. |
+| Projection | BLE FromRadio, UI item, MQTT publish envelope | target output queue | Can be lost, merged, and reconstructed; the fact layer must not be reversely defined. |
+| Queue slot | BLE/radio/MQTT/UI fixed ring slot | queue owner | slot After publishing, it cannot be overwritten before consumption is completed. |
+| Runtime payload bytes | `IncomingPacket.payload`, `SendPacketEffect.payload`, route/update payload | protocol runtime caller/effect consumer | Must be a fixed upper limit of owned bytes; hot-path `std::vector` cannot be used as the protocol fact carrier. |
+| Scratch | decode/encode/temp protobuf/log buffer | declaring owner | Cannot cross asynchronous boundaries, cannot enter queue/store, and cannot be nested and reused. |
 
 ## Canonical Runtime Shape
 
-最安全的运行形态是：callback 只复制和投递事件，复杂协议处理由单一 owner 串行完成。
+The safest operating form is: callback only copies and delivers events, and complex protocol processing is completed serially by a single owner.
 
 ```mermaid
 flowchart TD
@@ -137,23 +137,23 @@ flowchart TD
     Worker --> MQTTQ["fixed MQTT publish ring"]
 ```
 
-如果某个平台暂时不能完全收敛到单一 worker，仍必须保持以下不变量：
+If a platform cannot fully converge to a single worker for the time being, the following invariants must still be maintained:
 
-- callback 不持有跨 callback 生命周期的外部 buffer；
-- callback 不在栈上创建大型协议对象；
-- queue slot 自己拥有 payload；
-- scratch 不跨路径共享；
-- published slot 不被覆盖；
-- 高压时按优先级丢弃低价值投影。
+- callback does not hold external buffers across the callback life cycle;
+- callback does not create large protocol objects on the stack;
+- queue slot owns the payload;
+- scratch is not shared across paths;
+- published slot is not overwritten;
+- low-value projections are discarded according to priority during high pressure.
 
 ## Mandatory Invariants
 
 ### R1 External Buffers Are Never Borrowed Across Contexts
 
-BLE、radio、MQTT、filesystem、GPS driver 提供的输入 buffer 不得以指针或引用形式进入
-queue、store、UI、BLE projection 或 MQTT publish path。
+The input buffer provided by BLE, radio, MQTT, filesystem, and GPS driver must not enter the
+queue, store, UI, BLE projection, or MQTT publish path in the form of pointers or references.
 
-跨上下文传递必须复制到 owner 明确的 storage：
+Cross-context transfers must be copied to owner's explicit storage:
 
 ```text
 callback buffer -> ingress slot bytes
@@ -163,16 +163,16 @@ projection scratch -> output queue slot bytes
 
 ### R2 Queue Slots Own Their Payload
 
-协议桥 queue item 必须拥有自己的 payload storage，或拥有清晰的 fixed arena allocation。
-禁止 queue item 保存 stack local、callback buffer、scratch buffer 的指针。
+The protocol bridge queue item must have its own payload storage, or have clear fixed arena allocation.
+Queue item is prohibited from saving pointers of stack local, callback buffer, and scratch buffer.
 
-非法形态：
+Illegal form:
 
 ```cpp
 queue.push({.payload = scratch.data(), .len = scratch_len});
 ```
 
-合法形态：
+Legal form:
 
 ```text
 slot.bytes[0..len] contains an owned copy
@@ -182,7 +182,7 @@ slot.metadata records immutable routing/projection metadata
 
 ### R3 Published BLE FromRadio Slots Are Stable Until Consumed
 
-BLE `FromRadio` queue 必须遵守以下生命周期：
+BLE `FromRadio` queue must comply with the following life cycle:
 
 ```mermaid
 stateDiagram-v2
@@ -197,26 +197,26 @@ stateDiagram-v2
     Dropped --> Free
 ```
 
-`Ready`、`Notified` 和 `Reading` 状态的 slot 不得被覆盖。`from_num` notify 是唤醒信号，
-不是读取许可或所有权边界；Meshtastic Android app 会在写 `ToRadio` 后主动 drain
-`from_radio`，因此已经编码到 slot 的 frame 必须可以被 proactive read 消费。队列满时只能
-丢弃允许丢弃的 unread low-priority slot，或拒绝新的低优先级 projection。
+ Slots in the `Ready`, `Notified` and `Reading` states must not be overwritten. `from_num` notify is a wake-up signal,
+Not a read permission or ownership boundary; Meshtastic Android app will actively drain after writing `ToRadio`
+`from_radio`, so the frame that has been encoded into the slot must be consumed by proactive read. When the queue is full, it can only
+discard unread low-priority slots that are allowed to be discarded, or reject new low-priority projections.
 
-每个 encoded `FromRadio` slot 必须携带由 `MeshtasticPhoneCore` 产生的 immutable
-projection metadata：
+Each encoded `FromRadio` slot must carry the immutable generated by `MeshtasticPhoneCore`
+projection metadata:
 
 ```text
 kind     = config | liveness | queue_status | admin_response | node_info | packet | mqtt_proxy
 priority = P0 | P1 | P2 | P3
 ```
 
-这些 metadata 是发布/背压语义，不是新的协议事实。transport 可以按 metadata 选择保留、
-延迟、丢弃或记录日志；transport 不得为了判断重要性重新解析 `FromRadio` protobuf，也不得
-用 `from_num`、payload 长度、是否已 notify 等传输痕迹反推出 frame 类型。
+These metadata are release/backpressure semantics, not new protocol facts. The transport can choose to retain,
+ delay, discard or log by metadata; the transport must not re-parse the `FromRadio` protobuf to judge the importance, nor
+Use `from_num`, payload length, whether it has been notified and other transmission traces to derive the frame type.
 
 ### R4 Hot Paths Do Not Allocate Large Automatic Objects
 
-以下路径不得创建大型 automatic local：
+The following paths must not create large automatic locals:
 
 ```text
 BLE write/read/notify callbacks
@@ -226,7 +226,7 @@ config save/load task hot path
 GPS/UI cross-context handoff
 ```
 
-禁止对象包括但不限于：
+Prohibited objects include but are not limited to:
 
 ```text
 MeshtasticBleFrame
@@ -237,17 +237,17 @@ large std::string temporary assembly
 std::deque node allocations in hot path
 ```
 
-这类对象必须进入 member scratch、fixed queue slot、static storage with declared owner，
-或 caller-provided output storage。
+Such objects must enter member scratch, fixed queue slot, static storage with declared owner,
+or caller-provided output storage.
 
-BLE `ToRadio` 输入 bytes 是一次执行参数，不是长期协议状态。桥接层可以在
-`handleToRadio()` 阶段把它 decode 到 owner 明确的 scratch，但不得保留完整的
-“last ToRadio” 影子副本，除非这份副本有显式消费者和声明过的生命周期。debug trace、
-未来便利性或“也许以后有用”都不是合法 owner。
+BLE `ToRadio` input bytes is a one-time execution parameter, not a long-term protocol state. The bridging layer can be found in
+The `handleToRadio()` phase decodes it to the owner's explicit scratch, but MUST NOT retain a complete
+ "last ToRadio" shadow copy, unless this copy has an explicit consumer and a declared lifetime. debug traces,
+future convenience, or "maybe useful in the future" are not legal owners.
 
 ### R5 Scratch Is Stage-Local And Non-Reentrant
 
-scratch 必须按用途分区。至少应区分：
+scratch must be partitioned by purpose. At least it should be distinguished:
 
 ```text
 downlink_decode_scratch
@@ -259,7 +259,7 @@ config_io_scratch
 log_hex_scratch
 ```
 
-禁止一个 `mqtt_scratch_` 同时服务：
+Disallow one `mqtt_scratch_` to serve at the same time:
 
 ```text
 handleMqttProxyMessage()
@@ -269,15 +269,15 @@ queueMqttProxyPublishFromWire()
 BLE FromRadio encode
 ```
 
-原因是 MQTT downlink inject 过程中可能同步触发 local RX、MQTT publish 和 BLE
-projection。共享 scratch 会在嵌套路径中被覆盖。
+The reason is that local RX, MQTT publish and BLE may be triggered simultaneously during the MQTT downlink inject process
+projection. Shared scratch will be overwritten in nested paths.
 
 ### R6 Runtime Queues Are Bounded
 
-协议桥运行期 queue 必须固定容量，并声明 overflow policy。禁止在 ESP/nRF 热路径中引入
-无界 `std::deque`、无界 `std::vector` 增长或 fallback heap allocation。
+The queue during protocol bridge operation must have a fixed capacity and declare an overflow policy. Introducing
+unbounded `std::deque`, unbounded `std::vector` growth or fallback heap allocation in ESP/nRF hot paths is prohibited.
 
-每个 queue 必须回答：
+Each queue must answer:
 
 ```text
 who writes
@@ -290,8 +290,8 @@ which priorities may be dropped
 
 ### R6.1 Runtime Ingress And Effects Use Bounded Owned Bytes
 
-`IProtocolRuntime` 边界上的 payload/path/public-key bytes 是稳定事实与平台投影之间的
-交接面。它们必须使用固定容量的 owned storage：
+The payload/path/public-key bytes on the `IProtocolRuntime` boundary are the
+ interface between stable facts and platform projections. They must use fixed-capacity owned storage:
 
 ```text
 IncomingPacket.payload      <= protocol payload cap
@@ -301,37 +301,37 @@ UpdatePeerRouteEffect.key   <= protocol public-key cap
 UpdatePeerRouteEffect.bytes <= protocol payload cap
 ```
 
-平台适配器从 LoRa/MQTT/BLE decode scratch 构造 `IncomingPacket` 时，必须检查 bounded
-copy 是否成功。失败语义是 fail-closed：
+When the platform adapter constructs `IncomingPacket` from LoRa/MQTT/BLE decode scratch, it must check whether bounded
+copy is successful. The failure semantics are fail-closed:
 
 ```text
 copy ok     -> call runtime
 copy failed -> drop this runtime projection, log/counter, do not call runtime with empty payload
 ```
 
-这条规则有意把 “payload 过大” 和 “空 payload” 区分开。空 payload 可以是合法协议事实；
-copy 失败后的空 buffer 不是事实，不能继续流入 runtime handler。
+This rule intentionally distinguishes "payload too large" from "empty payload". The empty payload can be a legal protocol fact;
+The empty buffer after the copy fails is not a fact and cannot continue to flow into the runtime handler.
 
 ### R6.2 App-Facing Incoming Queues Use Fixed Slots
 
-`MeshIncomingText` / `MeshIncomingData` 是 app/UI/adapter 边界上的投影 DTO。它们可以在
-消费边界恢复成 `std::string` / `std::vector`，但 hot path 入队阶段不得依赖
-`std::queue<MeshIncoming*>`、`std::deque<MeshIncoming*>` 或运行期 heap 扩容。
+`MeshIncomingText` / `MeshIncomingData` is a projected DTO on the boundary of app/UI/adapter. They can revert to `std::string` / `std::vector` at the consumption boundary
+, but the hot path enqueuing phase must not be relied on
+`std::queue<MeshIncoming*>`, `std::deque<MeshIncoming*>` or runtime heap expansion.
 
-所有实现 `IMeshAdapter::pollIncomingText()` / `pollIncomingData()` 的协议适配器都必须共用
-同一套 app-facing incoming queue 规则。当前至少包括 Meshtastic、MeshCore、RNode 和 LXMF：
+All protocol adapters that implement `IMeshAdapter::pollIncomingText()` / `pollIncomingData()` must be shared
+The same set of app-facing incoming queue rules. Currently this includes at least Meshtastic, MeshCore, RNode and LXMF:
 
 ```text
 RX/decode buffer -> fixed incoming queue slot owns copied text/payload bytes
 fixed incoming queue slot -> pollIncoming*() restores MeshIncoming* DTO for consumer
 ```
 
-队列满时必须使用统一优先级背压规则。P1 用户消息和 NodeInfo/User 相关投影应尽量保留；
-P2/P3 投影不得挤掉 P0/P1。平台只允许调整 slot 数量和 payload 上限，不允许重新实现一套
-不同语义的旁路队列。
+Unified priority backpressure rules must be used when the queue is full. P1 user messages and NodeInfo/User related projections should be retained as much as possible;
+P2/P3 projection must not crowd out P0/P1. The platform only allows adjusting the number of slots and the upper limit of payload, and does not allow re-implementation of one set.
+Bypass queues with different semantics.
 
-BLE app-facing frame queues 也必须遵守同一规则。MeshCore / Meshtastic BLE service 的
-RX、TX、offline message frame 都是 projection frame：
+BLE app-facing frame queues must also follow the same rules. MeshCore / Meshtastic BLE service's
+RX, TX, and offline message frames are all projection frames:
 
 ```text
 BLE callback bytes -> fixed RX frame slot -> command handler -> slot released
@@ -341,22 +341,22 @@ advert/hash dedup  -> fixed small table, oldest hash evicted when full
 active connection  -> fixed small table, expired/oldest slot reused when full
 ```
 
-队列满时可以丢弃最旧的普通 projection frame，并记录日志/counter；不得在 BLE callback 中
-通过 `std::deque` 或 heap 扩容来吸收压力。读取方 buffer 不足时不得释放 offline slot。
-BLE service 内部的 advert 去重和 active connection keepalive 也是运行期投影状态，必须使用
-固定小表；它们不能通过 vector push/erase 在连接或 advert 高频阶段触发 heap 分配。
+When the queue is full, the oldest common projection frame can be discarded and log/counter recorded; it must not be used in BLE callback
+ to absorb pressure through `std::deque` or heap expansion. The offline slot must not be released when the reader buffer is insufficient.
+The advert deduplication and active connection keepalive inside the BLE service are also run-time projection states and must use
+ fixed small tables; they cannot trigger heap allocation through vector push/erase in the connection or advert high-frequency stage.
 
-共享 phone core 内部的 BLE TX frame queue 也属于同一类 projection queue。它可以使用
-平台 profile 定义的固定深度，但不得用 `std::deque<MeshCoreBleFrame>` 在命令处理期间扩容。
-协议上有固定最大长度的命令累积区，例如 MeshCore SIGN_DATA 的 8KiB buffer，必须使用固定
-owned storage 和长度计数；不得在 BLE 命令流中通过 `reserve()` / `insert()` 逐步扩容。
+The BLE TX frame queue inside the shared phone core also belongs to the same type of projection queue. it can be used
+Fixed depth defined by the platform profile, but must not be expanded during command processing using `std::deque<MeshCoreBleFrame>`.
+There is a fixed maximum length of the command accumulation area on the protocol, such as the 8KiB buffer of MeshCore SIGN_DATA, which must be fixed.
+owned storage and length count; must not be incrementally expanded via `reserve()` / `insert()` in the BLE command stream.
 
 ### R6.3 Protocol Runtime Effects Use Caller-Owned Fixed Batches
 
-`ProtocolEffects` 是协议 runtime 把“事实处理结果”交给适配器执行的动作批次。它不是
-事实层存储，也不是平台私有投影队列；ESP、nRF 和 Linux 必须共用同一套批次语义。
+`ProtocolEffects` is a batch of actions that the protocol runtime passes "fact processing results" to the adapter for execution. it is not
+The fact layer store is not a platform-private projection queue; ESP, nRF and Linux must share the same set of batch semantics.
 
-规则：
+Rules:
 
 ```text
 adapter/facade-owned ProtocolEffectWorkspace
@@ -365,32 +365,32 @@ adapter/facade-owned ProtocolEffectWorkspace
     -> tx feedback writes at most one action result into workspace.feedback
 ```
 
-`ProtocolEffects` 不得使用 hot-path `std::vector` / `std::deque` 或运行期 heap 扩容吸收
-压力。批次满时必须设置显式 overflow 状态，调用者可以选择延期、丢弃低价值投影或记录
-counter，但不得继续分配 emergency buffer。
+`ProtocolEffects` must not use hot-path `std::vector` / `std::deque` or runtime heap expansion and absorption
+pressure. An explicit overflow state must be set when the batch is full, and the caller can choose to defer, discard low-value projections, or record
+counter, but no further emergency buffer allocations are allowed.
 
-`ProtocolEffects` 也不得作为 hot-path by-value 返回对象在 runtime/facade 之间传递。
-`ProtocolEffect` 的最大 variant 包含 owned payload/public-key bytes，固定 8-slot batch
-在 32-bit 目标上约为数 KiB；把它放进每个 runtime handler 的自动局部变量，会把 heap
-风险转换成 stack/temporary 风险。正确边界是：调用方或长期存在的 adapter/runtime UI
-对象持有 `ProtocolEffectWorkspace`，runtime handler 只向传入 batch 写入动作。
+`ProtocolEffects` must also not be passed between runtime/facade as hot-path by-value return objects.
+The largest variant of `ProtocolEffect` contains owned payload/public-key bytes, fixed 8-slot batch
+Approximately a few KiB on a 32-bit target; putting this into each runtime handler's automatic local variable converts heap
+ risk into stack/temporary risk. The correct boundary is: the caller or long-lived adapter/runtime UI
+ object holds `ProtocolEffectWorkspace`, and the runtime handler only writes actions to the incoming batch.
 
-批次容量必须按“正常同步处理 burst”设计，而不是按无限 backlog 设计。批量 ACK timeout
-这类可延期投影在 batch 满时必须保留尚未消费的 pending fact，等待下一轮 tick 继续输出；
-不得先删除 pending fact 再因为 effect batch 满而静默丢失结果。
+The batch capacity must be designed according to "normal synchronization processing burst" instead of infinite backlog design. Batch ACK timeout
+This type of deferrable projection must retain pending facts that have not been consumed when the batch is full, and wait for the next round of ticks to continue output;
+You must not delete pending facts first and then silently lose the results because the effect batch is full.
 
-`MeshProtocolFacade` 不得自带 fixed batch 成员再被栈上临时构造；它必须引用外部
-`ProtocolEffectWorkspace`。该 workspace 只允许一个完整主 batch；TX feedback 线必须使用
-专用 1-slot batch，因为当前 runtime 对一次 TX 结果最多只产出一个 action result。平台
-adapter 和 embedded UI runtime 必须把 workspace 作为成员或其他明确 lifetime 的 owned
-storage；Linux/测试可以使用局部 workspace，但仍必须显式注入。
+`MeshProtocolFacade` must not bring its own fixed batch member and then be temporarily constructed on the stack; it must reference external
+`ProtocolEffectWorkspace`. This workspace only allows one full master batch; the TX feedback line must be used
+Dedicated 1-slot batch, because the current runtime can only produce at most one action result for a TX result. platform
+The adapter and embedded UI runtime must have workspace as a member or other explicit lifetime owned
+storage; Linux/tests can use local workspaces, but must still be injected explicitly.
 
 ### R6.4 Protocol Runtime Pending State Uses Fixed Tables
 
-协议 runtime 内部的 pending 状态也是 hot path 状态，不允许通过 `std::deque` /
-运行期扩容 `std::vector` 保持未来状态机所需的信息。
+The pending state inside the protocol runtime is also the hot path state and is not allowed to pass `std::deque` /
+Runtime expansion of `std::vector` holds the information needed for future state machines.
 
-当前规则：
+Current rules:
 
 ```text
 pending app ACK       -> fixed slot table, full table drops oldest with explicit Failed effect
@@ -398,17 +398,17 @@ packet history/dedup  -> fixed slot table, TTL prune + declared oldest/drop-firs
 pending retransmit    -> fixed slot table, slot owns wire bytes until terminal state
 ```
 
-这些状态不是 UI 投影；它们会影响 ACK、去重、fallback retransmit、observed relay 和
-消息是否被再次转发。满表时可以按声明规则丢弃低价值/最旧状态，但不得隐式分配 heap，
-也不得保存指向 scratch 或临时 decoded packet 的引用。
+These states are not UI projections; they affect ACK, deduplication, fallback retransmit, observed relay, and
+Whether the message is forwarded again. When the table is full, the low value/oldest state can be discarded according to the declared rules, but the heap must not be implicitly allocated.
+References to scratch or temporary decoded packets must also not be saved.
 
 ### R6.5 Route / Identity Runtime State Uses Fixed Tables
 
-协议适配器内部的路由、身份、公钥验证状态也是运行期事实缓存。它们不属于 UI 投影，
-也不能用 hot-path `std::vector` 扩容来记录未来发送、解密、显示身份或 key verification
-需要的状态。
+The routing, identity, and public key verification status within the protocol adapter is also a runtime fact cache. They are not part of the UI projection,
+It is also not possible to use hot-path `std::vector` expansion to record the status required for future sending, decryption, identity display or key verification
+.
 
-当前规则：
+Current rules:
 
 ```text
 peer route cache          -> fixed slot table, TTL prune + oldest-drop when full
@@ -418,22 +418,22 @@ Meshtastic PKI key table  -> fixed slot table, oldest-seen eviction when full
 Meshtastic node runtime   -> fixed slot table, oldest-touch eviction when full
 ```
 
-这些表可以按平台 profile 调整容量，但必须保留同一语义：route slot 自己拥有 path、
-pubkey、advert 和候选路径；verified slot 自己拥有 NodeId；持久化保存不得为了排序或筛选
-临时构造无界 vector。满表时只能按已声明的最旧/过期规则释放 slot，不得在 RX/TX 或配置保存
-路径中触发隐式扩容。
+The capacity of these tables can be adjusted according to the platform profile, but the same semantics must be retained: the route slot owns the path,
+pubkey, advert and candidate path; the verified slot owns the NodeId; persistent storage must not temporarily construct an unbounded vector for sorting or filtering.
+ When the table is full, slots can only be released according to the declared oldest/expired rules, and cannot be saved in RX/TX or configuration
+ path.
 
-Meshtastic `node runtime` 目前只允许承载最近通道和 nodeinfo reply 节流时间这类
-协议运行期索引；只有写入、没有读取的“状态影子”必须删除，不能搬进固定表里伪装成事实。
-PKI key table 的 slot 自己拥有 32B public key 和最近看到时间；保存到持久化层时使用
-成员 staging 数组，而不是在热路径或保存路径临时构造可增长列表。ESP 和 nRF 必须共享
-这套规则，只允许容量因平台 profile 不同而不同。
+Meshtastic `node runtime` is currently only allowed to carry the latest channel and nodeinfo reply throttling time.
+Protocol runtime index; the "status shadow" with only writing and no reading must be deleted and cannot be moved into a fixed table and disguised as facts.
+The slot of the PKI key table owns the 32B public key and the last seen time; when saving to the persistence layer, use the
+ member staging array instead of temporarily constructing a growable list in the hot path or save path. ESP and nRF must share
+this set of rules and only allow capacity to vary based on platform profile.
 
 ### R7 Sensor And UI Streams Are Coalesced
 
-GPS、battery、telemetry、UI invalidation 默认是 latest-value 或 coalesced stream。
+GPS, battery, telemetry, and UI invalidation default to latest-value or coalesced stream.
 
-它们不得以“每个采样都必须排队处理”的形式挤占 BLE/MQTT/LoRa 主协议桥资源。
+They must not occupy BLE/MQTT/LoRa main protocol bridge resources in the form of "every sample must be queued for processing".
 
 GPS high pressure rule:
 
@@ -446,7 +446,7 @@ protocol bridge memory must not be blocked by GPS history
 
 ### R8 Fail Closed On Decode/Encode/Queue Failure
 
-失败后必须丢弃当前 item 或保留已提交事实，不得继续使用半初始化对象。
+After failure, the current item must be discarded or the submitted fact must be retained, and the semi-initialized object must not be continued.
 
 ```text
 decode failed -> drop input slot, release storage, increment counter
@@ -455,23 +455,23 @@ queue full -> apply declared drop policy, never allocate emergency heap buffer
 config save busy -> coalesce dirty state, never recursively save
 ```
 
-禁止失败后继续使用 `len`、partially decoded protobuf、过期 pointer 或临时 fallback buffer。
+Disable continued use of `len`, partially decoded protobuf, expired pointer or temporary fallback buffer after failure.
 
 ### R9 Platform Profiles May Change Capacity, Not Semantics
 
-ESP32、nRF52、Linux 可以选择不同 queue depth、slot count、scratch placement 和 drop
-threshold。它们不能改变以下语义：
+ESP32, nRF52, and Linux can choose different queue depth, slot count, scratch placement and drop
+threshold. They cannot change the following semantics:
 
-- queue slot ownership；
-- published slot stability；
-- scratch non-reentrancy；
-- fact/projection boundary；
-- priority-based backpressure；
-- MQTT downlink / BLE projection / NodeInfo projection 的共享规则。
+- queue slot ownership;
+- published slot stability;
+- scratch non-reentrancy;
+- fact/projection boundary;
+- priority-based backpressure;
+- Shared rules for MQTT downlink / BLE projection / NodeInfo projection.
 
 ## Backpressure Policy
 
-当资源紧张时，系统必须进入有序降级，而不是继续扩容或阻塞主协议桥。
+When resources are tight, the system must enter an orderly downgrade instead of continuing to expand or blocking the main protocol bridge.
 
 ```mermaid
 stateDiagram-v2
@@ -486,34 +486,34 @@ stateDiagram-v2
 
 | Priority | Meaning | Examples | Drop Rule |
 | --- | --- | --- | --- |
-| P0 | Session liveness / required responses | BLE pairing/auth/session responses, admin/config response, active send status/ACK, response-drain-before-save state | 不得因普通背压丢弃；若无法保留，必须进入 explicit failure state。 |
-| P1 | User-visible protocol facts | text message, direct message, node/user identity needed by app display, routing error/status, channel/config snapshot | 尽量保留；可延迟，不应被 P2/P3 挤掉。 |
-| P2 | Latest-value or coalescible data | GPS position, telemetry, battery/status heartbeat, repeated NodeInfo/User, map/report | 可丢旧保新，可合并。 |
-| P3 | Diagnostic or raw projection | raw MQTT proxy envelope for phone, duplicate packets, stale UI refresh, debug/log projection, old broadcast metadata | 高压优先丢弃。 |
+| P0 | Session liveness / required responses | BLE pairing/auth/session responses, admin/config response, active send status/ACK, response-drain-before-save state | Must not be discarded due to normal back pressure; if it cannot be retained, it must enter explicit failure state. |
+| P1 | User-visible protocol facts | text message, direct message, node/user identity needed by app display, routing error/status, channel/config snapshot | Keep as much as possible; can be delayed and should not be squeezed out by P2/P3. |
+| P2 | Latest-value or coalescible data | GPS position, telemetry, battery/status heartbeat, repeated NodeInfo/User, map/report | Can discard the old and keep the new, can merge. |
+| P3 | Diagnostic or raw projection | raw MQTT proxy envelope for phone, duplicate packets, stale UI refresh, debug/log projection, old broadcast metadata | High voltage is discarded first. |
 
-P3 是最先被丢弃的压力释放层，但不是永久饥饿层。对于 MQTT proxy 这类承担
-device->phone->broker 转发职责的 P3 projection，`SendPackets` 阶段必须有 bounded
-fairness：在没有 P0/P1 和 deferred side effect 的前提下，连续让路给 P2/P3 若干次后，
-可以交付一个 pending MQTT proxy frame。这个规则不改变 drop order；它只防止 strict
-priority 在持续低优先级流量下把 MQTT 上下行实际饿死。
+P3 is the first pressure relief layer to be discarded, but is not the permanent starvation layer. For P3 projections such as MQTT proxy that bear
+device->phone->broker forwarding responsibilities, the `SendPackets` phase must have bounded
+fairness: without P0/P1 and deferred side effect, after giving way to P2/P3 several times in succession,
+ can deliver a pending MQTT proxy frame. This rule does not change the drop order; it only prevents strict
+priority from actually starving MQTT upstream and downstream under continued low-priority traffic.
 
 ### Drop Order
 
-高压时按以下顺序释放压力：
+When the pressure is high, release the pressure in the following order:
 
-1. 丢弃 P3 unpublished projection。
-2. 合并 P2 latest-value stream，只保留最新值。
-3. 丢弃重复 P2 projection，例如同 node 的旧 telemetry / NodeInfo projection。
-4. 延迟 UI refresh、GPS display update、diagnostic log projection。
-5. 拒绝新的低优先级 input，并记录 counter。
-6. 只有在 P0/P1 也无法保留时，进入 explicit failure state；不得 silent corruption。
+1. Discard P3 unpublished projection.
+2. Merge P2 latest-value stream and keep only the latest value.
+3. Discard duplicate P2 projections, such as the old telemetry / NodeInfo projection of the same node.
+4. Delay UI refresh, GPS display update, diagnostic log projection.
+5. Reject new low-priority input and record counter.
+6. Only when P0/P1 cannot be retained, enter explicit failure state; silent corruption is not allowed.
 
 ## Pending TX / ACK Wire Slots
 
-radio retransmit、implicit ACK 观察、pending ACK retry 都属于 pending wire ownership。
-它们保存的不是临时投影，而是未来可能再次发送或完成状态机所需的完整 wire packet。
+radio retransmit, implicit ACK observation, and pending ACK retry all belong to pending wire ownership.
+What they save is not a temporary projection, but the complete wire packet that may be sent again in the future or required to complete the state machine.
 
-因此这些对象必须使用 fixed slot table：
+Therefore these objects must use fixed slot table:
 
 ```text
 slot.key = packet id / from+packet id
@@ -522,17 +522,17 @@ slot.wire[] owns copied packet bytes
 slot.metadata owns retry/ack/routing metadata
 ```
 
-禁止使用 `map<id, vector<uint8_t>>`、`deque<vector<uint8_t>>` 或运行期扩容容器保存
-pending wire。平台可以选择不同 slot count 和最大 wire 长度，但不能改变以下规则：
+It is forbidden to use `map<id, vector<uint8_t>>`, `deque<vector<uint8_t>>` or runtime expansion container storage
+pending wire. The platform can choose different slot count and maximum wire length, but cannot change the following rules:
 
-- P0 active local ACK/status 不得被普通压力挤掉；若满表且无法保留，必须显式失败并上报状态。
-- P1 retransmit/fallback 可以保留，但不得挤掉 P0。
-- P3 observe-only / duplicate metadata 是最先丢弃的 pending wire。
-- slot 中的 wire bytes 在 pending 状态结束前不可被 scratch 或新包覆盖。
+- P0 active local ACK/status must not be squeezed out by normal pressure; if the table is full and cannot be retained, it must fail explicitly and report the status.
+- P1 retransmit/fallback may be retained, but must not crowd out P0.
+- P3 observe-only / duplicate metadata is the first pending wire to be discarded.
+- The wire bytes in the slot cannot be overwritten by scratch or new packets before the pending state ends.
 
 ## MQTT Downlink Ownership Flow
 
-MQTT downlink 是本规格的关键压力路径。正确生命周期如下：
+The MQTT downlink is the critical pressure path for this specification. The correct life cycle is as follows:
 
 ```mermaid
 sequenceDiagram
@@ -570,14 +570,14 @@ sequenceDiagram
     D-->>D: "continues with overwritten data"
 ```
 
-这种错误在低压力下可能只表现为 sender 错误、`???`、消息消失或未读状态异常；在高压力下
-可能表现为 GPS corrupt、HardFault、assert、stack canary 或无日志重启。
+Under low pressure, this error may only appear as sender error, `???`, message disappearance or unread status exception; under high pressure,
+ it may appear as GPS corrupt, HardFault, assert, stack canary or restart without logs.
 
 ## Platform Profiles
 
 ### nRF52 Profile
 
-nRF52 是最严格 profile：
+nRF52 is the strictest profile:
 
 ```text
 small fixed BLE FromRadio queue
@@ -592,30 +592,30 @@ explicit counters for dropped projections
 
 ### ESP32 Without PSRAM Profile
 
-无 PSRAM ESP32 与 nRF52 共享相同 ownership 规则，可以使用略大的容量，但不得放宽
-hot-path stack 和 queue bound 约束。
+No PSRAM ESP32 shares the same ownership rules as nRF52 and can use slightly larger capacity, but must not relax
+hot-path stack and queue bound constraints.
 
 ### ESP32 With PSRAM Profile
 
-带 PSRAM 的 ESP32 可以把大型 cache、字体、地图、pack、较大 projection queue 放入 PSRAM。
+ESP32 with PSRAM can put large caches, fonts, maps, packs, and large projection queues into PSRAM.
 
-PSRAM 不允许用来绕过以下规则：
+PSRAM is not allowed to be used to bypass the following rules:
 
-- 不允许 published slot 被覆盖；
-- 不允许 queue 保存 scratch pointer；
-- 不允许 callback 栈承担大对象；
-- 不允许 downlink/publish/BLE encode 共享同一 scratch；
-- 不允许平台私有规则改变协议行为。
+- published slot is not allowed to be overwritten;
+- queue is not allowed to save scratch pointers;
+- callback stack is not allowed to bear large objects;
+- downlink/publish/BLE encode is not allowed to share the same scratch;
+- platform private rules are not allowed to change protocol behavior.
 
 ### Linux Profile
 
-Linux 可以使用更大的 queue 和 heap allocation，但测试语义必须与固件一致。Linux 不能因为
-资源宽松而隐藏 ownership defect。共享测试应覆盖 queue full、drop policy、slot stability
-和 scratch reentrancy 的语义。
+Linux can use larger queue and heap allocation, but the test semantics must be consistent with the firmware. Linux cannot hide ownership defects just because of
+resources. Shared tests should cover queue full, drop policy, slot stability
+ and the semantics of scratch reentrancy.
 
 ## Required Checks
 
-任何触碰以下区域的改动都必须回归本规格：
+Any changes that touch the following areas must return to this specification:
 
 ```text
 BLE Meshtastic bridge
@@ -628,21 +628,21 @@ GPS/UI cross-context handoff
 config save/load async path
 ```
 
-Review 必须检查：
+Review must check:
 
-- 是否新增了 hot-path 大 automatic local；
-- 是否新增无界 queue 或隐式 heap fallback；
-- queue item 是否拥有 payload；
-- published slot 是否可能被覆盖；
-- scratch 是否被多个嵌套路径复用；
-- P0/P1 是否可能被 P2/P3 挤掉；
-- 平台是否只改变 profile 容量，而没有改变共享语义。
+- Whether a hot-path large automatic local is added;
+- Whether an unbounded queue or implicit heap fallback is added;
+- Whether the queue item has a payload;
+- Whether published slot may be overwritten;
+- Whether scratch is reused by multiple nested paths;
+- Whether P0/P1 may be squeezed out by P2/P3;
+- Whether the platform only changes the profile capacity without changing the sharing semantics.
 
-ESP stack hygiene 检查仍然适用。该脚本是守门工具，不是本规格的替代品。
+ESP stack hygiene checks still apply. This script is a gatekeeping tool and is not a replacement for this specification.
 
 ## Anti-Patterns
 
-以下形态默认视为 defect：
+The following forms are considered defects by default:
 
 ```text
 callback directly decodes and mutates app services
@@ -659,17 +659,17 @@ raw MQTT proxy projection allowed to starve text/admin/status
 
 ## Implementation Admission Checklist
 
-进入实现前，必须先回答：
+Before entering the implementation, you must first answer:
 
-1. 这个改动改变的是事实层、投影层、queue、scratch，还是平台 profile？
-2. 新对象的 owner 是谁？
-3. 这个对象是否跨 callback、跨 task、跨 event pump step 存活？
-4. 如果跨边界，是否复制到了 stable storage？
-5. 如果 queue 满了，丢弃策略是什么？
-6. 如果 decode/encode 失败，是否 fail closed？
-7. nRF、无 PSRAM ESP、带 PSRAM ESP、Linux 是否仍遵守同一语义？
-8. 是否需要更新 `MESHTASTIC_ANDROID_BLE_CONNECTION_SPEC.md`、`PROTOCOL_ADAPTER_PARITY_SPEC.md`
-   或共享 policy/test？
+1. Does this change change the fact layer, projection layer, queue, scratch, or platform profile?
+2. Who is the owner of the new object?
+3. Does this object survive across callbacks, tasks, and event pump steps?
+4. If it crosses the boundary, is it copied to stable storage?
+5. If the queue is full, what is the discarding strategy?
+6. If decode/encode fails, does it fail closed?
+7. Do nRF, ESP without PSRAM, ESP with PSRAM, Linux still obey the same semantics?
+8. Do you need to update `MESHTASTIC_ANDROID_BLE_CONNECTION_SPEC.md`, `PROTOCOL_ADAPTER_PARITY_SPEC.md`
+ or share policy/test?
 
 ## Non-Negotiable Summary
 

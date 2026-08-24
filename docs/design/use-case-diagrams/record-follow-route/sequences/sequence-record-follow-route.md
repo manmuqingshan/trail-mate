@@ -1,7 +1,7 @@
-# Sequence：Location 到 Track Store
+# Sequence: Location to Track Store
 ```mermaid
 sequenceDiagram
-  actor U as 用户
+ actor U as user
   participant UI as Tracker UI
   participant SM as TrackStateMachine
   participant Location as LocationService
@@ -23,22 +23,22 @@ sequenceDiagram
   Worker->>Store: flush + close
 ```
 
-## 场景与参与者
+#
 
-TrackStateMachine 拥有会话状态，LocationService 发布 revision，Recorder 执行采样与固定缓冲，Worker 是唯一存储写入者，Store 拥有文件格式和 durable close。
+TrackStateMachine owns the session state, LocationService publishes revision, Recorder performs sampling and fixed buffering, Worker is the only storage writer, and Store owns file format and durable close.
 
-## 启动顺序
+## Startup sequence
 
-Start 只有在 Store open 成功后进入 Recording。UI 按状态机提交结果显示正在记录，不能先画红点再等待文件创建。相同 Start 在活动会话中被拒绝或幂等返回现有 session。
+Start will only enter Recording after the Store open is successful. The UI submits the result according to the state machine and shows that it is being recorded. You cannot draw a red dot first and then wait for the file to be created. Same as Start in the active session is rejected or returns idempotently to the existing session.
 
-## 数据交接
+## Data handover
 
-Location callback 只完成验证、采样判定和有界 enqueue，不执行 SD I/O。Worker 批量 drain，成功后推进 durable point count；部分写必须返回已提交范围，不能重复追加整批。
+Location callback only completes verification, sampling determination and bounded enqueue, and does not perform SD I/O. Worker drains in batches, and advances the durable point count after success; partial writes must return the committed range, and the entire batch cannot be appended repeatedly.
 
-## Stop 栅栏
+## Stop barrier
 
-Stop 先关闭 Recorder 的入队 gate，再等待 Worker drain，最后 flush + close。Close 完成事件才使状态机进入 Completed。写失败与 Stop 竞争时共享一次终结路径。
+Stop first closes the Recorder's queue gate, then waits for the Worker to drain, and finally flush + close. The Close completion event causes the state machine to enter Completed. A final path is shared once when write failure competes with Stop.
 
-## 测试
+## Testing
 
-覆盖 open 失败、重复 Start、采样 drop、部分批写、Stop 栅栏、close 失败、掉电后的 incomplete 状态和固定 buffer 所有权。
+ Covers open failure, repeated Start, sampling drop, partial batch writing, Stop fence, close failure, incomplete state after power-off and fixed buffer ownership.

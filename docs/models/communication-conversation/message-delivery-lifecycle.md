@@ -1,8 +1,8 @@
-# MessageStatus 与 Ledger 持久化
+# MessageStatus and Ledger persistence
 
-## 状态事实
+## Status facts
 
-`MessageStatus` 只有五个值：`Incoming`、`Queued`、`Sent`、`Failed`、`Delivered`。原图中的 Draft、TimedOut、Acknowledged 并不存在，不能作为 confirmed 状态。
+`MessageStatus` has only five values: `Incoming`, `Queued`, `Sent`, `Failed`, `Delivered`. Draft, TimedOut, and Acknowledged in the original picture do not exist and cannot be used as confirmed status.
 
 ```mermaid
 stateDiagram-v2
@@ -15,12 +15,12 @@ stateDiagram-v2
   Failed --> Queued: markRetryQueued
 ```
 
-## 与持久化结果分开读
+## Read separately from the persistence results
 
-`recordOutbound` / `recordIncoming` 返回的 `LedgerPersistence` 是另一个维度：
+The `LedgerPersistence` returned by `recordOutbound` / `recordIncoming` is another dimension:
 
-- `Durable`：本次已经持久化；
-- `Deferred`：已进入固定深度 pending write；
-- `Rejected`：没有被账本接受。
+- `Durable`: This time it has been persisted;
+- `Deferred`: has entered a fixed depth of pending write;
+- `Rejected`: has not been accepted by the ledger.
 
-消息状态和持久化结果不能合并成一个状态机。
+Message status and persistence results cannot be combined into a state machine.

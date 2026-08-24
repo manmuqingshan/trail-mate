@@ -42,6 +42,8 @@ constexpr uint8_t kSdR1IdleState = 0x01U;
 constexpr uint32_t kSdRuntimeLockWaitMs = 25U;
 constexpr uint32_t kSdInteractiveReadLockWaitMs = 200U;
 constexpr uint32_t kSdDurableLockWaitMs = 250U;
+constexpr uint32_t kSdExternalTransferLockWaitMs = 500U;
+constexpr uint32_t kSdExternalOwnerTransitionLockWaitMs = 2000U;
 constexpr std::size_t kSdTransferSliceBytes = kSdSectorSize;
 
 #ifndef TRAIL_MATE_SD_IO_LOG_ENABLE
@@ -95,6 +97,12 @@ struct SdSpiOperationProfile
 };
 
 SdSpiOperationProfile s_spi_operation_profile{};
+
+enum class SdAccessOwner : uint8_t
+{
+    Application,
+    ExternalStorageRaw,
+};
 
 bool ensure_filesystem_mutex()
 {
@@ -152,8 +160,16 @@ class SdRuntimeOperationGuard
         const char* owner = "sd_runtime",
         sys::runtime::BusAccessPolicy policy =
             sys::runtime::BusAccessPolicy::BackgroundWorkerBounded,
-        uint32_t wait_ms = kSdRuntimeLockWaitMs)
+        uint32_t wait_ms = kSdRuntimeLockWaitMs,
+        SdAccessOwner access_owner = SdAccessOwner::Application)
     {
+        if (s_external_block_owner_active &&
+            access_owner != SdAccessOwner::ExternalStorageRaw)
+        {
+            status_ = sys::runtime::BusAcquireStatus::Busy;
+            return;
+        }
+
         if (!ensure_filesystem_mutex())
         {
             status_ = sys::runtime::BusAcquireStatus::Unavailable;
@@ -166,6 +182,17 @@ class SdRuntimeOperationGuard
         {
             status_ = wait_ms == 0U ? sys::runtime::BusAcquireStatus::Busy
                                     : sys::runtime::BusAcquireStatus::TimedOut;
+            return;
+        }
+
+        // The owner can change after the optimistic check above while this
+        // operation waits for the filesystem lock. Recheck under that same
+        // lock so USB MSC's ownership transition cannot race a new app I/O.
+        if (s_external_block_owner_active &&
+            access_owner != SdAccessOwner::ExternalStorageRaw)
+        {
+            xSemaphoreGiveRecursive(s_filesystem_mutex);
+            status_ = sys::runtime::BusAcquireStatus::Busy;
             return;
         }
 
@@ -839,9 +866,22 @@ bool sd_external_block_owner_active()
     return s_external_block_owner_active;
 }
 
-void sd_set_external_block_owner_active(bool active)
+bool sd_set_external_block_owner_active(bool active)
 {
+    if (!ensure_filesystem_mutex())
+    {
+        return false;
+    }
+
+    const TickType_t wait_ticks =
+        std::max<TickType_t>(1, pdMS_TO_TICKS(kSdExternalOwnerTransitionLockWaitMs));
+    if (xSemaphoreTakeRecursive(s_filesystem_mutex, wait_ticks) != pdTRUE)
+    {
+        return false;
+    }
     s_external_block_owner_active = active;
+    xSemaphoreGiveRecursive(s_filesystem_mutex);
+    return true;
 }
 
 bool sd_exists(const char* path)
@@ -1746,7 +1786,13 @@ bool sd_read_raw(uint32_t lba, uint8_t* buffer)
     std::snprintf(path, sizeof(path), "raw:%lu", static_cast<unsigned long>(lba));
     const uint32_t start_ms = sd_io_begin("raw_read", path, kSdSectorSize);
     bool result = false;
-    SdRuntimeOperationGuard guard("sd_raw_read");
+    const bool external_transfer = s_external_block_owner_active;
+    SdRuntimeOperationGuard guard(
+        "sd_raw_read",
+        external_transfer ? sys::runtime::BusAccessPolicy::DurableCommit
+                          : sys::runtime::BusAccessPolicy::BackgroundWorkerBounded,
+        external_transfer ? kSdExternalTransferLockWaitMs : kSdRuntimeLockWaitMs,
+        SdAccessOwner::ExternalStorageRaw);
     if (!guard.locked())
     {
         sd_io_end("raw_read", path, start_ms, false, kSdSectorSize, -2);
@@ -1772,7 +1818,9 @@ bool sd_write_raw(uint32_t lba, const uint8_t* buffer)
     SdRuntimeOperationGuard guard(
         "sd_raw_write",
         sys::runtime::BusAccessPolicy::DurableCommit,
-        kSdDurableLockWaitMs);
+        s_external_block_owner_active ? kSdExternalTransferLockWaitMs
+                                      : kSdDurableLockWaitMs,
+        SdAccessOwner::ExternalStorageRaw);
     if (!guard.locked())
     {
         sd_io_end("raw_write", path, start_ms, false, kSdSectorSize, -2);

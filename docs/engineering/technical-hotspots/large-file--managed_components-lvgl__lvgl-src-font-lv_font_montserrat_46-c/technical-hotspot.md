@@ -1,117 +1,117 @@
-# 大文件：managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c 技术热点
+# Large file: managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c Technology Hotspot
 
-图种：Technical Hotspots
-状态：candidate
-置信度：high
-项目版本：0.1.30-alpha
-Git：34aad0bffa2f / main / dirty
-更新于：2026-06-25T09:19:20.669Z
+Image type: Technical Hotspots
+Status: candidate
+Confidence: high
+Project version: 0.1.30-alpha
+Git:34aad0bffa2f / main / dirty
+Updated on: 2026-06-25T09:19:20.669Z
 
-## 定位
+## Positioning
 
-该文件约 11869 行，可能形成阅读、变更和评审负担。
+The file is approximately 11,869 lines long and may be a burden to read, change, and review.
 
-## 图的读法
+## How to read the picture
 
-- 这张技术热点图解释 大文件：managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c，热点类型是 大文件。
-- 热点是软件结构模型中的候选提醒：它提示复杂度集中点，但不直接等同于缺陷或必须整改项。
-- 目标位置是 managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c，当前复杂度信号是：约 11869 行代码或文档。
+- This technology hotspot map explains large files: managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c, the hotspot type is large files.
+- A hotspot is a candidate reminder in the software structure model: it indicates a concentration point of complexity, but is not directly equivalent to a defect or an item that must be corrected.
+ - Target location is managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c, current complexity signal is: ~11869 lines of code or documentation.
 
-## 技术复杂度分析
+## Technical complexity analysis
 
-- 该文件约 11869 行，可能形成阅读、变更和评审负担。
-- 大文件会提高阅读、评审、冲突合并和局部修改的成本，尤其不利于 agent 精准定位上下文。
-- 热点分析需要和 Package、Component、Sequence 图交叉阅读，避免把单一指标误判为设计结论。
+- This file is approximately 11869 lines long and may be a burden to read, change, and review.
+- Large files will increase the cost of reading, review, conflict merging and local modification, which is especially difficult for the agent to accurately locate the context.
+- Hotspot analysis needs to be cross-read with Package, Component, and Sequence diagrams to avoid misjudgment of a single indicator as a design conclusion.
 
-## 与业务复杂度的关联
+## Correlation with business complexity
 
-- 技术热点会间接影响业务交付：它可能让某些 Use Case 的变更成本、验证成本和回归风险升高。
-- 如果 managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c 被某个 Use Case 的证据引用，那么这个热点应出现在该 Use Case 的风险或治理说明中。
-- 如果组织/过程模型没有 Use Case 证据引用该热点，它只作为工程治理候选，不作为业务风险结论。
+-Technical hot spots will indirectly affect business delivery: it may increase the change cost, verification cost and regression risk of some Use Cases.
+- If managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c is referenced in evidence for a Use Case, then this hotspot should appear in the risk or governance description for that Use Case.
+- If the organization/process model has no Use Case evidence referencing the hotspot, it is only a candidate for engineering governance and not a business risk conclusion.
 
-## 治理建议
+## Governance suggestions
 
-- 不要因为热点存在就立即重构；先确认它影响了哪些业务故事、哪些变更频率最高、哪些测试覆盖最薄弱。
-- 如果决定治理，应把治理目标拆成可验证的原子提交，并记录语义化版本变化。
-- 治理完成后，应重新生成软件结构模型文档，确认复杂度候选点是否被解释或缓解，并把结论写入 changelog。
+- Don't refactor immediately just because hot spots exist; first confirm which business stories it affects, which changes have the highest frequency, and which test coverage is the weakest.
+- If governance is decided, the governance goals should be broken down into verifiable atomic commits and semantic version changes should be recorded.
+- After the governance is completed, the software structure model document should be regenerated to confirm whether the complexity candidate points have been explained or alleviated, and the conclusions should be written into the changelog.
 
-## UML / 技术图
+## UML / Technical diagram
 
 ```mermaid
 flowchart LR
   target["managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c"]
-  hotspot["大文件"]
-  signal["约 11869 行代码或文档"]
+ hotspot["large file"]
+ signal["~11869 lines of code or documentation"]
   target --> hotspot
   hotspot --> signal
 ```
 
-## 覆盖范围
+## Coverage
 
-- 热点类型：大文件
-- 目标：managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c
-- 复杂度信号：约 11869 行代码或文档
+- Hotspot type: large file
+- Target: managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c
+- Complexity signal: about 11869 lines of code or documentation
 
-## 图内语义元素下钻
+## Drill-down of semantic elements in the diagram
 
 ### managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c
 
-- 元素类型：file
-- 说明：managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c 是当前热点指向的具体文件、模块或目标位置，所有热点解释必须能回到这个证据锚点。
-- 技术角色：热点证据目标：它承载复杂度信号，而不是抽象风险标签。
-- 为什么出现：本地仓库证据或仓库扫描在 managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c 观察到复杂度信号，因此它被放入 Technical Hotspot Diagram。
-- 关系意义：target -> hotspot 表示该位置产生或承载当前复杂度提醒；它需要反向关联到 package、component、结构或 sequence 才能判断真实影响。
-- 下钻意图：下钻目标位置可以查看所属 package 或附近 component，确认热点是否影响真实业务能力和可维护性。
-- 业务关联：如果 managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c 被 Use Case 证据引用，那么该热点会提高对应业务变更的阅读、验证或回归成本。
-- 变更影响：治理 managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c 可能影响文件结构、导入路径、测试覆盖和语义化版本记录。
-- 置信度：high
-- 证据：
+-Element type: file
+- Description: managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c is the specific file, module or target location pointed by the current hotspot, and all hotspot interpretations must be able to return to this evidence anchor point.
+- Technical role: Hot evidence target: It carries complexity signals rather than abstract risk labels.
+- Why it appears: Local repository evidence or a repository scan observed a complexity signal at managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c, so it was put into the Technical Hotspot Diagram.
+- Relationship meaning: target -> hotspot means that the location generates or carries the current complexity reminder; it needs to be reversely associated with the package, component, structure or sequence to determine the real impact.
+- Drill down intention: Drill down to the target location to view the package or nearby components to confirm whether the hot spots affect the real business capabilities and maintainability.
+- Business correlation: If managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c is referenced by Use Case evidence, then this hotspot will increase the reading, verification or regression cost of the corresponding business change.
+ - Change Impact: Governance managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c may affect file structure, import paths, test coverage and semantic versioning.
+- Confidence: high
+- Evidence:
   - managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c
-  - 热点类型：大文件
-  - 目标：managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c
-  - 复杂度信号：约 11869 行代码或文档
-- 风险：
-  - 热点目标不等于缺陷；需要确认它是否真的影响高频业务变化或关键运行路径。
-- 问题：
-  - 当前热点只说明 managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c 存在复杂度信号；若证据来自生成文件、聚合导出或扫描噪声，应降级或移除。
-- 下钻：[模块边界：managed_components](../../package-diagrams/managed_components/package-diagram.md) - 回到 managed_components 的包级边界，判断热点是否只是局部文件问题，还是影响整个模块治理。
+ - Hotspot type: large files
+ - Target: managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c
+ - Complexity signal: ~11869 lines of code or documentation
+ - Risk:
+ - A hot target does not equal a defect; it needs to be confirmed whether it actually affects high-frequency business changes or critical operating paths.
+- Question:
+ - The current hotspot only indicates the presence of complexity signals in managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c; if the evidence comes from generated files, aggregate exports, or scan noise, it should be downgraded or removed.
+-Drill down: [Module boundary: managed_components](../../package-diagrams/managed_components/package-diagram.md) - Return to the package-level boundary of managed_components to determine whether the hotspot is just a local file problem, or affects the entire module management.
 
-### 大文件：managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c 技术热点
+### Large file: managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c Technical Hotspot
 
-- 元素类型：technical_hotspot
-- 说明：大文件：managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c 技术热点 是当前技术复杂度热点，用来提醒治理前先理解影响面，而不是立即重构。
-- 技术角色：候选风险/治理入口：它把复杂度信号转化为可讨论的工程问题。
-- 为什么出现：该热点由本地仓库事实生成，说明某个文件、模块或依赖簇可能让理解、修改或验证成本升高。
-- 关系意义：热点节点连接目标位置，表示风险来自具体工程事实；它需要和 package/component/sequence 交叉阅读。
-- 下钻意图：下钻热点相关的 package、component 或 sequence，可以确认它影响的是边界、对象、调用链还是运行配置。
-- 业务关联：技术热点会间接影响业务交付：它可能让某些 Use Case 的变更成本、验证成本和回归风险上升。
-- 变更影响：治理热点应拆成可验证的原子提交，并同步记录语义化版本、Git 版本和文档变更。
-- 置信度：high
-- 证据：
+- Element type: technical_hotspot
+- Description: Large file: managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c Technical Hotspot It is a hot topic of current technical complexity. It is used to remind you to understand the impact before governance, rather than reconstruct immediately.
+- Technical Role: Candidate Risk/Governance Portal: It translates complexity signals into discussable engineering issues.
+- Why it appears: This hotspot is generated by local warehouse facts, indicating that a certain file, module or dependency cluster may increase the cost of understanding, modifying or verifying.
+- Relationship meaning: The hotspot node connects the target location and indicates that the risk comes from specific engineering facts; it needs to be read cross-reading with package/component/sequence.
+- Drill-down intention: Drill down into the package, component or sequence related to the hotspot, and you can confirm whether it affects the boundary, object, call chain or running configuration.
+-Business correlation: Technical hotspots will indirectly affect business delivery: it may increase the change cost, verification cost and regression risk of certain Use Cases.
+- Change impact: Governance hot spots should be broken into verifiable atomic commits, and semantic versions, Git versions, and document changes should be recorded simultaneously.
+- Confidence: high
+- Evidence:
   - managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c
-  - 热点类型：大文件
-  - 目标：managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c
-  - 复杂度信号：约 11869 行代码或文档
-- 风险：
-  - 不要把热点当作已确认缺陷；先确认业务影响和证据质量。
-- 问题：
-  - 该热点只是候选复杂度信号；当前文档只记录影响面和证据位置，不把它升级为已确认缺陷。
-- 下钻：[模块边界：managed_components](../../package-diagrams/managed_components/package-diagram.md) - 回到 managed_components 的包级边界，判断热点是否只是局部文件问题，还是影响整个模块治理。
+ - Hotspot type: large files
+ - Target: managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c
+ - Complexity signal: ~11869 lines of code or documentation
+ - Risk:
+ - Don't treat hot spots as confirmed defects; confirm business impact and quality of evidence first.
+- Question:
+ - This hotspot is only a candidate complexity signal; the current document only records the impact surface and evidence location, and does not upgrade it to a confirmed defect.
+-Drill down: [Module boundary: managed_components](../../package-diagrams/managed_components/package-diagram.md) - Return to the package-level boundary of managed_components to determine whether the hotspot is just a local file problem, or affects the entire module management.
 
-## 可下钻 UML
+## Drill-down UML
 
-- [模块边界：managed_components](../../package-diagrams/managed_components/package-diagram.md) - 回到 managed_components 的包级边界，判断热点是否只是局部文件问题，还是影响整个模块治理。
+- [Module boundary: managed_components](../../package-diagrams/managed_components/package-diagram.md) - Return to the package-level boundary of managed_components to determine whether the hotspot is just a local file problem or affects the entire module management.
 
-## 证据
+## Evidence
 
 - managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c
 
-## 问题
+## Problem
 
-- 该热点只是候选复杂度信号；当前文档只记录影响面和证据位置，不把它升级为已确认缺陷。
+- This hotspot is only a candidate complexity signal; the current document only records the impact surface and evidence location, and does not upgrade it to a confirmed defect.
 
-## 变更记录
+## Change record
 
 ### 0.1.30-alpha - 2026-06-25T09:19:20.669Z
 
-- 从本地仓库证据生成 大文件：managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c 技术热点。
+- Generate large file from local repository evidence: managed_components/lvgl__lvgl/src/font/lv_font_montserrat_46.c Technical hotspot.

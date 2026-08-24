@@ -1,40 +1,40 @@
-# Use Case：发送去中心化消息并跟踪投递
+# Use Case: Send decentralized messages and track delivery
 
-状态：**confirmed**
+Status: **confirmed**
 
-业务边界：通信、媒体与投递
+Business Boundary: Communications, Media and Delivery
 
-主要参与者：设备用户
-核心责任：Chat intent、协议 backend、radio send queue、ChatMessageLedger
+Main participants: device user
+Core responsibilities: Chat intent, protocol backend, radio send queue, ChatMessageLedger
 
-## 用户目标
+## User Goals
 
-从频道、私聊、Reticulum destination/group 或 Team 会话发送文本，并看到与协议事实一致的 queued、sent、delivered 或 failed，而不是 UI 自己猜测成功。
+Send text from a channel, private message, Reticulum destination/group, or Team session and see queued, sent, delivered, or failed consistent with the protocol facts, rather than the UI guessing success on its own.
 
-## 成功场景
+## Success Scenario
 
-1. Compose 校验非空文本、当前会话、目标身份、协议分区和所需密钥。
-2. 建立稳定本地消息身份和协议关联键，先提交 `Queued`/outbox，再请求活动 backend 编码。
-3. backend 按 Meshtastic、MeshCore、LXMF 或 Team contract 生成帧；radio owner 有界排队并发射。
-4. 本地发射完成只可提交 `Sent`；只有协议 ACK/receipt 才可提交 `Delivered`。
-5. `ChatMessageLedger` 合并乱序/重复回执并保护终态，持久化结果再驱动 UI。
+1. Compose verifies non-empty text, current session, target identity, protocol partition, and required key.
+2. Establish a stable local message identity and protocol association key, submit `Queued`/outbox first, and then request the activity backend encoding.
+3. The backend generates frames according to Meshtastic, MeshCore, LXMF or Team contract; the radio owner queues and transmits boundedly.
+4. Only `Sent` can be submitted after local transmission is completed; only `Delivered` can be submitted after protocol ACK/receipt.
+5. `ChatMessageLedger` merges out-of-order/duplicate receipts and protects the final state, persists the results and then drives the UI.
 
-## 失败与恢复
+## Failure and recovery
 
-- 目标/密钥不匹配：创建消息前拒绝。
-- 队列满、radio unavailable：记录可解释失败或保留可重试 queued，不能丢失身份关联。
-- timeout 不能覆盖已经到达的 delivered；迟到 ACK 也不能复活明确 failed 的不可重试消息，除非协议策略允许。
-- `Durable / Deferred / Rejected` 是持久化提交结果，不是第二套 MessageStatus。
+- Target/key mismatch: reject before creating message.
+- The queue is full and the radio is unavailable: the record can explain the failure or remain queued and can be retried, and the identity association cannot be lost.
+- A timeout cannot overwrite an already arrived delivered; a late ACK cannot resurrect an explicitly failed non-retryable message unless allowed by the protocol policy.
+- `Durable / Deferred / Rejected` is the persistent submission result, not the second set of MessageStatus.
 
-## 源码证据
+## Source code evidence
 
 - `modules/core_chat/include/chat/usecase/chat_message_ledger.h`
 - `modules/core_mesh/include/mesh/usecase/send_message_service.h`
 - `modules/core_mesh/src/usecase/send_message_service.cpp`
 - `modules/ui_shared/src/ui/screens/chat/chat_ui_controller.cpp`
 
-## 下钻
+## Drill down
 
-- [Activity：消息提交与发送](send-text-message/activity.md)
-- [Sequence：Compose 到 Ledger](send-text-message/sequences/sequence-send-text-message.md)
-- [Sequence：ACK、超时与终态竞争](send-text-message/sequences/sequence-send-text-message-sequence.md)
+- [Activity: Message submission and sending](send-text-message/activity.md)
+- [Sequence: Compose to Ledger](send-text-message/sequences/sequence-send-text-message.md)
+- [Sequence: ACK, timeout and final state competition](send-text-message/sequences/sequence-send-text-message-sequence.md)

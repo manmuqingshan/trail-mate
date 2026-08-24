@@ -1,7 +1,6 @@
 #pragma once
 
-#include "app/app_config.h"
-#include "app/app_config_change_detection.h"
+#include "app/app_config_changes.h"
 #include "sys/persistence_contracts.h"
 
 #include <cstdint>
@@ -41,7 +40,6 @@ struct ConfigPersistenceSubmission
 
 struct ConfigPersistenceWork
 {
-    const AppConfig* snapshot = nullptr;
     AppConfigChangeSet changes = AppConfigChangeSet::none();
     ConfigPersistenceGeneration generation = 0U;
 };
@@ -55,12 +53,8 @@ class ConfigPersistenceRuntime
     {
     }
 
-    void initialize(const AppConfig& baseline)
+    void initialize()
     {
-        baseline_ = baseline;
-        pending_ = baseline;
-        active_ = baseline;
-        baseline_valid_ = true;
         initialized_ = true;
         has_pending_ = false;
         in_flight_ = false;
@@ -75,8 +69,7 @@ class ConfigPersistenceRuntime
         state_ = ConfigPersistenceState::Idle;
     }
 
-    ConfigPersistenceSubmission submit(const AppConfig& desired,
-                                       AppConfigChangeSet requested_changes,
+    ConfigPersistenceSubmission submit(AppConfigChangeSet requested_changes,
                                        uint32_t now_ms,
                                        ConfigPersistenceUrgency urgency =
                                            ConfigPersistenceUrgency::Debounced)
@@ -86,33 +79,28 @@ class ConfigPersistenceRuntime
             return {};
         }
 
-        AppConfigChangeSet changes =
-            in_flight_
-                ? detectAppConfigChanges(active_, desired)
-                : (baseline_valid_
-                       ? detectAppConfigChanges(baseline_, desired)
-                       : AppConfigChangeSet::allPersisted());
-        changes.mergeIn(requested_changes);
-
-        pending_ = desired;
-        if (changes.empty())
+        if (requested_changes.empty())
         {
-            has_pending_ = false;
-            pending_changes_ = AppConfigChangeSet::none();
-            pending_urgency_ = ConfigPersistenceUrgency::Debounced;
-            if (!in_flight_)
-            {
-                state_ = ConfigPersistenceState::Idle;
-            }
             return {};
         }
 
         ++generation_;
         pending_generation_ = generation_;
-        pending_changes_ = changes;
-        pending_urgency_ = urgency;
+        if (has_pending_)
+        {
+            pending_changes_.mergeIn(requested_changes);
+            if (urgency == ConfigPersistenceUrgency::Immediate)
+            {
+                pending_urgency_ = urgency;
+            }
+        }
+        else
+        {
+            pending_changes_ = requested_changes;
+            pending_urgency_ = urgency;
+        }
         has_pending_ = true;
-        due_ms_ = urgency == ConfigPersistenceUrgency::Immediate
+        due_ms_ = pending_urgency_ == ConfigPersistenceUrgency::Immediate
                       ? now_ms
                       : now_ms + policy_.debounce_ms;
         if (!in_flight_)
@@ -131,7 +119,6 @@ class ConfigPersistenceRuntime
             return false;
         }
 
-        active_ = pending_;
         active_changes_ = pending_changes_;
         active_generation_ = pending_generation_;
         has_pending_ = false;
@@ -140,7 +127,6 @@ class ConfigPersistenceRuntime
         in_flight_ = true;
         state_ = ConfigPersistenceState::InFlight;
 
-        out.snapshot = &active_;
         out.changes = active_changes_;
         out.generation = active_generation_;
         return true;
@@ -159,16 +145,13 @@ class ConfigPersistenceRuntime
         in_flight_ = false;
         if (result == ConfigPersistenceResultKind::Completed)
         {
-            baseline_ = active_;
-            baseline_valid_ = true;
             last_completed_generation_ = generation;
-            reconcilePendingAfterSuccess(now_ms);
+            schedulePendingAfterSuccess(now_ms);
             return result;
         }
 
         if (!has_pending_)
         {
-            pending_ = active_;
             pending_changes_ = active_changes_;
             pending_generation_ = active_generation_;
             pending_urgency_ = ConfigPersistenceUrgency::Debounced;
@@ -186,7 +169,6 @@ class ConfigPersistenceRuntime
     bool initialized() const { return initialized_; }
     bool hasPending() const { return has_pending_; }
     bool busy() const { return in_flight_; }
-    bool baselineValid() const { return baseline_valid_; }
     ConfigPersistenceState state() const { return state_; }
     ConfigPersistenceGeneration generation() const { return generation_; }
     ConfigPersistenceGeneration pendingGeneration() const
@@ -209,20 +191,10 @@ class ConfigPersistenceRuntime
         return static_cast<int32_t>(now_ms - due_ms) >= 0;
     }
 
-    void reconcilePendingAfterSuccess(uint32_t now_ms)
+    void schedulePendingAfterSuccess(uint32_t now_ms)
     {
         if (!has_pending_)
         {
-            state_ = ConfigPersistenceState::Idle;
-            return;
-        }
-
-        pending_changes_ = detectAppConfigChanges(baseline_, pending_);
-        if (pending_changes_.empty())
-        {
-            has_pending_ = false;
-            pending_changes_ = AppConfigChangeSet::none();
-            pending_urgency_ = ConfigPersistenceUrgency::Debounced;
             state_ = ConfigPersistenceState::Idle;
             return;
         }
@@ -234,9 +206,6 @@ class ConfigPersistenceRuntime
     }
 
     ConfigPersistencePolicy policy_{};
-    AppConfig baseline_{};
-    AppConfig pending_{};
-    AppConfig active_{};
     AppConfigChangeSet pending_changes_ = AppConfigChangeSet::none();
     AppConfigChangeSet active_changes_ = AppConfigChangeSet::none();
     ConfigPersistenceUrgency pending_urgency_ =
@@ -247,10 +216,12 @@ class ConfigPersistenceRuntime
     ConfigPersistenceGeneration last_completed_generation_ = 0U;
     uint32_t due_ms_ = 0U;
     bool initialized_ = false;
-    bool baseline_valid_ = false;
     bool has_pending_ = false;
     bool in_flight_ = false;
     ConfigPersistenceState state_ = ConfigPersistenceState::Idle;
 };
+
+static_assert(sizeof(ConfigPersistenceRuntime) <= 64U,
+              "Config persistence scheduling must remain metadata-only.");
 
 } // namespace app

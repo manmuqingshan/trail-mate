@@ -2,6 +2,7 @@
 
 #include "chat/ble/meshtastic_defaults.h"
 #include "chat/ble/meshtastic_phone_config_bridge.h"
+#include "platform/esp/arduino_common/app_config_sd_tms_runtime.h"
 #include "platform/esp/arduino_common/chat/infra/meshtastic/mt_adapter.h"
 #include "platform/shared/ble/meshtastic_phone_runtime_bridge.h"
 
@@ -105,12 +106,17 @@ void MeshtasticBleService::loadBleConfig()
 void MeshtasticBleService::saveBleConfig()
 {
     Preferences prefs;
+    bool saved = false;
     if (prefs.begin(kBlePrefsNs, false))
     {
-        prefs.putBool(kBleEnabledKey, ble_config_.enabled);
-        prefs.putUChar(kBleModeKey, static_cast<uint8_t>(ble_config_.mode));
-        prefs.putUInt(kBlePinKey, ble_config_.fixed_pin);
+        saved = prefs.putBool(kBleEnabledKey, ble_config_.enabled) &&
+                prefs.putUChar(kBleModeKey, static_cast<uint8_t>(ble_config_.mode)) &&
+                prefs.putUInt(kBlePinKey, ble_config_.fixed_pin);
         prefs.end();
+    }
+    if (saved)
+    {
+        app::sd_tms::requestWorkingConfigSync();
     }
 }
 
@@ -180,10 +186,16 @@ void MeshtasticBleService::saveModuleConfig()
 {
     meshtastic_config_bridge::normalizeModuleConfig(&module_config_);
     Preferences prefs;
+    bool saved = false;
     if (prefs.begin(kModulePrefsNs, false))
     {
-        prefs.putBytes(kModuleBlobKey, &module_config_, sizeof(module_config_));
+        saved = prefs.putBytes(kModuleBlobKey, &module_config_, sizeof(module_config_)) ==
+                sizeof(module_config_);
         prefs.end();
+    }
+    if (saved)
+    {
+        app::sd_tms::requestWorkingConfigSync();
     }
 }
 

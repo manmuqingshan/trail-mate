@@ -1,4 +1,4 @@
-# Sequence：数据源到 Map workspace
+# Sequence: Data source to Map workspace
 ```mermaid
 sequenceDiagram
   participant Map as Map Workspace Model
@@ -17,22 +17,22 @@ sequenceDiagram
   Map-->>Map: render + incremental refresh
 ```
 
-## 场景与参与者
+## Scenarios and participants
 
-Map Workspace 是组合投影，不是所有数据的聚合 owner。Tiles、LocationService、Directory、Team events 与 Route/Track/Waypoint Store 各自提供只读快照和 revision。
+Map Workspace is a combined projection, not an aggregate owner of all data. Tiles, LocationService, Directory, Team events and Route/Track/Waypoint Store each provide read-only snapshots and revisions.
 
-## 快照一致性
+## Snapshot consistency
 
-这些来源不会在同一事务中提交，因此 Map 保存每个对象的 source revision/timestamp，而不是伪造一个全局一致版本。增量刷新按类型和稳定 identity 合并；未返回的新快照不能删除其他 source 的对象。
+These sources are not committed in the same transaction, so the Map saves the source revision/timestamp of each object instead of forging a globally consistent version. Incremental refreshes merge by type and stable identity; new snapshots that are not returned cannot delete objects from other sources.
 
-## 视口竞争
+## Viewport competition
 
-tiles 请求携带 viewport generation。用户快速平移后，旧请求即使迟到也只能进入缓存，不能替换当前画面。GPS 自动居中是用户选择的命令，不能在每次 fix 更新时抢回视口。
+tiles request carries viewport generation. After the user pans quickly, even if the old request is late, it can only enter the cache and cannot replace the current screen. GPS auto-centering is a user-selected command and cannot grab the viewport back every time the fix updates.
 
-## 缺失与过期
+## Missing and expired
 
-Tile missing、无 fix、目录不可用和 Team 位置过期分别投影。保留最后已知数据时必须显示时间，不能把错误转换为空集合并误导为“现场没有对象”。
+Tile missing, no fix, directory unavailable and Team location expired are projected separately. The time must be displayed when retaining the last known data, and the error cannot be converted into an empty set and mislead into "no object in the field".
 
-## 测试
+## Tests
 
-覆盖各 source 独立失败、相同 ID 不同类型、迟到 tile、过期 team position、route/track 同时存在和增量删除。
+ Covers the independent failure of each source, the same ID of different types, late tiles, expired team positions, route/track simultaneous existence and incremental deletion.

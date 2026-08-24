@@ -1242,6 +1242,25 @@ int TDeckProBoard::startRadioReceive()
     return rc;
 }
 
+bool TDeckProBoard::quiesceForExternalStorage()
+{
+    if (!isRadioOnline())
+    {
+        return true;
+    }
+
+    if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,
+                       "tdeck_pro_radio_external_storage_standby",
+                       200U))
+    {
+        return false;
+    }
+    sharedSpiPrepareDevice(profile().lora.cs);
+    const int rc = radio_.standby();
+    sharedSpiUnlock();
+    return rc == RADIOLIB_ERR_NONE;
+}
+
 uint32_t TDeckProBoard::getRadioIrqFlags()
 {
     if (!sharedSpiLock(sys::runtime::BusAccessPolicy::InteractiveWorkerBounded,

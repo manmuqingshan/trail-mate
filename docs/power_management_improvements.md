@@ -1,93 +1,92 @@
-# 电源管理改进建议
+# Power management improvement suggestions
 
-当前代码已经实现了部分电源策略（例如：屏幕休眠时关闭 GPS/NFC/SENSOR、低电量分档 + 限制亮度/GPS 频率、I2C 总线互斥、防止低电量进入音频应用等）。本文件只保留**尚未完成或可进一步提升的电源相关改进点**，供后续迭代参考。
-
----
-
-## 1) PMU 能力未充分利用（中高收益）
-
-**现状**：BQ25896 目前主要用于 `isCharging()`、`getBattVoltage()`，尚未把 VBUS、电池充电电流、系统电压等能力纳入 UI 显示和策略决策。
-
-**建议**：
-
-- **UI 能见度**：在状态栏或设置页增加：
-  - 是否接入 USB：用 `getVbusVoltage()` 是否高于某阈值判断；
-  - 充电电流：`getChargeCurrent()`，便于区分“慢充 / 快充 / 未在充电”。
-- **硬件级低压保护**：若 BQ25896 驱动或 XPowers 库支持 `setSysPowerDownVoltage()`（或等价寄存器），在 `begin()` 或首次 PMU 初始化时设置合理的系统欠压关机阈值，避免电池过放。
-- **与软件关机配合**：保持现有 `softwareShutdown()` 在 USB 插入时不关机的逻辑，PMU 的关机阈值仅作硬件兜底。
+The current code has implemented some power strategies (for example: turning off GPS/NFC/SENSOR when the screen is sleeping, low battery binning + limiting brightness/GPS frequency, I2C bus mutual exclusion, preventing low battery from entering audio applications, etc.). This document only retains **power-related improvement points that have not been completed or can be further improved** for reference in subsequent iterations.
 
 ---
 
-## 2) 电池 Gauge 配置/校准/异常恢复（中收益，需查数据手册）
+## 1) PMU capabilities are underutilized (medium to high yield)
 
-**现状**：当前已通过 BQ27220 读取 SOC、电压、电流与温度，并在 `TLoRaPagerBoard.cpp` 中做了数值范围检查与多源回退（SOC 失败时尝试直读寄存器、再回退到 PMU / ADC 电压），但整体仍以“只读”方式使用 gauge，缺少 profile/OCV 校准和针对 gauge 自身的异常恢复策略。
+**Current situation**: BQ25896 is currently mainly used for `isCharging()`, `getBattVoltage()`, and has not yet incorporated VBUS, battery charging current, system voltage and other capabilities into UI display and policy decisions.
 
-**建议**：
+**Suggestions**:
 
-- **文档与约束**：先确认 BQ27220 在硬件上的 I2C 接口是否支持配置/复位（有些板子把 GAUGING 等引脚固定，只适合作为只读）。在 `docs/` 或代码注释中明确说明“当前为只读用法 + 多源回退”，并列出未来可扩展项。
-- **异常恢复**：在现有回退逻辑基础上，若连续多次（如 3–5 次） gauge 读取失败或 SOC 明显跳变，可尝试：
-  - 调用一次 `gauge.begin()` 或库提供的软复位接口；
-  - 记录一条带计数的 log，方便后续排查硬件/固件问题。
-- **校准 / 学习流程预留**：
-  - 预留“设计容量 / 满充容量”两个配置点，允许量产或高级用户通过命令行/设置页更新；
-  - 单独撰写“learning cycle / OCV 校准”说明文档和脚本，供产线或开发者在需要时执行。
+- **UI Visibility**: Add:
+ - Whether to connect to USB: Use `getVbusVoltage()` to determine whether it is higher than a certain threshold;
+ - Charging current: `getChargeCurrent()` to facilitate the distinction between "slow charging/fast charging/not charging".
+- **Hardware-level low-voltage protection**: If the BQ25896 driver or XPowers library supports `setSysPowerDownVoltage()` (or equivalent register), set a reasonable system under-voltage shutdown threshold in `begin()` or the first PMU initialization to avoid battery over-discharge.
+- **Cooperate with software shutdown**: Keep the existing `softwareShutdown()` logic of not shutting down when USB is plugged in. The shutdown threshold of PMU is only used as a hardware cover.
 
 ---
 
-## 3) 温度 / 充电安全约束（中收益）
+## 2) Battery Gauge configuration/calibration/abnormal recovery (medium profit, need to check the data sheet)
 
-**现状**：已经从 Gauge 读取温度并做了基本范围检查，但尚未把温度信息纳入充放电或性能限制策略中。
+**Status quo**: The SOC, voltage, current and temperature have been read through BQ27220, and the value range check and multi-source fallback have been done in `TLoRaPagerBoard.cpp` (when SOC fails, try to read the register directly, and then fall back to PMU / ADC voltage), but the overall still uses the gauge in a "read-only" manner, lacking profile/OCV calibration and an exception recovery strategy for the gauge itself.
 
-**建议**：
+**Suggestions**:
 
-- **温度档位**：在现有电池读取路径（如 `TLoRaPagerBoard` 里读取 gauge 的地方）继续使用 `temp_c`，并在更高层汇总成温度档位（Normal / Hot / Cold）。
-- **策略示例**（阈值可做成配置）：
-  - 过热（例如 > 45 °C）：
-    - 限制或关闭快充（若 PMU 支持）；
-    - 降低背光上限或锁定在当前较低亮度；
-    - 可选：提示“设备过热，已限制性能”。
-  - 过冷（例如 < 5 °C）：
-    - 提示“低温，电量显示可能不准”；
-    - 必要时限制大电流放电（若软件层可以干预业务）。
-- **落地点**：在 `handle_low_battery()` 同级或电源状态汇总处增加 `handle_temperature(temp_c)`，或将“电量档位 + 温度档位”合并为统一的 `PowerState`，由背光 / GPS / 音频 / Mesh 等模块统一消费。
+- **Documentation and Constraints**: First confirm whether the I2C interface of BQ27220 on the hardware supports configuration/reset (some boards have pins such as GAUGING fixed and are only suitable for read-only). Explicitly state "currently read-only usage + multi-source fallback" in `docs/` or code comments, and list future extensibility options.
+- **Exception recovery**: Based on the existing rollback logic, if gauge reading fails multiple times (such as 3–5 times) or the SOC jumps significantly, you can try:
+ - Call `gauge.begin()` or the soft reset interface provided by the library;
+ - Record a log with a count to facilitate subsequent troubleshooting of hardware/firmware issues.
+- **Calibration/Learning Process Reserved**:
+ - Reserve two configuration points of "design capacity/full charge capacity", allowing mass production or advanced users to update through the command line/settings page;
+ - Write separate "learning cycle/OCV calibration" documentation and scripts for production lines or developers to execute when needed.
 
 ---
 
-## 4) 低功耗模式的 CPU / 系统级调度（中收益，改动面大）
+## 3) Temperature/Charging Safety Constraints (Medium Gain)
 
-**现状**：目前还没有 CPU 频率调节，也没有统一的“任务休眠 / 暂停”机制；WiFi/BT 也没有在低功耗场景下做显式关闭。
+**Status quo**: The temperature has been read from Gauge and a basic range check has been done, but the temperature information has not yet been incorporated into the charge and discharge or performance limit strategies.
 
-**建议**：
+**Suggestions**:
 
-- **CPU 频率**：在屏幕休眠时调用 `setCpuFrequencyMhz(80)`（或 160），唤醒后恢复 240。需要：
-  - 在 board 层封装 `setCpuFrequencyMhz`；
-  - 在 `screenSleepTask` 的 enter/exit 或 `enterScreenSleep()` / `exitScreenSleep()` 中调用；
-  - 在目标板上验证 USB、定时器等外设对频率变化是否敏感。
-- **任务调度**：
-  - 为非关键任务（地图瓦片下载、非实时日志等）增加“暂停标志”或直接挂起 task，屏幕休眠时暂停、唤醒时恢复；
-  - 关键路径（按键输入、USB、按钮电源管理、电池检测等）保持运行。
-- **BT / WiFi**：
-  - 若 BLE 在屏眠时没有连接需求，可在 `enterScreenSleep()` 中使用 NimBLE 的低功耗 / 断开接口，`exitScreenSleep()` 时再恢复；
-  - 若项目中存在 WiFi，屏眠时关闭可显著省电；当前若未使用 WiFi，可以暂不处理。
+- **Temperature gear**: Continue to use `temp_c` in the existing battery reading path (such as where gauge is read in `TLoRaPagerBoard`), and aggregate it into temperature gears (Normal / Hot / Cold) at a higher level.
+- **Policy example** (thresholds can be configured):
+ - Overheating (e.g. > 45°C):
+ - Limit or turn off fast charging (if PMU supports it);
+ - Reduce the upper limit of the backlight or lock it at the current lower brightness;
+ - Optional: prompt "The device is overheated and the performance has been limited".
+ - Supercooling (e.g. < 5°C):
+ - Prompt "At low temperature, the power display may be inaccurate";
+ - Limit high current discharge when necessary (if the software layer can intervene in the business).
+- **Landing point**: Add `handle_temperature(temp_c)` to the `handle_low_battery()` sibling or power state summary, or merge the "power level + temperature level" into a unified `PowerState`, which will be uniformly consumed by backlight/GPS/audio/Mesh and other modules.
 
 ---
 
-## 5) 低电量下 LoRa / Mesh 策略（中收益，与现有 power_tier 集成）
+## 4) CPU/system-level scheduling in low-power mode (medium profit, large changes)
 
-**现状**：`handle_low_battery()` + `board.setPowerTier()` 已经建立了 0 / 1 / 2 三档电量等级，并在背光、GPS 采样间隔以及 SSTV / Walkie 等音频路径上做了限制，但 LoRa / Mesh 的发射功率与发包策略尚未与 `power_tier` 关联。
+**Current situation**: There is currently no CPU frequency adjustment, and there is no unified "task sleep/pause" mechanism; WiFi/BT is not explicitly turned off in low-power scenarios.
 
-**建议**：
+**Suggestions**:
 
-- **发射功率与覆盖范围**：
-  - Normal：维持当前设置；
-  - Low（tier 1）：将发射功率限制在中等值（例如 10–14 dBm）；
-  - Critical（tier 2）：进一步降低到 5–10 dBm，或仅允许必要的控制 / 告警消息。
-- **发包频率**：
-  - 对周期性心跳 / 位置广播，在低电量时适当拉长间隔（例如 ×2 / ×4），避免在电量已经很低时仍保持高频发包；
-  - 对交互型消息保持即时性，必要时只在用户主动操作时发送。
-- **配置入口**：
-  - 在设置页增加一个“低电量 Mesh 策略”简单开关或模式枚举（如：保守 / 默认 / 激进），对应不同的功率与间隔组合；
-  - 在文档中说明各模式对续航与覆盖范围的大致影响，便于用户选择。
+- **CPU Frequency**: Call `setCpuFrequencyMhz(80)` (or 160) when the screen is asleep, and resume 240 after waking up. Required:
+ - Encapsulate `setCpuFrequencyMhz` at the board layer;
+ - Call in enter/exit of `screenSleepTask` or `enterScreenSleep()` / `exitScreenSleep()`;
+ - Verify on the target board Are peripherals such as USB and timers sensitive to frequency changes?
+- **Task Scheduling**:
+ - Add a "pause flag" or directly suspend the task for non-critical tasks (map tile downloads, non-real-time logs, etc.), pause when the screen sleeps, and resume when waking up;
+ - Critical paths (key input, USB, button power management, battery detection, etc.) remain running.
+- **BT / WiFi**:
+ - If BLE has no connection requirements during screen sleep, you can use NimBLE's low-power/disconnect interface in `enterScreenSleep()` and resume it in `exitScreenSleep()`;
+ - If WiFi exists in the project, turning it off during screen sleep can significantly save power; if WiFi is not currently used, you can leave it alone.
 
-这一节可以复用现有 `power_tier` 抽象，只需在 Mesh 适配层增加少量逻辑，改动面相对可控。
+---
 
+## 5) LoRa/Mesh strategy under low power (medium benefit, integrated with existing power_tier)
+
+**Status quo**: `handle_low_battery()` + `board.setPowerTier()` has established three power levels of 0 / 1 / 2, and has been implemented in backlight, GPS sampling interval and SSTV / Walkie There are restrictions on the audio path, but the transmit power and packet sending strategy of LoRa/Mesh have not yet been associated with `power_tier`.
+
+**Suggestions**:
+
+- **Transmit power and coverage**:
+ - Normal: maintain current settings;
+ - Low (tier 1): limit transmit power to medium values ​​(e.g. 10–14dBm);
+ - Critical (tier 2): further reduce to 5–10dBm, or allow only necessary control/alarm messages.
+- **Packet sending frequency**:
+ - For periodic heartbeat/location broadcast, appropriately extend the interval (such as ×2 / ×4) when the battery is low, to avoid maintaining high-frequency packet sending when the battery is already low;
+ - Keep interactive messages immediacy and only send them when necessary when the user takes an active action.
+- **Configuration Entry**:
+ - Add a "Low Power Mesh Policy" simple switch or mode enumeration (such as conservative/default/aggressive) to the settings page, corresponding to different power and interval combinations;
+ - Explain in the document the approximate impact of each mode on battery life and coverage to facilitate user selection.
+
+This section can reuse the existing `power_tier` abstraction, only need to add a small amount of logic to the Mesh adaptation layer, and the changes are relatively controllable.

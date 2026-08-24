@@ -1,21 +1,21 @@
-# Mesh 本机身份与对端公钥
+# Mesh native identity and peer public key
 
-模型状态：**confirmed，但跨协议业务身份链接仍缺失**
+Model status: **confirmed, but cross-protocol business identity link is still missing**
 
-## 代码真正拥有的数据
+## Data that the code really owns
 
-`core_mesh` 当前没有完整的 `PeerIdentity` 实体。它拥有的是本机密钥对与对端公钥记录：
+`core_mesh` currently does not have a complete `PeerIdentity` entity. What it owns is the local key pair and the peer public key record:
 
-| 符号 | 字段 / 行为 | 判断 |
+| Symbol | Field/Behavior | Judgment |
 | --- | --- | --- |
 | `LocalIdentity` | 32-byte private key、32-byte public key、`valid` | Observed |
 | `PeerPublicKey` | `NodeId`、public key、`updated_at_ms`、`verified` | Observed |
 | `PeerIdentityService` | ensure local identity、find peer key、remember peer key | Observed |
-| `ILocalIdentityStore` / `IPeerKeyStore` | 隔离本机与对端密钥持久化 | Observed |
+| `ILocalIdentityStore` / `IPeerKeyStore` | Isolate local and peer key persistence | Observed |
 
-因此这个模型更准确的名称是“Mesh 本机身份与对端公钥”，而不是已经完成的用户身份模型。
+Therefore the more accurate name of this model is "Mesh local identity and peer public key", rather than the completed user identity model.
 
-## 本机身份建立
+## Native identity establishment
 
 ```mermaid
 flowchart TD
@@ -26,11 +26,11 @@ flowchart TD
   Save --> Result["StoreResult"]
 ```
 
-实现会生成 private key 并标记 `valid`，但从当前函数可见代码中没有在这里推导 public key；这应作为实现核对点，而不能在文档里假定已完成。
+The implementation will generate the private key and mark it as `valid`, but the public key is not deduced here in the code visible from the current function; this should be used as an implementation checkpoint and should not be assumed to be done in the documentation.
 
-## 已验证公钥保护规则
+## Verified public key protection rules
 
-`rememberPeerKey` 中存在一条明确规则：如果 store 中已有 `verified=true` 的 key，而新输入未验证并且 key bytes 不同，则返回 `PermissionDenied`。未验证输入不能静默替换已验证密钥。
+ There is an explicit rule in `rememberPeerKey`: if there is already a key with `verified=true` in the store, and the new input is not verified and the key bytes are different, `PermissionDenied` is returned. Unvalidated input cannot silently replace a validated key.
 
 ```mermaid
 flowchart TD
@@ -43,17 +43,17 @@ flowchart TD
   Preserve --> Put["IPeerKeyStore.put"]
 ```
 
-## 这个模型没有声称什么
+## This model does not claim anything
 
-- `PeerPublicKey` 不是联系人，也不含显示名或跨协议 person identity。
-- `NodeId` 到 Chat contact、Team member 的映射没有在本模型中定义。
-- 密钥轮换、撤销、多个协议 identity 的关联仍缺显式模型。
+- `PeerPublicKey` is not a contact and does not contain a display name or cross-protocol person identity.
+- The mapping of `NodeId` to Chat contact and Team member is not defined in this model.
+- Key rotation, revocation, and association of multiple protocol identities still lack an explicit model.
 
-这些缺失应进入 Identity ownership finding，而不是把 `PeerPublicKey` 重新命名成不存在的 `PeerIdentity`。
+These deletions should go into Identity ownership finding, rather than renaming `PeerPublicKey` to the non-existent `PeerIdentity`.
 
-## 下钻与证据
+## Drilldown and evidence
 
-- [Peer key 解析与替换规则](identity-resolution.md)
+- [Peer key resolution and replacement rules](identity-resolution.md)
 - `modules/core_mesh/include/mesh/domain/local_identity.h`
 - `modules/core_mesh/include/mesh/domain/peer_identity.h`
 - `modules/core_mesh/src/usecase/peer_identity_service.cpp`

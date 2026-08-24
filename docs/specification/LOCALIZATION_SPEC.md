@@ -2,98 +2,98 @@
 
 ## 1. Why This Document Exists
 
-本文件不是翻译指南，也不是打包教程。
+This document is not a translation guide, nor a packaging tutorial.
 
-本文件的目标是把 Trail Mate 的“本地化系统”定义成一个有边界的对象，防止后续开发再次把以下东西混在一起：
+The goal of this document is to define Trail Mate's "localization system" as a bounded object to prevent subsequent development from mixing the following things together again:
 
-- 固件里的 i18n 运行时
-- SD / Flash 上的 runtime pack 载荷
-- 仓库中的 `packs/<bundle-id>/` 源包
-- GitHub Pages 发布出来的 zip 分发包
-- 远程 catalog 元数据
-- 已安装索引 `installed.json`
-- “换语言”这个用户动作
+ - i18n runtime in firmware
+ - runtime pack payload on SD / Flash
+ - `packs/<bundle-id>/` in repository Source package
+- zip distribution package released by GitHub Pages
+- Remote catalog metadata
+- Installed index `installed.json`
+- "Change language" user action
 
-如果这些对象不被区分，系统就会退化成“改了几行英文字符串，再补几条 tsv”的低解释力状态。
+If these objects are not distinguished, the system will degenerate into a state of low interpretability of "changing a few lines of English strings and adding a few tsv".
 
 ---
 
 ## 2. Current Distinctions
 
-### 2.1 当前必须切开的对象
+### 2.1 Objects that must be cut currently
 
-Trail Mate 本地化系统至少由九类对象组成：
+Trail Mate localization system consists of at least nine types of objects:
 
-1. 固件本地化运行时
-2. Runtime pack 载荷
-3. 仓库源包
-4. 分发包
-5. 远程 catalog
-6. 已安装索引
-7. locale 质量状态
-8. 输入法运行时后端
-9. 内置文本候选插入面
+1. Firmware localization runtime
+2. Runtime pack payload
+3. Warehouse source package
+4. Distribution package
+5. Remote catalog
+6. Installed index
+7. locale quality status
+8. Input method runtime backend
+9. Built-in text candidate insertion surface
 
-它们彼此相关，但不是同一个东西。
+They are related to each other, but not the same thing.
 
-### 2.2 非法混淆
+### 2.2 Illegal obfuscation
 
-以下切法在本规格下视为非法：
+The following cutting methods are considered illegal under this specification:
 
-1. 把 `strings.tsv` 直接当成“本地化系统本体”。
-2. 把 zip 分发包当成运行时直接消费的对象。
-3. 把“安装了某语言包”误认为“该字体已经加载进 RAM”。
-4. 把固件版本和语言包版本绑成同一个版本号。
-5. 把英文源串当成“只是文案”，而不是翻译查找 key。
-6. 把页面私有字符串补丁当成合法的本地化实现。
-7. 把 `docs/ui_localization_plan.md` 这种历史方案继续当成现行契约。
-8. 把繁简转换当成繁中本地化。
-9. 把 `zh-Hant` 当成一个不需要地区语境的抽象繁体中文。
-10. 把拼音当成所有中文使用者的默认输入法。
-11. 把“机器翻译已经填满 TSV”当成可发布质量。
-12. 把英文 key 原样复制到翻译列，当成合法的缺省翻译。
-13. 把 Symbol / Emoji 文本候选插入面伪装成 IME pack 或 Extensions pack。
+1. Treat `strings.tsv` directly as the "localization system ontology".
+2. Treat the zip distribution package as an object for direct consumption at runtime.
+3. Mistake "a language pack is installed" as "the font has been loaded into RAM".
+4. Bind the firmware version and language pack version to the same version number.
+5. Treat the English source string as "just copywriting" rather than a translation search key.
+6. Treat the page private string patch as a legal localization implementation.
+7. Continue to treat historical plans like `docs/ui_localization_plan.md` as the current contract.
+8. Treat traditional to simplified conversion as traditional to Chinese localization.
+9. Think of `zh-Hant` as an abstract Traditional Chinese that does not require regional context.
+10. Make Pinyin the default input method for all Chinese users.
+11. Treat "machine translation has filled TSV" as publishable quality.
+12. Copy the English key to the translation column as it is and use it as a legal default translation.
+13. Disguise Symbol/Emoji text candidate insertion surface as IME pack or Extensions pack.
 
 ---
 
 ## 3. Object Model
 
-### 3.1 固件本地化运行时
+### 3.1 Firmware localization runtime
 
-固件运行时负责：
+The firmware runtime is responsible for:
 
-1. 持有内建英文基线。
-2. 扫描、编目并解析可用的 locale / font / IME pack manifest。
-3. 根据 `display_locale` 选择活动 locale。
-4. 维护 UI font chain 与 content font chain。
-5. 在需要时惰性加载外部 `font.bin`。
-6. 提供 `tr()`、`format()`、`set_label_text()` 等统一入口。
-7. 在外部 pack 缺失、不可用或超出设备能力时安全回退。
+1. Hold the built-in English baseline.
+2. Scan, catalog and parse available locale / font / IME pack manifest.
+3. Select the active locale based on `display_locale`.
+4. Maintain UI font chain and content font chain.
+5. Lazy loading of external `font.bin` when needed.
+6. Provide unified entrances such as `tr()`, `format()`, `set_label_text()`, etc.
+7. Safe fallback when external pack is missing, unavailable, or exceeds device capabilities.
 
-它不负责：
+It is not responsible for:
 
-1. 读取 zip 分发包。
-2. 直接理解网站 catalog。
-3. 把“语言包安装”与“当前 locale 激活”混成同一动作。
+1. Read the zip distribution package.
+2. Directly understand the website catalog.
+3. Mix "language pack installation" and "current locale activation" into the same action.
 
-### 3.2 Runtime Pack 载荷
+### 3.2 Runtime Pack payload
 
-Runtime pack 载荷是运行时真正扫描和消费的已解包目录树。
+Runtime pack payload is the unpacked directory tree that is actually scanned and consumed at runtime.
 
-当前形态包括：
+The current form includes:
 
-1. Flash 安装根
-   - ` /fs/trailmate/packs/... `，用于 Arduino/ESP32 上的安装器写入
-2. SD 安装根
-   - ` /trailmate/packs/... `，用于手工拷贝或可移动介质安装
+1. Flash installation root
+ - ` /fs/trailmate/packs/... `, used for the installer writing on Arduino/ESP32
+2. SD installation root
+ - ` /trailmate/packs/... `, used for manual copy or removable media installation
 
-运行时理解的是“解包后的 manifest + strings/ranges/font.bin”，而不是 zip。
+ What is understood at runtime is "unpacked manifest + strings/ranges/font.bin" instead of zip.
 
-### 3.3 仓库源包
+### 3.3 Warehouse source package
 
-仓库中的 `packs/<bundle-id>/` 是源码形态，不是运行时形态。
+ `packs/<bundle-id>/` in the warehouse is in source code form, not runtime form.
 
-它可以包含：
+It can contain:
 
 1. `package.ini`
 2. `README.md`
@@ -103,48 +103,48 @@ Runtime pack 载荷是运行时真正扫描和消费的已解包目录树。
 6. `build.ini`
 7. `charset.txt`
 8. `ranges.txt`
-9. 可选的本地 `font.bin`
+9. Optional local `font.bin`
 
-其中 `build.ini`、`charset.txt` 这类文件属于构建期元数据，运行时不读取。
+Among them, files such as `build.ini` and `charset.txt` belong to build-time metadata and are not read at runtime.
 
-### 3.4 分发包
+### 3.4 Distribution package
 
-分发包是面向安装器与网站分发的 zip 产物，不是运行时直接扫描的对象。
+The distribution package is a zip product distributed to installers and websites, and is not the object of direct scanning at runtime.
 
-它当前由 `scripts/build_pack_repository.py` 生成，并包含：
+It is currently generated by `scripts/build_pack_repository.py` and contains:
 
-1. 顶层包元数据
+1. Top-level package metadata
 2. `payload/fonts/...`
 3. `payload/locales/...`
 4. `payload/ime/...`
 
-安装器的职责是下载 zip、校验 SHA-256、解出 `payload/`，再写入 runtime pack 根目录。
+The installer's responsibility is to download the zip, verify SHA-256, extract `payload/`, and then write it to the runtime pack root directory.
 
-### 3.5 远程 Catalog
+### 3.5 Remote Catalog
 
-远程 catalog 是“可下载 bundle 的索引”，不是运行时 registry。
+The remote catalog is an "index of downloadable bundles", not a runtime registry.
 
-它负责提供：
+It is responsible for providing:
 
 1. package id
 2. package version
 3. `min_firmware_version`
 4. `supported_memory_profiles`
-5. 提供了哪些 locale/font/IME
-6. archive 路径、大小、SHA-256
-7. Extensions 页面所需的展示元数据
+5. What locale/font/IME is provided
+6. Archive path, size, SHA-256
+7. Display metadata required for Extensions page
 
-它不负责：
+It is not responsible for:
 
-1. 字体加载
-2. locale 激活
-3. zip 内文件解析
+1. Font loading
+2. Locale activation
+3. File parsing in zip
 
-### 3.6 已安装索引
+### 3.6 Installed Index
 
-已安装索引记录“安装过哪些分发包”，而不是“当前有哪些 locale 被激活”。
+The installed index records "which distribution packages have been installed" rather than "which locales are currently activated".
 
-当前安装索引的职责是记录：
+The responsibility of the current installation index is to record:
 
 1. package id
 2. package version
@@ -152,51 +152,51 @@ Runtime pack 载荷是运行时真正扫描和消费的已解包目录树。
 4. storage
 5. install time
 
-在当前 Arduino/ESP32 实现中，主安装索引默认写入 Flash 安装根下的 `installed.json`。
-历史 SD 路径可以作为迁移兼容来源存在，但不应再被当成新的规范落点。
+In the current Arduino/ESP32 implementation, the main installation index is written to `installed.json` under the Flash installation root by default.
+Historical SD paths can exist as migration compatibility sources, but should no longer be used as new specification landing points.
 
-它不能替代 runtime registry，也不能替代 locale persistence。
+It cannot replace the runtime registry or locale persistence.
 
-### 3.7 Locale 质量状态
+### 3.7 Locale quality status
 
-locale 质量状态描述的是“这个语言包现在能不能作为用户可选语言出现”，不是描述字体是否存在，也不是描述包是否可以被 catalog 发现。
+The locale quality status describes "whether this language pack can now appear as a user-selectable language", not whether the font exists, nor whether the package can be discovered by the catalog.
 
-当前状态值固定为：
+The current status value is fixed to:
 
 1. `release`
-   - 可以出现在语言选择器中。
-   - 必须完成 native 或项目负责人认可的质量审查。
-   - 不得包含英文补偿项，除非该项是明确允许保留的技术名词、协议名、单位或格式占位串。
+ - Can appear in the language selector.
+ - A quality review approved by native or the project leader must be completed.
+ - English compensation items may not be included unless the item is a technical term, protocol name, unit or format placeholder string that is explicitly allowed to be retained.
 2. `review`
-   - 字符串表结构完整，通常已经被批量翻译或人工初审过。
-   - 仍然需要母语审校、地区用语审校、输入法语义审校。
-   - 运行时必须跳过，不得出现在普通用户语言选择器中。
+ - The string table structure is complete and has usually been batch translated or manually reviewed.
+ - Native language review, regional terminology review, and input method semantic review are still required.
+ - MUST be skipped at runtime and must not appear in the normal user language selector.
 3. `draft`
-   - 可以缺 key、混用语言、缺少地区用语审查。
-   - 运行时必须跳过。
+ - Can be missing key, mixed language, lack of regional terminology review.
+ - Must be skipped at runtime.
 
-为了兼容旧包，省略 `translation_status` 的历史 locale 视为 `release`。新包不应再省略该字段。
+In order to be compatible with old packages, historical locales that omit `translation_status` are treated as `release`. New packages should no longer omit this field.
 
-### 3.8 输入法运行时后端
+### 3.8 Input method runtime backend
 
-IME pack manifest 只是输入法后端的声明，不是后端本身。
+IME pack manifest is only a declaration of the input method backend, not the backend itself.
 
-一个输入法要成为可启用输入法，必须同时满足：
+For an input method to become an enableable input method, it must also meet the following requirements:
 
-1. 固件中存在真实后端。
-2. 候选词、组合逻辑或直接键盘布局、提交行为与目标语言/地区习惯匹配。
-3. UI widget 知道如何展示该输入模式。
-4. 需要作为 locale 默认输入能力时，locale manifest 显式依赖它。
+1. A real backend exists in the firmware.
+2. Candidate words, combinatorial logic or direct keyboard layout, and submission behavior match the target language/region habits.
+3. The UI widget knows how to display the input mode.
+4. When needed as the default input capability of a locale, the locale manifest explicitly relies on it.
 
-直接键盘类后端必须再拆一层 `KeyboardLayoutDescriptor`。IME backend 只说明“这是直接提交字符的键盘输入策略”，layout descriptor 才拥有：
+The direct keyboard class backend must remove another layer of `KeyboardLayoutDescriptor`. The IME backend only states "This is a keyboard input strategy for directly submitting characters", and the layout descriptor only has:
 
-1. 触摸键盘按键表。
-2. 触摸键盘标签需要的字体覆盖探针。
-3. 布局 id 与用户可见输入模式标签。
+1. Touch keyboard key table.
+2. Touch the font overlay probe required by the keyboard label.
+3. Layout id and user-visible input mode label.
 
-因此，共享 `ImeWidget` 不允许按具体 IME id 写展示分支；它只能通过 strategy/descriptor 询问当前输入模式是否有触摸键盘、需要什么字体探针。西里尔、希腊、希伯来、假名等未来布局都必须新增 layout descriptor，而不是继续把字符表写进 widget。
+ Therefore, the shared `ImeWidget` does not allow writing display branches according to specific IME ids; it can only ask through strategy/descriptor whether the current input mode has a touch keyboard and what font probes are required. Future layouts such as Cyrillic, Greek, Hebrew, Kana, etc. must add layout descriptors instead of continuing to write character tables into widgets.
 
-Symbol / Emoji 不属于 IME pack。它们不是 locale 输入习惯，也不是可启用输入法后端，而是内置文本候选插入面。IME 模式按钮只负责切换 `EN` / `IM` / `123` 等输入模式，不得打开 Symbol / Emoji 候选页。
+Symbol/Emoji are not part of the IME pack. They are not locale input conventions, nor enableable input method backends, but built-in text candidate insertion surfaces. The IME mode button is only responsible for switching input modes such as `EN` / `IM` / `123`, and must not open the Symbol / Emoji candidate page.
 
 ```mermaid
 classDiagram
@@ -237,40 +237,40 @@ classDiagram
   InputModeAdapter --> InputModeDescriptor
 ```
 
-`translation_status` 仍然独立决定 locale 是否进入普通用户语言选择器。
-`review` locale 可以依赖真实 IME 以便运行时完整校验和安装该能力，但不能因此被当成 release UI locale。
+`translation_status` still independently determines whether the locale enters the normal user language selector.
+The `review` locale can rely on the real IME for full runtime verification and installation of the capability, but cannot therefore be treated as a release UI locale.
 
-因此，不允许用 `backend=builtin-kana`、`backend=builtin-hangul`、`backend=builtin-arabic` 这类尚未实现的名字提前占位。未实现输入法可以写进规划文档，但不能作为 runtime IME pack 进入 payload。
+ Therefore, it is not allowed to use unimplemented names such as `backend=builtin-kana`, `backend=builtin-hangul`, `backend=builtin-arabic` to occupy space in advance. Unimplemented input methods can be written into the planning document, but cannot be entered into the payload as a runtime IME pack.
 
-### 3.9 内置文本候选插入面
+### 3.9 Built-in text candidate insertion surface
 
-内置文本候选插入面负责给用户插入“设备键盘难以直接输入、但又不属于 locale 输入法”的短文本符号。
+The built-in text candidate insertion surface is responsible for inserting short text symbols for users that are "difficult to input directly on the device keyboard, but do not belong to the locale input method".
 
-当前只有两组内置候选：
+Currently there are only two sets of built-in candidates:
 
 1. `Symbols`
-   - 最多 100 个特殊字符。
-   - 面向 Wi-Fi 密码、频道名、PSK、聊天文本等通用文本输入。
-   - 需要一个小型内置 content baseline font：`builtin-symbol-core`，只覆盖当前 100 个 Symbol 候选。
+ - up to 100 special characters.
+ - For common text input such as Wi-Fi password, channel name, PSK, chat text, etc.
+ - Requires a small built-in content baseline font: `builtin-symbol-core`, covering only the current 100 Symbol candidates.
 2. `Emoji`
-   - 当前为 324 个经过审核的 emoji，分为 `Common`、`Radio`、`Nav`、`Weather`、`Survive`、`Rescue`、`Camp`、`People`、`Animals` 九类。
-   - 不是全量 emoji 表，也不是可下载扩展包。
-   - 目录唯一来源是 `tools/emoji_candidates_trailmate.json`；它的 `expected_total` 与每类的 `expected_count` 都必须通过生成器校验。
-   - 需要一个小型内置 content baseline font：`builtin-emoji-core`，只覆盖当前 324 个 Emoji 候选。
+ - There are currently 324 reviewed emojis, divided into nine categories: `Common`, `Radio`, `Nav`, `Weather`, `Survive`, `Rescue`, `Camp`, `People`, and `Animals`.
+ - Not a full emoji list, nor a downloadable expansion pack.
+ - The directory's only source is `tools/emoji_candidates_trailmate.json`; its `expected_total` and `expected_count` for each category must pass generator validation.
+ - Requires a small built-in content baseline font: `builtin-emoji-core`, covering only the current 324 Emoji candidates.
 
-这两组候选的合法入口是文本输入 toolbar 中与 IME 切换按钮并列的 `Sym` / `Emoji` 按钮。Chat compose 与 Settings 文本弹窗必须接入同一个 `TextCandidatePicker`，不得各自实现私有候选窗口。
+The legal entry for these two sets of candidates is the `Sym` / `Emoji` button in the text input toolbar, which is parallel to the IME switch button. Chat compose and Settings text pop-up windows must be connected to the same `TextCandidatePicker` and must not implement private candidate windows respectively.
 
-候选页交互规则固定为：
+The interaction rules of the candidate page are fixed as:
 
-1. 点击 `Sym` 或 `Emoji` 打开全屏候选页。
-2. 候选页始终分页，禁止为全部候选创建一个可滚动的大网格。UI 最多创建 40 个候选按钮并在换页时复用；T-Deck Pager 的 480px 宽屏显示 8 列 × 4 行，即每页 32 项。
-3. `Symbols` 只有分页；`Emoji` 打开后显示当前分类的第一页，`C` 打开/关闭分类页。分类页为 3 列 × 3 行，展示全部九类；分类卡只显示分类文字，不能再显示 emoji 图标或第二行说明。
-4. T-Deck Pager 的物理键映射固定为：`WASD` / 方向键移动当前项，`E` / Enter 提交或选中分类，`Q` / Esc / Backspace 关闭，`C` 切换分类，`B` 上一页，`N` 下一页。标题栏和翻页栏中的快捷键必须以“键帽 + 动作文字”呈现，不能把完整快捷键说明重复拼进标题、页脚和按钮。
-5. 分类页标题只显示当前上下文；页脚只显示 `WASD Move` 与 `E Select`。普通候选页页脚显示加宽的 `B Prev`、页码、`N Next`，避免文字截断或与标题栏重叠。
-6. 候选面板是全屏不透明 modal，必须挂在 active screen 的最前子层，而非 `lv_layer_top()`；这样双击 Alt 的 screen snapshot 能捕获正在显示的候选面板。
-7. 触摸点击 emoji 候选项时直接提交并关闭候选页；触摸点击分类项只进入该分类的第一页。
-8. 提交动作只向目标 textarea 插入 UTF-8 文本并触发 value changed，不改变当前 IME 模式。
-9. 页面不得绕过 `TextCandidatePicker` 直接维护另一份 Symbol / Emoji 列表。
+1. Click `Sym` or `Emoji` to open the full-screen candidate page.
+2. The candidate page is always paginated, prohibiting the creation of a large scrollable grid for all candidates. The UI can create up to 40 candidate buttons and reuse them when changing pages; the T-Deck Pager's 480px widescreen displays 8 columns × 4 rows, that is, 32 items per page.
+3. `Symbols` only has paging; `Emoji` displays the first page of the current category when opened, and `C` opens/closes the category page. The category page is 3 columns × 3 rows, displaying all nine categories; the category card only displays category text, and no longer displays emoji icons or second line descriptions.
+4. The physical key mapping of T-Deck Pager is fixed as: `WASD` / arrow keys to move the current item, `E` / Enter to submit or select a category, `Q` / Esc / Backspace to close, `C` to switch categories, `B` to previous page, and `N` to next page. The shortcut keys in the title bar and page turning bar must be presented as "keycaps + action text", and the complete shortcut key descriptions cannot be repeatedly spelled into the title, footer and button.
+5. The category page title only displays the current context; the footer only displays `WASD Move` and `E Select`. Ordinary candidate page footers display a widened `B Prev`, page number, and `N Next` to avoid text truncation or overlap with the title bar.
+6. The candidate panel is a full-screen opaque modal and must be hung on the front sub-layer of the active screen instead of `lv_layer_top()`; in this way, double-clicking Alt's screen snapshot can capture the displayed candidate panel.
+7. When you touch and click on the emoji candidate item, the candidate page will be submitted directly and closed; when you touch and click on the category item, you will only enter the first page of the category.
+8. The submission action only inserts UTF-8 text into the target textarea and triggers value changed, without changing the current IME mode.
+9. Pages must not bypass `TextCandidatePicker` to directly maintain another Symbol / Emoji list.
 
 ```mermaid
 classDiagram
@@ -319,14 +319,14 @@ classDiagram
   FontRegistry --> BuiltinTextCandidateData
 ```
 
-非法做法：
+Illegal practices:
 
-1. 发布 `symbol-picker` / `emoji-picker` 作为 IME pack。
-2. 发布或解析 `candidates.txt` 来驱动通用候选列表 IME。
-3. 把 emoji 候选放回 Extensions catalog，要求用户下载后才能输入。
-4. 内置全量 emoji 表。
-5. 在 Wi-Fi、Chat、Settings 等页面各自维护不同候选集。
-6. 让候选页的打开行为依赖当前 locale 或当前 IME。
+1. Publish `symbol-picker` / `emoji-picker` as IME pack.
+2. Publish or parse `candidates.txt` to drive the universal candidate list IME.
+3. Put the emoji candidates back into the Extensions catalog and require users to download them before they can input them.
+4. Built-in full emoji table.
+5. Maintain different candidate sets on Wi-Fi, Chat, Settings and other pages.
+6. Make the opening behavior of the candidate page dependent on the current locale or the current IME.
 
 ---
 
@@ -334,249 +334,249 @@ classDiagram
 
 ### 4.1 English Source String Is API
 
-英文源串不是随手写的文案，它是翻译查找 key。
+The English source string is not a random copywriting, it is a translation search key.
 
-这意味着：
+This means:
 
-1. `ui::i18n::tr(const char* english)` 的输入是稳定 key，而不是“仅供显示的默认英文”。
-2. 修改英文源串，会直接改变 key。
-3. 一旦 key 改变，所有 locale pack 中对应条目都会失配并回退到英文。
-4. `strings.tsv` 中同一 English key 不允许承载两套不同语义。
-5. `strings.tsv` 的行顺序不构成语义；运行时按 English key 查找，而不是按文件顺序查找。
+1. The input of `ui::i18n::tr(const char* english)` is a stable key, not "default English for display only".
+2. Modifying the English source string will directly change the key.
+3. Once the key changes, all corresponding entries in the locale pack will be mismatched and fall back to English.
+4. The same English key in `strings.tsv` is not allowed to carry two sets of different semantics.
+5. The line order of `strings.tsv` does not constitute semantics; it is searched by English key at runtime, not by file order.
 
-因此，下列操作都属于本地化契约变化：
+Therefore, the following operations are localization contract changes:
 
-1. 修改现有英文源串文本
-2. 拆分一条英文源串为多条
-3. 把一条英文源串合并为另一条
-4. 改变 format string 结构，例如 `%s` / `%u` / 换行符位置
+1. Modify the existing English source string text
+2. Split one English source string into multiple strings
+3. Merge one English source string into another
+4. Change the format string structure, such as `%s` / `%u` / newline position
 
-它们都不能被当成“只改 UI 文案”的低风险改动。
+They cannot be regarded as low-risk changes of "only changing the UI copy".
 
 ### 4.2 Locale / Font / IME Dependency Graph
 
-依赖图固定为：
+The dependency graph is fixed to:
 
 1. `Locale Pack -> UI Font Pack`
 2. `Locale Pack -> Content Font Pack`
 3. `Locale Pack -> Optional IME Pack`
 4. `Content Text -> Optional Supplement Font Packs`
 
-Settings 选择的是 locale，不是 font，不是 IME。
+Settings selects locale, not font, not IME.
 
-页面或设置页不允许绕过 locale 直接定义另一套“选字体/选输入法”主流程。
+The page or settings page does not allow you to bypass the locale and directly define another set of "select font/select input method" main process.
 
-### 4.2.1 Locale ID 必须表达地区语境
+### 4.2.1 Locale ID must express regional context
 
-locale id 必须按 BCP-47 思路表达语言、脚本与地区语境，而不是只表达字形。
+Locale ID must express language, script and regional context according to BCP-47 ideas, rather than just expressing glyphs.
 
-推荐形态：
+Recommended format:
 
 1. `zh-Hans-CN`
-   - 简体中文，中国大陆用语。
+ - Simplified Chinese, Mainland China language.
 2. `zh-Hant-TW`
-   - 繁体中文，台湾地区用语。
+ - Traditional Chinese, a term used in Taiwan.
 3. `zh-Hant-HK`
-   - 繁体中文，香港地区用语。
+ - Traditional Chinese, Hong Kong language.
 4. `pt-PT`
-   - 葡萄牙语，葡萄牙地区用语。
+ - Portuguese, the regional language of Portugal.
 5. `pt-BR`
-   - 葡萄牙语，巴西地区用语。
+ - Portuguese, a Brazilian language.
 
-当前仓库中的 `zh-Hant` 是历史兼容 id，语义必须按 `zh-Hant-TW` 处理；后续如果引入香港、澳门或其他繁中地区包，必须新增独立 locale，而不是继续复用 `zh-Hant`。
+The `zh-Hant` in the current warehouse is a historical compatible id, and the semantics must be processed according to `zh-Hant-TW`; if you introduce Hong Kong, Macau or other traditional and Chinese regional packages in the future, you must add an independent locale instead of continuing to reuse `zh-Hant`.
 
-禁止把 OpenCC 或其他繁简转换结果直接作为 `release` 级繁中包。转换最多用于生成初稿；发布前必须检查地区用词、标点、语气、技术名词和输入法习惯。
+It is prohibited to directly use OpenCC or other Traditional-Simplified conversion results as `release`-level Traditional-Chinese packages. Conversion is used at most to generate a first draft; regional wording, punctuation, tone, technical terms, and input method conventions must be checked before publishing.
 
-### 4.2.2 翻译质量闸门
+### 4.2.2 Translation quality gate
 
-运行时 locale catalog 必须执行质量闸门：
+The locale catalog must execute the quality gate when running:
 
 1. `translation_status=release`
-   - 允许进入运行时 locale 列表。
-2. 缺省 `translation_status`
-   - 为兼容旧包，暂按 `release` 处理。
+ - Allows access to the runtime locale list.
+2. Default `translation_status`
+ - For compatibility with old packages, it is temporarily processed as `release`.
 3. `translation_status=review`
-   - 可以被安装、索引、更新，但运行时必须跳过。
+ - Can be installed, indexed, updated, but must be skipped at runtime.
 4. `translation_status=draft`
-   - 可以作为开发资料存在，但运行时必须跳过。
-5. 其他未知状态
-   - 运行时必须按不可发布处理并跳过。
+ - Can exist as development material, but must be skipped at runtime.
+5. Other unknown status
+ - MUST be treated as unpublishable at runtime and skipped.
 
-一个 release 语言包不得出现以下情况：
+A release language pack must not have the following conditions:
 
-1. 空翻译。
-2. 缺失当前 English key 集合中的 key。
-3. `%s`、`%u`、`%ld`、`\\n` 等占位符或转义符不一致。
-4. 大量英文 key 原样复制到翻译列。
-5. 混入另一种语言的翻译文本，例如日文包中出现简体中文句子。
-6. 地区用语明显不匹配，例如台湾繁中使用大陆软件术语作为主用语。
+1. Empty translation.
+2. The key in the current English key collection is missing.
+3. `%s`, `%u`, `%ld`, `\\n` and other placeholders or escape characters are inconsistent.
+4. A large number of English keys are copied to the translation column as they are.
+5. Mix in translated text from another language, for example, Simplified Chinese sentences appear in Japanese packages.
+6. There is an obvious mismatch in regional terms. For example, Taiwan Traditional Chinese uses mainland software terms as the main term.
 
-允许保持英文的项目只限于明确的专名、协议名、单位、测量标签、格式骨架，例如 `GPS`、`RSSI`、`dBm`、`RNode`、`LXMF`、`ID: !%08lX`。
+Items allowed to remain in English are limited to clear proper names, protocol names, units, measurement labels, and format skeletons, such as `GPS`, `RSSI`, `dBm`, `RNode`, `LXMF`, `ID: !%08lX`.
 
-### 4.2.3 输入法必须跟 locale 习惯绑定
+### 4.2.3 The input method must be bound to the locale habit
 
-输入法不是“有一个能打字的键盘”这么简单。它属于 locale 的语言、脚本和地区习惯。
+The input method is not as simple as "having a keyboard that can type". It belongs to the locale's language, script, and regional conventions.
 
-当前可启用输入法只包括 locale 习惯输入法：
+The currently enabled input methods only include the locale customary input method:
 
 1. `zh-Hans` / `zh-Hans-CN`
    - `zh-hans-pinyin`
-   - 后端：`builtin-pinyin`
-   - 适用范围：简体中文拼音输入。
+ - Backend: `builtin-pinyin`
+ - Scope of application: Simplified Chinese Pinyin input.
 2. `ru`
    - `ru-cyrillic-keyboard`
-   - 后端：`builtin-keyboard-layout`
-   - 布局：`ru-cyrillic`
-   - 适用范围：俄文 Cyrillic 直接键盘布局；不包含候选词转换，也不承诺物理 QWERTY 到俄文的硬件重映射。
+ - Backend: `builtin-keyboard-layout`
+ - Layout: `ru-cyrillic`
+ - Scope of application: Russian Cyrillic direct keyboard layout; does not include candidate word conversion, nor does it commit to physical QWERTY to Russian hardware remapping.
 
-当前不得启用的输入法包括：
+Input methods that currently cannot be enabled include:
 
 1. `zh-Hant` / `zh-Hant-TW`
-   - 不得默认拼音。
-   - 未来优先级应是注音（Bopomofo / Zhuyin）。
-   - 可选扩展可考虑仓颉、速成、台湾常见拼音输入，但必须明确标注，不得冒充默认习惯。
+ - Pinyin must not be defaulted.
+ - Future priority should be Zhuyin (Bopomofo/Zhuyin).
+ - Optional extensions can consider Cangjie, Suchen, and Taiwan's common pinyin input, but they must be clearly marked and must not pretend to be the default habit.
 2. `ja`
-   - 需要假名/罗马字到假名与汉字候选的日文输入模型。
-   - 不得复用中文拼音候选器。
+ - Japanese input model that requires Kana/Romaji to Kana and Kanji candidates.
+ - Chinese Pinyin candidates must not be reused.
 3. `ko`
-   - 需要韩文两벌式等韩文输入模型。
-   - 不得复用中文或日文输入模型。
+ - Requires Korean input models such as Korean 벌 and 벌.
+ - Do not reuse Chinese or Japanese input models.
 4. `ar`
-   - 需要阿拉伯键盘、RTL 编辑语义与字体 shaping 一致性。
-5. 欧洲 Latin 语言
-   - 通常不需要 IME pack；现有 `EN` / `123` 输入路径足够。
+ - Requires Arabic keyboard, RTL editing semantics and font shaping consistency.
+5. European Latin languages
+ - Typically no IME pack is required; existing `EN` / `123` input paths are sufficient.
 6. Symbol / Emoji
-   - 它们是内置文本候选插入面，不是 IME pack。
+ - These are built-in text insertion candidates, not IME packs.
 
-如果某 locale 还没有真实输入法，它可以作为 display-only review 包存在，但不得把假 IME 写进 manifest，也不得让设置页显示一个无法工作的输入法选项。
+If a locale does not yet have a real input method, it can exist as a display-only review package, but the fake IME must not be written into the manifest, and the settings page must not display a non-working input method option.
 
 ### 4.3 Built-In Baseline
 
-固件必须始终保留最小内建基线：
+Firmware must always retain a minimum built-in baseline:
 
-1. 内建 locale：`en`
-2. 内建字体：`builtin-latin-ui`
-3. 内建文本候选插入能力：`Symbols` 与精选 `Emoji`
-4. 内建文本候选内容字体补充：`builtin-symbol-core` 与 `builtin-emoji-core`
+1. Built-in locale: `en`
+2. Built-in font: `builtin-latin-ui`
+3. Built-in text candidate insertion capability: `Symbols` and selected `Emoji`
+4. Built-in text candidate content font additions: `builtin-symbol-core` and `builtin-emoji-core`
 
-English、基础特殊字符输入与精选 emoji 输入必须在没有任何外部 pack 的情况下仍可工作。
+English, basic special character input and selected emoji input must still work without any external pack.
 
-这条基线不能被 removable pack 破坏。
+This baseline cannot be destroyed by removable pack.
 
 ### 4.4 Installed Is Not Loaded
 
-`Installed` 与 `Loaded` 是两个不同状态：
+`Installed` and `Loaded` are two different states:
 
 1. Installed
-   - pack manifest 存在于 Flash/SD
-   - runtime registry 能发现它
+ - pack manifest exists in Flash/SD
+ - runtime registry can find it
 2. Loaded
-   - 外部 `font.bin` 已经实际加载进 RAM
-   - 会产生即时内存占用
+ - external `font.bin` has actually been loaded into RAM
+ - will cause immediate memory usage
 
-禁止把“安装成功”实现成“开机即把所有外部字体全部加载”。
+It is forbidden to change "Installation successful" to "Load all external fonts upon startup".
 
 ### 4.5 UI Scope vs Content Scope
 
-本地化运行时必须继续维持两条字体链：
+Two font chains must be maintained during localization runtime:
 
 1. UI chain
-   - 页面 chrome
-   - 菜单、按钮、标题、设置项等
+ - Page chrome
+ - Menus, buttons, titles, settings, etc.
 2. Content chain
-   - 联系人名
-   - 节点名
-   - 聊天内容
-   - 其他外部文本
+ - Contact name
+ - Node name
+ - Chat content
+ - Other external text
 
-这两条链不能被简化成“只要非 ASCII 就统一切换某个 CJK 字体”的旁路实现。
+These two chains cannot be reduced to a bypass implementation of "uniformly switch a certain CJK font as long as it is non-ASCII".
 
 ### 4.5.1 Content Font Load Must Be Owned And User-Visible
 
-内容文本缺字检测与外部字体加载是两个不同动作，但缺字不能被永久跳过。
+ Content text missing word detection and external font loading are two different actions, but missing words cannot be permanently skipped.
 
-1. `ensure_content_font_for_text()` 可以发现当前内容字体链缺少某些 codepoint。
-2. 它不能自己决定“因为在热路径、因为 active locale 是 `en`、因为这是 content supplement，所以不加载”。
-3. 它必须把缺字事实交给 `FontRuntimeCoordinator` / `ResourcePackRegistry`，由统一 owner 选择已加载字体、安排前台加载、延迟重试或报告失败。
-4. CJK/Japanese/Korean/Arabic 等 content text 的字体需求不由 display locale 决定；`active_locale=en` 时，中文聊天、联系人名、Network/Nomad 内容仍然可以触发已安装 `zh-hans-core` 等 content supplement 加载。
-5. 普通页面渲染、列表构建、LVGL 事件或 timer 路径不得无主静默阻塞 SD-backed `font.bin` 读取。
-6. 同步外部字体加载是合法路径，但它必须是用户可见的 foreground operation：先显示 loading/progress/busy modal 或页面，强制 flush 到屏幕，再进入 `lv_binfont_create()` / 外部 `font.bin` 读取。
-7. 如果运行时选择 deferred load，页面可以暂时使用当前已加载字体链并记录缺字诊断；deferred 只能是 pending/retry 状态，不能变成永久 hard skip。
-8. 固件内置字体只有在 runtime pack manifest 以 `source=builtin` 显式声明时才算运行时 loaded 状态；ESP 不得隐式注册 CJK 内置字体来替代外部 `zh-hans-core/font.bin`。
-9. 已加载字体是否覆盖某个 codepoint 必须以实际 glyph lookup 为准；manifest/range 只能用于选择候选 pack，不能替代渲染能力判断。
-10. 外部 `font.bin` 加载失败后必须进入 backoff，不能因为多条联系人名、聊天消息或节点名重复触发同一个失败文件读取。
-11. 显式切换 locale 时加载 UI 字体属于 locale 激活流程；内容文本缺字路径可以请求内容字体 owner，但不能在页面/widget 内私自复用 SD 读。
-12. 外部 `source=binfont` 字体 pack 必须在 catalog 阶段验证 `font.bin` 路径可规范化且可打开；缺少 payload 的 locale 不能进入可选 locale 列表。
-13. “显示 busy modal” 的代码语义不是只创建 LVGL 对象，而是必须在进入 `lv_binfont_create()` / 外部 `font.bin` 读取之前，强制把 modal flush 到屏幕。当前绑定点是 `resource_pack_registry.cpp` 的 `ScopedFontLoadOverlay`，它是 `load_font_pack()` 的唯一同步字体加载 UI 边界。
-14. ESP 上所有通过 LVGL FS 读取外部 `font.bin` 的同步加载，都必须经过平台字体设备服务；页面和 registry 不直接执行存储事务。
-15. 字体设备服务暂时无法完成读取时，加载进入可重试的 `pending` 状态；只有字体文件或格式本身确认失败，才进入长 backoff。
+1. `ensure_content_font_for_text()` can find that the current content font chain is missing some codepoints.
+2. It cannot decide by itself "because it is in the hot path, because the active locale is `en`, and because this is a content supplement, it will not be loaded."
+3. It must hand over the missing font fact to `FontRuntimeCoordinator` / `ResourcePackRegistry`, and the unified owner will select the loaded font, schedule foreground loading, delay retry or report failure.
+4. The font requirements of content text such as CJK/Japanese/Korean/Arabic are not determined by the display locale; when `active_locale=en`, Chinese chat, contact name, Network/Nomad content can still trigger the loading of installed content supplements such as `zh-hans-core`.
+5. Ordinary page rendering, list building, LVGL events or timer paths must not silently block SD-backed `font.bin` reading without an owner.
+6. Synchronous external font loading is a legal path, but it must be a user-visible foreground operation: first display the loading/progress/busy modal or page, force flush to the screen, and then enter `lv_binfont_create()` / external `font.bin` to read.
+7. If deferred load is selected at runtime, the page can temporarily use the currently loaded font chain and record missing word diagnosis; deferred can only be in the pending/retry state and cannot become a permanent hard skip.
+8. Firmware built-in fonts are in the runtime loaded state only when the runtime pack manifest is explicitly declared with `source=builtin`; ESP must not implicitly register CJK built-in fonts to replace the external `zh-hans-core/font.bin`.
+9. Whether the loaded font covers a certain codepoint must be based on the actual glyph lookup; manifest/range can only be used to select candidate packs and cannot replace rendering capability judgment.
+10. After the external `font.bin` fails to load, it must enter backoff, and the same failed file reading cannot be triggered repeatedly due to multiple contact names, chat messages or node names.
+11. Loading UI fonts when explicitly switching locale belongs to the locale activation process; if the content text path is missing characters, the content font owner can be requested, but SD reading cannot be reused privately within the page/widget.
+12. External `source=binfont` font pack must verify that the `font.bin` path can be normalized and open during the catalog stage; locales lacking payload cannot enter the optional locale list.
+13. The code semantics of "show busy modal" is not to just create the LVGL object, but to force the modal to be flushed to the screen before entering `lv_binfont_create()`/external `font.bin` reading. The current binding point is `ScopedFontLoadOverlay` of `resource_pack_registry.cpp`, which is the only synchronous font loading UI boundary for `load_font_pack()`.
+14. All synchronous loads on ESP that read external `font.bin` through LVGL FS must go through the platform font device service; the page and registry do not directly perform storage transactions.
+15. When the font device service is temporarily unable to complete reading, the load will enter the `pending` state that can be retried; only when the font file or format itself fails to be confirmed, it will enter a long backoff.
 
-这条规则的目标是同时保护 UI 实时域和内容可读性：联系人页、聊天页、地图 overlay、节点详情页等内容页面不得因为遇到中文/日文/韩文/阿拉伯文本而静默拖入无主 SD 阻塞 IO，也不得为了避免阻塞而让可用字体永远不加载。
+The goal of this rule is to protect the UI real-time domain and content readability at the same time: content pages such as contact pages, chat pages, map overlays, node details pages, etc. must not silently drag in unowned SD to block IO because they encounter Chinese/Japanese/Korean/Arabic text, nor must available fonts never be loaded to avoid blocking.
 
 ### 4.5.1.1 External Font Load Transaction
 
-外部字体加载事务的边界如下：
+The boundaries of external font loading transactions are as follows:
 
-1. `ScopedFontLoadOverlay` 通过 foreground operation `I18nFontLoad` slot 先发布阻塞式 busy modal，并保留字体加载要求的强制刷新帧数。
-2. `ScopedExternalFontLoadFs` 调用平台字体设备服务，提交一次受控的外部字体加载请求。
-3. 只有设备服务确认可以开始加载，`load_font_pack()` 才能调用 `lv_binfont_create()`。
-4. `lv_binfont_create()` 内部触发的 LVGL FS 回调属于平台适配器；页面和 registry 不参与其文件访问细节。
-5. 设备服务报告完成或失败后，busy modal 随后关闭并刷新。
+1. `ScopedFontLoadOverlay` first releases blocking busy modal through foreground operation `I18nFontLoad` slot, and retains the number of forced refresh frames required for font loading.
+2. `ScopedExternalFontLoadFs` calls the platform font device service and submits a controlled external font loading request.
+3. Only when the device service confirms that loading can begin, `load_font_pack()` can call `lv_binfont_create()`.
+4. The LVGL FS callback triggered internally by `lv_binfont_create()` belongs to the platform adapter; the page and registry are not involved in its file access details.
+5. After the device service reports completion or failure, the busy modal is then closed and refreshed.
 
-这个事务是同步外部字体加载的唯一平台入口。禁止重新引入以下旧实现：
+This transaction is the only platform entry for synchronous external font loading. Reintroduction of the following old implementations is prohibited:
 
-- 只维护 `external_font_load_depth` 并绕过字体设备服务。
-- 在页面或 LVGL FS callback 中把等待时间调大来掩盖外层没有设备事务的问题。
-- 设备暂时不可用时把失败计入 5 分钟字体文件 backoff。
-- 页面/widget 直接绕过 registry 读取 `font.bin`。
+ - Only maintains `external_font_load_depth` and bypasses the font device service.
+- Increase the wait time in the page or LVGL FS callback to cover up the problem of no device transactions in the outer layer.
+- Count failures into the 5-minute font file backoff when the device is temporarily unavailable.
+- Page/widget directly bypasses the registry and reads `font.bin`.
 
 #### Registry-time preferred content supplement preload
 
-ESP 上允许一个非常窄的例外：如果当前 active locale 的 manifest 明确声明了
-`preferred_content_supplement_packs`，registry 可以在 `reload_language()`、安装完成后的重新编目、
-或 locale 激活阶段预加载这些已编目的 content supplement，并把它们加入 content font chain。
+A very narrow exception is allowed on ESP: if the currently active locale's manifest explicitly declares
+`preferred_content_supplement_packs`, the registry can preload these cataloged content supplements during `reload_language()`, recataloging after installation,
+ or the locale activation phase and add them to the content font chain.
 
-这个例外只用于 active locale 显式偏好的、已编目的 content supplement。是否允许加载由当前
-memory profile 的 `max_content_supplement_packs` 与 `max_content_supplement_ram_bytes` 决定，
-不能绕过 supplement 预算。`ranges.txt` / coverage metadata 只用于候选选择与诊断；如果 coverage
-缺失或为空，已加载字体是否覆盖某个 codepoint 仍必须以实际 glyph lookup 为准。
+This exception is only used for cataloged content supplements that are explicitly preferred by the active locale. Whether loading is allowed is determined by the `max_content_supplement_packs` and `max_content_supplement_ram_bytes` of the current
+memory profile,
+The supplement budget cannot be bypassed. `ranges.txt` / coverage metadata is only used for candidate selection and diagnosis; if coverage
+ is missing or empty, whether the loaded font covers a codepoint must still be based on the actual glyph lookup.
 
-当前固件内置的 `builtin-symbol-core` 与 `builtin-emoji-core` 属于 content font baseline，而不是用户安装的 external supplement；它们不读取 SD / Flash 外部 `font.bin`，只覆盖内置文本候选集，并且不占用 `max_content_supplement_packs` 名额。这个例外不适用于：
+The `builtin-symbol-core` and `builtin-emoji-core` built into the current firmware belong to the content font baseline, not the external supplement installed by the user; they do not read the SD/Flash external `font.bin`, only cover the built-in text candidate set, and do not occupy the `max_content_supplement_packs` quota. This exception does not apply to:
 
-1. 大型 locale 字体。
-2. locale 激活之外的 UI 字体替换。
-3. 任何需要反复探测缺失文件的失败路径。
-4. 页面渲染、列表构建、LVGL 事件或 timer 路径中的 SD-backed `font.bin` 同步读取。
+1. Large locale fonts.
+2. UI font replacement outside of locale activation.
+3. Any failed paths that require repeated detection of missing files.
+4. Synchronous reading of SD-backed `font.bin` in page rendering, list building, LVGL events or timer paths.
 
-因此，已安装到当前运行时 pack root、并被 active locale 显式偏好的内容扩展可以在 registry/locale
-激活阶段进入可用字体链；之后聊天内容第一次遇到对应字符时，内容热路径只选择已经 loaded 的字体链，不再为了该字符直接读取 SD。如果 preferred supplement 没有被 catalog 到，运行时必须记录
-`not_cataloged` 诊断；如果预算不足，必须记录 `content_budget` 诊断；两者都不得改变 active locale。
+Therefore, content extensions that are installed into the current runtime pack root and are explicitly preferred by the active locale can be found in registry/locale
+During the activation phase, the available font chain is entered; later, when the chat content encounters the corresponding character for the first time, the content hot path only selects the loaded font chain, and no longer directly reads the SD for the character. If the preferred supplement is not cataloged, it must be recorded at runtime
+The `not_cataloged` diagnostic; if budget is insufficient, the `content_budget` diagnostic must be logged; neither must change the active locale.
 
 ### 4.5.2 Text Candidate Built-In Font Boundary
 
-Symbol / Emoji 支持不是 locale，也不是 Extensions 中的可下载包。
+Symbol/Emoji support is not a locale, nor is it a downloadable package in Extensions.
 
-当前固件只内置两类文本候选字体：
+The current firmware only has two types of text candidate fonts built-in:
 
-1. `Symbols` 候选集
-   - 最多 100 个 UTF-8 symbol 字符串。
-   - 由 `TextCandidatePicker` 展示和提交。
-   - 不通过 IME registry，也不通过 pack manifest。
+1. `Symbols` candidate set
+ - Up to 100 UTF-8 symbol strings.
+ - Displayed and submitted by `TextCandidatePicker`.
+ - Not through IME registry, nor through pack manifest.
 2. `builtin-symbol-core`
-   - 小型内置 content baseline font。
-   - 只覆盖当前 100 个 Symbol 候选集；不得携带用户不能输入的额外 symbol 字形。
-3. `Emoji` 候选集
-   - 当前固定为 324 个 UTF-8 emoji 字符串，目录由 `tools/emoji_candidates_trailmate.json` 审核并生成。
-   - 分为 Common、Radio、Nav、Weather、Survive、Rescue、Camp、People、Animals 九类；户外、无线电与生存语义优先，People 包含 `🤖`。
-   - 由 `TextCandidatePicker` 展示和提交。
-   - 不通过 IME registry，也不通过 pack manifest。
+ - Small built-in content baseline font.
+ - Only covers the current set of 100 Symbol candidates; must not carry additional symbol glyphs that the user cannot enter.
+3. `Emoji` candidate set
+ - Currently fixed at 324 UTF-8 emoji strings, the directory is reviewed and generated by `tools/emoji_candidates_trailmate.json`.
+ - Divided into nine categories: Common, Radio, Nav, Weather, Survive, Rescue, Camp, People, and Animals; outdoor, radio, and survival semantics are given priority, and People contains `🤖`.
+ - Displayed and submitted by `TextCandidatePicker`.
+ - Not through IME registry, nor through pack manifest.
 4. `builtin-emoji-core`
-   - 小型内置 content baseline font。
-   - 只覆盖当前 324 个精选 emoji 候选集；不得携带用户不能输入的额外 emoji 字形。
-   - 在 registry 阶段进入 content font chain，不从 SD / Flash 读取 `font.bin`。
-- 与 `builtin-symbol-core` 一样不计入 external content supplement 数量预算；中文、日文、韩文等外部内容字体仍必须能够占用自己的 supplement 名额。
+ - Small built-in content baseline font.
+ - Only covers the current set of 324 curated emoji candidates; must not carry additional emoji glyphs that the user cannot enter.
+ - Enter the content font chain in the registry phase and do not read `font.bin` from SD/Flash.
+- Like `builtin-symbol-core`, it is not counted in the external content supplement quantity budget; external content fonts such as Chinese, Japanese, Korean, etc. must still be able to occupy their own supplement quota.
 
-合法依赖方向是：
+The legal dependency direction is:
 
 ```mermaid
 flowchart LR
@@ -590,335 +590,335 @@ flowchart LR
   TextPicker --> TextInsert["UTF-8 text insertion"]
 ```
 
-非法做法：
+Illegal practices:
 
-1. 在聊天页面硬编码另一份 emoji 替换表。
-2. 把 emoji 声明成一个假 locale。
-3. 发布 `emoji-picker` IME pack 或 `emoji-core` Extensions pack。
-4. 解析 `candidates.txt` 来驱动 emoji 输入。
-5. 为了显示 emoji 而把所有 `1Fxxx` 字符映射到同一个内置图标。
-6. 在 UI 热路径同步读取 SD 上的 emoji font。
-7. 内置全量 emoji 表。
-8. 在 Wi-Fi、Chat 或 Settings 页面各自实现符号/emoji picker。
+1. Hardcode another emoji replacement table on the chat page.
+2. Declare emoji as a fake locale.
+3. Release `emoji-picker` IME pack or `emoji-core` Extensions pack.
+4. Parse `candidates.txt` to drive emoji input.
+5. Map all `1Fxxx` characters to the same built-in icon in order to display emoji.
+6. Synchronously read the emoji font on SD in the UI hot path.
+7. Built-in full emoji table.
+8. Implement symbol/emoji picker on Wi-Fi, Chat or Settings pages respectively.
 
-数量边界：
+Quantity boundary:
 
-1. 固件最多内置 100 个 Symbol 候选；Emoji 目录当前精确为 324 项、9 类。改变 Emoji 总数必须同步更新 manifest 的 `expected_total`、C++ 容量常量、生成字库与本规格。
-2. 对应内置字体只能覆盖这两组候选；候选集缩小后字体也必须同步缩小。
-3. 候选面板最多创建 40 个可复用按钮，不能随着目录大小线性增加 LVGL 控件或 UI heap 占用。
-4. Emoji 选择原则是高频、通用、跨语言语义稳定，并优先覆盖户外、无线电、生存、救援、人员与动物交流。
-5. 如果未来要扩展到全量 emoji 或大型符号表，必须另立新规格；不得悄悄扩大当前内置表。
+1. The firmware has a maximum of 100 built-in Symbol candidates; the Emoji directory currently has 324 items and 9 categories. Changing the total number of Emoji must simultaneously update the `expected_total` of the manifest, the C++ capacity constant, the generated font library and this specification.
+2. The corresponding built-in font can only cover these two sets of candidates; after the candidate set is reduced, the font must also be reduced simultaneously.
+3. The candidate panel can create up to 40 reusable buttons, and the LVGL control or UI heap occupation cannot increase linearly with the directory size.
+4. The Emoji selection principle is high frequency, universal, cross-language semantic stability, and priority is given to covering outdoor, radio, survival, rescue, and human and animal communication.
+5. If you want to expand to the full emoji or large symbol table in the future, you must establish new specifications; you must not quietly expand the current built-in table.
 
-Glyph 判定边界：
+Glyph decision boundary:
 
-1. Font registry 的 coverage 和 missing-glyph 判定必须忽略 Unicode variation selector（例如 U+FE0F）与 ZWJ（U+200D）。
-2. 这些 codepoint 只改变组合字符的显示形式，本身不要求字体提供独立 glyph。
-3. Emoji manifest 生成器与 content font resolver 必须使用一致规则；否则已生成的候选字库、聊天、地图或联系人内容会对相同 emoji 作出不一致的缺字判断。
+1. Font registry's coverage and missing-glyph decisions must ignore Unicode variation selector (such as U+FE0F) and ZWJ (U+200D).
+2. These codepoints only change the display form of combined characters and do not require the font to provide an independent glyph.
+3. The Emoji manifest generator and content font resolver must use consistent rules; otherwise, the generated candidate font, chat, map or contact content will make inconsistent missing word judgments for the same emoji.
 
 ### 4.6 Persistence Contract
 
-当前 locale 的持久化 key 是：
+The persistence key of the current locale is:
 
-1. namespace：`settings`
-2. key：`display_locale`
-3. value：locale id string
+1. namespace:`settings`
+2. key:`display_locale`
+3. value:locale id string
 
-`display_language` 只是历史迁移键，只允许用于一次性迁移，不得再作为现行设计继续扩展。
+`display_language` is only a historical migration key and is only allowed to be used for one-time migration and cannot be extended as the current design.
 
 ### 4.7 Discovery Contract
 
-运行时 registry 只扫描“已解包 runtime pack”。
+The runtime registry only scans "unpacked runtime pack".
 
-它不扫描：
+It does not scan:
 
 1. zip
-2. 远程 JSON catalog
-3. 仓库里的 `build.ini`
-4. 构建期 charset 生成元数据
+2. Remote JSON catalog
+3. `build.ini` in the warehouse
+4. charset generated metadata during the build period
 
-如果一个 pack 只存在于网站 zip 中、还没解到运行时目录，那它对运行时来说就是不存在。
+If a pack only exists in the website zip and has not been extracted to the runtime directory, then it does not exist for the runtime.
 
 ### 4.8 Installation Contract
 
-安装器层与运行时层必须分离。
+The installer layer and runtime layer must be separated.
 
-安装器负责：
+The installer is responsible for:
 
-1. 拉取 catalog
-2. 下载 zip
-3. 校验 SHA-256
-4. 解压 `payload/`
-5. 更新 installed index
-6. 触发 `reload_language()`
+1. Pull catalog
+2. Download zip
+3. Verify SHA-256
+4. Unzip `payload/`
+5. Update installed index
+6. Trigger `reload_language()`
 
-运行时负责：
+The runtime is responsible for:
 
-1. 重新扫描可用 pack
-2. 解析 manifest / strings / ranges
-3. 重新选择 active locale
-4. 按需加载字体
+1. Rescan available packs
+2. Parse manifest / strings / ranges
+3. Re-select active locale
+4. Load fonts on demand
 
-当前 Arduino/ESP32 安装器把下载得到的 payload 解到当前平台定义的 pack root。
-运行时会同时编目当前支持的 Flash/SD 根，因此手工把 runtime payload 拷贝到任一受支持根仍然是合法安装方式。
+The current Arduino/ESP32 installer unpacks the downloaded payload to the pack root defined by the current platform.
+The runtime will catalog the currently supported Flash/SD roots at the same time, so manually copying the runtime payload to any supported root is still a legal installation method.
 
-禁止让运行时 registry 直接承担网络下载或 zip 解释职责。
+It is forbidden to let the runtime registry directly bear the responsibility of network download or zip interpretation.
 
 ### 4.9 Failure And Fallback Contract
 
-本地化失败时必须退回到可解释状态，而不是把系统带入半失效状态。
+When localization fails, it must return to an interpretable state instead of bringing the system into a semi-failure state.
 
-当前允许的失败行为包括：
+The currently allowed failure behaviors include:
 
-1. locale 缺少依赖 font pack
-   - 跳过该 locale
-2. locale 缺少依赖 IME pack
-   - 跳过该 locale
-3. 当前设备 memory profile 无法承受 locale 成本
-   - 跳过该 locale
-4. 持久化的 locale id 不再可解析
-   - 回退到 `en`
-5. 某个 content supplement 无法加载
-   - 页面继续存活
-   - 个别文字可出现缺字
+1. The locale is missing the dependency font pack
+ - skip the locale
+2. The locale is missing the dependency IME pack
+ - skip the locale
+3. The current device memory profile cannot bear the locale cost
+ - skip the locale
+4. The persistent locale id is no longer resolvable
+ - Fall back to `en`
+5. A certain content supplement cannot be loaded
+ - The page continues to survive
+ - Some text may have missing characters
 
-禁止因为一个外部包损坏而让整个 UI 失去最小英语可用能力。
+It is forbidden to cause the entire UI to lose the minimum available English capability due to a corrupted external package.
 
 ---
 
 ## 5. Versioning And Compatibility Contract
 
-### 5.1 Firmware Version 与 Package Version 必须分离
+### 5.1 Firmware Version and Package Version must be separated
 
-固件版本与语言包版本不是同一个版本号体系。
+The firmware version and the language pack version are not in the same version number system.
 
-它们的职责不同：
+Their responsibilities are different:
 
-1. 固件版本
-   - 描述运行时代码能力
+1. Firmware version
+ - Describes runtime code capabilities
 2. package version
-   - 描述 bundle 载荷与元数据版本
+ - Describe bundle payload and metadata version
 
-不能因为固件升级一次，就机械把所有语言包 version 同步改掉。
-也不能因为语言包换了翻译文本，就伪造一次固件版本升级。
+You cannot mechanically change all language pack versions just because the firmware is upgraded once.
+You cannot fake a firmware version upgrade just because the language pack has changed the translation text.
 
-### 5.2 `min_firmware_version` 的语义
+### 5.2 The semantics of `min_firmware_version`
 
-`min_firmware_version` 是下界，不是“必须完全相等”的绑定版本。
+`min_firmware_version` is a lower bound, not a "must be exactly equal" binding version.
 
-它表示：
+It means:
 
-1. 低于这个固件版本，当前 bundle 语义可能无法被正确理解
-2. 高于或等于这个版本，可以认为运行时至少理解这份 bundle 契约
+1. Lower than this firmware version, the current bundle semantics may not be understood correctly
+2. Higher than or equal to this version, it can be considered that the runtime at least understands this bundle contract
 
-它不表示：
+It does not mean:
 
-1. 这个 bundle 只能给某一个固件版本使用
-2. 每次小翻译更新都必须改 `min_firmware_version`
+1. This bundle can only be used for a certain firmware version
+2. Every small translation update must be changed `min_firmware_version`
 
-### 5.3 `supported_memory_profiles` 的语义
+### 5.3 Semantics of `supported_memory_profiles`
 
-`supported_memory_profiles` 描述的是设备能力兼容边界，不是语言偏好。
+`supported_memory_profiles` describes device capability compatibility boundaries, not language preferences.
 
-它影响：
+It affects:
 
-1. Extensions 页展示是否兼容
-2. 某设备是否应被允许安装/更新该 bundle
+1. Whether the Extensions page shows compatibility
+2. Whether a device should be allowed to install/update the bundle
 
-它不能被拿来表达：
+It cannot be used to express:
 
-1. 用户喜欢哪种语言
-2. 当前 locale 是否被激活
+1. Which language the user prefers
+2. Whether the current locale is activated
 
-### 5.4 更新判定
+### 5.4 Update determination
 
-当前“是否有更新”以 package record 为单位判定，至少比较：
+The current "whether there is an update" is determined in package record units, at least compared to:
 
 1. version
 2. archive SHA-256
 
-因此，哪怕 version 不变，只要 archive 内容变了，也可能被视为不同包。
+Therefore, even if the version remains unchanged, as long as the archive content changes, it may be regarded as a different package.
 
-这意味着偷偷改 zip 内容而不更新包版本，是危险的发布行为。
+This means that secretly changing the zip content without updating the package version is a dangerous publishing behavior.
 
-### 5.5 兼容性 gating 的归属
+### 5.5 Compatibility gating attribution
 
-兼容性 gating 当前属于“安装/发现层”的职责，主要体现在 catalog 解析和 Extensions UI。
+Compatibility gating currently belongs to the "installation/discovery layer" responsibilities, mainly reflected in catalog parsing and Extensions UI.
 
-但运行时仍必须对手工拷贝到 Flash/SD 的 payload 保持鲁棒：
+But the runtime must still be robust to payloads manually copied to Flash/SD:
 
-1. 不兼容 pack 可以被发现
-2. 依赖不满足时可以跳过
-3. 系统仍需回退到 English 基线
+1. Incompatible packs can be found
+2. Can be skipped when dependencies are not met
+3. The system still needs to fall back to the English baseline
 
-禁止把系统安全性完全建立在“用户一定只会通过 Extensions 正规安装”这个假设上。
+It is forbidden to completely base system security on "the user will only pass On the assumption that Extensions are properly installed".
 
-### 5.6 语言包版本必须表达用户可见变化
+### 5.6 The language pack version must express user-visible changes
 
-语言包版本不是装饰字段。只要用户安装后看到的文字、可用 locale、可用 IME、字体覆盖或质量状态发生变化，就必须 bump package version。
+The language pack version is not a decorative field. You must bump the package version whenever there is a change in the text, available locales, available IMEs, font overlays, or quality status that users see after installation.
 
-最低要求：
+Minimum requirements:
 
-1. 只修正少量错别字或补少量漏翻
-   - bump patch，例如 `1.0.0 -> 1.0.1`。
-2. 大量补齐字符串、改写地区用语、改变 `translation_status`、移除假 IME、改变默认输入法依赖
-   - bump minor，例如 `1.0.0 -> 1.1.0`。
-3. 改变 payload 布局或 manifest 语义，导致旧运行时可能错误理解
-   - bump `min_firmware_version`，并视情况 bump minor 或 major。
+1. Only correct a few typos or fill in a few missing translations
+ - bump patch, such as `1.0.0 -> 1.0.1`.
+2. Complete a large number of strings, rewrite regional terms, change `translation_status`, remove fake IME, and change the default input method dependency
+ - bump minor, for example `1.0.0 -> 1.1.0`.
+3. Change the payload layout or manifest semantics, which may cause misunderstanding in old runtimes
+ - bump `min_firmware_version`, and bump minor or major as appropriate.
 
-发布语言包更新时必须同时重建：
+When publishing a language pack update, it must be rebuilt at the same time:
 
-1. zip archive。
-2. `site/data/packs.json`。
-3. archive SHA-256。
-4. installed/update comparison 所需的 package metadata。
+1. zip archive.
+2. `site/data/packs.json`.
+3. archive SHA-256.
+4. Package metadata required for installed/update comparison.
 
-否则用户看不到更新，或者看到更新却无法解释更新内容。
+Otherwise, users will not be able to see the update, or they will see the update but cannot explain the update content.
 
 ---
 
 ## 6. Change Classification
 
-### 6.1 固件改动但通常不要求语言包跟随变化
+### 6.1 Firmware changes but usually do not require language packs to follow the changes
 
-以下改动通常不要求语言包更新：
+The following changes usually do not require language pack updates:
 
-1. 纯逻辑修复，不引入新的用户可见文本
-2. 不改变 manifest schema 的运行时重构
-3. 不改变翻译 key 的内部实现优化
-4. 不改变字体需求的布局调整
+1. Pure logic fixes, no new user-visible text is introduced
+2. Runtime refactoring that does not change the manifest schema
+3. Does not change the translation key Internal implementation optimization
+4. Layout adjustment without changing font requirements
 
-### 6.2 固件改动后通常要求更新语言包字符串
+### 6.2 Firmware changes usually require updating language pack strings
 
-以下改动通常要求至少更新一个或多个 locale pack：
+The following changes usually require at least updating one or more locale packs:
 
-1. 新增用户可见英文源串
-2. 删除旧源串并引入新源串
-3. 修改旧英文源串文本
-4. 修改 format string 参数结构
-5. 修改带转义字符的字符串结构，例如 `\n`
+1. Add user-visible English source strings
+2. Delete old source strings and introduce new source strings
+3. Modify old English source string text
+4. Modify format string parameter structure
+5. Modify the string structure with escaped characters, such as `\n`
 
-### 6.3 固件改动后可能要求更新字体包
+### 6.3 After firmware changes, the font pack may be required to be updated
 
-以下改动不仅可能改 `strings.tsv`，还可能要求重建 font pack：
+The following changes may not only change `strings.tsv`, but may also require rebuilding the font pack:
 
-1. 新翻译文本引入当前字体未覆盖的新字形
-2. `native_name` 改动引入新字形
-3. 新 IME 字典或候选字集引入新字形
-4. 新增 locale/self-name/设置项文本导致 charset 扩展
+1. Newly translated text introduces new glyphs that are not covered by the current font
+2. `native_name` changes introduce new glyphs
+3. New IME dictionaries or candidate fonts introduce new glyphs
+4. Adding locale/self-name/setting item text leads to charset expansion
 
-一旦字形覆盖变化，至少要同步处理：
+Once the glyph coverage changes, at least it must be processed synchronously:
 
 1. `charset.txt`
 2. `ranges.txt`
 3. `font.bin`
 4. `estimated_ram_bytes`
 
-### 6.4 固件改动后必须提高 `min_firmware_version`
+### 6.4 `min_firmware_version` must be increased after firmware changes
 
-以下改动属于 bundle 契约变化，必须考虑提高 `min_firmware_version`：
+The following changes are bundle contract changes and must be considered for improvement `min_firmware_version`:
 
-1. manifest schema 新增运行时必需字段
-2. 现有 manifest 字段语义改变
-3. runtime 对 bundle 布局的期望发生变化
-4. catalog / archive / installed index 语义发生不兼容变化
-5. locale/font/IME 依赖规则发生不兼容变化
+1. Manifest schema adds new runtime required fields
+2. Changes in semantics of existing manifest fields
+3. The runtime's expectations for bundle layout change
+4. The semantics of catalog / archive / installed index change incompatibly
+5. The dependency rules of locale/font/IME change incompatibly
 
-### 6.5 只改语言包也必须 bump package version
+### 6.5 You must bump package version even if you only change the language package
 
-以下情况即使不改固件，也应 bump package version：
+Even if you do not change the firmware, you should bump the package version in the following cases version:
 
-1. `strings.tsv` 变化
-2. `manifest.ini` 变化
-3. `ranges.txt` 变化
-4. `font.bin` 变化
-5. `package.ini` 中影响安装或兼容性的字段变化
+1. `strings.tsv` changes
+2. Changes in `manifest.ini`
+3. Changes in `ranges.txt`
+4. Changes in `font.bin`
+5. Changes in fields in `package.ini` that affect installation or compatibility
 
-否则 installed index 与 update check 将失去解释力。
+Otherwise, installed index and update check will lose their explanatory power.
 
 ---
 
 ## 7. Release Obligations
 
-### 7.1 固件改动合入前必须回答的问题
+### 7.1 Questions that must be answered before firmware changes are integrated
 
-1. 这次是否新增了用户可见英文源串？
-2. 这次是否改动了现有英文 key？
-3. 这次是否改变了 format string 结构？
-4. 这次是否引入了新字形需求？
-5. 这次是否改变了 manifest / package / catalog 契约？
+1. Is a new user-visible English source string added this time?
+2. Has the existing English key been changed this time?
+3. Has the format string structure been changed this time?
+4. Are new glyph requirements introduced this time?
+5. Has the manifest / package / catalog contract been changed this time?
 
-只要上述任一答案为“是”，就不能只提交固件代码而不审视语言包。
+As long as the answer to any of the above is "yes", you cannot submit the firmware code without reviewing the language pack.
 
-### 7.2 语言包发布前必须回答的问题
+### 7.2 Questions that must be answered before language pack release
 
-1. `package version` 是否已反映 payload 变化？
-2. 如有契约变化，`min_firmware_version` 是否已提高？
-3. `font.bin` 是否与 `charset.txt` / `ranges.txt` / manifest 保持一致？
-4. `estimated_ram_bytes` 是否仍真实反映生成结果？
-5. `site/data/packs.json` 与 zip 产物是否已重建？
-6. `translation_status` 是否符合真实质量？
-7. release 包是否已经通过空值、缺 key、重复 key、占位符一致性检查？
-8. release 包是否已经清除英文补偿项？
-9. 该 locale 的地区用语是否经过明确审查？
-10. 该 locale 的 IME 依赖是否真实可用，而不是占位后端？
+1. Has the `package version` reflected the payload changes?
+2. If there is a contract change, has `min_firmware_version` been increased?
+3. Is `font.bin` consistent with `charset.txt` / `ranges.txt` / manifest?
+4. Does `estimated_ram_bytes` still truly reflect the generated results?
+5. Have `site/data/packs.json` and zip products been rebuilt?
+6. Does `translation_status` match the real quality?
+7. Has the release package passed the consistency check for null values, missing keys, duplicate keys, and placeholders?
+8. Has the English compensation item been cleared in the release package?
+9. Have the locale's regional terms been explicitly reviewed?
+10. Is the locale's IME dependency actually available and not a placeholder backend?
 
-### 7.3 新 locale 合入前必须满足的最小条件
+### 7.3 Minimum conditions that must be met before the new locale can be merged
 
-1. English 基线不被破坏。
-2. locale manifest 依赖完整。
-3. 对应 font pack 的 RAM 成本可被当前目标 memory profile 解释。
-4. 运行时目录布局、分发包布局、catalog 元数据三者一致。
-5. 手工安装与 Extensions 安装都不会把系统带离 English 回退能力。
-6. 默认 `translation_status` 不得伪装成 release；未审校语言必须先进入 `review` 或 `draft`。
-7. 输入法要么真实可用，要么不写进 locale manifest。
-8. 如果 locale 是地区敏感语言，例如繁体中文或葡萄牙语，必须明确地区语境。
+1. English baseline is not destroyed.
+2. The locale manifest dependency is complete.
+3. The RAM cost corresponding to the font pack can be explained by the current target memory profile.
+4. The runtime directory layout, distribution package layout, and catalog metadata are consistent.
+5. Neither manual installation nor Extensions installation will take the system out of the English fallback capability.
+6. The default `translation_status` must not be disguised as release; unreviewed languages ​​must first enter `review` or `draft`.
+7. The input method is either actually available or not included in the locale manifest.
+8. If the locale is a region-sensitive language, such as Traditional Chinese or Portuguese, the regional context must be clear.
 
 ---
 
 ## 8. Prohibited Implementations
 
-以下实现方式在本规格下明确禁止：
+The following implementations are expressly prohibited under this specification:
 
-1. 继续引入新的整数语言枚举作为主持久化键。
-2. 页面直接绕过 `ui::i18n` 写死另一套翻译逻辑。
-3. 通过“检测到非 ASCII 就随便切某个字体”来替代 locale/font chain。
-4. 把 zip 当运行时 pack 根目录。
-5. 改了英文源串却不把它当成 key 变化处理。
-6. 改了翻译文本所需字形，却不重建相关字体包。
-7. 改了 bundle payload，却不 bump package version。
-8. 改了 bundle 契约，却不调整 `min_firmware_version`。
-9. 让不兼容或损坏的 pack 破坏 English 最小基线。
-10. 用机器翻译或繁简转换结果直接发布 release 包。
-11. 在没有真实后端时发布 IME manifest 或 locale `ime_pack` 依赖。
-12. 给台湾繁中默认启用拼音输入法。
-13. release 语言包中保留大面积英文补偿项。
+1. Continue to introduce new integer language enumerations as primary persistence keys.
+2. The page directly bypasses `ui::i18n` and writes another set of translation logic.
+3. Replace the locale/font chain by "cutting a font if non-ASCII is detected".
+4. Use zip as the pack root directory when running.
+5. The English source string is changed but it is not treated as a key change.
+6. The font required for translated text is changed, but the related font package is not rebuilt.
+7. The bundle payload is changed, but the package version is not bumped.
+8. Changed the bundle contract but did not adjust `min_firmware_version`.
+9. Let incompatible or broken packs break the English minimum baseline.
+10. Use machine translation or traditional to simplified conversion results to directly publish the release package.
+11. Publish IME manifest or locale `ime_pack` dependency when there is no real backend.
+12. Enable Pinyin input method for Taiwan Traditional Chinese by default.
+13. A large area of ​​English compensation items are retained in the release language pack.
 
 ---
 
 ## 9. Relationship To Other Documents
 
-本文件是规范性文档。
+This document is a normative document.
 
-如果与其他文档冲突，优先级如下：
+If it conflicts with other documents, the priority is as follows:
 
 1. `docs/specification/RUNTIME_OWNERSHIP_BOUNDARY_FREEZE.md`
 2. `docs/specification/LOCALIZATION_SPEC.md`
 3. `docs/specification/LOCALE_PACK_RELEASE_SPEC.md`
 4. `docs/LOCALE_PACKS.md`
-5. 各 `packs/<bundle-id>/README.md`
+5. Each `packs/<bundle-id>/README.md`
 6. `docs/ui_localization_plan.md`
 
-其中：
+Among them:
 
 1. `docs/LOCALE_PACKS.md`
-   - 负责解释 pack 机制、布局和字段
+ - Responsible for explaining pack mechanism, layout and fields
 2. `docs/specification/LOCALE_PACK_RELEASE_SPEC.md`
-   - 负责解释打包、发布、版本、catalog、archive 与更新可见性
+ - Responsible for explaining packaging, release, version, catalog, archive and update visibility
 3. `docs/ui_localization_plan.md`
-   - 仅保留历史演进价值，不再作为当前设计依据
+ - Only historical evolution value is retained and no longer used as the basis for current design
 
 ---
 
 ## 10. One-Sentence Baseline
 
-Trail Mate 的本地化不是“固件里几条翻译表”，而是“以 English key 为稳定接口、以 locale/font/IME pack 为显式依赖、以安装层与运行时层分离为前提、并允许固件与语言包独立演进但受兼容契约约束”的完整系统。
+Trail Mate's localization is not "a few translation tables in the firmware", but a complete system that "uses English key as a stable interface, locale/font/IME pack as an explicit dependency, separation of the installation layer and runtime layer as a premise, and allows firmware and language packs to evolve independently but is bound by a compatibility contract."

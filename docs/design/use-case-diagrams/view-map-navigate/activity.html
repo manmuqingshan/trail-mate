@@ -1,7 +1,7 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：离线态势</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed"><h1>离线态势组装</h1><pre class="mermaid">flowchart TD
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Activity: Offline situation</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed"><h1>Offline situation assembly</h1><pre class="mermaid">flowchart TD
 Viewport --> Fix{"trusted fix?"}
-Fix -- 是 --> Center["offer center"]
-Fix -- 否 --> Unknown["last-known/unknown"]
+Fix -- Yes--> Center["offer center"]
+Fix -- No--> Unknown["last-known/unknown"]
 Center --> Tiles
 Unknown --> Tiles
 Tiles --> Overlay["typed overlays"]

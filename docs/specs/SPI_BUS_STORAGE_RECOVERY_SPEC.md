@@ -54,6 +54,23 @@ and copy a partial-sector fragment in bounded static scratch storage; each
 reaches the SdFat driver hook for its physical transaction. USB must not create
 a second resource ID, a callback-sized lease, or a nested coordinator token.
 
+Before `UsbMscStorageSession` transfers SD ownership to the host, the USB
+runtime performs one ordered, reversible control-plane hand-off. It asks the
+Wi-Fi runtime to suspend without changing `wifi.enabled`, rejects a LoRa pause
+already owned by another exclusive feature, pauses the radio/mesh tasks and
+then asks the board to put the radio hardware in standby. It next suspends the
+GPS runtime and disables screen sleep. Only after all of those owners confirm
+quiescence may the application SD owner be released. The USB layer never calls
+an ESP Wi-Fi driver function directly: the Wi-Fi runtime remains the only
+owner of its transport, driver allocation, reconnect timer, and persisted
+configuration.
+
+On every failed preparation stage, and after normal USB exit, completed stages
+are released in reverse order after the application SD owner has been
+reclaimed: screen policy, GPS, LoRa task/RX ownership, then Wi-Fi. A failed
+radio standby therefore cannot strand a paused task, and USB MSC cannot steal
+a pre-existing exclusive radio pause from Walkie, Probe, or a call.
+
 Calls such as open, metadata lookup, directory traversal, and close may still
 be non-interruptible inside the underlying driver. The code must measure their
 holds and avoid claiming a hard scheduler guarantee that cannot be enforced.
@@ -187,6 +204,8 @@ SPI.end() between shared-SPI SD fallback attempts
 unfenced display-CS manipulation during runtime mount/recovery
 SD logical session held across parsing or UI work
 USB MSC callback held across several raw SD sectors or its memory copies
+USB layer directly starting, stopping, or persisting the Wi-Fi runtime
+USB MSC stealing an existing exclusive LoRa task pause
 SD fallback status represented as measured card throughput
 board-local recovery mutex around generic shared-SPI mount
 ```

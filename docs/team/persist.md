@@ -1,114 +1,114 @@
-﻿﻿﻿﻿﻿﻿# Pager Team Core｜SD-only 持久化方案（完整版）
+﻿﻿﻿﻿# Pager Team Core｜SD-only persistence solution (full version)
 
-## 0. 目标与三条原则
+## 0. Goals and three principles
 
-### 目标
+### Goal
 
-* **简单**：文件少、格式少、逻辑少
-* **可信**：断电可恢复、日志不会写坏全局
-* **资源消耗低**：避免高频随机写；控制日志增长
+* **Simple**: fewer files, less formats, less logic
+* **Trusted**: recoverable after power outage, logs will not damage the overall situation
+* **Low resource consumption**: avoid high-frequency random writes; control log growth
 
-### 核心原则
+### Core principles
 
-* **SD-only**（不磨损 flash）
-* **append-only**（日志只追加，不回写不 seek）
-* **无每条 CRC**：靠 `magic + len` 判定完整记录；**尾巴不完整直接丢弃**
-* **“意图 vs 事实”分离**：UI 触发 **Intent**；落盘写入 **Committed Fact**
+* **SD-only** (no flash wear)
+* **append-only** (log only appends, no writing back, no seek)
+* **No CRC** for each record**: rely on `magic + len` to determine complete records; **Incomplete tails are discarded**
+* **Separation of "intention vs fact"**: UI trigger **Intent**; write to disk **Committed Fact**
 
 ---
 
-## 1. 目录结构（定稿）
+## 1. Directory structure (finalized)
 
 ```text
 /team/
-  current.txt                 # 当前队伍目录名，一行文本
-  current.tmp                 # 原子写临时文件
-  T_A7K3/                      # team_id 的短码/hash（稳定目录名）
-    keys.bin                  # 当前 team_psk（可选，单独持久化）
-    snapshot.bin              # 当前世界快照（低频原子写）
-    snapshot.tmp              # 原子写临时文件
-    events.log                # 关键事件日志（追加写，sync 依据）
-    posring.log               # 位置 ring（固定大小，覆盖最旧）
-    chatlog.log               # 聊天日志（滚动上限）
+ current.txt # Current team directory name, one line of text
+ current.tmp # Atomic writing of temporary files
+ T_A7K3/ # Shortcode/hash of team_id (stable directory name)
+ keys.bin # Current team_psk (optional, separate persistence)
+ snapshot.bin # Current world snapshot (low-frequency atomic writing)
+ snapshot.tmp # Atomic writing temporary file
+ events.log # Key event log (append writing, sync basis)
+ posring.log # Position ring (fixed size, covering the oldest)
+ chatlog.log # Chat log (rolling upper limit)
 ```
 
-### current.txt 格式
+### current.txt format
 
-* 内容示例：`T_A7K3\n`
-* 原子写：写 `current.tmp` → flush → rename 覆盖 `current.txt`
+* Content example: `T_A7K3\n`
+* Atomic write: write `current.tmp` → flush → rename overwrite `current.txt`
 
 ---
 
-## 2. 数据模型分层（必须坚持的边界）
+## 2. Data model layering (boundaries that must be adhered to)
 
-### 2.1 关键事件（Key Events）
+### 2.1 Key Events
 
-**改变团队结构 / epoch / waypoint 的事实**，必须：
+**The fact of changing the team structure / epoch / waypoint**, must:
 
-* 写入 `events.log`
-* 带 `event_seq`（单调递增）
-* 作为 SYNC 的依据
+* Write to `events.log`
+* With `event_seq` (monotonically increasing)
+* as the basis for SYNC
 
-**必须写入**的关键事件类型：
+**The key event type that must be written**:
 
 * `TeamCreated`
 * `MemberAccepted`
 * `MemberKicked`
 * `LeaderTransferred`
 * `EpochRotated`
-  （Waypoint 可选，后续加同样走 key event）
+ (Waypoint is optional, the same key event will be added later)
 
-### 2.2 高频态势（Non-key）
+### 2.2 High-frequency situation (Non-key)
 
-* Presence：心跳/在线状态（不落盘）
-* Position：落 `posring.log`（ring + 节流）
-* Chat：落 `chatlog.log`（滚动上限）
+* Presence: heartbeat/online status (not dropped)
+* Position: dropped `posring.log` (ring + Throttle)
+* Chat: drop `chatlog.log` (rolling upper limit)
 
-> 关键事件 = “世界规则变化”；位置/聊天 = “现场噪声与记录”。
-
----
-
-## 3. event_seq：权威来源与落盘规则（答疑合并）
-
-### 3.1 event_seq 谁维护？
-
-✅ **Leader 维护并分配 event_seq**（推荐在 TeamCore/Usecase 层维护；TeamService 保持 IO 职责）
-
-* Leader 产生 key event 时：`event_seq = last_event_seq + 1`
-* Member 只接受带 seq 的 key event，并校验连续性
-
-### 3.2 UI 触发还是接收后落盘？
-
-✅ **两者都有，但落盘只能写“已提交事实（Committed Fact）”**
-
-* UI 触发的是 **Intent**（踢人/转让/轮换等请求）
-* 只有当 Leader / Member **确认提交**后，才写入 `events.log`
-
-具体：
-
-* **Leader**：UI Intent → 校验权限/状态 → Commit（分配 seq）→ append events.log → apply 内存状态 → 发送消息（失败靠后续 SYNC 修复）
-* **Member**：收到 leader 的 key event → 校验 team_id/epoch/权限/seq 连续性 → append events.log → apply
-
-> 避免出现“UI 点了但网络没发出去/没人承认，日志却写死了”的分裂。
+> Key Event = "World Rules Change"; Location/Chat = "Live Noise and Recording".
 
 ---
 
-## 4. 文件格式（team_id 统一 8 字节，无 CRC）
+## 3. event_seq: Authoritative source and placement rules (Q&A merged)
 
-通用约定：Little-endian、紧凑写、不依赖 struct padding。
+### 3.1 Who maintains event_seq?
+
+✅ **Leader maintains and allocates event_seq** (recommended to be maintained at the TeamCore/Usecase layer; TeamService maintains IO responsibilities)
+
+* When Leader generates key event: `event_seq = last_event_seq + 1`
+* Member only accepts keys with seq event, and verify continuity
+
+### 3.2 Is the UI triggered or placed after receiving?
+
+✅ **Both are available, but the order can only be written as "Committed Fact"**
+
+* The UI triggers the **Intent** (requests for kicking/transfer/rotation, etc.)
+* It is only written when the Leader / Member **confirms the submission** `events.log`
+
+Specific:
+
+* **Leader**: UI Intent → Verify permissions/status → Commit (allocate seq) → append events.log → apply memory status → send message (failure is repaired by subsequent SYNC)
+* **Member**: Receive the leader's key event → Verify team_id/epoch/permission/seq continuity → append events.log → apply
+
+> Avoid the split of "UI clicked but the network did not send out/No one acknowledged it, but the log was written to death".
+
+---
+
+## 4. File format (team_id is unified 8 bytes, no CRC)
+
+General convention: Little-endian, compact writing, does not rely on struct padding.
 
 ---
 
 ### 4.1 TeamId
 
-* `team_id`：`uint64_t`（8 bytes）
-* 目录名建议：`T_` + base32(team_id)（或短 hash），保证 FAT 兼容
+* `team_id`:`uint64_t`(8 bytes)
+* Directory name suggestion: `T_` + base32(team_id) (or short hash) to ensure FAT compatibility
 
 ---
 
-### 4.2 snapshot.bin（当前世界快照）
+### 4.2 snapshot.bin (current world snapshot)
 
-#### Header（固定）
+#### Header (fixed)
 
 ```c
 SnapshotHeaderV1 {
@@ -117,10 +117,10 @@ SnapshotHeaderV1 {
   uint8  flags;                 // bit0: in_team
   uint16 reserved;
 
-  uint32 updated_ts;            // 写快照时间（秒）
+  uint32 updated_ts;            // Write snapshot time (seconds)
   uint64 team_id;               // 8B
-  uint32 epoch;                 // 当前 epoch
-  uint32 last_event_seq;        // 已应用到的最后 seq
+  uint32 epoch;                 // Current epoch
+  uint32 last_event_seq;        // The last seq applied to it
 
   uint32 self_node_id;
   uint32 leader_node_id;
@@ -133,32 +133,32 @@ SnapshotHeaderV1 {
 }
 ```
 
-#### 成员表（重复 member_count 次，变长）
+#### member table (repeat member_count times, variable length)
 
 ```c
 MemberRecV1 {
   uint32 node_id;
   uint8  role;                  // 1 Member, 2 Leader
   uint8  flags;                 // bit0: has_name
-  uint16 name_len;              // 建议 <= 24
+  uint16 name_len;              // Recommendation <= 24
   char   name[name_len];        // UTF-8
 }
 ```
 
-#### 原子写
+#### Atomic write
 
-写 `snapshot.tmp` → flush → rename 覆盖 `snapshot.bin`
+Write `snapshot.tmp` → flush → rename overwrite `snapshot.bin`
 
-#### 写入节流（低消耗）
+#### Write throttling (low consumption)
 
-* 每 **10 条** key event 或 **60 秒**写一次（取先到）
-* epoch rotate / kick / transfer / join 成功 / 离队：**强制写一次**
+* Write once every **10** key events or **60 seconds** (whichever comes first)
+* epoch rotate / kick / transfer / join success / leave the team: **Force write once**
 
 ---
 
-### 4.3 events.log（关键事件日志：真相源 + SYNC 依据）
+### 4.3 events.log (key event log: truth source + SYNC basis)
 
-#### Record header（固定）
+#### Record header (fixed)
 
 ```c
 EventRecHeaderV1 {
@@ -166,8 +166,8 @@ EventRecHeaderV1 {
   uint8  version  = 1;
   uint8  type;                  // KeyEventType
 
-  uint32 event_seq;             // 单调递增
-  uint32 ts;                    // 秒
+  uint32 event_seq;             // Monotonically increasing
+  uint32 ts;                    // seconds
 
   uint16 payload_len;
   uint16 reserved;
@@ -175,14 +175,14 @@ EventRecHeaderV1 {
 payload[payload_len]
 ```
 
-#### 无 CRC 的可信规则
+#### Trusted rule without CRC
 
-扫描时若：
+When scanning, if:
 
-* magic/version 不匹配 → 停止（最简单策略）
-* 文件剩余长度 < header + payload_len → 停止（尾部半条丢弃）
+* magic/version does not match → stop (simplest strategy)
+* Remaining length of file < header + payload_len → Stop (the last half is discarded)
 
-因为只 append，停止点之前的数据可信。
+Because only append is performed, the data before the stop point is credible.
 
 #### KeyEventType
 
@@ -192,21 +192,21 @@ payload[payload_len]
 * `4 LeaderTransferred`
 * `5 EpochRotated`
 
-#### Payload 定义
+#### Payload definition
 
 **TeamCreated**
 
 ```c
 uint64 team_id
 uint32 leader_node_id
-uint32 epoch          // 初始 1
+uint32 epoch          // Initial 1
 ```
 
 **MemberAccepted**
 
 ```c
 uint32 member_node_id
-uint8  role           // 默认 1 Member
+uint8  role           // Default 1 Member
 uint8  reserved[3]
 ```
 
@@ -228,16 +228,16 @@ uint32 new_leader_node_id
 uint32 new_epoch
 ```
 
-> payload 尽量固定字段、少字符串：更省空间，更低 IO。
+> Payload should try to have fixed fields and fewer strings: more space and lower IO.
 
 ---
 
-### 4.3.1 keys.bin（team_psk 独立持久化，避免重启后 keys 未就绪）
+### 4.3.1 keys.bin (team_psk is persisted independently to avoid keys not being ready after restart)
 
-> snapshot 不保存密钥，密钥单独落盘。  
-> 仅保存当前生效的 team_psk + key_id（epoch），不做历史。
+> The snapshot does not save the key, and the key is saved separately.
+> Only save the currently effective team_psk + key_id (epoch), without making history.
 
-#### 格式（固定）
+#### Format (fixed)
 
 ```c
 TeamKeysFileV1 {
@@ -252,15 +252,15 @@ TeamKeysFileV1 {
 }
 ```
 
-#### 原子写
+#### Atomic write
 
-写 `keys.tmp` → flush → rename 覆盖 `keys.bin`
+Write `keys.tmp` → flush → rename overwrite `keys.bin`
 
 ---
 
-### 4.4 posring.log（位置 ring，高频但节流）
+### 4.4 posring.log (position ring, high frequency but throttling)
 
-#### Header（固定）
+#### Header (fixed)
 
 ```c
 PosRingHeaderV1 {
@@ -268,15 +268,15 @@ PosRingHeaderV1 {
   uint8  version  = 1;
   uint8  reserved1[3];
 
-  uint32 data_capacity;         // data 区大小（固定）
-  uint32 write_offset;          // 下一条写入位置
-  uint32 rec_size;              // 固定 = sizeof(PosRecV1)
+  uint32 data_capacity;         // Data area size (fixed)
+  uint32 write_offset;          // Next write position
+  uint32 rec_size;              // Fixed = sizeof(PosRecV1)
   uint32 reserved2;
 }
 data[data_capacity]
 ```
 
-#### Record（固定）
+#### Record (fixed)
 
 ```c
 PosRecV1 {
@@ -294,16 +294,16 @@ PosRecV1 {
 }
 ```
 
-#### 写入节流（必须）
+#### Write throttling (required)
 
-* 每成员 15–30 秒最多写一条，或位移 > 20m 才写
-* ring 满了覆盖最旧，文件大小恒定
+* Each member can write at most one message every 15-30 seconds, or the displacement is > 20m.
+* When the ring is full, it covers the oldest one, and the file size is constant
 
 ---
 
-### 4.5 chatlog.log（聊天追加写 + 上限滚动）
+### 4.5 chatlog.log (chat append writing + Upper limit rolling)
 
-#### Record（变长）
+#### Record (variable length)
 
 ```c
 ChatRecHeaderV1 {
@@ -320,10 +320,10 @@ ChatRecHeaderV1 {
 text[text_len]                  // UTF-8
 ```
 
-#### Team chat 记录格式（V2，对应 `TEAM_CHAT_APP`）
+#### Team chat record format (V2, corresponding to `TEAM_CHAT_APP`)
 
-当收到 `TeamChat` 负载并完成解码后，按 V2 结构追加写入 `chatlog.log`。
-相比 V1，V2 在记录头中额外保存消息类型，便于统一回放文本、位置和指令类消息。
+After receiving the `TeamChat` payload and completing decoding, additionally write `chatlog.log` according to the V2 structure.
+Compared with V1, V2 saves additional message types in the recording header to facilitate unified playback of text, location and instruction messages.
 
 ```c
 ChatRecHeaderV2 {
@@ -343,49 +343,49 @@ ChatRecHeaderV2 {
 payload[payload_len]            // decoded TeamChat payload
 ```
 
-#### 上限策略（简单）
+#### Upper limit policy (simple)
 
-* 上限：**256KB** 或 **1000 条**（二选一）
-* 超限：
+* Upper limit: **256KB** or **1000** (choose one)
+* Over limit:
 
-  * rename `chatlog.log` → `chatlog.old`（可选）
-  * 新建空 `chatlog.log`
+ * rename `chatlog.log` → `chatlog.old` (optional)
+ * Create a new empty `chatlog.log`
 
 ---
 
-## 5. 启动恢复流程（有 current.txt，最快）
+## 5. Start the recovery process (with current.txt, the fastest)
 
-1. 读 `/team/current.txt`
+1. Read `/team/current.txt`
 
-* 不存在/空 → 当前无队伍
+* Does not exist/empty → There is currently no team
 
-2. 打开 `/team/<dir>/snapshot.bin`
+2. Open `/team/<dir>/snapshot.bin`
 
-* 若不存在 → 从空状态开始（但通常 join 后会写一次）
+* If it does not exist → start from the empty state (but usually it will be written once after join)
 
-3. 增量回放 `events.log`
+3. Incremental playback `events.log`
 
-* 从 `snapshot.last_event_seq + 1` 开始顺序扫描应用
-* 遇到尾部不完整 → 停止
+* Start sequential scanning application from `snapshot.last_event_seq + 1`
+* Encounter incomplete tail → stop
 
 4. UI Ready
 
 ---
 
-## 6. SYNC 流程（依赖 event_seq）
+## 6. SYNC process (depends on event_seq)
 
-* Presence（不落盘）携带：`team_id, epoch, last_event_seq`
-* 发现对方 `last_event_seq > my_last_event_seq`：
+* Presence (not placed) carries: `team_id, epoch, last_event_seq`
+* Found the other party `last_event_seq > my_last_event_seq`:
 
-  * 发送 `SYNC_REQ(from_seq = my_last_event_seq + 1)`
-* 对方从 `events.log` 读 seq 范围（最多 N 条）回 `SYNC_RSP`
-* 本地 apply + append（对已存在 seq 可跳过），更新 snapshot
+ * Send `SYNC_REQ(from_seq = my_last_event_seq + 1)`
+* The other party reads the seq range (up to N items) from `events.log` back to `SYNC_RSP`
+* Local apply + append (can skip existing seq), update snapshot
 
 ---
 
-## 7. event_seq + commit 流程（ASCII 状态/时序图）
+## 7. event_seq + commit process (ASCII status/timing diagram)
 
-### 7.1 Leader：UI Intent → Commit → Log → Broadcast
+### 7.1 Leader:UI Intent → Commit → Log → Broadcast
 
 ```text
 UI                         TeamCore/Usecase                 TeamStore(SD)              TeamService(IO)           Mesh
@@ -406,7 +406,7 @@ UI                         TeamCore/Usecase                 TeamStore(SD)       
  |                               |        later Status/SYNC will repair delivery              |                    |
 ```
 
-### 7.2 Member：RX KeyEvent → Verify seq → Log → Apply（缺 seq 触发 SYNC）
+### 7.2 Member: RX KeyEvent → Verify seq → Log → Apply (missing seq triggers SYNC)
 
 ```text
 Mesh                 TeamService(IO)             TeamCore/Usecase             TeamStore(SD)
@@ -424,7 +424,7 @@ Mesh                 TeamService(IO)             TeamCore/Usecase             Te
  |                         |                           |<------------------------ ok
 ```
 
-### 7.3 seq 不连续时（Member 触发 SYNC）
+### 7.3 When seq is discontinuous (Member triggers SYNC)
 
 ```text
 Member Core                          Mesh                         Leader Core
@@ -437,165 +437,164 @@ Member Core                          Mesh                         Leader Core
 
 ---
 
-## 8. 工程接入点（与 TeamService / ITeamEventSink 对齐）
+## 8. Engineering access point (aligned with TeamService / ITeamEventSink)
 
-你现在 `TeamService::processIncoming()` 会把消息解包后丢给 `sink_.onTeamXxx(event)`。
+You now `TeamService::processIncoming()` will unpack the message and throw it to `sink_.onTeamXxx(event)`.
 
-推荐最小改动：
+Recommended minimum changes:
 
-* `sink_` 的实现（TeamCore/Usecase）负责：
+* The implementation of `sink_` (TeamCore/Usecase) is responsible for:
 
-  * 权限判断
-  * seq 分配（leader）
-  * seq 连续性检查（member）
-  * 调用 `TeamStore.append_key_event(...)` 写 `events.log`
-  * 更新内存状态
-  * 触发 snapshot（节流）
-* `TeamService` 仅做 IO：decode/encode/send，不直接写 SD
-
----
-
-## 9. PosRing / ChatLog 接入点（答疑合并入规范）
-
-### 9.1 posring.log：从接收写还是从发送写？
-组队模式下 GPS 从 posring.log 渲染队员位置（包含自己）。
-
-✅ 定稿：**两边都写，并统一走同一个节流器**
-
-* **收到 TeamPosition（队友）**：写入 `posring.log`（队友态势来源）
-* **本机 GPS fix（自己）**：也写入 `posring.log`（重启后仍能立即看到自己最后位置/轨迹片段）
-
-原因：
-
-* 只写接收 → 自己历史为空
-* 只写发送 → 队友态势重启后为空
-* posring 是“事实流缓存”，不参与一致性：不用 event_seq，不用严格去重
-  只需做到：每成员节流 + ts 最新覆盖 UI
-
-**推荐接入（最干净）**：只在 **TeamCore（sink 实现）**里写 posring
-
-* `sink_.onTeamPosition(event)`：decode → `posring_append_throttled(from_id, pos, ts)`
-* 本机 GPS 更新处：`TeamCore::onLocalPositionFix(fix)` → `posring_append_throttled(self_id, pos, ts)` → 再决定是否 `TeamService.sendPosition(...)`
-
-### 9.2 chatlog.log：记录 Mesh chat（Team channel）还是仅 Team 协议？
-决策（v0.1）：队伍聊天使用 TEAM_CHAT_APP；TeamChat 消息按 V2 写入 chatlog.log。
-地图交互：收到消息只弹系统通知；弹窗由 Chat 会话中选中地图标注后触发，显示该位置瓦片地图的裁剪图。
-不要把 TEAM_MGMT_APP 记录到 chatlog.log。
-
-先分清三种消息域：
-
-1. **Meshtastic 普通聊天**（你现有 chat 模块）
-2. **Team 管理消息（TEAM_MGMT_APP）**：Join/Kick/Rotate/Status…（不是聊天）
-3. **队内聊天**（可复用 Meshtastic text，也可未来自定义 Team chat port）
-
-✅ 定稿：**chatlog.log 只记录用户可见的“聊天文本”，不记录管理消息**
-
-* ❌ 不记录 `TEAM_MGMT_APP` 到 chatlog（它们属于 `events.log` / diagnostics）
-* ✅ 记录“队内聊天文本”
-
-  * 推荐走 **路线 A**：记录 **Meshtastic text 中属于当前 Team channel 的消息**
-
-路线 A（推荐）：记录 Meshtastic 文本聊天（Team channel）
-
-* 优点：立刻兼容现有生态（安卓/ATAK/其他节点）
-* 缺点：聊天与 Team 语义解耦（可接受）
-
-路线 B（后续版本）：Team 专用 chat 协议（TEAM_CHAT_APP / TEAM_MGMT.Chat）
-
-* 优点：聊天与 team_id/epoch 绑定、成员可控
-* 缺点：需要新增协议与兼容处理
-
-**chatlog 的接入点（工程）**
-
-* 因为 TeamService 不处理 text chat，所以 chatlog 应在 **chat 模块**接入：
-
-  * ChatService/ChatUsecase 收到/发送文本时：
-
-    * 若 `channel_id == current_team_channel` → `chatlog_append(...)`
-* TeamCore 只需要提供“当前 team channel_id”
+ * Permission judgment
+ * seq allocation (leader)
+ * seq continuity check (member)
+ * Call `TeamStore.append_key_event(...)` to write `events.log`
+ * Update memory status
+ * Trigger snapshot (throttling)
+* `TeamService` only do IO: decode/encode/send, do not write SD directly
 
 ---
 
-## 10. 缺口补齐总结（当前约束）
+## 9. PosRing / ChatLog access point (Q&A merged into specification)
 
-* team_id：✅ 8 字节（uint64）
-* 关键事件必须落盘：✅ events.log + type + payload 完整定义
-* event_seq：✅ leader 权威维护；snapshot 记录 last_seq；member 检查连续性；缺口走 SYNC
-* Intent vs Fact：✅ UI 触发 Intent；落盘只写 Committed Fact
-* posring/chatlog：✅ 接入点与记录范围明确（pos 双写、chat 记 team channel 文本）
+### 9.1 posring.log: Write from receive or send?
+In team mode, GPS renders the position of team members (including yourself) from posring.log.
+
+✅ Final draft: **Write both sides, and use the same throttle**
+
+* **Receive TeamPosition (teammate)**: write to `posring.log` (teammate position source)
+* **Native GPS fix (self)**: also write `posring.log` (you can still see your last position/trajectory fragment immediately after restarting)
+
+Reason:
+
+* Write-only receive → own history is empty
+* Write-only send → teammate status will be empty after restart
+* posring is a "fact stream cache" and does not participate in consistency: no event_seq, no strict deduplication
+ Just do: per member throttling + ts latest coverage UI
+
+**Recommended access (cleanest)**: Only write posring in **TeamCore (sink implementation)**
+
+* `sink_.onTeamPosition(event)`:decode → `posring_append_throttled(from_id, pos, ts)`
+* Local GPS update location: `TeamCore::onLocalPositionFix(fix)` → `posring_append_throttled(self_id, pos, ts)` → Then decide whether `TeamService.sendPosition(...)`
+
+### 9.2 chatlog.log: Log Mesh chat (Team channel) or only Team protocol?
+Decision (v0.1): Team chat uses TEAM_CHAT_APP; TeamChat messages are written to chatlog.log according to V2.
+Map interaction: When receiving a message, only a system notification pops up; the pop-up window is triggered by selecting a map annotation in the Chat session and displays a cropped image of the tile map at that location.
+Do not log TEAM_MGMT_APP to chatlog.log.
+
+First distinguish three message domains:
+
+1. **Meshtastic ordinary chat** (your existing chat module)
+2. **Team management message (TEAM_MGMT_APP)**: Join/Kick/Rotate/Status... (not chat)
+3. **Team chat** (can reuse Meshtastic text, or customize Team chat port in the future)
+
+✅ Final draft: **chatlog.log Only record "chat text" visible to users, not management messages**
+
+* ❌ Do not record `TEAM_MGMT_APP` to chatlog (they belong to `events.log` / diagnostics)
+* ✅ Record "team chat text"
+
+ * It is recommended to take the **route A**: Record **Meshtastic text belonging to the current Team channel News**
+
+Route A (recommended): Record Meshtastic text chat (Team channel)
+
+* Advantages: Immediately compatible with the existing ecosystem (Android/ATAK/other nodes)
+* Disadvantages: Semantic decoupling of chat and Team (acceptable)
+
+Route B (subsequent version): Team-specific chat protocol (TEAM_CHAT_APP/ TEAM_MGMT.Chat)
+
+* Advantages: Chat is bound to team_id/epoch, members are controllable
+* Disadvantages: New protocols and compatibility processing are required
+
+**Chatlog access point (project)**
+
+* Because TeamService does not handle text chat, chatlog should be accessed in the **chat module**:
+
+ * ChatService/ChatUsecase when receiving/sending text:
+
+ * If `channel_id == current_team_channel` → `chatlog_append(...)`
+* TeamCore only needs to provide "current team channel_id"
 
 ---
 
-# Team Position（对齐 Meshtastic POSITION_APP）
+## 10. Gap filling summary (current constraints)
 
-## 1) 设计目标
+* team_id:✅ 8 bytes (uint64)
+* Key events must be placed: ✅ events.log + type + payload complete definition
+* event_seq: ✅ leader authoritative maintenance; snapshot record last_seq; member check continuity; gap walking SYNC
+* Intent vs Fact: ✅ UI trigger Intent; write only Committed Fact
+* posring/chatlog: ✅ The access point and record range are clear (pos is double-written, chat is recorded as team channel text)
 
-* **对齐 Meshtastic**：payload 直接使用 `meshtastic_Position` protobuf
-* **生态兼容**：与 Meshtastic POSITION_APP 解码一致
-* **扩展性**：保留 Meshtastic 字段的自然扩展空间
+---
+
+# Team Position (aligned with Meshtastic POSITION_APP)
+
+## 1) Design goals
+
+* **Align Meshtastic**: payload directly uses `meshtastic_Position` protobuf
+* **Ecological compatibility**: consistent with Meshtastic POSITION_APP decoding
+* **Extensibility**: retain Meshtastic Field's natural expansion space
 
 ---
 
 ## 2) Wire Payload
 
-* **类型**：`meshtastic_Position`（protobuf）
-* **端口**：`meshtastic_PortNum_POSITION_APP`
-* **编码**：nanopb / pb_encode
+* **Type**: `meshtastic_Position` (protobuf)
+* **Port**: `meshtastic_PortNum_POSITION_APP`
+* **Encoding**: nanopb/pb_encode
 
-> 说明：不再使用自定义布局。Position payload 与 Meshtastic 完全一致。
-
----
-
-## 3) 取值规则（最小集）
-
-* `latitude_i` / `longitude_i`：E7（int32）
-* `location_source`：默认 `LOC_INTERNAL`
-* `sats_in_view`：有则填
-* `timestamp`：有有效 epoch 秒则填
-
-其余字段按需填充，保持与 Meshtastic 语义一致。
+> Description: Custom layout is no longer used. Position payload is exactly the same as Meshtastic.
 
 ---
 
-# 5) 编码/解码接入点（对齐你现有 TeamService + sink）
+## 3) Value rules (minimum set)
 
-## 5.1 发送端（本机 GPS 更新）
+* `latitude_i` / `longitude_i`:E7(int32)
+* `location_source`: Default `LOC_INTERNAL`
+* `sats_in_view`: Fill in if any
+* `timestamp`: Fill in if there are valid epoch seconds
 
-**推荐路径**（TeamCore 层做事）：
+The remaining fields are filled in as needed, keeping consistent with Meshtastic semantics.
+
+---
+
+# 5) Encoding/decoding access point (aligned with your existing TeamService + sink)
+
+## 5.1 Sender (native GPS update)
+
+**Recommended path** (TeamCore layer doing things):
 
 1. `TeamCore::onLocalPositionFix(fix)`
-2. 生成 `meshtastic_Position` payload（protobuf）
-3. **先** `posring_append_throttled(self_id, decoded_pos)`（同一个点落盘）
-4. 再调用 `TeamService.sendPosition(payload, team_channel)`
+2. Generate `meshtastic_Position` payload (protobuf)
+3. **First** `posring_append_throttled(self_id, decoded_pos)` (same point placement)
+4. Call `TeamService.sendPosition(payload, team_channel)` again
 
-> 你问过“posring 从发送写还是接收写”：这里就是“发送也写”。
+> You asked whether "posring should be written by sending or receiving": here it is "writing also by sending".
 
-## 5.2 接收端（TEAM_POSITION_APP）
+## 5.2 Receiver (TEAM_POSITION_APP)
 
-你现在流程已经有：
+Your current process already has:
 
-* `TeamService::processIncoming()` 解密 → `sink_.onTeamPosition(event{ctx, plain})`
+* `TeamService::processIncoming()` decryption → `sink_.onTeamPosition(event{ctx, plain})`
 
-在 `sink` 的实现（TeamCore）里：
+In `sink` In the implementation (TeamCore):
 
-1. decode `meshtastic_Position` → 得到标准化字段
-2. `posring_append_throttled(from_id, pos)`（队友点落盘）
-3. 更新内存 `last_seen`（presence/online 状态）
-
----
-
-# 6) posring.log 落盘字段对齐建议
-
-你现有 `PosRecV1` 足够用（ts、member_id、lat/lon、alt、speed）。
-`course` 和 `vbat`：
-
-* **可以不落盘**（UI 大多用轨迹方向估计就够了；vbat 在 topbar 也不一定要显示队友）
-* 需要时再出 `PosRecV2`（加 2 字节 course、2 字节 vbat，不难）
+1. decode `meshtastic_Position` → Get standardized fields
+2. `posring_append_throttled(from_id, pos)` (teammate points drop)
+3. Update memory `last_seen` (presence/online status)
 
 ---
 
-# 7) 版本与兼容规则
+# 6) posring.log Recommendations for alignment of placement fields
 
-* payload 必须能解码为 `meshtastic_Position`，否则丢弃（或统计 error）
-* 不做自定义版本字段检查（以 Meshtastic 协议为准）
+Your existing `PosRecV1` is sufficient (ts, member_id, lat/lon, alt, speed).
+`course` and `vbat`:
 
+* **It is not necessary to drop the disk** (Most UIs use trajectory direction estimation as enough; vbat does not necessarily need to display teammates in the topbar)
+* `PosRecV2` will be released when needed (add 2 bytes of course and 2 bytes of vbat, not difficult)
+
+---
+
+# 7) Version and compatibility rules
+
+* The payload must be decoded as `meshtastic_Position`, otherwise discard (or statistics error)
+* Do not check the custom version field (subject to the Meshtastic protocol)

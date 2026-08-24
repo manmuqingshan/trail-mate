@@ -1,10 +1,10 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：协议切换与提交</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/configure-radio-parameters/activity.md"><h1>协议切换与提交</h1><pre class="mermaid">flowchart TD
-Edit["编辑协议配置"] --> Validate{"能力和参数有效?"}
-Validate -- 否 --> Reject["保留旧协议"]
-Validate -- 是 --> Stop["停止旧 backend"]
-Stop --> Load["加载新协议分区"]
-Load --> Start{"启动成功?"}
-Start -- 否 --> Safe["保持 stopped/error"]
-Start -- 是 --> Persist{"保存成功?"}
-Persist -- 否 --> Unsaved["运行但未保存"]
-Persist -- 是 --> Commit["提交并刷新"]</pre></main></body></html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Activity: Protocol switching and submission</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/configure-radio-parameters/activity.md"><h1>Protocol switching and submission</h1><pre class="mermaid">flowchart TD
+Edit["Edit protocol configuration"] --> Validate{"Ability and parameters are valid?"}
+Validate -- No--> Reject["Keep old protocol"]
+Validate -- Yes--> Stop["Stop old backend"]
+Stop --> Load["Load new protocol partition"]
+Load --> Start{"Start successfully?"}
+Start -- No--> Safe["Keep stopped/error"]
+Start -- Yes--> Persist{"Save successfully?"}
+Persist -- No--> Unsaved["Running but not saved"]
+Persist -- Yes--> Commit["S"]</pre></main></body></html>

@@ -370,13 +370,16 @@ bool is_supported()
 #endif
 }
 
-void prepare_mass_storage_mode()
+bool prepare_mass_storage_mode()
 {
 #if TRAILMATE_IDF_USB_MSC_BACKEND
     stop_pairing();
     platform::ui::screen::disable_sleep();
 
     platform::ui::gps::suspend_runtime();
+    return true;
+#else
+    return false;
 #endif
 }
 
@@ -408,7 +411,11 @@ bool start()
         return true;
     }
 
-    prepare_mass_storage_mode();
+    if (!prepare_mass_storage_mode())
+    {
+        s_status.active = false;
+        return false;
+    }
     s_prepared = true;
     const bool ok = start_backend();
     if (!ok)

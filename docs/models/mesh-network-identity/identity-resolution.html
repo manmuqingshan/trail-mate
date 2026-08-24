@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>本机身份建立与对端公钥保护</title></head><body><main data-praxis-anchor="diagram:identity-resolution" data-praxis-kind="uml_diagram"><h1>本机身份建立与对端公钥保护</h1><pre class="mermaid">flowchart TD
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Local identity establishment and peer public key protection</title></head><body><main data-praxis-anchor="diagram:identity-resolution" data-praxis-kind="uml_diagram"><h1>Local identity establishment and peer public key protection</h1><pre class="mermaid">flowchart TD
 Ensure[ensureLocalIdentity] --&gt; Load[local_store.load]
 Load --&gt;|valid| Existing[return LocalIdentity]
 Load --&gt;|missing or invalid| Random[generate private key]
@@ -6,4 +6,4 @@ Random --&gt; Save[local_store.save]
 Remember[rememberPeerKey] --&gt; Current[peer_store.get]
 Current --&gt; Guard{verified current + unverified different key?}
 Guard --&gt;|yes| Deny[PermissionDenied]
-Guard --&gt;|no| Put[peer_store.put PeerPublicKey]</pre><p>图中没有 Contact、IdentityLink 或稳定 TeamMember；它们不属于当前 core_mesh 实体。</p></main></body></html>
+Guard --&gt;|no| Put[peer_store.put PeerPublicKey]</pre><p>There are no Contact, IdentityLink or stable TeamMember in the diagram; they do not belong to the current core_mesh entity.</p></main></body></html>

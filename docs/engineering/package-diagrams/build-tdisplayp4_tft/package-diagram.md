@@ -1,90 +1,90 @@
-# 模块边界：build.tdisplayp4_tft
+# Module boundary: build.tdisplayp4_tft
 
-图种：Package Diagrams
-状态：candidate
-置信度：high
-项目版本：0.1.30-alpha
-Git：34aad0bffa2f / main / dirty
-更新于：2026-06-25T09:19:20.669Z
+Image type: Package Diagrams
+Status: candidate
+Confidence: high
+Project version: 0.1.30-alpha
+Git:34aad0bffa2f / main / dirty
+Updated on: 2026-06-25T09:19:20.669Z
 
-## 定位
+## Positioning
 
-解释 build.tdisplayp4_tft 的包/模块边界、文件数量、符号数量和跨模块依赖。
+Explain the package/module boundaries, number of files, number of symbols and cross-module dependencies of build.tdisplayp4_tft.
 
-## 图的读法
+## How to read the diagram
 
-- 这张 Package Diagram 以 build.tdisplayp4_tft 为中心，展示它作为工程模块边界时观察到的文件规模、符号规模和跨模块依赖。
-- 图中的箭头表示本地仓库证据观察到的跨模块关系，主要用于理解技术依赖方向；它不是业务流程顺序，也不是运行时消息时序。
-- 当前没有观察到明确的外部模块依赖，这可能表示模块相对独立，也可能表示扫描粒度尚不足。
+- This Package Diagram is centered on build.tdisplayp4_tft and shows the file size, symbol size and cross-module dependencies observed when it serves as a project module boundary.
+- The arrows in the figure represent the cross-module relationships observed by the local warehouse evidence, which are mainly used to understand the direction of technical dependencies; it is not the business process sequence, nor the runtime message timing.
+- No clear external module dependencies are currently observed, which may indicate that the modules are relatively independent, or that the scanning granularity is not sufficient.
 
-## 技术复杂度分析
+## Technical complexity analysis
 
-- build.tdisplayp4_tft 当前包含 2400 个文件和 1961 个符号，属于软件结构模型识别出的技术组织边界。
-- 跨模块关系呈现为：被其它模块引用或调用 0 次，主动依赖或调用外部模块 0 次，因此它复用迹象和外部协作迹象相对接近。
-- 当前对外依赖未形成明显异常，但仍应结合具体业务入口判断依赖方向是否稳定。
+- build.tdisplayp4_tft currently contains 2400 files and 1961 symbols belonging to the technical organization boundaries identified by the software architecture model.
+- The cross-module relationship is as follows: it is referenced or called 0 times by other modules, and it actively depends on or calls external modules 0 times, so its signs of reuse and signs of external collaboration are relatively close.
+- There is currently no obvious abnormality in external dependence, but it is still necessary to judge whether the dependence direction is stable based on specific business entrances.
 
-## 与业务复杂度的关联
+## Correlation with business complexity
 
-- build.tdisplayp4_tft 不是业务故事本身，而是业务能力落地时可能经过的技术边界。
-- 如果组织/过程模型中某个 Use Case 的证据、入口或下钻图落在 build.tdisplayp4_tft，该 Use Case 应当反向链接到这张 Package Diagram，说明业务故事由哪个工程模块承载。
-- 当前关联仍是 CANDIDATE：这里只能根据仓库证据解释技术边界，不能替代组织/过程模型对业务故事、参与者和业务目标的确认。
+- build.tdisplayp4_tft is not the business story itself, but the technical boundaries that may be passed when the business capabilities are implemented.
+- If the evidence, entry or drill-down diagram of a Use Case in the organization/process model falls in build.tdisplayp4_tft, the Use Case should be linked back to this Package Diagram to indicate which engineering module the business story is hosted by.
+ - The current association is still CANDIDATE: Technical boundaries can only be explained here based on warehouse evidence and are not a substitute for the organization/process model's confirmation of the business story, actors and business goals.
 
-## 治理建议
+## Governance suggestions
 
-- 新增功能时，优先确认它属于该模块的稳定职责，而不是因为调用方便而落入该模块。
-- 保持该模块的依赖方向可解释，避免形成隐式公共工具箱。
-- 当业务 Use Case 文档引用该模块时，应在 Use Case 下钻文档中记录具体入口、调用链或配置证据。
+- When adding a new function, give priority to confirming that it belongs to the stable responsibility of the module, rather than falling into the module because of the convenience of calling.
+- Keep the dependency direction of this module interpretable to avoid forming an implicit public toolbox.
+- When the business Use Case document references this module, the specific entry, call chain or configuration evidence should be recorded in the Use Case drill-down document.
 
-## UML / 技术图
+## UML / Technical diagram
 
 ```mermaid
 flowchart LR
   package_node["build.tdisplayp4_tft"]
-  package_node --- isolated["未观察到跨模块依赖"]
+ package_node --- isolated["No cross-module dependencies observed"]
 ```
 
-## 覆盖范围
+## Coverage
 
-- 模块路径：build.tdisplayp4_tft
-- 文件数：2400
-- 符号数：1961
-- 被其他模块依赖或调用：0
-- 依赖或调用外部模块：0
+-Module path: build.tdisplayp4_tft
+-Number of files: 2400
+-Number of symbols: 1961
+- Depends on or called by other modules: 0
+- Depends on or calls external modules: 0
 
-## 图内语义元素下钻
+## Drill-down of semantic elements in the diagram
 
 ### build.tdisplayp4_tft
 
-- 元素类型：package
-- 说明：build.tdisplayp4_tft 是当前 Package Diagram 的中心工程边界，用来观察它自身规模、依赖方向和可下钻技术复杂度。
-- 技术角色：技术组织边界：它把 build.tdisplayp4_tft 下的文件、符号和跨模块关系聚合成一个可讨论的工程单元。
-- 为什么出现：本地仓库证据在 build.tdisplayp4_tft 下观察到足够文件、符号或跨模块关系，因此它值得被提升为软件结构模型中的 package 级入口。
-- 关系意义：图中从 build.tdisplayp4_tft 指向其它节点的箭头表示当前边界依赖外部 package/module；被其他模块依赖或调用 0 次、依赖或调用外部模块 0 次，用于判断它更像稳定复用边界还是编排/桥接边界。
-- 下钻意图：下钻该节点可以继续查看 build.tdisplayp4_tft 内的关键组件、结构协作切片、运行链路、部署节点和复杂度热点，从而理解这个工程边界如何承载功能变化。
-- 业务关联：该节点不是业务故事本身，但组织/过程模型中落到 build.tdisplayp4_tft 的 Use Case 可以把这里作为技术承载边界引用。当前关联仍是 CANDIDATE。
-- 变更影响：修改 build.tdisplayp4_tft 的公共入口、依赖方向或目录边界，可能影响引用它的组件图、sequence 片段、部署配置和相关业务故事的验证路径。
-- 置信度：high
-- 证据：
+- Element type: package
+- Description: build.tdisplayp4_tft is the central project boundary of the current Package Diagram, used to observe its own scale, dependency direction and drill-down technical complexity.
+- Technical role: Technical organizational boundary: It aggregates files, symbols and cross-module relationships under build.tdisplayp4_tft into a discussable engineering unit.
+- Why it appears: Local repository evidence observes enough files, symbols, or cross-module relationships under build.tdisplayp4_tft that it deserves to be promoted to a package-level entry in the software architecture model.
+- Relationship meaning: The arrows pointing from build.tdisplayp4_tft to other nodes in the figure indicate that the current boundary depends on external package/module; it is dependent or called 0 times by other modules, and depends on or called external modules 0 times, which is used to determine whether it is more like a stable reuse boundary or an orchestration/bridging boundary.
+- Drill down intention: Drill down into this node to continue viewing the key components, structural collaboration slices, running links, deployment nodes and complexity hotspots within build.tdisplayp4_tft to understand how this project boundary carries functional changes.
+-Business correlation: This node is not the business story itself, but the Use Case that falls into build.tdisplayp4_tft in the organization/process model can refer to this as the technology bearing boundary. The current association is still CANDIDATE.
+- Change impact: Modifying the public entry, dependency direction or directory boundary of build.tdisplayp4_tft may affect the verification path of component diagrams, sequence fragments, deployment configurations and related business stories that reference it.
+- Confidence: high
+- Evidence:
   - package scope: build.tdisplayp4_tft
-  - 模块路径：build.tdisplayp4_tft
-  - 文件数：2400
-  - 符号数：1961
-  - 被其他模块依赖或调用：0
-  - 依赖或调用外部模块：0
+ - Module path: build.tdisplayp4_tft
+ - Number of files: 2400
+ - Number of symbols: 1961
+ - Depends on or called by other modules: 0
+ - Depends on or calls external modules: 0
   - build.tdisplayp4_tft/app-flash_args
   - build.tdisplayp4_tft/bootloader-flash_args
-- 风险：
-  - 如果只把该节点当作目录名，会遗漏它作为稳定工程边界的职责判断。
-  - 如果依赖外部模块的迹象持续增加，可能说明该边界承担过多编排或桥接职责。
-- 问题：
-  - 当前仓库证据没有观察到跨模块依赖；因此该模块暂按相对独立边界处理，置信度保持为候选。
-- 下钻：[大文件：build.tdisplayp4_tft/bootloader/config/kconfig_menus.json 技术热点](../../technical-hotspots/large-file--build-tdisplayp4_tft-bootloader-config-kconfig_menus-json/technical-hotspot.md) - 查看 大文件：build.tdisplayp4_tft/bootloader/config/kconfig_menus.json 技术热点 这个复杂度信号是否会抬高 build.tdisplayp4_tft 的阅读、修改、测试或回归成本。
+- Risks:
+ - If you only regard this node as a directory name, you will miss its responsibility as a stable project boundary.
+ - If signs of dependency on external modules continue to increase, it may be a sign that the boundary is taking on too much orchestration or bridging responsibility.
+- Question:
+ - No cross-module dependencies are observed in the current warehouse evidence; therefore, the module is temporarily processed according to the relative independence boundary, and the confidence level remains as a candidate.
+ - Drill down: [Large file: build.tdisplayp4_tft/bootloader/config/kconfig_menus.json Technical Hotspots](../../technical-hotspots/large-file--build-tdisplayp4_tft-bootloader-config-kconfig_menus-json/technical-hotspot.md) - View Large file: build.tdisplayp4_tft/bootloader/config/kconfig_menus.json Technical Hotspot Whether this complexity signal will increase the cost of reading, modifying, testing or regression of build.tdisplayp4_tft.
 
-## 可下钻 UML
+## Drill-down UML
 
-- [大文件：build.tdisplayp4_tft/bootloader/config/kconfig_menus.json 技术热点](../../technical-hotspots/large-file--build-tdisplayp4_tft-bootloader-config-kconfig_menus-json/technical-hotspot.md) - 查看 大文件：build.tdisplayp4_tft/bootloader/config/kconfig_menus.json 技术热点 这个复杂度信号是否会抬高 build.tdisplayp4_tft 的阅读、修改、测试或回归成本。
+- [Large file: build.tdisplayp4_tft/bootloader/config/kconfig_menus.json Technical Hotspots](../../technical-hotspots/large-file--build-tdisplayp4_tft-bootloader-config-kconfig_menus-json/technical-hotspot.md) - View Large file: build.tdisplayp4_tft/bootloader/config/kconfig_menus.json Technical Hotspot Whether this complexity signal will increase the cost of reading, modifying, testing or regression of build.tdisplayp4_tft.
 
-## 证据
+## Evidence
 
 - build.tdisplayp4_tft/app-flash_args
 - build.tdisplayp4_tft/bootloader-flash_args
@@ -95,12 +95,10 @@ flowchart LR
 - build.tdisplayp4_tft/bootloader-prefix/src/bootloader-stamp/bootloader-patch
 - build.tdisplayp4_tft/bootloader-prefix/src/bootloader-stamp/bootloader-patch-info.txt
 
-## 问题
+## Problem
 
-- 当前仓库证据没有观察到跨模块依赖；因此该模块暂按相对独立边界处理，置信度保持为候选。
+- No cross-module dependencies are observed in the current warehouse evidence; therefore, the module is temporarily processed according to the relative independence boundary, and the confidence level remains as a candidate.
 
-## 变更记录
+## Change record
 
 ### 0.1.30-alpha - 2026-06-25T09:19:20.669Z
-
-- 从本地仓库证据生成 模块边界：build.tdisplayp4_tft。

@@ -1,51 +1,51 @@
-# Design Explorer UML 章节质量标准
+# Design Explorer UML Chapter Quality Standard
 
-本标准约束 Trail Mate Design Explorer 的下钻章节。UML 图是设计论证的一部分，不是完整章节。任何下钻页都必须让评审者在不反查实现代码的情况下回答：本图描述哪个场景、谁拥有状态、规则在哪里生效、何时完成提交、失败后如何恢复，以及哪些结论只是候选设计。
+This standard governs the drill-down chapters of the Trail Mate Design Explorer. The UML diagram is part of a design argument, not a complete chapter. Any drill-down page must allow reviewers to answer without looking back at the implementation code: This diagram describes which scenario, who owns the state, where the rules take effect, when the commit is completed, how to recover after failure, and which conclusions are only candidate designs.
 
-## 所有 UML 章节的共同内容
+## Common content of all UML chapters
 
-每个章节至少包含：
+Each chapter contains at least:
 
-1. **本图回答的问题**：限定场景、开始条件和结束条件。
-2. **参与者与职责**：说明每个参与者拥有的决定或状态，避免只列组件名称。
-3. **UML 图**：图中的消息、节点和状态必须能在正文中解释。
-4. **关键规则或判定表**：列出分支条件、优先级、守卫条件和不变量。
-5. **完成与提交语义**：区分请求已受理、设备操作完成、状态已持久化和用户可见投影。
-6. **失败、恢复与并发**：说明超时、重复事件、资源冲突、部分成功和重入。
-7. **源码证据与设计判断**：指出当前 owner；不存在的模型必须标为 candidate，不能写成已实现事实。
+1. **Questions answered by this picture**: limiting scenarios, start conditions and end conditions.
+2. **Participants and Responsibilities**: Explain the decision or status owned by each participant, avoid listing only the component name.
+3. **UML diagram**: The messages, nodes and states in the diagram must be explained in the text.
+4. **Key rules or decision table**: List branch conditions, priorities, guard conditions and invariants.
+5. **Complete and Submit Semantics**: Distinguish between request accepted, device operation completed, status persisted and user-visible projection.
+6. **Failure, recovery and concurrency**: Explain timeouts, repeated events, resource conflicts, partial success and reentrancy.
+7. **Source code evidence and design judgment**: Indicate the current owner; non-existing models must be marked as candidates and cannot be written as implemented facts.
 
 ## Activity Diagram
 
-Activity 章节必须额外解释：
+The Activity chapter must be explained additionally:
 
-- 触发输入及其验证；
-- 每个主要分支的进入条件和输出；
-- 哪些步骤可回滚，哪些步骤形成不可逆副作用；
-- 资源获取和释放是否覆盖每条退出路径。
+- Trigger input and its verification;
+- Entry conditions and output of each main branch;
+- Which steps can be rolled back and which steps form irreversible side effects;
+- Whether resource acquisition and release cover each exit path.
 
 ## Sequence Diagram
 
-Sequence 章节必须额外解释：
+The Sequence chapter must be additionally explained:
 
-- 同步调用、异步事件和持久化提交的区别；
-- 消息顺序、允许乱序的事件和幂等键；
-- timeout、ACK、取消、重试或断连发生竞争时由谁裁决终态；
-- UI 投影何时可以变化，不能把暂态当作最终事实。
+-The difference between synchronous calls, asynchronous events and persistent submissions;
+- Message order, events that allow out-of-order and idempotent keys;
+- Who decides the final state when timeout, ACK, cancellation, retry or disconnection compete;
+- When the UI projection can change, the transient state cannot be regarded as the final fact.
 
 ## State Machine
 
-State Machine 章节必须额外解释：
+The State Machine chapter must have additional explanations:
 
-- 状态由谁持有、是否持久化；
-- 每条 transition 的事件、guard、动作和失败去向；
-- 禁止的 transition；
-- 重启、重复事件和异常退出后的恢复状态。
+- Who holds the state and whether it is persistent;
+- The events, guards, actions and failure destinations of each transition;
+- forbidden transition;
+- recovery state after restart, repeated events and abnormal exit.
 
 ## Class Collaboration / Composite Structure
 
-结构类章节必须额外解释：
+The structural class chapter must be additionally explained:
 
-- 组件职责和依赖方向；
-- 输入、输出端口及其契约；
-- 共享状态的 owner，禁止跨边界共享的内容；
-- 替换适配器或协议实现时必须保持的测试缝与不变量。
+- component responsibilities and dependency direction;
+- input and output ports and their contracts;
+- owner of shared state; content must not be shared across boundaries;
+- test seams and invariants that must be maintained when replacing an adapter or protocol implementation.

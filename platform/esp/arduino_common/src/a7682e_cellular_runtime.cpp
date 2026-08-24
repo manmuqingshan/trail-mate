@@ -932,6 +932,7 @@ const Status& status()
 
 bool save_config(const Config& next)
 {
+    ::platform::ui::settings_store::ScopedChangeBatch changes;
     load_config_once();
     s_runtime.config = next;
     ::platform::ui::settings_store::put_bool(kSettingsNamespace, "enabled", next.enabled);
@@ -955,6 +956,7 @@ bool save_config(const Config& next)
 
 bool set_enabled(bool enabled)
 {
+    ::platform::ui::settings_store::ScopedChangeBatch changes;
     load_config_once();
     if (s_runtime.config.enabled == enabled)
     {

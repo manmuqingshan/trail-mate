@@ -1,8 +1,8 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：GNSS 诊断</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed"><h1>GNSS 诊断与时间更新</h1><pre class="mermaid">flowchart TD
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Activity: GNSS Diagnosis</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed"><h1>GNSS Diagnosis and Time Update</h1><pre class="mermaid">flowchart TD
 Lease --> Snapshot
 Snapshot --> State{"status"}
 State -- no data --> Explain
 State -- valid --> Sky["sky plot + fix"]
 Snapshot --> RMC{"valid time?"}
-RMC -- 是 --> Clock["update authority"]
-RMC -- 否 --> Keep</pre></main></body></html>
+RMC -- Yes--> Clock["update authority"]
+RMC -- No--> Keep</pre></main></body></html>

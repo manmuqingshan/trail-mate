@@ -13,8 +13,9 @@ struct Status
 bool is_supported();
 bool start();
 void stop();
+void report_previous_exit_trace();
 Status get_status();
-void prepare_mass_storage_mode();
+bool prepare_mass_storage_mode();
 void restore_mass_storage_mode();
 
 } // namespace platform::ui::usb_support

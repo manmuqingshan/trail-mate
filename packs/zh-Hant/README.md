@@ -82,4 +82,4 @@ Copy the bundle contents so the SD card ends up with:
 /trailmate/packs/locales/zh-Hant/strings.tsv
 ```
 
-After reboot, `繁體中文（台灣）` appears in Settings only after the locale is promoted to `translation_status=release`. While it is in `review`, the runtime can install and index the pack but will not offer it as a selectable UI language.
+A

@@ -1,8 +1,8 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>State：目录条目的本地关系</title></head><body><main data-praxis-kind="design_state_machine_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/manage-peer-directory/state-machines/peer-local-relationship.md"><h1>目录条目的本地关系状态</h1><pre class="mermaid">stateDiagram-v2
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>State: Directory entry's local relationship status</title></head><body><main data-praxis-kind="design_state_machine_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/manage-peer-directory/state-machines/peer-local-relationship.md"><h1>Directory entry's local relationship state</h1><pre class="mermaid">stateDiagram-v2
 [*] --> Observed
 Observed --> SavedContact: save
 Observed --> Ignored: ignore
 SavedContact --> Observed: remove contact
 Ignored --> Observed: unignore
 Observed --> Removed: remove node
-Removed --> Observed: observed again</pre><p>人工验证和协议密钥验证是正交 flag，不是此单一状态机的一部分。</p></main></body></html>
+Removed --> Observed: observed again</pre><p>Human verification and protocol key verification are orthogonal flags and not part of this single state machine.</p></main></body></html>

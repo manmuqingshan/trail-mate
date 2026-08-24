@@ -1,46 +1,46 @@
-# GAT562 需求覆盖清单
+# GAT562 requirements coverage list
 
-本文件用于对照 `GAT562_REQUIREMENTS.md` 跟踪当前实现状态。
+This file is used to track the current implementation status against `GAT562_REQUIREMENTS.md`.
 
-## 已落地
+## Implemented
 
-- 身份单一事实来源：`long name / short name / node id / BLE 名称` 统一走 `modules/core_chat` 的 `self_identity_policy`
-- LoRa 真配置：`region / preset / channel / tx_power / MeshCore radio params` 已能下推到 `SX1262`
-- Meshtastic 空口自宣告：共享 `MeshtasticSelfAnnouncementCore`
-- MeshCore 空口自宣告：共享 `MeshCoreSelfAnnouncementCore`
-- Meshtastic Lite 入站：文本 + 非文本 `AppData`
-- MeshCore Lite 入站：advert + direct/group `AppData`
-- GNSS 平台 runtime：UART 读流、fix 状态、基础校时
-- Device runtime：电池百分比、提示音音量持久化、提示 LED
-- 单色 128x64 shared UI 模块：已新增 `modules/ui_mono_128x64`
-- GAT562 单色 UI 装配：已接入启动日志、屏保、主菜单、聊天列表、会话、英文/数字/符号输入、身份/无线/设备/GNSS/动作页
-- 屏保信息：已按需求提供 `mt/mc`、`MHz` 频率、时间、日期、星期、短 node id
-- GAT562 timezone runtime：已新增独立平台时间偏移持久化接口
-- no-Team / no-HostLink / no-SD / no-CJK / no-Pinyin：已在 env 与 shared UI 边界裁剪
-- `saveConfig()`：已改为“落盘后立即回推运行态”
+- Identity single source of truth: `long name / short name / node id / BLE name` Unified `self_identity_policy` of `modules/core_chat`
+- LoRa true configuration: `region / preset / channel / tx_power / MeshCore radio params` Can be pushed down to `SX1262`
+- Meshtastic air interface self-announcement: sharing `MeshtasticSelfAnnouncementCore`
+- MeshCore air interface self-announcement: share `MeshCoreSelfAnnouncementCore`
+- Meshtastic Lite inbound: text + non-text `AppData`
+- MeshCore Lite inbound: advert + direct/group `AppData`
+- GNSS platform runtime: UART Read stream, fix status, basic timing
+- Device runtime: battery percentage, sound volume persistence, prompt LED
+- Monochrome 128x64 shared UI module: `modules/ui_mono_128x64` has been added
+- GAT562 monochrome UI assembly: accessed startup log, screensaver, main menu, chat list, conversation, English/number/symbol input, identity/wireless/device/GNSS/action page
+- Screensaver information: `mt/mc`, `MHz` frequency, time, date, day of the week, short node id
+- GAT562 timezone runtime: A new independent platform time offset persistence interface has been added
+- no-Team / no-HostLink / no-SD / no-CJK / no-Pinyin: has been cut at the boundary between env and shared UI
+- `saveConfig()`: has been changed to "immediately push back the running state after disk placement"
 
-## 已搭骨架但未闭环
+## The skeleton has been set up but the loop is not closed
 
-- nRF52 BLE manager：已有协议切换、广播名联动、基础 connectable service
-- nRF52 board runtime：已有 3V3 rail / LED / 输入快照 / 频率格式化
-- GAT562 app facade：已具备独立装配根，不再依附 ESP app context
-- 单色 UI 还未经过编译与实机回归，当前属于“结构已落地、待联调验证”
+- nRF52 BLE manager: already has protocol switching, broadcast name linkage, basic connectable service
+- nRF52 board runtime: already has 3V3 rail / LED / input snapshot / frequency format
+- GAT562 app facade: has an independent assembly root and is no longer dependent on ESP app context
+- Monochrome UI It has not been compiled and returned to the actual machine. It is currently "the structure has been implemented and is pending joint debugging and verification"
 
-## 仍待完成
+## Still to be completed
 
-- Meshtastic 手机侧 BLE 完整协议
-- MeshCore 手机侧 BLE 完整协议
-- 设置页与所有真实能力的最终页面映射收尾
-- 启动链 / 主循环 / IC 协调的最终实机验证
+- Meshtastic mobile phone side BLE complete protocol
+- MeshCore mobile phone side BLE complete protocol
+-The setting page and the final page mapping of all real capabilities
+-The final real-machine verification of the startup chain/main loop/IC coordination
 
-## 结论
+## Conclusion
 
-当前代码已经把“共享身份 / 自宣告 / LoRa 配置 / GNSS / 板级 runtime / no-Team 边界”这几条基础主线重新压回了正确层级，
-但 **GAT562 还没有达到需求文档里的“全部完成”状态**。后续最高优先级仍然是：
+The current code has already put "shared identity/self-declaration/LoRa configuration/GNSS/board level" The basic main lines of "runtime / no-Team boundary" have been pushed back to the correct level.
+But **GAT562 has not yet reached the "all completed" status in the requirements document**. The highest subsequent priority is still:
 
-1. 单色 UI 闭环
-2. BLE 手机协议闭环
-3. 实机稳定性闭环
+1. Monochrome UI closed loop
+2. BLE mobile phone protocol closed loop
+3. Real machine stability closed loop
 
 ---
 

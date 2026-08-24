@@ -63,7 +63,8 @@ Reticulum Wi-Fi gateway, HTTP pre-connect, and OTA pre-connect paths.
 
 Trail Mate devices must remember up to ten Wi-Fi STA profiles. The legacy
 `wifi_ssid` and `wifi_password` settings are retained only as the current
-preferred-profile projection for existing UI and backup compatibility; they are
+preferred-profile projection for existing UI and SD working-configuration
+compatibility; they are
 not the only source of Wi-Fi truth.
 
 Settings must not expose the saved profile list as a separate management UI.

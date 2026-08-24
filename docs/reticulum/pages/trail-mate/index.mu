@@ -7,7 +7,7 @@
 `c`F6cf`!Trail Mate`!`f
 `c`B123field companion`b for maps, mesh chat, Reticulum, GPS, teams, and SSTV.
 `c`F8dfBuilt for small screens, low memory, and radio paths that disappear.
-`c中文: 这个页面同时展示 Trail Mate 与当前 Micron 引擎能力。
+`cEnglish: This page showcases Trail Mate together with the current Micron engine capabilities.
 
 `c`[`Overview`#overview] `[`Engine`#engine] `[`Tables`#tables] `[`Controls`#controls] `[`Limits`#limits]
 -*

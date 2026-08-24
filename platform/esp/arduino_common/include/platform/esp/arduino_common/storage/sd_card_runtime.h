@@ -72,7 +72,15 @@ void record_sd_card_mount_success(uint32_t configured_spi_hz,
 const char* sd_card_backend_name();
 const char* sd_card_filesystem_name();
 bool sd_external_block_owner_active();
-void sd_set_external_block_owner_active(bool active);
+/**
+ * @brief Atomically transfer the SD runtime's logical owner.
+ *
+ * The transition waits for any operation already holding the shared runtime
+ * lock, then changes the owner while that lock is held. Callers must treat a
+ * false result as a failed ownership handoff and leave the previous owner in
+ * control.
+ */
+bool sd_set_external_block_owner_active(bool active);
 
 bool sd_exists(const char* path);
 bool sd_is_directory(const char* path);

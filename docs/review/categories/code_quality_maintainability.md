@@ -1,7 +1,7 @@
-# 规则一致性
+# Rule consistency
 
-状态：**has_unresolved** · 1 finding
+Status: **has_unresolved** · 1 finding
 
-- P2：[附近节点可见性注释与实际查询行为不一致](../issues/contact-visibility-policy-disabled.md)
+- P2: [Nearby node visibility annotation is inconsistent with actual query behavior](../issues/contact-visibility-policy-disabled.md)
 
-接口说明和状态文本暗示六天新鲜度，但 `isNodeVisible()` 当前始终返回 true。规则确认之前，模型文档只描述真实行为，不替代码假装已经执行过期策略。
+Interface description and status text imply six-day freshness, but `isNodeVisible()` Currently always returns true. Before the rules are confirmed, the model document only describes the real behavior and does not pretend that the expired policy has been implemented by code.

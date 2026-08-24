@@ -1,15 +1,15 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>结构协作：结构切片 boards · tdeck/include/boards</title>
+  <title>Structural collaboration: structural slicing boards · tdeck/include/boards</title>
 </head>
 <body>
-<main class="praxis-engineering-map" data-praxis-anchor="engineering:class-structural:boards-tdeck-include-boards" data-praxis-kind="engineering_class_structural_diagram" data-praxis-status="candidate" data-praxis-confidence="high" data-praxis-document-path="docs/engineering/class-structural-diagrams/boards-tdeck-include-boards/class-structural-diagram.html" data-praxis-drilldowns="[{&quot;id&quot;:&quot;engineering:diagram:technical-hotspot:dependency-cluster--boards&quot;,&quot;kind&quot;:&quot;technical_hotspot&quot;,&quot;title&quot;:&quot;依赖簇：boards 技术热点&quot;,&quot;summary&quot;:&quot;该模块依赖多个外部边界，当前按候选技术耦合中心处理；图中只保留仓库证据已经观察到的依赖方向和边界。&quot;,&quot;docPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.md&quot;,&quot;htmlPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.html&quot;,&quot;anchor&quot;:&quot;engineering:hotspot:dependency-cluster:boards&quot;,&quot;relation&quot;:&quot;risk_detail&quot;,&quot;reason&quot;:&quot;查看该结构边界中的热点，确认复杂度集中在哪个对象、文件或关系簇上。&quot;}]">
+<main class="praxis-engineering-map" data-praxis-anchor="engineering:class-structural:boards-tdeck-include-boards" data-praxis-kind="engineering_class_structural_diagram" data-praxis-status="candidate" data-praxis-confidence="high" data-praxis-document-path="docs/engineering/class-structural-diagrams/boards-tdeck-include-boards/class-structural-diagram.html" data-praxis-drilldowns="{&quot;id&quot;:&quot;engineering:diagram:technical-hotspot:dependency-cluster--boards&quot;,&quot;kind&quot;:&quot;technical_hotspot&quot;,&quot;title&quot;:&quot;Dependency cluster: boards technology hotspots&quot;,&quot;summary&quot;:&quot;This module relies on multiple external boundaries and is currently processed as a candidate technology coupling center; only the dependency directions and boundaries that have been observed by warehouse evidence are retained in the figure.&quot;,&quot;docPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.md&quot;,&quot;htmlPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.html&quot;,&quot;anchor&quot;:&quot;engineering:hotspot:dependency-cluster:boards&quot;,&quot;relation&quot;:&quot;risk_detail&quot;,&quot;reason&quot;:&quot;Look at hot spots within the boundaries of the structure to identify which objects, files, or relationship clusters the complexity is concentrated on.&quot;}">
   <header class="praxis-design-map-header">
     <p>Praxis Software Structure Model</p>
-    <h1>结构协作：结构切片 boards · tdeck/include/boards</h1>
-    <p>解释 boards/tdeck/include/boards 这一结构切片中类、接口、组件或值对象如何共同承担结构切片 boards中的结构职责；候选对象包括 TDeckBoard、SX1262Access。</p>
+    <h1>Structural collaboration: structural slicing boards · tdeck/include/boards</h1>
+    <p>Explain how classes, interfaces, components or value objects in the structural slice boards/tdeck/include/boards share structural responsibilities in the structural slice boards; candidates include TDeckBoard and SX1262Access.</p>
     <div class="meta-row">
       <span>Class / Structural Diagrams</span>
       <span>candidate / high</span>
@@ -17,92 +17,92 @@
     </div>
   </header>
   <section class="semantic-layer" data-praxis-anchor="engineering:reading-guide" data-praxis-kind="engineering_document_section">
-    <h2>图的读法</h2>
+    <h2>How to read the diagram</h2>
     <ul>
-      <li>这张 Class / Structural Diagram 聚焦 boards/tdeck/include/boards 这一结构切片，而不是整个 boards 顶层目录。</li>
-      <li>它只放入类、接口、枚举或结构类型；方法级高引用对象会进入 Component/Hotspot，不再混入结构协作图。</li>
-      <li>候选语境是「结构切片 boards」。读图时先确认这些对象是否共同承载同一个业务能力、共享支撑机制或适配边界。</li>
-      <li>当前没有足够类级关系证据，因此图只保留候选切片对象，并降低为结构候选视角。</li>
+      <li>This Class / Structural Diagram focuses on the structural slice of boards/tdeck/include/boards, rather than the entire top-level directory of boards.</li>
+      <li>It only puts classes, interfaces, enumerations or structural types; method-level high-reference objects will enter Component/Hotspot and will no longer be mixed into the structural collaboration diagram.</li>
+      <li>The candidate context is "structural slice boards". When reading the diagram, first confirm whether these objects jointly carry the same business capabilities, share support mechanisms or adaptation boundaries.</li>
+      <li>Currently there is not enough evidence of class-level relationships, so the graph only retains candidate slice objects and reduces them to structural candidate perspectives.</li>
     </ul>
   </section>
   <section class="semantic-layer" data-praxis-anchor="engineering:technical-analysis" data-praxis-kind="engineering_document_section">
-    <h2>技术复杂度分析</h2>
+    <h2>Technical complexity analysis</h2>
     <ul>
-      <li>boards/tdeck/include/boards 当前包含 2 个类/结构和 0 个接口/trait 候选对象。</li>
-      <li>当前缺少类级关系证据，不能把同目录对象直接解释成稳定协作。</li>
-      <li>这张图的解释目标是结构职责和边界：哪些对象像领域模型、哪些对象像接口契约、哪些对象像策略/适配器或共享支撑。</li>
-      <li>如果图中对象只是同目录但没有共同业务语境或结构关系，生成流程必须拆分或降级为 Component/Hotspot，而不是继续保留为 Class / Structural Diagram。</li>
+      <li>boards/tdeck/include/boards currently contains 2 class/structure and 0 interface/trait candidates.</li>
+      <li>Currently there is a lack of class-level relationship evidence, and objects in the same directory cannot be directly interpreted as stable collaboration.</li>
+      <li>The explanation goal of this diagram is to structure responsibilities and boundaries: which objects are like domain models, which objects are like interface contracts, and which objects are like strategies/adapters or shared supports.</li>
+      <li>If the objects in the diagram are in the same directory but have no common business context or structural relationship, the generation process must be split or downgraded to Component/Hotspot instead of continuing to remain as Class/Structural Diagram.</li>
     </ul>
   </section>
   <section class="semantic-layer" data-praxis-anchor="engineering:business-relation" data-praxis-kind="engineering_document_section">
-    <h2>与业务复杂度的关联</h2>
+    <h2>Relationship with business complexity</h2>
     <ul>
-      <li>该图候选关联「结构切片 boards」，应该回连到组织/过程模型中对应 Use Case 的 Class Collaboration、Activity 或 Sequence 下钻图。</li>
-      <li>软件结构模型不能只说“这里有很多类”，而要说明这些类如何让业务变化更容易或更困难。</li>
-      <li>候选对象包括：TDeckBoard、SX1262Access。</li>
+      <li>This diagram candidate is associated with "structural slice boards" and should be connected back to the Class Collaboration, Activity or Sequence drill-down diagram corresponding to the Use Case in the organization/process model.</li>
+      <li>The software structure model cannot just say "there are many classes here", but should explain how these classes make business changes easier or more difficult.</li>
+      <li>Candidates include: TDeckBoard, SX1262Access.</li>
     </ul>
   </section>
   <section class="semantic-layer" data-praxis-anchor="engineering:governance-notes" data-praxis-kind="engineering_document_section">
-    <h2>治理建议</h2>
+    <h2>Governance Suggestions</h2>
     <ul>
-      <li>不要把顶层 layer、目录名或关系数量当作结构图的解释对象；结构图必须围绕可命名的业务/技术语境。</li>
-      <li>当某个对象脱离当前语境、没有关系说明或只是高引用工具类时，应从该图移除，转入 Component/Hotspot 或共享支撑切片。</li>
-      <li>变更 boards/tdeck/include/boards 时，同步维护它和相关 Use Case、Component、Sequence 的引用关系。</li>
+      <li>Do not think of top-level layers, directory names, or relationship numbers as the interpretation objects of the structure diagram; the structure diagram must be centered around a nameable business/technical context.</li>
+      <li>When an object is out of the current context, has no relationship description, or is just a highly referenced utility class, it should be removed from the diagram and transferred to Component/Hotspot or shared support slice.</li>
+      <li>When changing boards/tdeck/include/boards, simultaneously maintain the reference relationship between it and the related Use Case, Component, and Sequence.</li>
     </ul>
   </section>
   <section class="semantic-layer diagram-section" data-praxis-anchor="engineering:diagram-body" data-praxis-kind="engineering_diagram_body">
-    <h2>UML / 技术图</h2>
-    <pre class="mermaid" data-praxis-anchor="engineering:class-structural:boards-tdeck-include-boards:uml" data-praxis-kind="engineering_class_structural_uml" data-praxis-drilldowns="[{&quot;id&quot;:&quot;engineering:diagram:technical-hotspot:dependency-cluster--boards&quot;,&quot;kind&quot;:&quot;technical_hotspot&quot;,&quot;title&quot;:&quot;依赖簇：boards 技术热点&quot;,&quot;summary&quot;:&quot;该模块依赖多个外部边界，当前按候选技术耦合中心处理；图中只保留仓库证据已经观察到的依赖方向和边界。&quot;,&quot;docPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.md&quot;,&quot;htmlPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.html&quot;,&quot;anchor&quot;:&quot;engineering:hotspot:dependency-cluster:boards&quot;,&quot;relation&quot;:&quot;risk_detail&quot;,&quot;reason&quot;:&quot;查看该结构边界中的热点，确认复杂度集中在哪个对象、文件或关系簇上。&quot;}]">classDiagram
+    <h2>UML/Technical Diagram</h2>
+    <pre class="mermaid" data-praxis-anchor="engineering:class-structural:boards-tdeck-include-boards:uml" data-praxis-kind="engineering_class_structural_uml" data-praxis-drilldowns="{&quot;id&quot;:&quot;engineering:diagram:technical-hotspot:dependency-cluster--boards&quot;,&quot;kind&quot;:&quot;technical_hotspot&quot;,&quot;title&quot;:&quot;Dependency cluster: boards technology hotspots&quot;,&quot;summary&quot;:&quot;This module relies on multiple external boundaries and is currently processed as a candidate technology coupling center; only the dependency directions and boundaries that have been observed by warehouse evidence are retained in the figure.&quot;,&quot;docPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.md&quot;,&quot;htmlPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.html&quot;,&quot;anchor&quot;:&quot;engineering:hotspot:dependency-cluster:boards&quot;,&quot;relation&quot;:&quot;risk_detail&quot;,&quot;reason&quot;:&quot;Look at hot spots within the boundaries of the structure to identify which objects, files, or relationship clusters the complexity is concentrated on.&quot;}">classDiagram
   class TDeckBoard[&quot;TDeckBoard&quot;] {
     &lt;&lt;class&gt;&gt;
   }
   class SX1262Access[&quot;SX1262Access&quot;] {
     &lt;&lt;class&gt;&gt;
   }
-  note for TDeckBoard &quot;结构切片 boards，关系需由下钻证据确认&quot;</pre>
+  note for TDeckBoard &quot;S&quot;</pre>
   </section>
   <section class="semantic-layer" data-praxis-anchor="engineering:coverage" data-praxis-kind="engineering_document_section">
-    <h2>覆盖范围</h2>
+    <h2>Coverage</h2>
     <ul>
-      <li>结构切片：boards/tdeck/include/boards</li>
-      <li>候选业务/技术语境：结构切片 boards</li>
-      <li>所属工程边界：boards</li>
-      <li>候选结构对象数：2</li>
-      <li>候选结构关系数：0</li>
-      <li>对象：TDeckBoard (class)</li>
-      <li>对象：SX1262Access (class)</li>
+      <li>Structure slice: boards/tdeck/include/boards</li>
+      <li>Candidate business/technical context: structural slice boards</li>
+      <li>Project boundary: boards</li>
+      <li>Number of candidate structure objects: 2</li>
+      <li>Number of candidate structure relationships: 0</li>
+      <li>Object: TDeckBoard (class)</li>
+      <li>Object: SX1262Access (class)</li>
     </ul>
   </section>
   <section class="semantic-layer engineering-element-drilldowns" data-praxis-anchor="engineering:class-structural:boards-tdeck-include-boards:element-drilldowns" data-praxis-kind="engineering_element_drilldown_index">
-    <h2>图内语义元素下钻</h2>
+    <h2>Drill-down of semantic elements in the diagram</h2>
     <ol>
       <li data-praxis-anchor="engineering:class-structural:boards-tdeck-include-boards" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="TDeckBoard" data-praxis-drilldowns="[]">
         <strong>TDeckBoard</strong>
         <span>component</span>
-        <p>TDeckBoard 属于 boards/tdeck/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。</p>
+        <p>TDeckBoard belongs to the boards/tdeck/include/boards structural slice, which is used to explain a structural responsibility in the "structural slice boards", rather than being put into the diagram because it has a high number of relationships in the boards.</p>
         <dl>
-          <div><dt>技术角色</dt><dd>结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。</dd></div>
-          <div><dt>为什么出现</dt><dd>它位于 boards/tdeck/include/boards/tdeck/tdeck_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。</dd></div>
-          <div><dt>关系意义</dt><dd>图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。</dd></div>
-          <div><dt>下钻意图</dt><dd>下钻 TDeckBoard 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。</dd></div>
-          <div><dt>业务关联</dt><dd>TDeckBoard 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。</dd></div>
-          <div><dt>变更影响</dt><dd>修改 TDeckBoard 可能影响 boards/tdeck/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。</dd></div>
-          <div><dt>置信度</dt><dd>high</dd></div>
+          <div><dt>Technical role</dt><dd>Structure object: Its responsibilities must be explained in combination with Use Case, Sequence or Component drill-down evidence, and cannot be judged solely by name or directory.</dd></div>
+          <div><dt>Why it appears</dt><dd>It is located in boards/tdeck/include/boards/tdeck/tdeck_board.h, and is in the same source code context as other classes/interfaces in the same slice; this context is closer to the real business or architectural boundary than the top-level directory boards.</dd></div>
+          <div><dt>Relationship meaning</dt><dd>The same slice relationship in the diagram represents the collaboration boundary of the candidate structure; only when there is evidence of interface implementation, inheritance, composition, strategy or port, it should be further marked as a clear design relationship.</dd></div>
+          <div><dt>Drill-down intention</dt><dd>Drill-down TDeckBoard should verify the specific roles it plays in Component, Sequence, and Use Case Class Collaboration to avoid isolated class names being misinterpreted as business explanations.</dd></div>
+          <div><dt>Business association</dt><dd>TDeckBoard is a candidate technology carrier object for "structural slicing boards"; the current document explains the triggering conditions, processes or rules of its service through Trace/Refine links. If the evidence is insufficient, the confidence level will be reduced or the coverage will be reduced.</dd></div>
+          <div><dt>Impact of change</dt><dd>Modifying TDeckBoard may affect the structural description in boards/tdeck/include/boards, and you should check whether the relevant Design/Engineering/Architecture documents are still consistent.</dd></div>
+          <div><dt>Confidence</dt><dd>high</dd></div>
         </dl>
-        <section><h3>证据</h3>
+        <section><h3>Evidence</h3>
           <ul>
             <li>boards/tdeck/include/boards/tdeck/tdeck_board.h#L38</li>
-            <li>结构切片：boards/tdeck/include/boards</li>
-            <li>对象类型：class</li>
-            <li>候选语境：结构切片 boards</li>
+            <li>Structure slice: boards/tdeck/include/boards</li>
+            <li>Object type: class</li>
+            <li>Candidate context: structural slice boards</li>
           </ul>
         </section>
-        <section><h3>风险</h3>
+        <section><h3>Risk</h3>
           <ul>
-            <li>当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。</li>
+            <li>The current slice comes from local warehouse evidence and path context inference; the objects in the graph must be able to explain the same structural context, otherwise the generation process will be split or degraded.</li>
           </ul>
         </section>
-        <section><h3>问题</h3>
+        <section><h3>Problem</h3>
           <p>-</p>
 
         </section>
@@ -110,61 +110,61 @@
       <li data-praxis-anchor="engineering:class-structural:boards-tdeck-include-boards" data-praxis-kind="engineering_uml_element" data-praxis-mermaid-id="SX1262Access" data-praxis-drilldowns="[]">
         <strong>SX1262Access</strong>
         <span>component</span>
-        <p>SX1262Access 属于 boards/tdeck/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。</p>
+        <p>SX1262Access belongs to the boards/tdeck/include/boards structural slice, which is used to explain a structural responsibility in the "structural slice boards", rather than being put into the diagram because it has a high number of relationships in the boards.</p>
         <dl>
-          <div><dt>技术角色</dt><dd>结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。</dd></div>
-          <div><dt>为什么出现</dt><dd>它位于 boards/tdeck/include/boards/tdeck/tdeck_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。</dd></div>
-          <div><dt>关系意义</dt><dd>图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。</dd></div>
-          <div><dt>下钻意图</dt><dd>下钻 SX1262Access 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。</dd></div>
-          <div><dt>业务关联</dt><dd>SX1262Access 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。</dd></div>
-          <div><dt>变更影响</dt><dd>修改 SX1262Access 可能影响 boards/tdeck/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。</dd></div>
-          <div><dt>置信度</dt><dd>high</dd></div>
+          <div><dt>Technical role</dt><dd>Structure object: Its responsibilities must be explained in combination with Use Case, Sequence or Component drill-down evidence, and cannot be judged solely by name or directory.</dd></div>
+          <div><dt>Why it appears</dt><dd>It is located in boards/tdeck/include/boards/tdeck/tdeck_board.h, and is in the same source code context as other classes/interfaces in the same slice; this context is closer to the real business or architectural boundary than the top-level directory boards.</dd></div>
+          <div><dt>Relationship meaning</dt><dd>The same slice relationship in the diagram represents the collaboration boundary of the candidate structure; only when there is evidence of interface implementation, inheritance, composition, strategy or port, it should be further marked as a clear design relationship.</dd></div>
+          <div><dt>Drill-down intention</dt><dd>Drill-down SX1262Access should verify the specific roles it plays in Component, Sequence, and Use Case Class Collaboration to avoid isolated class names being misinterpreted as business explanations.</dd></div>
+          <div><dt>Business association</dt><dd>SX1262Access is a candidate technology carrier object for "structural slicing boards"; the current document explains the triggering conditions, processes or rules of its service through Trace/Refine links. If the evidence is insufficient, the confidence level will be reduced or the coverage will be reduced.</dd></div>
+          <div><dt>Impact of change</dt><dd>Modifying SX1262Access may affect the structural description in boards/tdeck/include/boards, and you should check whether the relevant Design/Engineering/Architecture documents are still consistent.</dd></div>
+          <div><dt>Confidence</dt><dd>high</dd></div>
         </dl>
-        <section><h3>证据</h3>
+        <section><h3>Evidence</h3>
           <ul>
             <li>boards/tdeck/include/boards/tdeck/tdeck_board.h#L29</li>
-            <li>结构切片：boards/tdeck/include/boards</li>
-            <li>对象类型：class</li>
-            <li>候选语境：结构切片 boards</li>
+            <li>Structure slice: boards/tdeck/include/boards</li>
+            <li>Object type: class</li>
+            <li>Candidate context: structural slice boards</li>
           </ul>
         </section>
-        <section><h3>风险</h3>
+        <section><h3>Risk</h3>
           <ul>
-            <li>当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。</li>
+            <li>The current slice comes from local warehouse evidence and path context inference; the objects in the graph must be able to explain the same structural context, otherwise the generation process will be split or degraded.</li>
           </ul>
         </section>
-        <section><h3>问题</h3>
+        <section><h3>Problem</h3>
           <p>-</p>
 
         </section>
       </li>
     </ol>
   </section>
-  <section class="semantic-layer engineering-drilldowns" data-praxis-anchor="engineering:class-structural:boards-tdeck-include-boards:drilldowns" data-praxis-kind="engineering_drilldown_options" data-praxis-drilldowns="[{&quot;id&quot;:&quot;engineering:diagram:technical-hotspot:dependency-cluster--boards&quot;,&quot;kind&quot;:&quot;technical_hotspot&quot;,&quot;title&quot;:&quot;依赖簇：boards 技术热点&quot;,&quot;summary&quot;:&quot;该模块依赖多个外部边界，当前按候选技术耦合中心处理；图中只保留仓库证据已经观察到的依赖方向和边界。&quot;,&quot;docPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.md&quot;,&quot;htmlPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.html&quot;,&quot;anchor&quot;:&quot;engineering:hotspot:dependency-cluster:boards&quot;,&quot;relation&quot;:&quot;risk_detail&quot;,&quot;reason&quot;:&quot;查看该结构边界中的热点，确认复杂度集中在哪个对象、文件或关系簇上。&quot;}]">
-    <h2>可下钻 UML</h2>
+  <section class="semantic-layer engineering-drilldowns" data-praxis-anchor="engineering:class-structural:boards-tdeck-include-boards:drilldowns" data-praxis-kind="engineering_drilldown_options" data-praxis-drilldowns="{&quot;id&quot;:&quot;engineering:diagram:technical-hotspot:dependency-cluster--boards&quot;,&quot;kind&quot;:&quot;technical_hotspot&quot;,&quot;title&quot;:&quot;Dependency cluster: boards technology hotspots&quot;,&quot;summary&quot;:&quot;This module relies on multiple external boundaries and is currently processed as a candidate technology coupling center; only the dependency directions and boundaries that have been observed by warehouse evidence are retained in the figure.&quot;,&quot;docPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.md&quot;,&quot;htmlPath&quot;:&quot;docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.html&quot;,&quot;anchor&quot;:&quot;engineering:hotspot:dependency-cluster:boards&quot;,&quot;relation&quot;:&quot;risk_detail&quot;,&quot;reason&quot;:&quot;Look at hot spots within the boundaries of the structure to identify which objects, files, or relationship clusters the complexity is concentrated on.&quot;}">
+    <h2>Drill-down UML</h2>
     <div class="layer-grid">
-      <article role="link" tabindex="0" class="layer-card document-entry-card" data-praxis-anchor="engineering:hotspot:dependency-cluster:boards" data-praxis-kind="engineering_drilldown_link" data-praxis-document-title="依赖簇：boards 技术热点" data-praxis-document-summary="查看该结构边界中的热点，确认复杂度集中在哪个对象、文件或关系簇上。" data-praxis-document-md="docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.md" data-praxis-document-html="docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.html">
-        <strong>依赖簇：boards 技术热点</strong>
+      <article role="link" tabindex="0" class="layer-card document-entry-card" data-praxis-anchor="engineering:hotspot:dependency-cluster:boards" data-praxis-kind="engineering_drilldown_link" data-praxis-document-title="Dependency cluster: boards technology hotspots" data-praxis-document-summary="Look at hot spots within the boundaries of the structure to identify which objects, files, or relationship clusters the complexity is concentrated on." data-praxis-document-md="docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.md" data-praxis-document-html="docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.html">
+        <strong>Dependency cluster: boards technology hotspots</strong>
         <span>technical_hotspot · risk_detail</span>
-        <p>查看该结构边界中的热点，确认复杂度集中在哪个对象、文件或关系簇上。</p>
-        <small>该模块依赖多个外部边界，当前按候选技术耦合中心处理；图中只保留仓库证据已经观察到的依赖方向和边界。</small>
+        <p>Look at hot spots within the boundaries of the structure to identify which objects, files, or relationship clusters the complexity is concentrated on.</p>
+        <small>This module relies on multiple external boundaries and is currently processed as a candidate technology coupling center; only the dependency directions and boundaries that have been observed by warehouse evidence are retained in the figure.</small>
       </article>
     </div>
   </section>
   <section class="semantic-layer" data-praxis-anchor="engineering:evidence" data-praxis-kind="engineering_document_section">
-    <h2>证据</h2>
+    <h2>Evidence</h2>
     <ul>
       <li>boards/tdeck/include/boards/tdeck/tdeck_board.h#L38</li>
       <li>boards/tdeck/include/boards/tdeck/tdeck_board.h#L29</li>
     </ul>
   </section>
   <section class="semantic-layer" data-praxis-anchor="engineering:questions" data-praxis-kind="engineering_document_section">
-    <h2>问题</h2>
+    <h2>Problem</h2>
     <ul>
-      <li>该结构切片来自本地仓库证据；当前未发现足够 Trace 证据把它绑定到唯一业务故事，因此只作为软件结构模型候选视角。</li>
+      <li>This structural slice comes from local warehouse evidence; currently there is not enough Trace evidence found to bind it to the unique business story, so it is only used as a candidate perspective of the software structural model.</li>
     </ul>
   </section>
-  <script type="application/json" id="praxis-engineering-diagram-document">{"id":"engineering:diagram:class-structural:boards-tdeck-include-boards","kind":"class_structural","title":"结构协作：结构切片 boards · tdeck/include/boards","summary":"解释 boards/tdeck/include/boards 这一结构切片中类、接口、组件或值对象如何共同承担结构切片 boards中的结构职责；候选对象包括 TDeckBoard、SX1262Access。","docPath":"docs/engineering/class-structural-diagrams/boards-tdeck-include-boards/class-structural-diagram.md","htmlPath":"docs/engineering/class-structural-diagrams/boards-tdeck-include-boards/class-structural-diagram.html","anchor":"engineering:class-structural:boards-tdeck-include-boards","status":"candidate","confidence":"high","mermaidKind":"classDiagram","mermaid":"classDiagram\n  class TDeckBoard[\"TDeckBoard\"] {\n    \u003c\u003cclass\u003e\u003e\n  }\n  class SX1262Access[\"SX1262Access\"] {\n    \u003c\u003cclass\u003e\u003e\n  }\n  note for TDeckBoard \"结构切片 boards，关系需由下钻证据确认\"","readingGuide":["这张 Class / Structural Diagram 聚焦 boards/tdeck/include/boards 这一结构切片，而不是整个 boards 顶层目录。","它只放入类、接口、枚举或结构类型；方法级高引用对象会进入 Component/Hotspot，不再混入结构协作图。","候选语境是「结构切片 boards」。读图时先确认这些对象是否共同承载同一个业务能力、共享支撑机制或适配边界。","当前没有足够类级关系证据，因此图只保留候选切片对象，并降低为结构候选视角。"],"technicalAnalysis":["boards/tdeck/include/boards 当前包含 2 个类/结构和 0 个接口/trait 候选对象。","当前缺少类级关系证据，不能把同目录对象直接解释成稳定协作。","这张图的解释目标是结构职责和边界：哪些对象像领域模型、哪些对象像接口契约、哪些对象像策略/适配器或共享支撑。","如果图中对象只是同目录但没有共同业务语境或结构关系，生成流程必须拆分或降级为 Component/Hotspot，而不是继续保留为 Class / Structural Diagram。"],"businessRelation":["该图候选关联「结构切片 boards」，应该回连到组织/过程模型中对应 Use Case 的 Class Collaboration、Activity 或 Sequence 下钻图。","软件结构模型不能只说“这里有很多类”，而要说明这些类如何让业务变化更容易或更困难。","候选对象包括：TDeckBoard、SX1262Access。"],"governanceNotes":["不要把顶层 layer、目录名或关系数量当作结构图的解释对象；结构图必须围绕可命名的业务/技术语境。","当某个对象脱离当前语境、没有关系说明或只是高引用工具类时，应从该图移除，转入 Component/Hotspot 或共享支撑切片。","变更 boards/tdeck/include/boards 时，同步维护它和相关 Use Case、Component、Sequence 的引用关系。"],"coverage":["结构切片：boards/tdeck/include/boards","候选业务/技术语境：结构切片 boards","所属工程边界：boards","候选结构对象数：2","候选结构关系数：0","对象：TDeckBoard (class)","对象：SX1262Access (class)"],"evidencePaths":["boards/tdeck/include/boards/tdeck/tdeck_board.h#L38","boards/tdeck/include/boards/tdeck/tdeck_board.h#L29"],"questions":["该结构切片来自本地仓库证据；当前未发现足够 Trace 证据把它绑定到唯一业务故事，因此只作为软件结构模型候选视角。"],"scope":{"packageId":"boards","filePath":"boards/tdeck/include/boards"},"drilldowns":[{"id":"engineering:diagram:technical-hotspot:dependency-cluster--boards","kind":"technical_hotspot","title":"依赖簇：boards 技术热点","summary":"该模块依赖多个外部边界，当前按候选技术耦合中心处理；图中只保留仓库证据已经观察到的依赖方向和边界。","docPath":"docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.md","htmlPath":"docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.html","anchor":"engineering:hotspot:dependency-cluster:boards","relation":"risk_detail","reason":"查看该结构边界中的热点，确认复杂度集中在哪个对象、文件或关系簇上。"}],"elements":[{"id":"engineering:diagram:class-structural:boards-tdeck-include-boards:element:tdeckboard","mermaidId":"TDeckBoard","label":"TDeckBoard","kind":"component","anchor":"engineering:class-structural:boards-tdeck-include-boards","summary":"TDeckBoard 属于 boards/tdeck/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。","role":"结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。","whyItExists":"它位于 boards/tdeck/include/boards/tdeck/tdeck_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。","relationshipMeaning":"图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。","drilldownIntent":"下钻 TDeckBoard 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。","businessRelevance":"TDeckBoard 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。","changeImpact":"修改 TDeckBoard 可能影响 boards/tdeck/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。","evidence":["boards/tdeck/include/boards/tdeck/tdeck_board.h#L38","结构切片：boards/tdeck/include/boards","对象类型：class","候选语境：结构切片 boards"],"risks":["当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。"],"questions":[],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:class-structural:boards-tdeck-include-boards:element:sx1262access","mermaidId":"SX1262Access","label":"SX1262Access","kind":"component","anchor":"engineering:class-structural:boards-tdeck-include-boards","summary":"SX1262Access 属于 boards/tdeck/include/boards 结构切片，用来解释「结构切片 boards」中的一个结构职责，而不是因为它在 boards 中关系数量高才被放入图。","role":"结构对象：它的职责必须结合 Use Case、Sequence 或 Component 下钻证据解释，不能只靠名称或目录判断。","whyItExists":"它位于 boards/tdeck/include/boards/tdeck/tdeck_board.h，并且和同切片其它类/接口处在同一源码语境；该语境比顶层目录 boards 更接近真实业务或架构边界。","relationshipMeaning":"图中的同切片关系表示候选结构协作边界；只有存在接口实现、继承、组合、策略或端口证据时，才应进一步标注为明确设计关系。","drilldownIntent":"下钻 SX1262Access 应验证它在 Component、Sequence、Use Case Class Collaboration 中承担的具体角色，避免孤立类名被误读成业务解释。","businessRelevance":"SX1262Access 是「结构切片 boards」候选技术承载对象；当前文档通过 Trace/Refine 链接说明它服务的触发条件、流程或规则，证据不足时会降低置信度或缩小覆盖范围。","changeImpact":"修改 SX1262Access 可能影响 boards/tdeck/include/boards 内的结构说明，并应同步检查相关 Design/Engineering/Architecture 文档是否仍一致。","evidence":["boards/tdeck/include/boards/tdeck/tdeck_board.h#L29","结构切片：boards/tdeck/include/boards","对象类型：class","候选语境：结构切片 boards"],"risks":["当前切片来自本地仓库证据和路径语境推断；图中对象必须能解释同一个结构语境，否则生成流程会拆分或降级。"],"questions":[],"confidence":"high","drilldowns":[]}]}</script>
+  <script type="application/json" id="praxis-engineering-diagram-document">{"id":"engineering:diagram:class-structural:boards-tdeck-include-boards","kind":"class_structural","title":"Structural collaboration: structural slicing boards · tdeck/include/boards","summary":"Explain how classes, interfaces, components or value objects in the structural slice boards/tdeck/include/boards share structural responsibilities in the structural slice boards; candidates include TDeckBoard and SX1262Access.","docPath":"docs/engineering/class-structural-diagrams/boards-tdeck-include-boards/class-structural-diagram.md","htmlPath":"docs/engineering/class-structural-diagrams/boards-tdeck-include-boards/class-structural-diagram.html","anchor":"engineering:class-structural:boards-tdeck-include-boards","status":"candidate","confidence":"high","mermaidKind":"classDiagram","mermaid":"classDiagram\n  class TDeckBoard[\"TDeckBoard\"] {\n    <<class>>\n  }\n  class SX1262Access[\"SX1262Access\"] {\n    <<class>>\n  }\n  note for TDeckBoard \"S\"","readingGuide":["This Class / Structural Diagram focuses on the structural slice of boards/tdeck/include/boards, rather than the entire top-level directory of boards.","It only puts classes, interfaces, enumerations or structural types; method-level high-reference objects will enter Component/Hotspot and will no longer be mixed into the structural collaboration diagram.","The candidate context is \"structural slice boards\". When reading the diagram, first confirm whether these objects jointly carry the same business capabilities, share support mechanisms or adaptation boundaries.","Currently there is not enough evidence of class-level relationships, so the graph only retains candidate slice objects and reduces them to structural candidate perspectives."],"technicalAnalysis":["boards/tdeck/include/boards currently contains 2 class/structure and 0 interface/trait candidates.","Currently there is a lack of class-level relationship evidence, and objects in the same directory cannot be directly interpreted as stable collaboration.","The explanation goal of this diagram is to structure responsibilities and boundaries: which objects are like domain models, which objects are like interface contracts, and which objects are like strategies/adapters or shared supports.","If the objects in the diagram are in the same directory but have no common business context or structural relationship, the generation process must be split or downgraded to Component/Hotspot instead of continuing to remain as Class/Structural Diagram."],"businessRelation":["This diagram candidate is associated with \"structural slice boards\" and should be connected back to the Class Collaboration, Activity or Sequence drill-down diagram corresponding to the Use Case in the organization/process model.","The software structure model cannot just say \"there are many classes here\", but should explain how these classes make business changes easier or more difficult.","Candidates include: TDeckBoard, SX1262Access."],"governanceNotes":["Do not think of top-level layers, directory names, or relationship numbers as the interpretation objects of the structure diagram; the structure diagram must be centered around a nameable business/technical context.","When an object is out of the current context, has no relationship description, or is just a highly referenced utility class, it should be removed from the diagram and transferred to Component/Hotspot or shared support slice.","When changing boards/tdeck/include/boards, simultaneously maintain the reference relationship between it and the related Use Case, Component, and Sequence."],"coverage":["Structure slice: boards/tdeck/include/boards","Candidate business/technical context: structural slice boards","Project boundary: boards","Number of candidate structure objects: 2","Number of candidate structure relationships: 0","Object: TDeckBoard (class)","Object: SX1262Access (class)"],"evidencePaths":["boards/tdeck/include/boards/tdeck/tdeck_board.h#L38","boards/tdeck/include/boards/tdeck/tdeck_board.h#L29"],"questions":["This structural slice comes from local warehouse evidence; currently there is not enough Trace evidence found to bind it to the unique business story, so it is only used as a candidate perspective of the software structural model."],"scope":{"packageId":"boards","filePath":"boards/tdeck/include/boards"},"drilldowns":[{"id":"engineering:diagram:technical-hotspot:dependency-cluster--boards","kind":"technical_hotspot","title":"Dependency cluster: boards technology hotspots","summary":"This module relies on multiple external boundaries and is currently processed as a candidate technology coupling center; only the dependency directions and boundaries that have been observed by warehouse evidence are retained in the figure.","docPath":"docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.md","htmlPath":"docs/engineering/technical-hotspots/dependency-cluster--boards/technical-hotspot.html","anchor":"engineering:hotspot:dependency-cluster:boards","relation":"risk_detail","reason":"Look at hot spots within the boundaries of the structure to identify which objects, files, or relationship clusters the complexity is concentrated on."}],"elements":[{"id":"engineering:diagram:class-structural:boards-tdeck-include-boards:element:tdeckboard","mermaidId":"TDeckBoard","label":"TDeckBoard","kind":"component","anchor":"engineering:class-structural:boards-tdeck-include-boards","summary":"TDeckBoard belongs to the boards/tdeck/include/boards structural slice, which is used to explain a structural responsibility in the \"structural slice boards\", rather than being put into the diagram because it has a high number of relationships in the boards.","role":"Structure object: Its responsibilities must be explained in combination with Use Case, Sequence or Component drill-down evidence, and cannot be judged solely by name or directory.","whyItExists":"It is located in boards/tdeck/include/boards/tdeck/tdeck_board.h, and is in the same source code context as other classes/interfaces in the same slice; this context is closer to the real business or architectural boundary than the top-level directory boards.","relationshipMeaning":"The same slice relationship in the diagram represents the collaboration boundary of the candidate structure; only when there is evidence of interface implementation, inheritance, composition, strategy or port, it should be further marked as a clear design relationship.","drilldownIntent":"Drill-down TDeckBoard should verify the specific roles it plays in Component, Sequence, and Use Case Class Collaboration to avoid isolated class names being misinterpreted as business explanations.","businessRelevance":"TDeckBoard is a candidate technology carrier object for \"structural slicing boards\"; the current document explains the triggering conditions, processes or rules of its service through Trace/Refine links. If the evidence is insufficient, the confidence level will be reduced or the coverage will be reduced.","changeImpact":"Modifying TDeckBoard may affect the structural description in boards/tdeck/include/boards, and you should check whether the relevant Design/Engineering/Architecture documents are still consistent.","evidence":["boards/tdeck/include/boards/tdeck/tdeck_board.h#L38","Structure slice: boards/tdeck/include/boards","Object type: class","Candidate context: structural slice boards"],"risks":["The current slice comes from local warehouse evidence and path context inference; the objects in the graph must be able to explain the same structural context, otherwise the generation process will be split or degraded."],"questions":[],"confidence":"high","drilldowns":[]},{"id":"engineering:diagram:class-structural:boards-tdeck-include-boards:element:sx1262access","mermaidId":"SX1262Access","label":"SX1262Access","kind":"component","anchor":"engineering:class-structural:boards-tdeck-include-boards","summary":"SX1262Access belongs to the boards/tdeck/include/boards structural slice, which is used to explain a structural responsibility in the \"structural slice boards\", rather than being put into the diagram because it has a high number of relationships in the boards.","role":"Structure object: Its responsibilities must be explained in combination with Use Case, Sequence or Component drill-down evidence, and cannot be judged solely by name or directory.","whyItExists":"It is located in boards/tdeck/include/boards/tdeck/tdeck_board.h, and is in the same source code context as other classes/interfaces in the same slice; this context is closer to the real business or architectural boundary than the top-level directory boards.","relationshipMeaning":"The same slice relationship in the diagram represents the collaboration boundary of the candidate structure; only when there is evidence of interface implementation, inheritance, composition, strategy or port, it should be further marked as a clear design relationship.","drilldownIntent":"Drill-down SX1262Access should verify the specific roles it plays in Component, Sequence, and Use Case Class Collaboration to avoid isolated class names being misinterpreted as business explanations.","businessRelevance":"SX1262Access is a candidate technology carrier object for \"structural slicing boards\"; the current document explains the triggering conditions, processes or rules of its service through Trace/Refine links. If the evidence is insufficient, the confidence level will be reduced or the coverage will be reduced.","changeImpact":"Modifying SX1262Access may affect the structural description in boards/tdeck/include/boards, and you should check whether the relevant Design/Engineering/Architecture documents are still consistent.","evidence":["boards/tdeck/include/boards/tdeck/tdeck_board.h#L29","Structure slice: boards/tdeck/include/boards","Object type: class","Candidate context: structural slice boards"],"risks":["T"],"questions":[],"confidence":"high","drilldowns":[]}]}</script>
 </main>
 </body>
 </html>

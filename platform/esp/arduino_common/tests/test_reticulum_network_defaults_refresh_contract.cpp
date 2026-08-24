@@ -14,40 +14,34 @@ int main(int argc, char** argv)
     assert(file.is_open());
     const std::string source((std::istreambuf_iterator<char>(file)),
                              std::istreambuf_iterator<char>());
+    const std::string tms_path =
+        std::string(argv[1]) +
+        "/platform/esp/arduino_common/src/app_config_tms_settings_extension.cpp";
+    std::ifstream tms_file(tms_path, std::ios::binary);
+    assert(tms_file.is_open());
+    const std::string tms_source((std::istreambuf_iterator<char>(tms_file)),
+                                 std::istreambuf_iterator<char>());
 
-    // The Settings-derived default topology is authoritative whenever no
-    // user-authored SD configuration exists. A cached SD configuration is
-    // only a boot-time fallback and must be replaced once that absence is
-    // confirmed, then refreshed after Settings changes.
-    assert(source.find("void refresh_default_projection(") != std::string::npos);
-    assert(source.find("if (!g_status.file_present)") != std::string::npos);
-    assert(source.find("refresh_default_projection(legacy_config, true);") !=
-           std::string::npos);
-    assert(source.find("refresh_default_projection(legacy_config, false);") !=
-           std::string::npos);
-
-    // The configuration document buffer is not safe as a pseudo-EXT_RAM
-    // static: this target's linker places that section in internal BSS. It
-    // must be created through a strict PSRAM allocation before every read or
-    // serialization path can use it.
-    assert(source.find("char* g_file_buffer = nullptr;") != std::string::npos);
-    assert(source.find("bool ensure_file_buffer()") != std::string::npos);
+    // A single PSRAM-resident runtime snapshot is populated from TMS before
+    // the LXMF adapter starts. JSON is permitted only as a one-time migration
+    // input and is never a normal runtime or NVS-backed configuration source.
+    assert(source.find("NetworkConfig* s_active = nullptr;") != std::string::npos);
     assert(source.find("MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT") != std::string::npos);
-    assert(source.find("kConfigBufferBytes") != std::string::npos);
-    assert(source.find("!out_len || !ensure_file_buffer()") != std::string::npos);
-    assert(source.find("!sd_available() || !ensure_file_buffer()") != std::string::npos);
-
-    // Parsing is a cold operation, unlike g_active which the Reticulum packet
-    // paths read at runtime. Its 804-byte scratch configuration therefore
-    // belongs in strict PSRAM and must fail cleanly before parsing begins.
-    assert(source.find("ReticulumNetworkConfig* g_parse_scratch_storage = nullptr;") !=
+    assert(source.find("bool setFromTms(const NetworkConfig& config)") !=
            std::string::npos);
-    assert(source.find("bool ensure_parse_scratch()") != std::string::npos);
-    assert(source.find("[Reticulum][Config] parse_scratch allocation_failed") !=
+    assert(source.find("bool snapshotForTms(") != std::string::npos);
+    assert(source.find("LegacyImportResult importLegacy(") != std::string::npos);
+    assert(source.find("kLegacyConfigPath") != std::string::npos);
+    assert(source.find("rt_net_cfg") == std::string::npos);
+    assert(source.find("Preferences") == std::string::npos);
+    assert(source.find("write_sd_file_atomic") == std::string::npos);
+    assert(source.find("void poll(const chat::MeshConfig& legacy_config)") !=
            std::string::npos);
-    assert(source.find("if (!ensure_parse_scratch())") != std::string::npos);
-    assert(source.find("bool build_defaults(const chat::MeshConfig& legacy_config)") !=
-           std::string::npos);
-    assert(source.find("Reticulum config memory unavailable") != std::string::npos);
+    // The pre-release TMSET6 document already used this public Reticulum
+    // namespace. Keep it stable in TMSET7 so migration is value-preserving;
+    // `rt_net` was an unshipped internal spelling and must never reappear.
+    assert(tms_source.find("rt.net.version") != std::string::npos);
+    assert(tms_source.find("rt.net.interface.%u.id") != std::string::npos);
+    assert(tms_source.find("rt_net.") == std::string::npos);
     return 0;
 }

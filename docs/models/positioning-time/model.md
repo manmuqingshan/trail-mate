@@ -1,10 +1,10 @@
-# GNSS 定位、跳变过滤与时间更新
+# GNSS positioning, jump filtering and time update
 
-模型状态：**confirmed；路线导航不属于本模型**
+Model status: **confirmed; route navigation does not belong to this model**
 
-## 输入与输出契约
+## Input and output contract
 
-`LocationService` 的构造依赖直接揭示了处理链：
+The structural dependency of `LocationService` directly reveals the processing chain:
 
 ```text
 NmeaParser
@@ -14,9 +14,9 @@ NmeaParser
   → ITimeAuthorityUpdater
 ```
 
-对外只暴露 `latestFix(LocationFix&)`。这意味着页面、团队和轨迹不应各自重新解析 NMEA 或绕过过滤器读取 driver 状态。
+Only `latestFix(LocationFix&)` is exposed to the outside world. This means that pages, teams, and tracks should each not re-parse NMEA or bypass filters to read driver status.
 
-## 处理一次 GNSS 输入
+## Process a GNSS input
 
 ```mermaid
 sequenceDiagram
@@ -33,26 +33,26 @@ sequenceDiagram
   Service->>Time: submit new time revision
 ```
 
-## 明确存在的状态
+## Explicitly existing state
 
-- `latest_fix_`：最后一次由 service 保存的 `LocationFix`。
-- `last_fix_revision_`：避免重复处理同一 fix revision。
-- `last_time_revision_`：避免重复处理同一 time revision。
-- `reset()`：清除 service 状态。
+- `latest_fix_`: The last `LocationFix` saved by the service.
+- `last_fix_revision_`: Avoid processing the same fix revision repeatedly.
+- `last_time_revision_`: Avoid processing the same time revision repeatedly.
+- `reset()`: Clear service status.
 
-“Valid / Stale / NoFix”是有用的分析语言，但当前 `LocationService` 头文件并没有公开这样一套状态机；原文把它写成 confirmed state machine 过度解释。下钻图现在会明确区分代码事实与分析投影。
+"Valid/Stale/NoFix" is a useful analysis language, but the current `LocationService` header file does not expose such a set of state machines; the original text writes it as confirmed state machine, which is an over-explanation. Drill-down plots now clearly differentiate between code facts and analysis projections.
 
-## 时间更新的真实边界
+## The real boundary of time update
 
-代码中明确存在 `ITimeAuthorityUpdater` 端口；文档应写“LocationService 向时间权威提交更新”，不能凭此创造一个名为 `GNSS Time Authority` 的领域实体。
+The `ITimeAuthorityUpdater` port clearly exists in the code; the document should read "LocationService submits updates to the time authority", and cannot be used to create a domain entity named `GNSS Time Authority`.
 
-## 不属于这里的内容
+## Content that does not belong here
 
-Route、RouteLeg、沿线进度和偏航策略不是 `LocationFix` 的属性。偏航规则当前落在 `gps_page_runtime.cpp`，说明 Navigation 模型缺失；它应留在 Review Queue。
+Route, RouteLeg, along-route progress and yaw policy are not properties of `LocationFix`. The yaw rule currently resides in `gps_page_runtime.cpp`, indicating that the Navigation model is missing; it should remain in the Review Queue.
 
-## 下钻与证据
+## Drilldown and Evidence
 
-- [LocationFix 生命周期：事实与推断](fix-lifecycle.md)
+- [LocationFix Lifecycle: Facts and Inferences](fix-lifecycle.md)
 - `modules/core_gps/include/gps/domain/location_fix.h`
 - `modules/core_gps/include/gps/usecase/location_service.h`
 - `modules/core_gps/src/usecase/location_service.cpp`

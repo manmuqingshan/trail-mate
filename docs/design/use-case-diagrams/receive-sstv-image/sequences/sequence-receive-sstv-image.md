@@ -1,7 +1,7 @@
-# Sequence：SSTV 解码与保存
+# Sequence: SSTV decoding and saving
 ```mermaid
 sequenceDiagram
-  actor U as 用户
+ actor U as user
   participant UI as SSTV Page
   participant Runtime as SSTV Runtime
   participant Decoder as Audio Decoder
@@ -18,22 +18,22 @@ sequenceDiagram
   Runtime-->>UI: image + save outcome
 ```
 
-## 场景与责任
+## Scenarios and responsibilities
 
-UI 管理一次 RX session；Runtime 拥有接收生命周期和 frame buffer；Decoder 消费音频并产生模式/进度/完整 frame；Image Store 只负责持久化完整图像。
+UI manages an RX session; Runtime has a receiving life cycle and frame buffer; Decoder consumes audio and generates mode/progress/complete frames; Image Store is only responsible for persisting complete images.
 
-## 事件顺序
+## Sequence of events
 
-progress 只能在当前 session 且模式已识别时更新。`complete frame` 是保存的前置条件；Runtime 在转交 Store 前冻结 frame ownership，避免 Decoder 立即复用缓冲导致保存内容变化。
+Progress can only be updated in the current session and the pattern is recognized. `complete frame` is a precondition for saving; Runtime freezes frame ownership before transferring it to the Store to prevent the Decoder from immediately reusing the buffer and causing changes in the saved content.
 
-## 保存与显示
+## Save and display
 
-Store 返回 path 表示文件已经稳定提交。保存错误不否定完整解码，UI 可显示图像但明确标注未保存；只有 path 属于当前 frame 时才显示，不能沿用上次路径。
+Store returns path to indicate that the file has been stably submitted. Saving errors does not negate complete decoding. The UI can display the image but clearly indicates that it is not saved; it is only displayed when the path belongs to the current frame, and the last path cannot be used.
 
-## 取消、迟到和内存
+## Cancellation, lateness and memory
 
-用户取消或退出递增 session generation，迟到 progress/complete/save callback 全部失效。Frame buffer 使用成员/固定槽或 caller storage，禁止在音频任务栈上构造大图像对象。
+If the user cancels or exits the incremental session generation, all late progress/complete/save callbacks will be invalid. Frame buffer uses members/fixed slots or caller storage, disallowing the construction of large image objects on the audio task stack.
 
-## 测试
+## Tests
 
-覆盖 progress 乱序、连续 frame、保存期间下一帧、Store 失败、取消后迟到完成和缓冲复用。
+ Covers progress out-of-order, continuous frames, next frame during saving, Store failure, late completion after cancellation and buffer reuse.

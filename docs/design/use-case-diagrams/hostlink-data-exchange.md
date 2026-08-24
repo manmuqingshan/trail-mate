@@ -1,29 +1,29 @@
-# Use Case：通过 HostLink 与外部主机交换应用数据
+# Use Case: Exchange application data with external host via HostLink
 
-状态：**confirmed integration behavior**
-业务边界：外部应用与主机集成
+Status: **confirmed integration behavior**
+Business Boundary: External application integrated with host
 
-## 用户目标
+## User goal
 
-让受支持的本地主机读取设备状态/GPS、提交允许的配置和应用数据，并收到明确响应或异步事件；坏帧、未知命令和断线不能留下半应用操作。
+Have supported local hosts read device status/GPS, submit allowed configuration and application data, and receive explicit responses or asynchronous events; bad frames, unknown commands, and disconnections cannot leave half application operations.
 
-## 主场景
+## Main scene
 
-1. `SessionRuntime` 从 Stopped 进入 Waiting/Connected，完成握手后进入 Ready。
-2. frame codec 检查 magic/length/type/sequence；router 只把合法 frame 映射到 status、GPS、configuration 或 app-data handler。
-3. command handler 校验 capability 和 payload，调用 bounded service，形成 response/error frame。
-4. session 管理 TX sequence、队列和节流；主机断线后清空 session-scoped pending 状态并回到 Waiting。
+1. `SessionRuntime` enters Waiting/Connected from Stopped, and enters Ready after completing the handshake.
+2. The frame codec checks magic/length/type/sequence; the router only maps legal frames to status, GPS, configuration or app-data handler.
+3. The command handler checks the capability and payload, calls the bounded service, and forms a response/error frame.
+4. Session manages TX sequence, queue and throttling; after the host is disconnected, the session-scoped pending state is cleared and returns to Waiting.
 
-## 规则与失败
+## Rules and Failures
 
-- HostLink 是本地集成协议，不等于 USB Mass Storage，也不等于 P4↔C6 内部 companion link。
-- 未完成 handshake 不接受业务命令。
-- 非法长度、未知 command、sequence/codec 错误返回明确 error 或关闭 session。
-- 配置变更必须以服务返回结果为准，不能在 decode 后直接显示成功。
+- HostLink is a native integration protocol, not equal to USB Mass Storage, nor equal to P4↔C6 internal companion link.
+- Incomplete handshake does not accept business commands.
+- Illegal length, unknown command, sequence/codec errors return a clear error or close the session.
+- Configuration changes must be based on the results returned by the service, and success cannot be displayed directly after decoding.
 
-源码：`modules/core_hostlink/include/hostlink/session_runtime.h`、HostLink frame router/codecs、platform hostlink transports。
+Source code: `modules/core_hostlink/include/hostlink/session_runtime.h`, HostLink frame router/codecs, platform hostlink transports.
 
-## 下钻
+## Drill down
 
 - [Activity](hostlink-data-exchange/activity.md)
 - [Sequence](hostlink-data-exchange/sequences/sequence-hostlink-data-exchange.md)

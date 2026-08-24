@@ -1,24 +1,24 @@
-# Use Case：监听模拟对讲频道
+# Use Case: Listen to the analog talkback channel
 
-状态：**confirmed receive-only behavior**
-业务边界：通信、媒体与投递
+Status: **confirmed receive-only behavior**
+Business Boundary: Communication, Media and Delivery
 
-## 用户目标
+## User goal
 
-在支持 walkie runtime 的设备上监听当前模拟语音频率，观察 RSSI/音频电平并控制 monitor；当前页面没有被文档夸大为完整 PTT 发射用例。
+Listen to the current analog voice frequency, observe RSSI/audio levels and control the monitor on a device that supports the walkie runtime; the current page is not exaggerated by the documentation as a complete PTT transmit use case.
 
-## 行为与规则
+## Behavior and Rules
 
-1. 进入页面前检查 `platform::ui::walkie::is_supported()`。
-2. runtime 启动 receiver，页面读取频率、RSSI、squelch/monitor 和音量电平。
-3. 用户开关 monitor；状态只有平台确认后才更新。
-4. 离开页面停止 monitor 并释放音频/radio 资源。
+1. Check `platform::ui::walkie::is_supported()` before entering the page.
+2. The runtime starts the receiver, and the page reads frequency, RSSI, squelch/monitor and volume level.
+3. User switches monitor; the status will only be updated after confirmation by the platform.
+4. Leave the page to stop the monitor and release audio/radio resources.
 
-失败时显示 runtime error，不保留“已监听”的假状态。
+Display runtime error when failed, and do not retain the false status of "listened".
 
-源码：`modules/ui_shared/src/ui/screens/walkie_talkie/walkie_talkie_page_runtime.cpp`、`modules/core_sys/include/platform/ui/walkie_runtime.h`。
+Source code: `modules/ui_shared/src/ui/screens/walkie_talkie/walkie_talkie_page_runtime.cpp`, `modules/core_sys/include/platform/ui/walkie_runtime.h`.
 
-## 下钻
+#
 
 - [Activity](monitor-walkie-channel/activity.md)
 - [Sequence](monitor-walkie-channel/sequences/sequence-monitor-walkie-channel.md)

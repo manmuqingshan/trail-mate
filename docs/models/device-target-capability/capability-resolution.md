@@ -14,4 +14,4 @@ flowchart LR
   Authority --> Owner["fact owner HostKind"]
 ```
 
-Capability 回答“能力处于什么状态并由哪个 endpoint 提供”；Authority 回答“哪一个 host 对某类事实负责”。
+C

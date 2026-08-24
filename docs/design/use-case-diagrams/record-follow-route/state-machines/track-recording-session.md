@@ -1,4 +1,4 @@
-# State Machine：轨迹记录会话
+# State Machine: Track recording session
 ```mermaid
 stateDiagram-v2
   [*] --> Idle
@@ -13,29 +13,29 @@ stateDiagram-v2
   Error --> Idle: acknowledge/reset
 ```
 
-## 状态 owner 与持久事实
+## State owner and persistent facts
 
-TrackStateMachine 持有 session 状态；Writer/Worker 提供事件但不直接改 UI。轨迹文件及其完成/不完整标记是持久事实，Idle/Starting/Stopping 是运行态。
+TrackStateMachine holds the session state; Writer/Worker provides events but does not directly change the UI. The track file and its completion/incomplete marks are persistent facts, and Idle/Starting/Stopping are running states.
 
-## Transition 表
+## Transition table
 
-| 当前状态 | 事件/guard | 动作 | 下一状态 |
+| Current state | event/guard | action | next state |
 | --- | --- | --- | --- |
-| Idle | Start | 创建 session，open writer | Starting |
-| Starting | open success | 开启采样 gate | Recording |
-| Recording | valid sampled fix | 有界 enqueue/计数 | Recording |
-| Recording | Stop | 关闭采样 gate，发 drain | Stopping |
-| Stopping | drain+flush+close success | 标记文件 complete | Idle |
-| 活动态 | storage failure | 停止新点，保留诊断 | Error |
+| Idle | Start | Create session, open writer | Starting |
+| Starting | open success | Open sampling gate | Recording |
+| Recording | valid sampled fix | bounded enqueue/count | Recording |
+| Recording | Stop | Close the sampling gate and send drain | Stopping |
+| Stopping | drain+flush+close success | Mark file complete | Idle |
+| Active | storage failure | Stop new points, keep diagnostics | Error |
 
-## 禁止与竞争
+## Prohibition and Competition
 
-Starting/Recording/Stopping 中的第二次 Start 被拒绝。Stopping 中的 Stop 幂等。Storage failure 与 Stop 竞争时只允许一个终结路径拥有 writer close；AcceptedPoint 只有在 gate open 且 session generation 匹配时有效。
+The second Start in Starting/Recording/Stopping was rejected. Stop in Stopping is idempotent. Storage failure When competing with Stop, only one final path is allowed to have a writer close; AcceptedPoint is only valid when the gate is open and the session generation matches.
 
-## Drop 与 Error 的区别
+## The difference between Drop and Error
 
-DroppedPoint 是容量策略下的可观察退化，不自动终止会话；storage write/close failure 使文件一致性未知，必须进入 Error。UI 同时显示已提交点、drop 和错误原因。
+DroppedPoint is an observable degradation under the capacity policy and does not automatically terminate the session; storage write/close failure makes the file consistency unknown and must enter Error. The UI also displays the committed point, drop, and error reason.
 
-## 恢复与测试
+## Recovery and testing
 
-重启扫描 incomplete 文件并按格式恢复或标记损坏，不恢复 Recording 运行态。测试覆盖全部 transition、重复命令、Stop/失败竞争和 incomplete 标记。
+Restart scanning incomplete files and restore them according to the format or mark them as damaged, without restoring the Recording running state. Tests cover all transitions, repeat commands, Stop/failure races, and incomplete flags.

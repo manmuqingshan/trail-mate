@@ -1,8 +1,8 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>State：USB Storage Ownership</title></head><body><main data-praxis-kind="design_state_machine_diagram" data-praxis-status="confirmed"><h1>USB Storage Ownership</h1><pre class="mermaid">stateDiagram-v2
-ApplicationOwned --> Preparing
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>State:USB Storage Ownership</title></head><body><main data-praxis-kind="design_state_machine_diagram" data-praxis-status="confirmed"><h1>USB Storage Ownership</h1><pre class="mermaid">stateDiagram-v2
+ApplicationOwned --> Preparing: Wi-Fi/LoRa/GPS quiesce + SD hand-off
 Preparing --> HostOwned
 Preparing --> Restoring
 HostOwned --> Restoring
-Restoring --> ApplicationOwned
+Restoring --> ApplicationOwned: SD reclaim + reverse restore
 Restoring --> Error
 Error --> Restoring</pre></main></body></html>

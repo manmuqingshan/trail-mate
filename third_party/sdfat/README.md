@@ -97,7 +97,7 @@ ls:
          0 😀/
           20 россиянин
           17 très élégant
-           9 狗.txt
+
 </pre>
 
 SdFat Version 2 supports FAT16/FAT32 and exFAT SD cards. It is mostly

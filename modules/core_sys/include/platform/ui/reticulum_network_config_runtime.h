@@ -17,8 +17,16 @@ namespace platform::ui::reticulum_network_config
 enum class Source : uint8_t
 {
     Defaults = 0,
-    LastKnownGood = 1,
-    SdCard = 2,
+    Tms = 1,
+    LegacyJson = 2,
+};
+
+enum class LegacyImportResult : uint8_t
+{
+    NotPresent,
+    Imported,
+    Unavailable,
+    Invalid,
 };
 
 struct Status
@@ -38,9 +46,18 @@ struct Status
 void initialize(const chat::MeshConfig& legacy_config);
 void poll(const chat::MeshConfig& legacy_config);
 const chat::reticulum::ReticulumNetworkConfig& active();
+bool validateForTms(const chat::reticulum::ReticulumNetworkConfig& config);
+bool setFromTms(const chat::reticulum::ReticulumNetworkConfig& config);
+bool snapshotForTms(const chat::MeshConfig& legacy_config,
+                    chat::reticulum::ReticulumNetworkConfig* out);
+LegacyImportResult importLegacy(const chat::MeshConfig& legacy_config);
+bool discardLegacySource();
 Status status();
 bool reload(const chat::MeshConfig& legacy_config);
 bool export_template(const chat::MeshConfig& legacy_config);
+// Resets the runtime projection. The owning TMS repository removes the
+// canonical document and legacy migration source during Factory Reset.
+bool reset(const chat::MeshConfig& legacy_config);
 const char* config_path();
 const char* source_name(Source source);
 

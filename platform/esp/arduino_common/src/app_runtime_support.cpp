@@ -1,4 +1,5 @@
 #include "platform/esp/arduino_common/app_runtime_support.h"
+#include "platform/esp/arduino_common/app_config_sd_tms_runtime.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -380,6 +381,7 @@ BackgroundTaskStartResult startBackgroundTasks(LoraBoard* board, chat::IMeshAdap
 
 void tickBoundLifecycle(std::size_t max_events)
 {
+    app::sd_tms::serviceWorkingConfig();
     app::IAppLifecycleFacade& lifecycle = app::lifecycleFacade();
     lifecycle.updateCoreServices();
     lifecycle.tickEventRuntime();

@@ -2,135 +2,136 @@
 
 Status date: 2026-07-09
 
-本文档定义 Trail Mate settings 的下一阶段改造规格。它不是一次小修小补的 UI
-整理，而是把“配置是什么、属于哪个协议、如何展示、如何持久化、如何从 SD 恢复、如何
-应用到运行时”重新拉直。
+This document defines the next phase of retrofit specifications for Trail Mate settings. It is not a minor UI
+ tidying up, but a re-straightening of "what the configuration is, which protocol it belongs to, how to display it, how to persist it as an SD-first working document, and how it
+ applies it to the runtime".
 
-本规格先落地文档，不改变运行时代码。实际实现必须按本文分阶段推进，并在修改任何
-函数、类或方法前按仓库规则做 GitNexus impact analysis。
+This specification will be documented first and the runtime code will not be changed. The actual implementation must be carried out in stages according to this article, and GitNexus impact analysis must be performed according to the warehouse rules before modifying any
+functions, classes or methods.
 
 ## User Goal
 
-目标用户场景是 Trail Mate 可以脱离手机工作：
+The target user scenario is that Trail Mate can work without a mobile phone:
 
-- 选择 Meshtastic、MeshCore 或 Reticulum 后，settings 只展示该协议真正相关的项目。
-- Meshtastic 的 MQTT 只服务 Meshtastic；MeshCore 的 MQTT 只服务 MeshCore；两者不互通。
-- MQTT 只支持轻负担模式：不实现 TLS，不实现额外 MQTT payload 加密层。
-- MQTT 启用是显式配置；Wi-Fi 关闭时 runtime 必须停 MQTT，Wi-Fi 开启时不得自动把 MQTT
-  配置改成启用。
-- 如果某个协议配置了 MQTT 并且 runtime 正在使用 Wi-Fi MQTT transport，该协议对应的
-  BLE phone dependency 应被压低或关闭，避免用户误以为还必须连手机。
-- 所有用户配置都必须可持久化，并能从 SD 备份恢复。
-- 备份恢复不能为了“人类可读”牺牲 ESP 内存安全；当前整包 JSON/cJSON 模式需要替换。
+- After selecting Meshtastic, MeshCore or Reticulum, the settings only show projects that are truly relevant to that protocol.
+- Meshtastic's MQTT only serves Meshtastic; MeshCore's MQTT only serves MeshCore; the two are not interoperable.
+- MQTT only supports light-burden mode: no TLS is implemented, and no additional MQTT payload encryption layer is implemented.
+- MQTT enablement is an explicit configuration; the runtime must stop MQTT when Wi-Fi is turned off, and MQTT
+ configuration must not be automatically changed to enabled when Wi-Fi is on.
+- If a protocol is configured with MQTT and the runtime is using the Wi-Fi MQTT transport, the protocol corresponding
+ BLE phone dependency should be suppressed or turned off to avoid users mistakenly thinking that the phone must still be connected.
+- All user configuration must be persistent in the SD-first working document and mirrored to NVS.
+- SD configuration cannot sacrifice ESP memory safety for "human readability"; the former whole-package JSON/cJSON schema is replaced by bounded TMS streaming.
 
 ## Distinctions
 
-这些概念必须在代码和 UI 中分开，不能继续混在 `Chat` / `Network` 两个大筐里。
+These concepts must be separated in code and UI, and cannot continue to be mixed in the two big baskets of `Chat` / `Network`.
 
 | Concept | Meaning | Must not be confused with |
 | --- | --- | --- |
-| Protocol | Meshtastic、MeshCore、Reticulum 的协议语义和节点身份体系 | transport、radio preset、UI 页面 |
-| Radio profile | LoRa 频点、带宽、扩频因子、编码率、tx power、region/preset | channel name、PSK、broadcast/private |
-| Channel / group | 协议内的群组、slot、topic 或 destination 配置 | 空口参数 |
-| Transport | LoRa、BLE phone link、Wi-Fi MQTT、Reticulum TCP/UDP 等承载方式 | protocol 本身 |
-| Conversation | UI 里的广播会话、私聊会话、联系人上下文 | Meshtastic channel slot 或 MeshCore channel slot |
-| Device settings | 屏幕、语言、GPS、地图、Wi-Fi、owner name、隐私等跨协议设置 | 当前 active protocol 的 profile |
-| Persistence | NVS/Preferences/IDF store/SD backup 的落盘事实 | UI widget state |
-| Apply runtime | 把配置变更应用到 radio、MQTT、BLE、GPS、privacy policy | 保存配置 |
+| Protocol | Protocol semantics and node identity system of Meshtastic, MeshCore, Reticulum | transport, radio preset, UI page |
+| Radio profile | LoRa frequency, bandwidth, spreading factor, coding rate, tx power, region/preset | channel name, PSK, broadcast/private |
+| Channel / group | Group, slot, topic or destination configuration within the protocol | Air interface parameters |
+| Transport | Bearing methods such as LoRa, BLE phone link, Wi-Fi MQTT, Reticulum TCP/UDP | protocol itself |
+| Conversation | Broadcast session, private chat session, contact context in the UI | Meshtastic channel slot or MeshCore channel slot |
+| Device settings | Screen, language, GPS, map, Wi-Fi, owner name, privacy and other cross-protocol settings | Profile of the current active protocol |
+| Persistence | SD working document/NVS/Preferences/IDF store placement fact | UI widget state |
+| Apply runtime | Apply configuration changes to radio, MQTT, BLE, GPS, privacy policy | Save configuration |
 
 ### Channel, Radio, Broadcast, Private
 
-空口参数决定“谁能在 RF 层听见谁”：频率、带宽、扩频因子、编码率、tx power、region 或
-preset 必须兼容，两个设备才可能互相收发 LoRa frame。
+The air interface parameters determine "who can hear whom at the RF layer": frequency, bandwidth, spreading factor, coding rate, tx power, region or
+preset must be compatible so that two devices can send and receive LoRa frames to each other.
 
-Channel/group 决定“收到 frame 后属于哪个协议群组或密钥域”：Meshtastic 使用 channel
-slot/name/key/hash，MeshCore 使用 channel slot/name/key/public-channel fallback，Reticulum
-使用 destination、announce、interface 和 identity。它们不是同一种对象，不能做一个泛化的
-`channel` 然后让三个协议硬套。
+Channel/group determines "which protocol group or key domain it belongs to after receiving the frame": Meshtastic uses channel
+ slot/name/key/hash, MeshCore uses channel slot/name/key/public-channel fallback, and Reticulum
+ uses destination, announce, interface and identity. They are not the same kind of objects, and you cannot make a generalized
+`channel` and then have three protocols apply it.
 
-广播和私聊是寻址语义：广播表示发给当前协议/channel/group 中的所有可见节点；私聊表示
-发给一个 node id、destination 或 peer，并可能涉及 ack、route、retry、session 状态。广播
-或私聊不改变空口参数，也不自动创建 channel。
+Broadcast and private chat are addressing semantics: broadcast means sent to all visible nodes in the current protocol/channel/group; private chat means
+sent to a node id, destination or peer, and may involve ack, route, retry, session status. Broadcast
+or private chat does not change the air interface parameters, nor automatically create a channel.
 
-MQTT 是 transport，不是第四种协议，也不是跨协议桥。Meshtastic MQTT 下来的 Meshtastic
-packet 应走 Meshtastic 接收路径；MeshCore MQTT 下来的 MeshCore packet 应走 MeshCore 接收
-路径。二者没有互通要求。
+MQTT is a transport, not a fourth protocol, nor a cross-protocol bridge. Meshtastic
+packets from Meshtastic MQTT should go through the Meshtastic receiving path; MeshCore packets from MeshCore MQTT should go through the MeshCore receiving
+ path. There are no interoperability requirements between the two.
 
 ## Current Code Inventory
 
-本节记录当前实现事实，作为改造前的基线。
+This section records the current implementation facts as a baseline before transformation.
 
 | Area | Current owner | Observed shape |
 | --- | --- | --- |
-| Global config aggregate | `modules/core_sys/include/app/app_config.h` | `AppConfig` 同时承载 device、chat、GPS、map、privacy、Meshtastic、MeshCore、Reticulum、MQTT、legacy channel 字段 |
-| Protocol config object | `modules/core_chat/include/chat/domain/chat_types.h` | `chat::MeshConfig` 被三个协议复用，里面同时有 radio、Meshtastic channel、MeshCore channel、MQTT、Reticulum group/interface 字段 |
-| Shared LVGL settings | `modules/ui_shared/src/ui/screens/settings/settings_page_components.cpp` | `kChatItems` / `kNetworkItems` 混合协议项，通过 `pref_key` 字符串和 `should_show_item` 做隐藏 |
-| Shared settings state | `modules/ui_shared/include/ui/screens/settings/settings_state.h` | 一个大 UI state 同时缓存 chat、network、MT MQTT、MC MQTT、Reticulum、device 字段 |
-| Mono settings | `modules/ui_mono/src/runtime.cpp` | 保留大量 MT/MC 设置处理代码，但当前 radio item list 只暴露少数入口，能力与 UI 展示不一致 |
-| GTK settings | `apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp` | 已有按协议 stack/page 切换的雏形，可作为“协议页”思路参考，但不应直接复制 GTK widget 逻辑 |
-| Arduino ESP persistence | `platform/esp/arduino_common/src/app_config_store.cpp` | 使用 Preferences 按字段保存，大量 key 已存在，但字段覆盖靠手写 load/save 保持同步 |
-| IDF persistence | `apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp` | 把整个 `AppConfig` 包进 raw blob，按 `sizeof(AppConfig)` 判断版本，结构一变旧配置就会被拒绝 |
-| SD settings backup | `platform/esp/arduino_common/src/platform_ui_settings_backup_runtime.cpp` | 当前 path 是 `/trailmate/settings-backup.json`，用 cJSON 构造/解析整棵树，并读入整文件 |
-| Store API | `modules/core_sys/include/platform/ui/settings_store.h` | 同时提供 `get_blob(std::vector<uint8_t>&)` 和 `get_blob_into(...)`；新 ESP 路径应优先使用 bounded buffer 版本 |
-| Apply facade | `modules/core_sys/include/app/app_facades.h` | UI 可直接拿 `getConfig()` 修改，再调用 `saveConfig()`、`applyMeshConfig()`、`applyUserInfo()` 等 apply 方法 |
+| Global config aggregate | `modules/core_sys/include/app/app_config.h` | `AppConfig` also carries device, chat, GPS, map, privacy, Meshtastic, MeshCore, Reticulum, MQTT, legacy channel fields |
+| Protocol config object | `modules/core_chat/include/chat/domain/chat_types.h` | `chat::MeshConfig` is reused by three protocols, and contains radio, Meshtastic channel, MeshCore channel, MQTT, Reticulum group/interface fields |
+| Shared LVGL settings | `modules/ui_shared/src/ui/screens/settings/settings_page_components.cpp` | `kChatItems` / `kNetworkItems` mixed protocol items, hidden through `pref_key` string and `should_show_item` |
+| Shared settings state | `modules/ui_shared/include/ui/screens/settings/settings_state.h` | A large UI state that also caches chat, network, MT MQTT, MC MQTT, Reticulum, device fields |
+| Mono settings | `modules/ui_mono/src/runtime.cpp` | Keeps a lot of MT/MC settings processing code, but currently radio item list Only a few entrances are exposed, and capabilities are inconsistent with UI display |
+| GTK settings | `apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_logic.cpp` | There is a prototype of stack/page switching by protocol, which can be used as a reference for the "protocol page" idea, but the GTK widget logic should not be copied directly |
+| Arduino ESP persistence | `platform/esp/arduino_common/src/app_config_store.cpp` | Use Preferences to save by field, a large number of keys already exist, but field coverage relies on handwriting load/save to keep synchronized |
+| IDF persistence | `apps/esp32_lvgl/src/esp32_lvgl_idf_app_facade_runtime.cpp` | Put the entire `AppConfig` is packaged into raw blob, and the version is determined by `sizeof(AppConfig)`. Once the structure becomes old, the configuration will be rejected |
+| SD working configuration | `platform/esp/arduino_common/src/app_config_sd_tms_runtime.cpp` | `/trailmate/config.tms` is a bounded, line-streamed, SD-first configuration authority; it mirrors every supported settings owner to NVS. |
+| Store API | `modules/core_sys/include/platform/ui/settings_store.h` | Also provides `get_blob(std::vector<uint8_t>&)` and `get_blob_into(...)`; new ESP paths should preferentially use the bounded buffer version |
+| Apply facade | `modules/core_sys/include/app/app_facades.h` | UI can be modified directly with `getConfig()`, and then call `saveConfig()`, `applyMeshConfig()`, `applyUserInfo()` and other apply methods |
 
 ## Problems
 
 ### 1. Settings taxonomy is wrong
 
-`Chat` 与 `Network` 现在不是产品概念，而是历史容器。结果是：
+`Chat` and `Network` are not product concepts now, but historical containers. The result is:
 
-- Meshtastic MQTT、MeshCore MQTT、Reticulum Wi-Fi interface 都可能出现在同一类页面里。
-- `chat_psk` 这种名字无法表达它到底是 Meshtastic channel key 还是 MeshCore channel key。
-- 用户选择协议后仍会看到另一个协议的残留项，或者必须靠 string blacklist 隐藏。
-- 新增 channel management 时无法自然表达 “Meshtastic channel slot” 与 “MeshCore channel slot”。
+- Meshtastic MQTT, MeshCore MQTT, and Reticulum Wi-Fi interface may all appear in the same type of page.
+- The name `chat_psk` cannot express whether it is a Meshtastic channel key or a MeshCore channel key.
+- After the user selects a protocol, they will still see the remnants of another protocol, or they must be hidden by string blacklist.
+- When adding channel management, "Meshtastic channel slot" and "MeshCore channel slot" cannot be expressed naturally.
 
 ### 2. Config ownership is too broad
 
-`AppConfig` 和 `MeshConfig` 目前是运行期大对象。它们可以作为过渡兼容层，但不能继续作为
-长期 settings schema。原因：
+`AppConfig` and `MeshConfig` are currently runtime large objects. They can serve as transitional compatibility layers, but cannot continue to be
+Long-term settings schema. Reason:
 
-- 字段归属不清，导致 UI、Preferences、SD backup、协议 apply 都各自记一份事实。
-- ESP stack hygiene 已把 `AppConfig`、`MeshConfig` 列为危险 automatic local 类型。
-- 新增 channel 列表或更多协议 profile 时，如果继续塞进这两个 struct，会持续放大内存风险。
+- The field ownership is unclear, causing UI, Preferences, the SD working projection, and protocol apply to each record a copy of the facts.
+- ESP stack hygiene has listed `AppConfig` and `MeshConfig` as dangerous automatic local types.
+- When adding a channel list or more protocol profiles, if you continue to stuff these two structs, the memory risk will continue to amplify.
 
 ### 3. Persistence is not schema-driven
 
-Arduino Preferences 当前按字段保存，比 raw blob 稳定，但每个字段需要手写 load/save、默认值、
-迁移逻辑。新增一个 settings 字段时，很容易漏掉 SD backup 或某个 UI。
+Arduino Preferences is currently saved by field, which is more stable than raw blob, but each field requires hand-written load/save, default value, and
+migration logic. When adding a settings field, it is easy to miss the SD working projection or a certain UI.
 
-IDF raw blob 以 `sizeof(AppConfig)` 为兼容条件，这对后续拆分结构非常脆弱。任何 `AppConfig`
-布局变化都可能导致旧配置无法加载。
+IDF raw blob uses `sizeof(AppConfig)` as the compatibility condition, which is very fragile to subsequent split structures. Any `AppConfig`
+layout changes may cause the old configuration to fail to load.
 
-### 4. SD JSON backup is too heavy
+### 4. Historical SD JSON backup was too heavy
 
-当前 JSON 方案的优点是可读，但在 ESP 上代价偏大：
+The advantage of the current JSON solution is that it is readable, but the cost is high on ESP:
 
-- restore 需要把整个文件读进内存。
-- cJSON parse 会构造整棵树。
-- backup print 会生成完整字符串。
-- 旧代码中存在 `std::string`、`std::vector<uint8_t>`、whole-document parse/print 的组合。
+- JSON restore needed to read the entire file into memory.
+- cJSON parse will construct the entire tree.
+- JSON backup print generated the complete string.
+ - A combination of `std::string`, `std::vector<uint8_t>`, whole-document parse/print exists in the old code.
 
-这与“配置可完整落 SD，并能可靠恢复”的目标相冲突。恢复配置应该是低内存路径，而不是
-最容易把设备推到 heap/stack 边界的路径。
+This conflicts with the goal of a complete SD working configuration. The current
+TMS path is line-streamed and bounded, so it does not construct a DOM or a
+whole-document allocation.
 
 ### 5. Apply semantics are scattered
 
-UI 直接改 `getConfig()`，再按字段手动调用不同 apply 方法。这样很难保证：
+The UI directly changes `getConfig()`, and then manually calls different apply methods according to fields. This is difficult to guarantee:
 
-- 修改协议时，BLE/MQTT/LoRa/runtime 状态都按同一套规则切换。
-- Wi-Fi 关闭只停 MQTT runtime，不悄悄改用户配置。
-- MQTT 成功上行时 UI 不再只等 LoRa 成功才算 sent。
-- 从 MQTT 收到的节点和 LoRa 收到的节点进入同一 contact/nearby/chat projection。
+- When modifying the protocol, the BLE/MQTT/LoRa/runtime status will switch according to the same set of rules.
+- Turning off Wi-Fi only stops the MQTT runtime and does not quietly change the user configuration.
+- When MQTT is successfully uplinked, the UI no longer only waits for LoRa to be successful before sending.
+ - Nodes received from MQTT and nodes received from LoRa go into the same contact/nearby/chat projection.
 
-这些问题已经在 MQTT 调试中暴露过，settings refactor 需要把 runtime impact 作为字段元数据
-的一部分，而不是散落在回调里。
+These problems have been exposed in MQTT debugging. Settings refactor needs to use the runtime impact as part of the field metadata
+ rather than scattered in the callback.
 
 ## Target Architecture
 
 ### Layer Shape
 
-目标结构如下：
+The target structure is as follows:
 
 ```text
 Settings UI
@@ -143,12 +144,12 @@ Settings UI
   -> Protocol/runtime adapters
 ```
 
-`AppConfig` 在第一阶段继续存在，但应降级为 compatibility backing store，不再作为 settings
-schema 的唯一事实来源。
+`AppConfig` continues to exist in the first stage, but should be downgraded to the compatibility backing store and no longer as settings
+The single source of truth for schema.
 
 ### Domain Buckets
 
-长期结构应把配置分成这些 owner：
+The long-term structure should divide the configuration into these owners:
 
 | Owner | Examples |
 | --- | --- |
@@ -160,39 +161,39 @@ schema 的唯一事实来源。
 | `MeshCoreProfile` | radio profile、channel slot/name/key、public-channel fallback、MeshCore MQTT |
 | `ReticulumProfile` | identity、LoRa interface、Wi-Fi interface、LXMF/announce groups |
 | `ChatPresentationSettings` | active conversation defaults、notification/presentation preferences |
-| `BackupRestoreSettings` | backup version、restore policy、sensitive export policy |
+| `SdWorkingConfiguration` | schema version, SD/NVS authority, sensitive plaintext warning, and migration policy |
 
-这些 owner 可以先映射到现有 `AppConfig` 字段，但 schema 命名必须先按 owner 设计，避免未来
-继续把三种协议塞回 `Chat` / `Network`。
+These owners can be mapped to the existing `AppConfig` fields first, but the schema naming must be designed according to the owner first to avoid
+ continuing to stuff the three protocols back into `Chat` / `Network` in the future.
 
 ### Settings Descriptor
 
-每个可展示/持久化的 field 必须有一条静态 descriptor。descriptor 应该是小的 `constexpr`
-表项，避免动态分配和重型 callback。
+Each displayable/persistent field must have a static descriptor. The descriptor should be a small `constexpr`
+ table entry to avoid dynamic allocation and heavy callbacks.
 
-建议 descriptor 至少包含：
+It is recommended that the descriptor at least contain:
 
 | Metadata | Purpose |
 | --- | --- |
-| stable field id | 编译期 enum，不用任意字符串做业务判断 |
-| owner/profile | device、connectivity、mt、mc、reticulum 等 |
-| UI section | 决定显示在哪个协议页或设备页 |
+| stable field id | compile-time enum, no arbitrary string is used for business judgment |
+| owner/profile | device, connectivity, mt, mc, reticulum, etc. |
+| UI section | determine which protocol page or device page to display |
 | type | bool、u8、i32、enum、bounded string、hex blob、secret |
-| bounds | 字符串最大长度、数值范围、blob 最大长度 |
-| protocol mask | MT/MC/Reticulum/global 的可见性 |
-| capability mask | 板子是否支持 Wi-Fi、BLE、GPS、LoRa、SD |
+| bounds | Maximum string length, value range, maximum blob length |
+| protocol mask | Visibility of MT/MC/Reticulum/global |
+| capability mask | Whether the board supports Wi-Fi, BLE, GPS, LoRa, SD |
 | runtime impact | none、save-only、apply-mesh、apply-user、apply-gps、restart-mqtt、restart-ble |
 | storage key | NVS key、SD key、legacy key |
-| default provider | 按协议/地区/板型给默认值 |
-| migration rule | 从旧 key、旧 blob、旧 JSON 恢复时如何写入 |
-| sensitive flag | PSK、MQTT password、Wi-Fi password 等 |
+| default provider | Default value according to protocol/region/board type |
+| migration rule | How to write when restoring from old key, old blob, old JSON |
+| sensitive flag | PSK, MQTT password, Wi-Fi password, etc. |
 
-UI 层只消费 descriptor 和当前 protocol/capability，不能再写 `if (pref_key == "...")` 作为主要
-可见性规则。
+The UI layer only consumes descriptor and current protocol/capability, and can no longer write `if (pref_key == "...")` as the main
+ visibility rule.
 
 ### Protocol-Specific UI
 
-Settings 顶层建议拆为：
+The top level of Settings is recommended to be split into:
 
 - Device
 - Connectivity
@@ -201,101 +202,105 @@ Settings 顶层建议拆为：
 - MQTT
 - GPS & Map
 - Privacy
-- Backup & Restore
+- Configuration lifecycle and reset
 - Diagnostics
 
-其中 `Protocol`、`Channels`、`MQTT` 的内容由 active protocol 决定。
+The contents of `Protocol`, `Channels`, and `MQTT` are determined by the active protocol.
 
-Meshtastic 页面应展示：
+The Meshtastic page should display:
 
-- Meshtastic radio preset/region/modem preset/hops/tx power。
-- Meshtastic channel slots。第一阶段可继续 primary/secondary，schema 必须预留 slot list。
-- Meshtastic MQTT：enabled、preset、host、port、username、password、root topic、uplink/downlink。
-- BLE phone link policy：当 Meshtastic MQTT runtime 可用时，BLE 可被关闭或降级。
+- Meshtastic radio preset/region/modem preset/hops/tx power.
+- Meshtastic channel slots. The first stage can continue with primary/secondary, and the schema must reserve a slot list.
+- Meshtastic MQTT:enabled、preset、host、port、username、password、root topic、uplink/downlink.
+- BLE phone link policy: BLE can be turned off or downgraded when the Meshtastic MQTT runtime is available.
 
-MeshCore 页面应展示：
+The MeshCore page should display:
 
-- MeshCore radio profile/region/channel slot/tx power。
-- MeshCore channel name/key/public channel fallback。
-- MeshCore MQTT：enabled、preset、host、port、username、password、root topic、uplink/downlink。
-- MeshCore contact/nearby projection 必须与 LoRa receive 一样处理 MQTT receive 的节点。
+- MeshCore radio profile/region/channel slot/tx power.
+- MeshCore channel name/key/public channel fallback.
+- MeshCore MQTT:enabled、preset、host、port、username、password、root topic、uplink/downlink.
+ - MeshCore contact/nearby projection node that must handle MQTT receive the same as LoRa receive.
 
-Reticulum 页面应展示：
+The Reticulum page should show:
 
-- Reticulum identity/status。
-- LoRa interface 参数。
-- Wi-Fi interface 参数。
-- LXMF/announce groups。
-- 不展示 MQTT，因为当前目标不包含 Reticulum MQTT。
+- Reticulum identity/status.
+- LoRa interface parameters.
+- Wi-Fi interface parameters.
+- LXMF/announce groups.
+ - MQTT is not shown because the current target does not contain Reticulum MQTT.
 
 ### MQTT Policy
 
-MQTT 是 protocol-scoped transport：
+MQTT is a protocol-scoped transport:
 
 ```text
 MeshtasticProfile.mqtt -> Meshtastic MQTT runtime only
 MeshCoreProfile.mqtt   -> MeshCore MQTT runtime only
 ```
 
-运行态 eligibility：
+Running state eligibility:
 
 ```text
 configured = profile.mqtt.enabled && host not empty && port > 0
 eligible = configured && wifi_runtime.connected && protocol == active_protocol
 ```
 
-约束：
+Constraints:
 
-- `wifi_runtime.connected == false` 时必须 stop MQTT runtime。
-- Wi-Fi 变为 connected 时，只能让已经启用且配置完整的 MQTT runtime 变为 eligible；不得自动把
-  `profile.mqtt.enabled` 从 false 改为 true。
-- Plain MQTT only：`tls=false` 是唯一支持形态；UI 不提供 TLS 开关，代码也不引入 TLS 客户端。
-- MQTT username/password 可支持，因为它不是 TLS；但必须按 secret 字段处理。
-- MQTT receive 必须进入与 LoRa receive 相同的协议 projection：chat message、delivery status、
-  contacts/nearby、node info、position、notification。
-- MQTT uplink 成功不能被 LoRa TX 失败覆盖成 failed；delivery outcome 应区分 transport。
+- MQTT runtime must be stopped when `wifi_runtime.connected == false`.
+- When Wi-Fi becomes connected, only an enabled and fully configured MQTT runtime can become eligible;
+ `profile.mqtt.enabled` cannot be automatically changed from false to true.
+- Plain MQTT only: `tls=false` is the only supported form; the UI does not provide a TLS switch, and the code does not introduce a TLS client.
+- MQTT username/password is supported as it is not TLS; but must be handled as secret field.
+- MQTT receive must enter the same protocol as LoRa receive projection: chat message, delivery status,
+  contacts/nearby、node info、position、notification.
+- MQTT uplink success cannot be overwritten as failed by LoRa TX failure; delivery outcome should distinguish between transports.
 
 ### Default Presets
 
-默认 MQTT preset 不能以个人 broker 作为默认值。默认表应是协议 owner 的一部分：
+The default MQTT preset cannot use a personal broker as the default value. The default table should be part of the protocol owner:
 
 | Protocol | Default preset intent |
 | --- | --- |
 | Meshtastic | mainstream Meshtastic public MQTT preset, plaintext transport, default root/topic/channel matching current community convention |
-| MeshCore | mainstream MeshCore public/community preset if available; otherwise disabled with empty custom host until用户选择 preset |
+| MeshCore | mainstream MeshCore public/community preset if available; otherwise disabled with empty custom host until user selects preset |
 
-实现时不把某个个人域名硬编码成默认。个人 broker 可以存在于 custom preset 或用户配置里。
+The implementation does not hard-code a personal domain name as the default. Personal brokers can exist in custom presets or user configurations.
 
-## SD Backup Format
+## SD Working Configuration Format
 
 ### Decision
 
-新格式默认不使用 JSON。
+The working configuration does not use JSON.
 
-采用 line-oriented typed key-value 格式，目标是：
+Using line-oriented typed key-value format, the goal is:
 
-- 可人工检查。
-- 可流式读取。
-- 每次只需要一个 bounded line buffer。
-- 不需要 cJSON tree。
-- 不需要把整个文件读入 `std::string`。
-- 不需要 `std::vector<uint8_t>` 承接 whole blob。
+- Manual inspection.
+- Streamable.
+- Only one bounded line buffer is needed at a time.
+- No cJSON tree required.
+- No need to read the entire file into `std::string`.
+- No need for `std::vector<uint8_t>` to accept whole blob.
 
-建议文件名：
+Authoritative file names:
 
 ```text
-/trailmate/settings-backup.tms
-/trailmate/settings-backup.tmp
+/trailmate/config.tms
+/trailmate/config.tms.new
+/trailmate/config.tms.bak
+/trailmate/config.tms.txn
 ```
 
-`.json` 旧文件可以在迁移期作为 legacy restore input，但新备份写出必须使用 `.tms`。
+`.bak` is the immediately preceding committed generation and `.txn` is a tiny digest for
+recovering an interrupted replacement. Neither is a second working authority: while a
+valid `config.tms` exists it is the only selected document.
 
 ### Format Sketch
 
 ```text
-TMSET2
-schema.version=u16:2
-created.unix=u32:1783500000
+TMSET7
+schema.version=u16:7
+document.kind=enum:working
 device.owner.long=str:Trail Mate
 device.owner.short=str:TM
 protocol.active=enum:meshtastic
@@ -316,103 +321,123 @@ mc.channel.name=str:public
 mc.channel.key=hex:
 mc.mqtt.enabled=bool:0
 
-checksum.crc32=hex:89ABCDEF
+wifi.enabled=bool:1
+wifi.profile_count=u8:2
+wifi.profile.0.ssid=str:Office
+wifi.profile.0.password=str:secret
+
+rt.net.version=u16:1
+rt.net.interface_count=u8:1
+rt.net.interface.0.id=str:tcp
+rt.net.interface.0.type=u8:1
 ```
 
 Rules:
 
-- First line is magic: `TMSET2`.
-- Max line length is fixed, initially 256 or 384 bytes. Any longer line is skipped with a diagnostic.
+- First line is magic: `TMSET7`.
+- Max content line length is 383 bytes; max document size is 32 KiB. Any longer line is rejected before apply.
 - Key is ASCII stable storage key.
 - Type prefix is mandatory.
 - Strings are bounded by descriptor metadata.
 - Hex blob max length is bounded by descriptor metadata before decoding.
-- Unknown keys are ignored but counted.
+- Unknown keys are rejected. A hand-edited working document must not silently retain an
+  old value because of a misspelled key.
 - Known key with invalid value is rejected and reported, not partially applied.
-- Restore writes through `SettingsTransaction`; it must not directly mutate random globals.
-- Backup write uses temp file + fsync/close + rename where backend supports it.
-- CRC covers all lines before checksum.
+- Validation completes before independent settings owners are written. The bounded
+  extension staging state and temporary `AppConfig` prefer PSRAM; neither is a task-stack
+  object or a whole-file buffer.
+- Every supported setting write commits the SD working document synchronously in the
+  current call. A multi-key owner coalesces until its scope exits; there is no pending
+  loop service, retry timer, or NVS metadata authority.
+- `TMSET7` is the only newly-written schema. It contains the Reticulum
+  network/LXMF `rt.net.*` projection as well as the core Reticulum group
+  destinations; a separate editable Reticulum JSON file is migration input,
+  not a second working authority.
 
 ### Why Not Binary TLV First
 
 Binary TLV is smaller and faster, but it is harder to inspect and repair on SD. The line KV format is the
 better first target because it keeps manual recovery possible without the cJSON memory cost. A future binary
-TLV export can be added for factory/provisioning use, but it should not be the only user backup format.
+TLV export can be added for factory/provisioning use, but it should not replace the editable user working format.
 
 ### Sensitive Fields
 
-为了满足“完全从 SD 恢复”，Wi-Fi password、MQTT password、channel PSK 应可进入备份。UI 必须
-把这些字段标记为 sensitive，并在手动导出/恢复界面给出明确提示。
+To make SD the complete working authority, Wi-Fi passwords, MQTT passwords, channel
+PSKs, and cellular credentials are emitted into `config.tms`. The UI and logs must
+continue to treat them as sensitive.
 
-实现上 sensitive 只影响 UI 呈现和日志脱敏，不意味着不落盘。用户选择 SD backup 时，目标是
-恢复一台离线设备的完整配置。
+The document is plaintext. Sensitivity controls rendering and log redaction; it does
+not encrypt the SD card.
 
 ## Persistence Model
 
-每个字段必须通过同一份 descriptor 声明其持久化位置。
+Each field must declare its persistence location through the same descriptor.
 
 ### Arduino Preferences
 
-现有 Preferences key 可以保留，但 schema 要成为覆盖清单：
+The existing Preferences key can be retained, but the schema must become an override list:
 
-- load 时按 descriptor 读 key，应用 default/migration。
-- save 时按 descriptor 写 key。
-- 对 blob/secret 使用 bounded buffer。
-- 对旧 key 做一次 migration，不在 UI 回调里散写兼容逻辑。
+- Press descriptor to read the key during load, and apply default/migration.
+- Press descriptor to write the key when saving.
+- Use bounded buffer for blob/secret.
+- Do a migration for the old key and do not write compatibility logic in the UI callback.
 
 ### IDF Store
 
-raw `sizeof(AppConfig)` blob 只能作为 legacy input。新路径必须是版本化字段 store：
+raw `sizeof(AppConfig)` blob can only be used as legacy input. The new path must be a versioned field store:
 
-- 读取旧 raw blob 时，迁移到 schema field store。
-- 新保存不再依赖 `sizeof(AppConfig)`。
-- 如果为了启动速度保留 compact snapshot，也必须有独立 schema version 和 field-level fallback。
+ - Migrate to schema field store when reading old raw blobs.
+- New saves no longer depend on `sizeof(AppConfig)`.
+- If compact snapshot is retained for startup speed, there must also be independent schema version and field-level fallback.
 
-### SD Backup
+### SD Working Configuration
 
-SD backup 是 cross-store restore source，不是运行时唯一 store。启动时不应每次从 SD 覆盖 NVS。
-恢复应该是显式动作：
+`/trailmate/config.tms` is the startup authority when complete and valid. It
+is parsed and validated in a streaming pass before any supported independent
+settings owner is modified; the second step applies it and mirrors values to
+NVS as a compatibility cache. Only a missing card or missing file permits the
+NVS fallback. A present invalid file is retained for repair and must not be
+overridden by NVS. The replacement transaction is SD-local:
 
 ```text
-User chooses Restore
-  -> parse .tms stream
-  -> validate descriptors
-  -> build transaction
-  -> persist to primary store
-  -> apply affected runtimes
-  -> emit UI result
+durable setting change
+  -> stream canonical config.tms.new
+  -> parse and canonicalize .new
+  -> write tiny .txn digest
+  -> move primary to .bak and promote .new
+  -> if boot finds no primary, validate and recover .new or .bak
 ```
 
 ## Memory Budget Rules
 
-实际实现必须遵守：
+Actual implementation must comply with:
 
-- 不在 ESP task stack 上创建 `AppConfig`、`chat::MeshConfig`、protobuf frame、大 byte array。
-- Settings UI edit session 不复制整份 `AppConfig`；只保存 field-level dirty value 或 active editor
-  buffer。
-- SD restore 不读完整文件，不构造树，不用 `cJSON_ParseWithLength` 作为新路径。
-- 不引入 `std::deque` 到 ESP BLE/Meshtastic bridge headers。
-- 新 schema table 使用 static/constexpr storage。
-- 新 channel list 使用固定上限和显式 drop/error policy，不能无界增长。
-- 大字符串格式化使用 caller-provided buffer 或小 scratch owner，不把临时大对象放在回调栈上。
+ - Do not create `AppConfig`, `chat::MeshConfig`, protobuf frame, large byte array on ESP task stack.
+- Settings UI edit session does not copy the entire `AppConfig`; only saves the field-level dirty value or active editor
+  buffer.
+- SD working-configuration import does not read the complete file, does not construct the tree, and does not use `cJSON_ParseWithLength`.
+ - Do not introduce `std::deque` to ESP BLE/Meshtastic bridge headers.
+- New schema table uses static/constexpr storage.
+- The new channel list uses a fixed upper limit and explicit drop/error policy, and cannot grow without bounds.
+- Large string formatting uses caller-provided buffer or small scratch owner, without placing temporary large objects on the callback stack.
 
 ## Packaged Delivery Plan
 
 This refactor is delivered as one cohesive feature package, not as user-visible partial phases.
 The steps below are an internal construction sequence only. The final deliverable must include
-schema, protocol-aware UI, persistence, SD backup/restore, runtime apply behavior, tests and
+schema, protocol-aware UI, persistence, SD-first configuration, runtime apply behavior, tests and
 verification together.
 
 No intermediate state should be considered complete if it leaves settings half migrated, exposes
-new protocol pages without matching persistence, or writes a new SD backup format without restore.
+new protocol pages without matching persistence, or creates a second SD configuration authority.
 
 ### Slice 0: Specification and Audit
 
 Deliverables:
 
-- 本文档。
-- 当前 settings/persistence/apply 代码清单。
-- 确认 JSON 备份替换方向。
+- This document.
+- Current settings/persistence/apply code listing.
+ - Confirm SD-first TMS authority and JSON retirement direction.
 
 No runtime behavior change.
 
@@ -422,15 +447,15 @@ Introduce descriptor tables and read accessors without changing existing UI beha
 
 Deliverables:
 
-- `SettingsFieldId` enum。
-- protocol/global owner metadata。
-- field descriptors for all currently visible settings。
-- tests that every field has default, storage key, owner, visibility, runtime impact。
+- `SettingsFieldId` enum.
+- protocol/global owner metadata.
+- field descriptors for all currently visible settings.
+- tests that every field has default, storage key, owner, visibility, runtime impact.
 
 Compatibility:
 
-- Existing `AppConfig` remains backing store。
-- Existing LVGL settings can still use old state while descriptors are validated in tests。
+- Existing `AppConfig` remains backing store.
+- Existing LVGL settings can still use old state while descriptors are validated in tests.
 
 ### Slice 2: Transaction and Apply Dispatcher
 
@@ -438,15 +463,15 @@ Move settings mutation through a small transaction boundary.
 
 Deliverables:
 
-- field-level set/get APIs。
-- validator/normalizer。
-- runtime impact diff。
+- field-level set/get APIs.
+- validator/normalizer.
+- runtime impact diff.
 - dispatcher that calls `applyMeshConfig()`、`applyUserInfo()`、`applyPositionConfig()`、
-  MQTT restart/stop and BLE policy in one place。
+  MQTT restart/stop and BLE policy in one place.
 
 Compatibility:
 
-- Existing UI callbacks can be converted incrementally field by field。
+- Existing UI callbacks can be converted incrementally field by field.
 
 ### Slice 3: Protocol-Aware UI Sections
 
@@ -454,35 +479,36 @@ Replace `kChatItems` / `kNetworkItems` as primary organization.
 
 Deliverables:
 
-- Device/Connectivity/Protocol/Channels/MQTT/GPS & Map/Privacy/Backup sections。
-- Active protocol filter from descriptor metadata。
-- Board capability filter from descriptor metadata。
-- No business visibility based on `pref_key` string comparisons。
+- Device/Connectivity/Protocol/Channels/MQTT/GPS & Map/Privacy/Maintenance sections.
+- Active protocol filter from descriptor metadata.
+- Board capability filter from descriptor metadata.
+- No business visibility based on `pref_key` string comparisons.
 
 Acceptance:
 
-- Selecting Meshtastic shows Meshtastic channel/MQTT/radio settings only。
-- Selecting MeshCore shows MeshCore channel/MQTT/radio settings only。
-- Selecting Reticulum shows Reticulum interface/group settings and hides MQTT。
+- Selecting Meshtastic shows Meshtastic channel/MQTT/radio settings only.
+- Selecting MeshCore shows MeshCore channel/MQTT/radio settings only.
+- Selecting Reticulum shows Reticulum interface/group settings and hides MQTT.
 
-### Slice 4: Lightweight SD Backup
+### Slice 4: Bounded SD Working Configuration
 
-Replace default JSON backup writer/reader with `.tms`.
+Replace the former JSON backup writer/reader with the startup-authoritative `.tms` working document.
 
 Deliverables:
 
-- streaming writer。
-- streaming parser。
-- fixed max line length。
-- CRC。
-- descriptor-backed export/restore coverage。
-- legacy `.json` restore either removed or isolated behind explicit compatibility path with strict size cap。
+- streaming writer.
+- streaming parser.
+- fixed max line length.
+- CRC.
+- descriptor-backed working-TMS coverage.
+- legacy schema v2/v3 import that emits a complete strict schema-v4 document on the
+  next working-configuration save.
 
 Acceptance:
 
-- Full settings backup/restore succeeds without whole-file allocation。
-- Unknown future keys are ignored safely。
-- Sensitive fields restore correctly and logs are redacted。
+- Full working configuration synchronization succeeds without whole-file allocation.
+- Unknown or misspelled keys are rejected safely before any configuration is applied.
+- Sensitive fields import correctly and logs are redacted.
 
 ### Slice 5: Channel Management
 
@@ -490,50 +516,50 @@ Introduce protocol-specific channel/group management.
 
 Deliverables:
 
-- Meshtastic channel slot model。
-- MeshCore channel slot model。
-- Reticulum group/destination model remains separate。
-- Create/join/share flow for supported protocols。
-- QR/import/export payload generation on demand, using bounded scratch storage。
+- Meshtastic channel slot model.
+- MeshCore channel slot model.
+- Reticulum group/destination model remains separate.
+- Create/join/share flow for supported protocols.
+- QR/import/export payload generation on demand, using bounded scratch storage.
 
 Acceptance:
 
-- Creating a Meshtastic channel does not mutate MeshCore fields。
-- Creating a MeshCore channel does not mutate Meshtastic fields。
-- Broadcast/private conversation selection references protocol-specific channel identity explicitly。
+- Creating a Meshtastic channel does not mutate MeshCore fields.
+- Creating a MeshCore channel does not mutate Meshtastic fields.
+- Broadcast/private conversation selection references protocol-specific channel identity explicitly.
 
 ### Slice 6: Retire Raw Struct Persistence
 
 After migrations are covered by tests and field store is proven:
 
-- Stop writing raw `AppConfig` blobs。
-- Keep one-way read migration for a bounded release window。
-- Remove legacy keys only after backup/restore and migration tests prove no supported user path is lost。
+- Stop writing raw `AppConfig` blobs.
+- Keep one-way read migration for a bounded release window.
+- Remove legacy keys only after working-configuration migration tests prove no supported user path is lost.
 
 ### Package Acceptance
 
 The package is not done until all of these are true:
 
-- Protocol selection changes visible settings, stored settings and runtime apply behavior together。
+- Protocol selection changes visible settings, stored settings and runtime apply behavior together.
 - Meshtastic, MeshCore and Reticulum each have their own settings surface; hidden fields are hidden by
-  descriptor/capability metadata, not by ad hoc string checks。
-- Meshtastic MQTT and MeshCore MQTT can be configured independently and are persisted/restored。
-- Wi-Fi off stops MQTT runtime; Wi-Fi on does not auto-enable MQTT config。
-- SD backup writes `.tms`, restore reads `.tms`, and all user settings covered by descriptors round trip。
-- Legacy Preferences/IDF/raw config paths migrate into the new schema without losing existing user settings。
-- Settings UI does not create new large ESP stack objects or whole-config drafts。
-- Tests and stack hygiene checks pass for the touched areas。
+  descriptor/capability metadata, not by ad hoc string checks.
+- Meshtastic MQTT and MeshCore MQTT can be configured independently and are persisted in the working configuration.
+- Wi-Fi off stops MQTT runtime; Wi-Fi on does not auto-enable MQTT config.
+- The SD working configuration writes and reads `.tms`, and all supported settings covered by descriptors round trip.
+- Legacy Preferences/IDF/raw config paths migrate into the new schema without losing existing user settings.
+- Settings UI does not create new large ESP stack objects or whole-config drafts.
+- Tests and stack hygiene checks pass for the touched areas.
 
 ## Verification Requirements
 
 Before implementation PR/commit:
 
-- Run GitNexus impact analysis before each edited symbol, and warn before HIGH/CRITICAL edits。
-- Run unit tests for descriptor coverage, migration, transaction diff and backup restore parser。
+- Run GitNexus impact analysis before each edited symbol, and warn before HIGH/CRITICAL edits.
+- Run unit tests for descriptor coverage, migration, transaction diff and the TMS parser.
 - Run `python3 scripts/check_esp_stack_hygiene.py` when touching settings save/load, ESP BLE,
-  Meshtastic bridge, or app config code。
-- For PlatformIO build/upload/monitor, use background process + log polling as required by repo rules。
-- Run `detect_changes()` before commit to verify affected symbols and flows。
+  Meshtastic bridge, or app config code.
+- For PlatformIO build/upload/monitor, use background process + log polling as required by repo rules.
+- Run `detect_changes()` before commit to verify affected symbols and flows.
 
 Suggested tests:
 
@@ -543,32 +569,32 @@ Suggested tests:
 | protocol visibility matrix | MT/MC/Reticulum show different settings |
 | legacy Preferences migration | existing NVS keys map to schema fields |
 | IDF raw blob migration | old raw config can migrate once |
-| `.tms` round trip | export -> restore produces equivalent config |
+| `.tms` round trip | export -> boot import produces equivalent configuration |
 | `.tms` malformed input | long line, bad type, bad hex, unknown key, bad CRC handled safely |
 | MQTT policy matrix | Wi-Fi off stops runtime; Wi-Fi on does not enable config; protocol switch stops old runtime |
 | contact projection parity | MQTT receive and LoRa receive update contacts/nearby through same app event path |
 
 ## Explicit Non-Goals
 
-- 不做 Meshtastic 与 MeshCore MQTT 互通。
-- 不为 MQTT 增加 TLS。
-- 不把 Reticulum 伪装成 MQTT/channel 页面。
-- 不把一个 generic `Channel` 类型强塞给三种协议。
-- 不在新备份路径使用 whole-document JSON。
-- 不继续用 raw `sizeof(AppConfig)` 作为新持久化格式。
-- 不为了快速 UI 隐藏继续扩大 `pref_key` string blacklist。
-- 不把大量 channel 或 QR/share payload 常驻塞进 `AppConfig`。
+- Does not support Meshtastic and MeshCore MQTT interoperability.
+ - Do not add TLS for MQTT.
+- Do not disguise Reticulum as MQTT/channel page.
+- Don't force a generic `Channel` type onto three protocols.
+- Don't use whole-document JSON in new SD configuration paths.
+- Discontinue using raw `sizeof(AppConfig)` as the new persistence format.
+- Do not continue to expand the `pref_key` string blacklist for fast UI hiding.
+- Don't stuff a lot of channel or QR/share payloads into `AppConfig`.
 
 ## Open Decisions
 
 | Decision | Recommendation |
 | --- | --- |
-| `.tms` max line length | Start at 256 bytes; allow 384 only if current MQTT/password fields need it |
-| Legacy JSON restore | Keep one release as explicit compatibility restore with strict size cap, then remove |
+| `.tms` max line length | Fixed at 383 content bytes; max document size is 32 KiB |
+| Legacy schema migration | Accept TMSET2 through TMSET6 as one-time migration inputs; TMSET6 is accepted only as its complete pre-release dialect, and all new writes emit canonical strict TMSET7 including Reticulum network/LXMF and BLE records |
 | MeshCore public MQTT preset | Verify upstream/community default before hardcoding; otherwise default disabled with preset picker |
 | Meshtastic channel slot count | Implement current primary/secondary first, schema list-ready |
 | IDF protocol support | Current IDF runtime appears Meshtastic-only; full protocol UI must either expose capability limits or implement MC/RT there first |
-| Sensitive backup UX | Default to full restore capability, with explicit warning/redaction rather than silently omitting secrets |
+| Sensitive working-file UX | Keep full capability, with explicit plaintext warning/redaction rather than silently omitting secrets |
 
 ## Implementation Guardrail
 

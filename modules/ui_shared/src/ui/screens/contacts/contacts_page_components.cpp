@@ -15,7 +15,6 @@
 #include "chat/usecase/contact_service.h"
 #include "platform/ui/gps_runtime.h"
 #include "platform/ui/reticulum_directory_runtime.h"
-#include "platform/ui/reticulum_group_config_runtime.h"
 #include "platform/ui/team_ui_store_runtime.h"
 #include "sys/clock.h"
 #include "team/protocol/team_position.h"
@@ -2005,29 +2004,21 @@ static void show_reticulum_group_error(const char* message)
 
 static bool reticulum_group_storage_ready_for_edit()
 {
-    auto groups = std::unique_ptr<chat::ReticulumGroupDestinationConfig[]>(
-        new (std::nothrow)
-            chat::ReticulumGroupDestinationConfig[chat::kReticulumGroupDestinationMaxCount]);
-    if (!groups)
-    {
-        return false;
-    }
-
-    const auto status = ::platform::ui::reticulum_groups::load(
-        groups.get(),
-        chat::kReticulumGroupDestinationMaxCount);
-    g_contacts_state.reticulum_group_storage_supported = status.supported;
-    g_contacts_state.reticulum_group_storage_ready = status.sd_present;
-    g_contacts_state.reticulum_group_storage_loaded = status.loaded;
+    const chat::MeshProtocol protocol = chat::infra::normalizeMeshProtocol(
+        app::configFacade().readConfig().mesh_protocol);
+    const bool available = chat::infra::isReticulumMeshProtocol(protocol);
+    g_contacts_state.reticulum_group_storage_supported = available;
+    g_contacts_state.reticulum_group_storage_ready = available;
+    g_contacts_state.reticulum_group_storage_loaded = available;
     std::snprintf(g_contacts_state.reticulum_group_storage_message,
                   sizeof(g_contacts_state.reticulum_group_storage_message),
                   "%s",
-                  status.message);
+                  available ? "" : "Reticulum required");
     std::snprintf(g_contacts_state.reticulum_group_storage_detail,
                   sizeof(g_contacts_state.reticulum_group_storage_detail),
                   "%s",
-                  status.detail);
-    return status.supported && status.sd_present;
+                  available ? "" : "Stored in working configuration");
+    return available;
 }
 
 static void open_reticulum_group_config_modal()
@@ -2040,7 +2031,7 @@ static void open_reticulum_group_config_modal()
     {
         const char* message = g_contacts_state.reticulum_group_storage_message[0] != '\0'
                                   ? g_contacts_state.reticulum_group_storage_message
-                                  : "SD card required";
+                                  : "Reticulum required";
         ::ui::feedback::show_notice(message, 2200);
         contacts_focus_to_list();
         return;
@@ -3156,28 +3147,17 @@ static void on_reticulum_group_save_clicked(lv_event_t* /*e*/)
         show_reticulum_group_error(
             g_contacts_state.reticulum_group_storage_message[0] != '\0'
                 ? g_contacts_state.reticulum_group_storage_message
-                : "SD card required");
+                : "Reticulum required");
         return;
     }
 
-    auto groups = std::unique_ptr<chat::ReticulumGroupDestinationConfig[]>(
-        new (std::nothrow)
-            chat::ReticulumGroupDestinationConfig[chat::kReticulumGroupDestinationMaxCount]);
-    if (!groups)
+    app::AppConfigEdit edit = app::configFacade().beginConfigEdit();
+    if (!edit)
     {
-        show_reticulum_group_error("Group storage unavailable");
+        show_reticulum_group_error("Configuration busy");
         return;
     }
-    const auto load_status = ::platform::ui::reticulum_groups::load(
-        groups.get(),
-        chat::kReticulumGroupDestinationMaxCount);
-    if (!load_status.loaded)
-    {
-        show_reticulum_group_error(
-            load_status.message[0] != '\0' ? load_status.message
-                                           : "Cannot load groups");
-        return;
-    }
+    auto& groups = edit.config().reticulumConfig().reticulum_groups;
 
     int free_slot = -1;
     for (std::size_t index = 0; index < chat::kReticulumGroupDestinationMaxCount; ++index)
@@ -3202,34 +3182,12 @@ static void on_reticulum_group_save_clicked(lv_event_t* /*e*/)
         return;
     }
 
-    auto& group = groups[free_slot];
+    auto& group = groups[static_cast<std::size_t>(free_slot)];
     group = chat::ReticulumGroupDestinationConfig{};
     group.enabled = true;
     std::snprintf(group.name, sizeof(group.name), "%s", name);
     group.identity = identity;
 
-    app::AppConfigEdit edit = app::configFacade().beginConfigEdit();
-    if (!edit)
-    {
-        show_reticulum_group_error("Configuration busy");
-        return;
-    }
-
-    const auto save_status = ::platform::ui::reticulum_groups::submit(
-        groups.get(),
-        chat::kReticulumGroupDestinationMaxCount);
-    if (!save_status.queued)
-    {
-        show_reticulum_group_error(save_status.message[0] != '\0'
-                                       ? save_status.message
-                                       : "Save failed");
-        return;
-    }
-
-    std::memcpy(edit.config().reticulumConfig().reticulum_groups,
-                groups.get(),
-                chat::kReticulumGroupDestinationMaxCount *
-                    sizeof(chat::ReticulumGroupDestinationConfig));
     edit.commit(app::AppConfigChangeSet::mesh());
     app::configFacade().applyMeshConfig();
 

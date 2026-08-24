@@ -383,9 +383,9 @@ void ChatComposeScreen::attachImeWidget(::ui::widgets::ImeWidget* widget)
         return;
     }
 
-    // Keep the invisible IME proxy out of the rotary sequence.  Key events
-    // instead enter through the visible IME control, so a hardware keyboard
-    // can still type while focus traversal stays entirely visual.
+    // Keep the invisible IME proxy out of the rotary sequence.  Hardware-key
+    // input is routed through the visible textarea instead of the mode button:
+    // a candidate-confirm key must never also activate the focused IME toggle.
     lv_obj_add_event_cb(ime_toggle, on_key, LV_EVENT_KEY, this);
 
     lv_group_t* group = lv_group_get_default();
@@ -428,7 +428,8 @@ void ChatComposeScreen::attachImeWidget(::ui::widgets::ImeWidget* widget)
         impl_->emoji_btn,
         ::ui::widgets::text_candidates::CandidateSet::Emoji,
         2);
-    syncFocusOrder(true);
+    syncFocusOrder();
+    lv_group_focus_obj(impl_->w.textarea);
 }
 
 void ChatComposeScreen::syncFocusOrder(bool focus_ime)
@@ -443,9 +444,9 @@ void ChatComposeScreen::syncFocusOrder(bool focus_ime)
         return;
     }
 
-    // A rotary user traverses visible controls in their visual sequence. The
-    // textarea stays editable through touch/IME, while IME's hidden proxy
-    // stays internal and never appears as a focus stop.
+    // A rotary user traverses visible controls in their visual sequence. Keep
+    // the textarea first so hardware-key candidate confirmation targets it,
+    // while IME's hidden proxy stays internal and never appears as a stop.
     lv_obj_t* const ime_toggle =
         ime_widget_ && lv_obj_is_valid(ime_widget_->toggle_btn())
             ? ime_widget_->toggle_btn()
@@ -479,6 +480,7 @@ void ChatComposeScreen::syncFocusOrder(bool focus_ime)
             lv_group_add_obj(group, object);
         }
     };
+    add_visible(impl_->w.textarea);
     add_visible(ime_toggle);
     add_visible(impl_->sym_btn);
     add_visible(impl_->emoji_btn);

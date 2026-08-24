@@ -1,21 +1,21 @@
 # Code-First Discovery Spine
-生成于：2026-06-25T14:17:52.885Z
-事实来源：code_facts / codegraph
-本地仓库证据：2026-06-25T09:13:57.407Z
-## 定位
-这份 spine 是 Design / Engineering / Architecture 三个 Explorer 的共享代码事实脊柱。它不是需求文档，也不是产品意图；它只描述当前代码事实中可观察的入口、结构、运行边界、证据断言和覆盖缺口。
-## 摘要
-- 文件：305
-- 代码节点：4091
-- 代码关系：10149
-- 行为切片：420
-- 结构聚类：17
-- 运行/构建边界：0
-- 证据断言：177
-- 覆盖账本项：14545
-- 未知缺口：2062
-## 行为切片
-| ID | 触发 | 入口 | 模块 | 文件 | 关系 | 置信度 |
+Generated at: 2026-06-25T14:17:52.885Z
+Source of facts: code_facts/codegraph
+Local warehouse evidence: 2026-06-25T09:13:57.407Z
+## Positioning
+This spine It is the shared code de facto spine of the three Explorers Design / Engineering / Architecture. It is not a requirements document, nor is it a product intent; it only describes observable entries, structures, run boundaries, evidence assertions, and coverage gaps in the current code facts.
+## Summary
+- Files: 305
+- Code nodes: 4091
+- Code relationships: 10149
+- Behavior slices: 420
+- Structural clusters: 17
+- Run/build boundaries: 0
+- Evidence assertion: 177
+- Overwritten ledger entry: 14545
+- Unknown gap: 2062
+## Behavior Slice
+| ID | Trigger | Entry | Module | File | Relationship | Confidence |
 | --- | --- | --- | --- | ---: | ---: | --- |
 | behavior-slice:api-route-codegraph-method-64e00b9e34a8c17deba799357b3d8dfa | api_route | IdfAppFacadeRuntime::getTeamController | apps/esp32_lvgl | 1 | 1 | medium |
 | behavior-slice:ui-route-codegraph-function-ff1693e9463e593245dc219bc001d332 | ui_route | makeChatPageLifecycle | apps/linux_uconsole_gtk | 2 | 3 | high |
@@ -97,9 +97,9 @@
 | behavior-slice:ui-route-codegraph-import-f5b411fd332a76c52fb01c7525623c3e | ui_route | platform/gtk/gtk_uconsole_pages.h | apps/linux_uconsole_gtk | 1 | 1 | medium |
 | behavior-slice:ui-route-codegraph-import-0f31bedbedce00fa7cc1906ff63d0d47 | ui_route | platform/gtk/gtk_uconsole_pages.h | apps/linux_uconsole_gtk | 1 | 1 | medium |
 | behavior-slice:ui-route-codegraph-import-1b40d86a4b19619de848ff55c105434a | ui_route | platform/gtk/gtk_uconsole_pages.h | apps/linux_uconsole_gtk | 1 | 1 | medium |
-| _截断_ | 还剩 340 个行为切片 | | | | | |
-## 结构聚类
-| ID | 模块 | 文件 | 节点 | 关系 | 行为切片 | 外部依赖 | 置信度 |
+| _Truncation_ | 340 behavioral slices left | | | | | |
+## Structural clustering
+| ID | Module | File | Node | Relationship | Behavior slice | External dependency | Confidence |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | structural-cluster:boards | boards | 92 | 240 | 240 | 236 | 6 | high |
 | structural-cluster:apps-linux-uconsole-gtk | apps/linux_uconsole_gtk | 53 | 240 | 240 | 61 | 3 | high |
@@ -118,137 +118,137 @@
 | structural-cluster:compile-commands-json | compile_commands.json | 1 | 1 | 0 | 0 | 0 | low |
 | structural-cluster:copyright | COPYRIGHT | 1 | 1 | 0 | 0 | 0 | low |
 | structural-cluster:license | LICENSE | 1 | 1 | 0 | 0 | 0 | low |
-## 运行与构建边界
-| ID | 类型 | 文件 | 模块 | 置信度 |
+## Run and build boundaries
+| ID | Type | File | Module | Confidence |
 | --- | --- | --- | --- | --- |
-## 覆盖账本摘要
+## Coverage ledger summary
 - classified_structural_cluster: 3023
 - test_only: 275
 - classified_entrypoint: 420
 - unknown_gap: 2062
 - internal_detail: 8765
-## 未知缺口样本
-| 类型 | 目标 | 原因 |
+## Unknown gap sample
+| Type | Target | Reason |
 | --- | --- | --- |
-| symbol | & status() | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：& status() |
-| symbol | esp32_lvgl_runtime_config.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：esp32_lvgl_runtime_config.h |
-| symbol | RuntimeStatus | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：RuntimeStatus |
-| symbol | esp32_lvgl_loop_runtime.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：esp32_lvgl_loop_runtime.h |
-| symbol | esp32_lvgl_idf_app_runtime_access.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：esp32_lvgl_idf_app_runtime_access.h |
-| symbol | esp_log.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：esp_log.h |
-| symbol | esp_timer.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：esp_timer.h |
-| symbol | freertos/FreeRTOS.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：freertos/FreeRTOS.h |
-| symbol | freertos/task.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：freertos/task.h |
-| symbol | platform/esp/idf_common/wireless_companion/c6_companion.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/esp/idf_common/wireless_companion/c6_companion.h |
-| symbol | ui/loop_shell.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：ui/loop_shell.h |
-| symbol | LoopState | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：LoopState |
-| symbol | loopTask | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：loopTask |
-| symbol | canStartEsp32LvglLoopRuntime | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：canStartEsp32LvglLoopRuntime |
-| symbol | startEsp32LvglLoopRuntime | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：startEsp32LvglLoopRuntime |
-| symbol | esp32_lvgl_runtime_config.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：esp32_lvgl_runtime_config.h |
-| symbol | esp32_lvgl_runtime_config.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：esp32_lvgl_runtime_config.h |
-| symbol | product_composition/target_profile.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：product_composition/target_profile.h |
-| symbol | sdkconfig.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：sdkconfig.h |
-| symbol | & esp32LvglRuntimeConfig() | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：& esp32LvglRuntimeConfig() |
-| symbol | esp32LvglRuntimeTargetProfile | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：esp32LvglRuntimeTargetProfile |
-| symbol | hasEsp32LvglRuntimeTargetProfile | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：hasEsp32LvglRuntimeTargetProfile |
-| symbol | cstdint | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：cstdint |
-| symbol | Esp32LvglRuntimeConfig | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：Esp32LvglRuntimeConfig |
-| symbol | esp32_lvgl_startup_runtime.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：esp32_lvgl_startup_runtime.h |
-| symbol | esp32_lvgl_idf_app_runtime_access.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：esp32_lvgl_idf_app_runtime_access.h |
-| symbol | esp32_lvgl_loop_runtime.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：esp32_lvgl_loop_runtime.h |
-| symbol | app/app_config.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：app/app_config.h |
-| symbol | app/app_facade_access.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：app/app_facade_access.h |
-| symbol | board/BoardBase.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：board/BoardBase.h |
-| symbol | esp_log.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：esp_log.h |
-| symbol | platform/esp/boards/board_runtime.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/esp/boards/board_runtime.h |
-| symbol | platform/esp/idf_common/bsp_runtime.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/esp/idf_common/bsp_runtime.h |
-| symbol | platform/esp/idf_common/debug/sd_coredump_export.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/esp/idf_common/debug/sd_coredump_export.h |
-| symbol | platform/esp/idf_common/startup_support.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/esp/idf_common/startup_support.h |
-| symbol | platform/esp/idf_common/wireless_companion/c6_companion.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/esp/idf_common/wireless_companion/c6_companion.h |
-| symbol | platform/ui/device_runtime.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/ui/device_runtime.h |
-| symbol | platform/ui/gps_runtime.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/ui/gps_runtime.h |
-| symbol | platform/ui/settings_store.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/ui/settings_store.h |
-| symbol | ui/app_registry.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：ui/app_registry.h |
-| symbol | ui/app_runtime.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：ui/app_runtime.h |
-| symbol | ui/startup_shell.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：ui/startup_shell.h |
-| symbol | lockUi | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：lockUi |
-| symbol | unlockUi | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：unlockUi |
-| symbol | applyPlatformRuntimeConfig | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：applyPlatformRuntimeConfig |
-| symbol | buildShellHooks | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：buildShellHooks |
-| symbol | setBootLog | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：setBootLog |
-| symbol | trail_mate_idf_note_user_activity | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：trail_mate_idf_note_user_activity |
-| symbol | canRunEsp32LvglStartupRuntime | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：canRunEsp32LvglStartupRuntime |
-| symbol | runEsp32LvglStartupRuntime | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：runEsp32LvglStartupRuntime |
-| symbol | esp32_lvgl_runtime_config.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：esp32_lvgl_runtime_config.h |
-| symbol | refreshChat | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：refreshChat |
-| symbol | refreshChatLogic | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：refreshChatLogic |
-| symbol | platform/gtk/gtk_uconsole_widgets.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/gtk/gtk_uconsole_widgets.h |
-| symbol | launchDataLayout | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：launchDataLayout |
-| symbol | platform/gtk/gtk_uconsole_widgets.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/gtk/gtk_uconsole_widgets.h |
-| symbol | string | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：string |
-| symbol | refreshDataLogic | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：refreshDataLogic |
-| symbol | platform/gtk/gtk_uconsole_widgets.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/gtk/gtk_uconsole_widgets.h |
-| symbol | launchHardwareLayout | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：launchHardwareLayout |
-| symbol | platform/gtk/gtk_uconsole_widgets.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/gtk/gtk_uconsole_widgets.h |
-| symbol | cstddef | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：cstddef |
-| symbol | buildHardwareCard | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：buildHardwareCard |
-| symbol | refreshHardwareLogic | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：refreshHardwareLogic |
-| symbol | platform/gtk/gtk_uconsole_widgets.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/gtk/gtk_uconsole_widgets.h |
-| symbol | launchLogsLayout | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：launchLogsLayout |
-| symbol | platform/gtk/gtk_uconsole_shell.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/gtk/gtk_uconsole_shell.h |
-| symbol | platform/gtk/gtk_uconsole_widgets.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/gtk/gtk_uconsole_widgets.h |
-| symbol | ctime | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：ctime |
-| symbol | string | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：string |
-| symbol | formatLogTimestamp | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：formatLogTimestamp |
-| symbol | onLogsSourceGpsClicked | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：onLogsSourceGpsClicked |
-| symbol | onLogsSourceLoraClicked | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：onLogsSourceLoraClicked |
-| symbol | onLogsSourceMqttClicked | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：onLogsSourceMqttClicked |
-| symbol | buildPacketLogEntry | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：buildPacketLogEntry |
-| symbol | refreshLogsLogic | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：refreshLogsLogic |
-| symbol | platform/gtk/gtk_uconsole_layout_spec.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/gtk/gtk_uconsole_layout_spec.h |
-| symbol | platform/gtk/gtk_uconsole_widgets.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/gtk/gtk_uconsole_widgets.h |
-| symbol | buildMapSourceButton | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：buildMapSourceButton |
-| symbol | buildMapContextPopover | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：buildMapContextPopover |
-| symbol | makeMapRailViewport | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：makeMapRailViewport |
-| symbol | launchMapLayout | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：launchMapLayout |
-| symbol | platform/gtk/gtk_uconsole_layout_spec.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/gtk/gtk_uconsole_layout_spec.h |
-| symbol | platform/gtk/gtk_uconsole_mqtt_settings.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/gtk/gtk_uconsole_mqtt_settings.h |
-| symbol | platform/gtk/gtk_uconsole_shell.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/gtk/gtk_uconsole_shell.h |
-| symbol | platform/gtk/gtk_uconsole_widgets.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：platform/gtk/gtk_uconsole_widgets.h |
-| symbol | sys/clock.h | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：sys/clock.h |
-| symbol | algorithm | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：algorithm |
-| symbol | chrono | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：chrono |
-| symbol | cmath | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：cmath |
-| symbol | cstdio | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：cstdio |
-| symbol | exception | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：exception |
-| symbol | future | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：future |
-| symbol | sstream | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：sstream |
-| symbol | string | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：string |
-| symbol | utility | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：utility |
-| symbol | vector | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：vector |
-| symbol | tileKey | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：tileKey |
-| symbol | mapFetchRetryDelaySeconds | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：mapFetchRetryDelaySeconds |
-| symbol | mapGridSignature | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：mapGridSignature |
-| symbol | missingContourTiles | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：missingContourTiles |
-| symbol | onMapSourceClicked | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：onMapSourceClicked |
-| symbol | onMapZoomInClicked | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：onMapZoomInClicked |
-| symbol | onMapZoomOutClicked | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：onMapZoomOutClicked |
-| symbol | onMapRecenterClicked | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：onMapRecenterClicked |
-| symbol | formatMapCoordinate | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：formatMapCoordinate |
-| symbol | formatMapDecimal | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：formatMapDecimal |
-| symbol | mapDegToRad | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：mapDegToRad |
-| symbol | mapDistanceMeters | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：mapDistanceMeters |
-| symbol | formatMapDistance | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：formatMapDistance |
-| symbol | formatMapNodeAge | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：formatMapNodeAge |
-| symbol | updateMapMeasureStatus | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：updateMapMeasureStatus |
-| symbol | setMapMeasurePoint | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：setMapMeasurePoint |
-| symbol | refreshAfterMapContextAction | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：refreshAfterMapContextAction |
-| symbol | onMapContextCenterClicked | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：onMapContextCenterClicked |
-| symbol | onMapContextZoomInClicked | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：onMapContextZoomInClicked |
-| symbol | onMapContextZoomOutClicked | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：onMapContextZoomOutClicked |
-| symbol | onMapContextMeasureStartClicked | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：onMapContextMeasureStartClicked |
-| symbol | onMapContextMeasureEndClicked | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：onMapContextMeasureEndClicked |
-| symbol | coordinateAtPointer | 该代码节点尚未被 Design/Engineering/Architecture 投影解释：coordinateAtPointer |
-## 机器模型
-完整 JSON：docs/code-understanding/code-first-discovery-spine.json
+| symbol | & status() | This code node has not been interpreted by the Design/Engineering/Architecture projection: & status() |
+| symbol | esp32_lvgl_runtime_config.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: esp32_lvgl_runtime_config.h |
+| symbol | RuntimeStatus | This code node has not been interpreted by the Design/Engineering/Architecture projection: RuntimeStatus |
+| symbol | esp32_lvgl_loop_runtime.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: esp32_lvgl_loop_runtime.h |
+| symbol | esp32_lvgl_idf_app_runtime_access.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: esp32_lvgl_idf_app_runtime_access.h |
+| symbol | esp_log.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: esp_log.h |
+ | symbol | esp_timer.h | This code node has not yet been interpreted by the Design/Engineering/Architecture projection: esp_timer.h |
+| symbol | freertos/FreeRTOS.h | This code node has not yet been interpreted by the Design/Engineering/Architecture projection: Design/Engineering/Architecture projection interpretation: freertos/FreeRTOS.h |
+| symbol | freertos/task.h | This code node has not been used yet Design/Engineering/Architecture projection interpretation: freertos/task.h |
+| symbol | platform/esp/idf_common/wireless_companion/c6_companion.h | This code node has not been used yet Design/Engineering/Architecture projection interpretation: platform/esp/idf_common/wireless_companion/c6_companion.h |
+| symbol | ui/loop_shell.h | This code node has not been interpreted by Design/Engineering/Architecture projection: ui/loop_shell.h |
+| symbol | LoopState | This code node has not been interpreted by the Design/Engineering/Architecture projection: LoopState |
+| symbol | loopTask | This code node has not been interpreted by the Design/Engineering/Architecture projection: loopTask |
+| symbol | canStartEsp32LvglLoopRuntime | This code node has not been interpreted by the Design/Engineering/Architecture projection Projection explanation: canStartEsp32LvglLoopRuntime |
+| symbol | startEsp32LvglLoopRuntime | This code node has not been Design/Engineering/Architecture Projection explanation: startEsp32LvglLoopRuntime |
+| symbol | esp32_lvgl_runtime_config.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: esp32_lvgl_runtime_config.h |
+| symbol | esp32_lvgl_runtime_config.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: esp32_lvgl_runtime_config.h |
+| symbol | product_composition/target_profile.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: product_composition/target_profile.h |
+| symbol | sdkconfig.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: sdkconfig.h |
+| symbol | & esp32LvglRuntimeConfig() | This code node has not been interpreted by the Design/Engineering/Architecture projection: & esp32LvglRuntimeConfig() |
+| symbol | esp32LvglRuntimeTargetProfile | This code node has not been interpreted by the Design/Engineering/Architecture projection: esp32LvglRuntimeTargetProfile |
+| symbol | hasEsp32LvglRuntimeTargetProfile | This code node has not been interpreted by the Design/Engineering/Architecture projection: hasEsp32LvglRuntimeTargetProfile |
+| symbol | cstdint | This code node has not been interpreted by the Design/Engineering/Architecture projection: cstdint |
+| symbol | Esp32LvglRuntimeConfig | This code node has not been interpreted by the Design/Engineering/Architecture projection: Esp32LvglRuntimeConfig |
+| symbol | esp32_lvgl_startup_runtime.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: esp32_lvgl_startup_runtime.h |
+| symbol | esp32_lvgl_idf_app_runtime_access.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: esp32_lvgl_idf_app_runtime_access.h |
+| symbol | esp32_lvgl_loop_runtime.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: esp32_lvgl_loop_runtime.h |
+| symbol | app/app_config.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: app/app_config.h |
+| symbol | app/app_facade_access.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: app/app_facade_access.h |
+| symbol | board/BoardBase.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: board/BoardBase.h |
+| symbol | esp_log.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: esp_log.h |
+| symbol | platform/esp/boards/board_runtime.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/esp/boards/board_runtime.h |
+| symbol | platform/esp/idf_common/bsp_runtime.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/esp/idf_common/bsp_runtime.h |
+| symbol | platform/esp/idf_common/debug/sd_coredump_export.h | This code node has not been interpreted by the Design/Engineering/Architecture Projection interpretation: platform/esp/idf_common/debug/sd_coredump_export.h |
+| symbol | platform/esp/idf_common/startup_support.h | This code node has not been interpreted by Design/Engineering/Architecture projection: platform/esp/idf_common/startup_support.h |
+| symbol | platform/esp/idf_common/wireless_companion/c6_companion.h | This code node has not been used yet Design/Engineering/Architecture projection interpretation: platform/esp/idf_common/wireless_companion/c6_companion.h |
+| symbol | platform/ui/device_runtime.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/ui/device_runtime.h |
+| symbol | platform/ui/gps_runtime.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/ui/gps_runtime.h |
+| symbol | platform/ui/settings_store.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/ui/settings_store.h |
+| symbol | ui/app_registry.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: ui/app_registry.h |
+| symbol | ui/app_runtime.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: ui/app_runtime.h |
+| symbol | ui/startup_shell.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: ui/startup_shell.h |
+| symbol | lockUi | This code node has not been interpreted by the Design/Engineering/Architecture projection: lockUi |
+| symbol | unlockUi | This code node has not been interpreted by the Design/Engineering/Architecture projection Projection interpretation: unlockUi |
+| symbol | applyPlatformRuntimeConfig | This code node has not been interpreted by Design/Engineering/Architecture projection: applyPlatformRuntimeConfig |
+| symbol | buildShellHooks | This code node has not been interpreted by Design/Engineering/Architecture projection: buildShellHooks |
+| symbol | setBootLog | This code node has not been interpreted by the Design/Engineering/Architecture projection: setBootLog |
+| symbol | trail_mate_idf_note_user_activity | This code node has not been interpreted by the Design/Engineering/Architecture projection: trail_mate_idf_note_user_activity |
+| symbol | canRunEsp32LvglStartupRuntime | This code node has not been interpreted by the Design/Engineering/Architecture projection: canRunEsp32LvglStartupRuntime |
+| symbol | runEsp32LvglStartupRuntime | This code node has not been interpreted by the Design/Engineering/Architecture projection: runEsp32LvglStartupRuntime |
+| symbol | esp32_lvgl_runtime_config.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: esp32_lvgl_runtime_config.h |
+| symbol | refreshChat | This code node has not been interpreted by the Design/Engineering/Architecture projection: refreshChat |
+| symbol | refreshChatLogic | This code node has not been interpreted by the Design/Engineering/Architecture projection: refreshChatLogic |
+| symbol | platform/gtk/gtk_uconsole_widgets.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/gtk/gtk_uconsole_widgets.h |
+| symbol | launchDataLayout | This code node has not been interpreted by the Design/Engineering/Architecture projection: launchDataLayout |
+| symbol | platform/gtk/gtk_uconsole_widgets.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/gtk/gtk_uconsole_widgets.h |
+| symbol | string | This code node has not been interpreted by the Design/Engineering/Architecture projection: string |
+| symbol | refreshDataLogic | This code node has not been interpreted by the Design/Engineering/Architecture projection: refreshDataLogic |
+| symbol | platform/gtk/gtk_uconsole_widgets.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/gtk/gtk_uconsole_widgets.h |
+| symbol | launchHardwareLayout | This code node has not been interpreted by the Design/Engineering/Architecture projection: launchHardwareLayout |
+| symbol | platform/gtk/gtk_uconsole_widgets.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/gtk/gtk_uconsole_widgets.h |
+| symbol | cstddef | This code node has not been interpreted by the Design/Engineering/Architecture projection: cstddef |
+| symbol | buildHardwareCard | This code node has not been interpreted by Design/Engineering/Architecture Projection explanation: buildHardwareCard |
+| symbol | refreshHardwareLogic | This code node has not been Design/Engineering/Architecture Projection explanation: refreshHardwareLogic |
+| symbol | platform/gtk/gtk_uconsole_widgets.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/gtk/gtk_uconsole_widgets.h |
+| symbol | launchLogsLayout | This code node has not been interpreted by the Design/Engineering/Architecture projection: launchLogsLayout |
+| symbol | platform/gtk/gtk_uconsole_shell.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/gtk/gtk_uconsole_shell.h |
+| symbol | platform/gtk/gtk_uconsole_widgets.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/gtk/gtk_uconsole_widgets.h |
+| symbol | ctime | This code node has not been interpreted by the Design/Engineering/Architecture projection: ctime |
+| symbol | string | This code node has not been interpreted by the Design/Engineering/Architecture projection: string |
+| symbol | formatLogTimestamp | This code node has not been interpreted by the Design/Engineering/Architecture projection: formatLogTimestamp |
+| symbol | onLogsSourceGpsClicked | This code node has not been interpreted by the Design/Engineering/Architecture projection: onLogsSourceGpsClicked |
+| symbol | onLogsSourceLoraClicked | This code node has not been interpreted by the Design/Engineering/Architecture projection: onLogsSourceLoraClicked |
+| symbol | onLogsSourceMqttClicked | This code node has not been interpreted by the Design/Engineering/Architecture projection: onLogsSourceMqttClicked |
+| symbol | buildPacketLogEntry | This code node has not been interpreted by the Design/Engineering/Architecture projection: buildPacketLogEntry |
+| symbol | refreshLogsLogic | This code node has not been interpreted by the Design/Engineering/Architecture projection: refreshLogsLogic |
+| symbol | platform/gtk/gtk_uconsole_layout_spec.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/gtk/gtk_uconsole_layout_spec.h |
+| symbol | platform/gtk/gtk_uconsole_widgets.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/gtk/gtk_uconsole_widgets.h |
+| symbol | buildMapSourceButton | This code node has not been interpreted by the Design/Engineering/Architecture projection: buildMapSourceButton |
+| symbol | buildMapContextPopover | This code node has not been interpreted by the Design/Engineering/Architecture projection: buildMapContextPopover |
+| symbol | makeMapRailViewport | This code node has not yet been interpreted by the Design/Engineering/Architecture projection: Design/Engineering/Architecture projection interpretation: makeMapRailViewport |
+| symbol | launchMapLayout | This code node has not been interpreted by Design/Engineering/Architecture projection: launchMapLayout |
+| symbol | platform/gtk/gtk_uconsole_layout_spec.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/gtk/gtk_uconsole_layout_spec.h |
+| symbol | platform/gtk/gtk_uconsole_mqtt_settings.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/gtk/gtk_uconsole_mqtt_settings.h |
+| symbol | platform/gtk/gtk_uconsole_shell.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/gtk/gtk_uconsole_shell.h |
+| symbol | platform/gtk/gtk_uconsole_widgets.h | This code node has not been interpreted by the Design/Engineering/Architecture projection: platform/gtk/gtk_uconsole_widgets.h |
+| symbol | sys/clock.h | This code node has not been interpreted by the Design/Engineering/Architecture projection Projection interpretation: sys/clock.h |
+| symbol | algorithm | This code node has not been interpreted by the Design/Engineering/Architecture projection: algorithm |
+| symbol | chrono | This code node has not been interpreted by the Design/Engineering/Architecture projection: chrono |
+| symbol | cmath | This code node has not been interpreted by the Design/Engineering/Architecture projection: cmath |
+| symbol | cstdio | This code node has not been interpreted by the Design/Engineering/Architecture projection: cstdio |
+| symbol | exception | This code node has not been interpreted by the Design/Engineering/Architecture projection: exception |
+| symbol | future | This code node has not yet been interpreted by the Design/Engineering/Architecture projection: future |
+| symbol | sstream | This code node has not yet been interpreted by the Design/Engineering/Architecture projection: sstream |
+| symbol | string | This code node has not been interpreted by the Design/Engineering/Architecture projection: string |
+| symbol | utility | This code node has not been interpreted by the Design/Engineering/Architecture projection: utility |
+| symbol | vector | This code node has not been interpreted by the Design/Engineering/Architecture projection: vector |
+| symbol | tileKey | This code node has not been interpreted by the Design/Engineering/Architecture projection: tileKey |
+| symbol | mapFetchRetryDelaySeconds | This code node has not been interpreted by the Design/Engineering/Architecture projection: mapFetchRetryDelaySeconds |
+| symbol | mapGridSignature | This code node has not been interpreted by the Design/Engineering/Architecture projection: mapGridSignature |
+| symbol | missingContourTiles | This code node has not been interpreted by the Design/Engineering/Architecture projection: missingContourTiles |
+| symbol | onMapSourceClicked | This code node has not been interpreted by the Design/Engineering/Architecture projection: onMapSourceClicked |
+| symbol | onMapZoomInClicked | This code node has not been interpreted by the Design/Engineering/Architecture projection: onMapZoomInClicked |
+| symbol | onMapZoomOutClicked | This code node has not been interpreted by the Design/Engineering/Architecture projection: onMapZoomOutClicked |
+| symbol | onMapRecenterClicked | This code node has not been interpreted by the Design/Engineering/Architecture projection: onMapRecenterClicked |
+| symbol | formatMapCoordinate | This code node has not been interpreted by the Design/Engineering/Architecture projection: formatMapCoordinate |
+| symbol | formatMapDecimal | This code node has not been interpreted by the Design/Engineering/Architecture projection: formatMapDecimal |
+| symbol | mapDegToRad | This code node has not been interpreted by the Design/Engineering/Architecture projection: mapDegToRad |
+| symbol | mapDistanceMeters | This code node has not been interpreted by the Design/Engineering/Architecture projection: mapDistanceMeters |
+| symbol | formatMapDistance | This code node has not been interpreted by the Design/Engineering/Architecture projection Projection interpretation: formatMapDistance |
+| symbol | formatMapNodeAge | This code node has not been interpreted by Design/Engineering/Architecture projection: formatMapNodeAge |
+| symbol | updateMapMeasureStatus | This code node has not been interpreted by Design/Engineering/Architecture projection: updateMapMeasureStatus |
+| symbol | setMapMeasurePoint | This code node has not been interpreted by the Design/Engineering/Architecture projection: setMapMeasurePoint |
+| symbol | refreshAfterMapContextAction | This code node has not been interpreted by the Design/Engineering/Architecture projection: refreshAfterMapContextAction |
+| symbol | onMapContextCenterClicked | This code node has not been interpreted by the Design/Engineering/Architecture projection: onMapContextCenterClicked |
+| symbol | onMapContextZoomInClicked | This code node has not been interpreted by the Design/Engineering/Architecture projection: onMapContextZoomInClicked |
+| symbol | onMapContextZoomOutClicked | This code node has not been interpreted by the Design/Engineering/Architecture projection: onMapContextZoomOutClicked |
+| symbol | onMapContextMeasureStartClicked | This code node has not been interpreted by the Design/Engineering/Architecture projection: onMapContextMeasureStartClicked |
+| symbol | onMapContextMeasureEndClicked | This code node has not been interpreted by the Design/Engineering/Architecture projection: onMapContextMeasureEndClicked |
+| symbol | coordinateAtPointer | This code node has not been interpreted by the Design/Engineering/Architecture projection: coordinateAtPointer |
+## Machine model
+Full JSON: docs/code-understanding/code-first-discovery-spine.json

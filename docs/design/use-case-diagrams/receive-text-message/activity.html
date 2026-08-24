@@ -1,9 +1,9 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：帧验证、去重与提交</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/receive-text-message/activity.md"><h1>帧验证、去重与提交</h1><pre class="mermaid">flowchart TD
-F["Radio frame"] --> V{"协议/目的/认证有效?"}
-V -- 否 --> R["Reject before state"]
-V -- 是 --> D{"已去重?"}
-D -- 是 --> A["ACK only"]
-D -- 否 --> C{"commit result"}
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Activity: Frame verification, deduplication and submission</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/receive-text-message/activity.md"><h1>Frame verification, deduplication and submission</h1><pre class="mermaid">flowchart TD
+F["Radio frame"] --> V{"Protocol/purpose/authentication valid?"}
+V -- No--> R["Reject before state"]
+V -- Yes--> D{"Duplication removed?"}
+D -- Yes--> A["ACK only"]
+D -- No--> C{"commit result"}
 C -- Durable --> P["publish UI event"]
 C -- Deferred --> B["bounded retry"]
 C -- Rejected --> R</pre></main></body></html>

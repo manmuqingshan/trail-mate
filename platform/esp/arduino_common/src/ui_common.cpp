@@ -66,6 +66,7 @@ int ui_get_timezone_offset_min()
 
 void ui_set_timezone_offset_min(int offset_min)
 {
+    ::platform::ui::settings_store::ScopedChangeBatch changes;
     s_tz_offset_min = offset_min;
     s_tz_profile_id = ::platform::ui::time::timezone_profile_id_for_fixed_offset(offset_min);
     s_tz_loaded = true;
@@ -81,6 +82,7 @@ int ui_get_timezone_profile_id()
 
 void ui_set_timezone_profile_id(int profile_id)
 {
+    ::platform::ui::settings_store::ScopedChangeBatch changes;
     const auto* profile = ::platform::ui::time::timezone_profile_by_id(profile_id);
     if (!profile)
     {

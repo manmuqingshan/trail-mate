@@ -1,51 +1,51 @@
-# Use Case：管理联系人、附近节点与本地信任
+# Use Case: Management contacts, nearby nodes and local trust
 
-状态：**confirmed；identity linking partial**
+Status: **confirmed; identity linking partial**
 
-业务边界：网络、身份与目录
+Business boundary: network, identity and directory
 
-主要参与者：设备用户
-事件触发者：活动协议 backend、Reticulum directory
+Main participants: device user
+Event triggerer: active protocol backend, Reticulum directory
 
-## 用户目标
+## User Goals
 
-理解设备发现了谁，把值得保留的对端保存为联系人，设置本地名称、忽略噪声节点、检查协议身份，并在有证据时标记人工验证。
+Understand who the device discovered, save peers worth keeping as contacts, set local names, ignore noisy nodes, check protocol identities, and flag human verification when evidence is available.
 
-## 进入目录
+## Enter the directory
 
-1. Meshtastic/MeshCore 节点信息或 Reticulum LXMF address 先形成协议观察。
-2. 目录以 `protocol + protocol identity` 区分记录，保留 first seen，更新 last seen、显示名、位置、能力和公钥 facts。
-3. Contacts 页面按活动协议投影 Contacts、Nearby、Reticulum Groups 与 Ignored，而不是把不同协议的同号 NodeId 合并。
+1. Meshtastic/MeshCore node information or Reticulum LXMF address form a protocol observation first.
+2. The directory distinguishes records with `protocol + protocol identity`, retains first seen, and updates last seen, display name, location, capability and public key facts.
+3. The Contacts page projects Contacts, Nearby, Reticulum Groups and Ignored according to the active protocol, instead of merging NodeIds with the same number in different protocols.
 
-## 用户动作
+## User action
 
-- 保存为联系人并设置 nickname。
-- 编辑 nickname；删除联系人只删除用户关系，不等于删除协议节点观察。
-- 忽略/取消忽略节点。
-- 删除节点记录。
-- 查看 key/hash；仅在节点记录存在时设置 manually verified。
-- 从联系人或节点详情进入会话；Reticulum group destination 使用独立持久化状态。
+- Save as contact and set nickname.
+- Edit nickname; deleting a contact only deletes the user relationship, which does not mean deleting the protocol node observation.
+- Ignore/unignore nodes.
+- Delete node records.
+ - View key/hash; set manually verified only if node record exists.
+- Enter session from contact or node details; Reticulum group destination uses independent persistent state.
 
-## 失败与恢复
+## Failure and recovery
 
-- 持久化失败不能更新为“已保存”。
-- 未知协议、空身份和全零 key 不进入可验证身份。
-- 跨协议相似名称不能自动建立同一联系人关系。
-- `isNodeVisible()` 当前不执行文档声明的六天过滤；UI 不应把“附近”解释成已兑现的 retention policy。
+- Persistence failure cannot be updated to "Saved".
+- Unknown protocols, empty identities, and all-zero keys do not lead to verifiable identities.
+- Similar names across protocols cannot automatically establish the same contact relationship.
+- `isNodeVisible()` currently does not perform the six-day filtering stated in the document; the UI should not interpret "nearby" as a fulfilled retention policy.
 
-## 仍未形成的设计
+## Design that has not yet been formed
 
-协议身份到业务联系人的可撤销 `IdentityLink` 不存在；人工验证、Reticulum trusted 与 Mesh verified key 也不是同一个证明状态。
+The revocable `IdentityLink` from the protocol identity to the business contact does not exist; manual verification, Reticulum trusted and Mesh verified key are not in the same certification state.
 
-## 源码证据
+## Source code evidence
 
 - `modules/core_chat/include/chat/domain/mesh_peer_directory.h`
 - `modules/core_chat/include/chat/usecase/contact_service.h`
 - `modules/ui_shared/src/ui/screens/contacts/contacts_page_runtime.cpp`
 - `modules/ui_key_verification_runtime/src/key_verification_action_sink.cpp`
 
-## 下钻
+## Drill down
 
-- [Activity：观察到联系人](manage-peer-directory/activity.md)
-- [Sequence：协议观察、目录与 Contacts 投影](manage-peer-directory/sequences/sequence-manage-peer-directory.md)
-- [State Machine：目录条目的本地关系状态](manage-peer-directory/state-machines/peer-local-relationship.md)
+- [Activity: Observed Contacts](manage-peer-directory/activity.md)
+- [Sequence: Protocol Observation, Directory and Contacts Projection](manage-peer-directory/sequences/sequence-manage-peer-directory.md)
+- [State Machine: local relationship status of directory entry](manage-peer-directory/state-machines/peer-local-relationship.md)

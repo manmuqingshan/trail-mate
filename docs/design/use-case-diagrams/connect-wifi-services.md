@@ -1,37 +1,37 @@
-# Use Case：连接 Wi-Fi 并仲裁联网能力
+# Use Case: Connect to Wi-Fi and arbitrate networking capabilities
 
-状态：**confirmed**
+Status: **confirmed**
 
-业务边界：网络、身份与目录 / 设备资源治理
+Business boundary: network, identity and directory / device resource management
 
-主要参与者：设备用户
-资源申请者：FirmwareUpdate、PackRepository、RouteStorage、MeshMqtt、ReticulumGateway
+Main participants: device user
+Resource applicant: FirmwareUpdate, PackRepository, RouteStorage, MeshMqtt, ReticulumGateway
 
-## 用户目标
+## User Goals
 
-连接已选择的 Wi-Fi，使更新、扩展包、MQTT、路线下载或 Reticulum gateway 可用，同时不让后台网络活动破坏实时通话、OTA、屏幕唤醒保护或 radio 响应。
+Connect to the selected Wi-Fi to make updates, expansion packs, MQTT, route downloads, or Reticulum gateway available without letting background network activity disrupt live calls, OTAs, screen wake protection, or radio responses.
 
-## 成功场景
+## Success Scenario
 
-1. 用户启用 Wi-Fi、扫描网络、选择 SSID 并提交凭据。
-2. Wi-Fi runtime 尝试连接并返回明确状态；凭据只有保存成功后才成为自动连接来源。
-3. 需要网络的功能提交包含 `Client / AccessKind / Priority / allowConnect` 的 Request。
-4. Wi-Fi access runtime 根据 ScreenPhase、OTA、通话独占、不可抢占活动与当前 owner 返回 Lease 或具体 Decision。
-5. 获得 lease 的调用方执行有界操作，完成后 release；长连接按 traffic budget 读写。
+1. User enables Wi-Fi, scans for networks, selects SSID and submits credentials.
+2. Wi-Fi runtime attempts to connect and returns a clear status; the credentials will only become the automatic connection source after being successfully saved.
+3. For functions that require network, submit a Request containing `Client / AccessKind / Priority / allowConnect`.
+4. Wi-Fi access runtime returns Lease or specific Decision based on ScreenPhase, OTA, call exclusive, non-preemptible activity and current owner.
+5. The caller who obtains the lease performs a bounded operation and releases it after completion; long connections read and write according to the traffic budget.
 
-## 失败与恢复
+## Failure and recovery
 
-- 无凭据、Wi-Fi 禁用、断开、连接退避、屏幕保护期、OTA 独占、Call 独占和 Busy 必须可区分。
-- lease 被撤销时调用方停止当前网络工作，不继续复用旧 generation。
-- 通话从响铃软抢占进入 ActiveCall 时可升级为 exclusive，并使后台 HTTP/长连接让路。
+- No Credentials, Wi-Fi Disabled, Disconnected, Connection Backoff, Screensaver, OTA Exclusive, Call Exclusive, and Busy must be distinguishable.
+- When the lease is revoked, the caller stops the current network work and does not continue to reuse the old generation.
+- Calls can be upgraded to exclusive when entering ActiveCall from ring soft preemption and make way for background HTTP/long connections.
 
-## 源码证据
+## Source code evidence
 
 - `modules/core_sys/include/platform/ui/wifi_access_runtime.h`
 - `platform/esp/arduino_common/src/platform_ui_wifi_access_runtime.cpp`
 - `modules/ui_shared/src/ui/screens/settings/settings_page_components.cpp`
 
-## 下钻
+## Drill down
 
-- [Activity：连接与资源请求](connect-wifi-services/activity.md)
-- [Sequence：客户端取得和释放 Lease](connect-wifi-services/sequences/sequence-connect-wifi-services.md)
+- [Activity: Connection and resource request](connect-wifi-services/activity.md)
+- [Sequence: Client obtains and releases Lease](connect-wifi-services/sequences/sequence-connect-wifi-services.md)

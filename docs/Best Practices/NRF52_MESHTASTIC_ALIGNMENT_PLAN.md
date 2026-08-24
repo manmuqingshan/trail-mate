@@ -1,93 +1,93 @@
-# GAT562 / nRF52 对齐 `.tmp/meshtastic-firmware` 改造清单
+# GAT562 / nRF52 alignment `.tmp/meshtastic-firmware` modification list
 
-## 基准原则
+## Baseline principles
 
-- 以 `.tmp/meshtastic-firmware` 的平台分层方式为准，不自创新架构
-- 共享协议核心负责业务语义
-- 平台蓝牙宿主只负责 transport / callback / notify
-- 板级 owner 只负责硬件事实：LoRa / GPS / I2C / 输入 / 时间源
+- Based on the platform layering method of `.tmp/meshtastic-firmware`, no self-innovation architecture
+- The core of the shared protocol is responsible for business semantics
+-The platform Bluetooth host is only responsible for transport / callback / notify
+-The board-level owner is only responsible for hardware facts: LoRa / GPS / I2C / input / time source
 
-## 参考实现映射
+## Reference implementation mapping
 
-- 参考共享核心
+- Reference shared core
   - `.tmp/meshtastic-firmware/src/mesh/PhoneAPI.cpp`
   - `.tmp/meshtastic-firmware/src/mesh/MeshService.cpp`
-- 参考平台宿主
+- Reference platform host
   - `.tmp/meshtastic-firmware/src/platform/nrf52/NRF52Bluetooth.cpp`
   - `.tmp/meshtastic-firmware/src/nimble/NimbleBluetooth.cpp`
 
-## 当前偏差
+## Current deviation
 
 - `platform/nrf52/arduino_common/src/ble/meshtastic_ble.cpp`
-  - 仍承担过多 Meshtastic phone 协议与配置响应逻辑
+ - Still responsible for too much Meshtastic phone protocol and configuration response logic
 - `platform/nrf52/arduino_common/src/ble/meshcore_ble.cpp`
-  - 仍承担过多 MeshCore 命令解释与设备状态拼装逻辑
+ - Still responsible for too much MeshCore command interpretation and device status assembly logic
 - `platform/nrf52/arduino_common/src/chat/infra/meshtastic/meshtastic_radio_adapter.cpp`
-  - 同时承担 radio codec、部分业务拼包、节点宣告
+ - Simultaneously responsible for radio codec, part of the business package, node declaration
 - `platform/nrf52/arduino_common/src/chat/infra/meshcore/meshcore_radio_adapter.cpp`
-  - 同时承担 radio codec 与 MeshCore 业务桥接
-- nRF BLE 文件此前直接依赖 `gat562_board`
-  - 违反“board owner 提供事实，上层只消费”
+ - Simultaneously responsible for radio codec and MeshCore business bridging
+- nRF BLE file previously directly relied on `gat562_board`
+ - Violation of "board owner provides facts, the upper layer only consumes"
 
-## 改造顺序
+## Transformation sequence
 
-### 1. 先把 BLE host 变薄
+### 1. First make the BLE host thinner
 
-- BLE 层不再直接依赖 `boards/gat562_mesh_evb_pro`
-- BLE 层通过 `app::IAppBleFacade` 消费：
-  - 当前时间同步入口
+- The BLE layer no longer depends directly on `boards/gat562_mesh_evb_pro`
+- The BLE layer consumes through `app::IAppBleFacade`:
+ - Current time synchronization entry
   - node store
   - chat service
   - mesh adapter
 
-### 2. 抽 Meshtastic 共享 phone core
+### 2. Pump Meshtastic shared phone core
 
-- 从 `platform/nrf52/arduino_common/src/ble/meshtastic_ble.cpp` 下沉：
+- From `platform/nrf52/arduino_common/src/ble/meshtastic_ble.cpp` sink:
   - `handleToRadio`
   - `handleToRadioPacket`
-  - admin/config/module config 响应
-  - `FromRadio` 编码与队列状态生成
-- 目标形态：
-  - 平台无关 `MeshtasticPhoneCore`
-  - nRF BLE 仅保留 characteristic / advertising / read-write callback
+ - admin/config/module config response
+ - `FromRadio` encoding and queue status generation
+- Target form:
+ - Platform independent `MeshtasticPhoneCore`
+ - nRF BLE only retains characteristic / advertising / read-write callback
 
-### 3. 抽 MeshCore 共享 phone core
+### 3. Pump MeshCore shared phone core
 
-- 从 `platform/nrf52/arduino_common/src/ble/meshcore_ble.cpp` 下沉：
-  - 命令分发
-  - contact/status/device info 帧拼装
-  - raw data push / telemetry push 规则
-- 目标形态：
-  - 平台无关 `MeshCorePhoneCore`
-  - nRF BLE 仅保留 NUS 风格收发宿主
+- Dropped from `platform/nrf52/arduino_common/src/ble/meshcore_ble.cpp`:
+ - Command distribution
+ - contact/status/device info frame assembly
+ - raw data push / telemetry push rules
+- Target form:
+ - Platform independent `MeshCorePhoneCore`
+ - nRF BLE only retains NUS style transceiver host
 
-### 4. 收拢 radio 入口
+### 4. Collapse radio entry
 
-- 保持 `boards/gat562_mesh_evb_pro/src/sx1262_radio_packet_io.cpp` 为唯一板级 radio owner
-- Meshtastic / MeshCore 共享 `IRadioPacketIo`
-- adapter/core 不再碰板级 SPI / pin / IRQ
+- Keep `boards/gat562_mesh_evb_pro/src/sx1262_radio_packet_io.cpp` as the only board-level radio owner
+- Meshtastic / MeshCore sharing `IRadioPacketIo`
+- adapter/core no longer touches board level SPI / pin / IRQ
 
-### 5. 收拢 GPS / 时间 owner
+### 5. Collapse GPS / time owner
 
-- GAT562 板级继续提供：
-  - GPS 上电/串口/NMEA 解析
-  - 当前 epoch 事实
-  - time synced 状态
-- 上层仅通过 facade / runtime 接口消费，不直连 board 类
+- GAT562 board level continues to provide:
+ - GPS power-on/serial port/NMEA analysis
+ - Current epoch fact
+ - time synced status
+- The upper layer only consumes through the facade / runtime interface, not directly connected to the board class
 
-### 6. 再处理命名与残留层
+### 6. Reprocessing naming and residual layers
 
-- 当 `*_lite` 不再准确时再重命名
-- 不保留兼容层
-- 不新增临时 runtime
+- When `*_lite` Rename when no longer accurate
+- No compatibility layer is retained
+- No temporary runtime is added
 
-## 本轮已开始执行
+## This round has started execution
 
-- 已新增 `IAppBleFacade::syncCurrentEpochSeconds()`
-- 已让 nRF BLE 的 Meshtastic / MeshCore 时间同步改走 facade，而不是直接触达 `gat562_board`
+- `IAppBleFacade::syncCurrentEpochSeconds()` has been added
+- nRF BLE's Meshtastic / MeshCore time synchronization has been changed facade instead of directly accessing `gat562_board`
 
-## 下一批代码动作
+## Next batch of code actions
 
-- 把 Meshtastic BLE 中的 phone 协议逻辑抽成独立 core
-- 让 `MeshtasticBleService` 只剩 Bluefruit host 职责
-- 再对 MeshCore 做同样处理
+- Extract the phone protocol logic in Meshtastic BLE into an independent core
+- Let `MeshtasticBleService` only have Bluefruit host responsibility
+- Do the same with MeshCore

@@ -1,6 +1,6 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>IdentityLink 模型缺失</title></head><body><main data-praxis-anchor="finding:peer-identity-ownership-split"><h1>P1 · 【设计未形成】协议身份到业务联系人的 IdentityLink 缺失</h1><p>边界缺陷 · acknowledged</p><p><code>core_mesh</code> 拥有 <code>PeerPublicKey</code>，<code>core_chat</code> 拥有 <code>MeshPeerRecord</code>、Reticulum identity 和联系人投影，但没有显式、可撤销的业务身份链接。</p><pre class="mermaid">flowchart LR
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>IdentityLink model missing</title></head><body><main data-praxis-anchor="finding:peer-identity-ownership-split"><h1>P1 · [Design not formed] IdentityLink from protocol identity to business contact is missing</h1><p>Boundary defect · Acknowledged</p><p><code>core_mesh</code> Owned<code>PeerPublicKey</code>,<code>core_chat</code> Owned<code>MeshPeerRecord</code>, Reticulum identity and contact projection, but no explicit, revocable business identity link.</p><pre class="mermaid">flowchart LR
 VerifiedProtocolKey --&gt; PeerPublicKey
 PeerPublicKey --&gt; MeshPeerRecord
 MeshPeerRecord --&gt; IdentityLink["explicit / revocable"]
 IdentityLink --&gt; Contact
-IdentityLink --&gt; TeamMember</pre><p>IdentityLink 必须记录证明来源、建立时间和撤销状态；当前图是目标，不是源码实体。</p></main></body></html>
+IdentityLink --&gt; TeamMember</pre><p>I</p></main></body></html>

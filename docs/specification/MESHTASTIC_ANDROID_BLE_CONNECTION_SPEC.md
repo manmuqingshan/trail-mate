@@ -1,25 +1,25 @@
 # Meshtastic Android BLE Connection Specification
 
-本文档固化 Trail Mate 与 Meshtastic Android App 之间的 BLE 连接、配置同步、
-NodeDB 同步、Admin 配置写入、MQTT module config 保存、以及故障诊断边界。
+This document solidifies the BLE connection, configuration synchronization, and
+NodeDB synchronization, Admin configuration writing, MQTT module config saving, and fault diagnosis boundaries.
 
-目标不是解释一次成功连接的日志，而是把后续 AI 和工程师必须遵守的主路径写成规格。
-任何修复 Android App 卡在 `Module config received`、`Nodes(0)`、无法完成连接、保存配置
-后 crash、或 BLE 配置生效异常的问题，都必须先回到本文档确认有没有破坏主路径。
+The goal is not to interpret the logs of a successful connection, but to specify the main path that subsequent AI and engineers must follow.
+Any fix for Android App stuck at `Module config received`, `Nodes(0)`, unable to complete connection, save configuration
+If there is a crash or abnormal BLE configuration effect, you must first return to this document to confirm whether the main path is damaged.
 
 ## Current Baseline
 
-本规格基于两组事实：
+This specification is based on two sets of facts:
 
-1. 官方 Meshtastic Android App / firmware 的 PhoneAPI 交互规则。
-2. Trail Mate 当前共享 `MeshtasticPhoneCore`、ESP32 BLE transport、nRF52 BLE transport 的实现。
+1. PhoneAPI interaction rules for official Meshtastic Android App / firmware.
+2. Trail Mate currently shares the implementation of `MeshtasticPhoneCore`, ESP32 BLE transport, and nRF52 BLE transport.
 
-当前官方源码锚点：
+Current official source code anchor:
 
 - Android App: `.tmp/official/Meshtastic-Android` commit `e634e71`
 - Firmware: `.tmp/official/firmware` commit `0488a46`
 
-当前 Trail Mate 源码锚点：
+Current Trail Mate source code anchor:
 
 - `platform/esp/arduino_common/src/ble/ble_manager.cpp`
 - `platform/esp/arduino_common/src/ble/meshtastic_ble.cpp`
@@ -32,7 +32,7 @@ NodeDB 同步、Admin 配置写入、MQTT module config 保存、以及故障诊
 - `modules/core_phone/include/phone/meshtastic/meshtastic_phone_core.h`
 - `modules/core_phone/tests/test_phone_core_smoke.cpp`
 
-GitNexus 索引可能落后当前 HEAD。本文档以当前工作区源码为准。
+The GitNexus index may lag behind the current HEAD. This document is based on the current workspace source code.
 
 ## Core Distinctions
 
@@ -40,63 +40,63 @@ GitNexus 索引可能落后当前 HEAD。本文档以当前工作区源码为准
 
 | Object | Meaning | Owner |
 | --- | --- | --- |
-| Meshtastic Android App | 外部 BLE client，按官方 Meshtastic BLE GATT 约定写 `ToRadio`、读 `FromRadio`、订阅 `FromNum`。 | 外部系统 |
-| Meshtastic BLE Transport | NimBLE GAP/GATT、advertising、pairing、characteristic callbacks、notify/read/write 队列。 | `MeshtasticBleService` |
-| Phone Protocol Session | 一次手机连接内的协议状态：PhoneAPI phase、配置流、队列状态、packet 队列、deferred save 标志。 | `MeshtasticPhoneSession` / `MeshtasticPhoneCore` |
-| PhoneAPI Phase | 官方 `PhoneAPI` 的语义状态：`SEND_NOTHING`、config snapshot 阶段、`SEND_PACKETS`。它决定哪些 `ToRadio`/`FromRadio` variant 合法。 | `MeshtasticPhoneCore` |
-| Meshtastic Phone Protocol Core | `ToRadio`/`FromRadio` protobuf 语义、Admin 处理、config snapshot 帧序列、NodeInfo/Channel/Config/ModuleConfig 投影。 | `MeshtasticPhoneCore` |
-| MQTT Client Proxy Queue | device->phone->MQTT 的待交付消息队列。它是 PhoneAPI steady-state 数据，不是 config 数据。 | shared phone core / app facade / radio adapter |
-| App Facade | Phone core 和 Trail Mate App 状态之间的端口。 | `AppPhoneFacade` |
-| App State | 实际 Mesh config、node store、contact store、message send、radio adapter、BLE enabled state。 | `AppContext` / app services |
+| Meshtastic Android App | External BLE client, writes `ToRadio`, reads `FromRadio`, and subscribes to `FromNum` according to the official Meshtastic BLE GATT convention. | External system |
+| Meshtastic BLE Transport | NimBLE GAP/GATT, advertising, pairing, characteristic callbacks, notify/read/write queue. | `MeshtasticBleService` |
+| Phone Protocol Session | The protocol status within a mobile phone connection: PhoneAPI phase, configuration flow, queue status, packet queue, deferred save flag. | `MeshtasticPhoneSession` / `MeshtasticPhoneCore` |
+| PhoneAPI Phase | Official `PhoneAPI` semantic states: `SEND_NOTHING`, config snapshot phase, `SEND_PACKETS`. It determines which `ToRadio`/`FromRadio` variants are legal. | `MeshtasticPhoneCore` |
+| Meshtastic Phone Protocol Core | `ToRadio`/`FromRadio` protobuf semantics, Admin processing, config snapshot frame sequence, NodeInfo/Channel/Config/ModuleConfig projection. | `MeshtasticPhoneCore` |
+| MQTT Client Proxy Queue | device->phone->MQTT message queue to be delivered. It is PhoneAPI steady-state data, not config data. | shared phone core / app facade / radio adapter |
+| App Facade | Port between Phone core and Trail Mate App states. | `AppPhoneFacade` |
+| App State | Actual Mesh config, node store, contact store, message send, radio adapter, BLE enabled state. | `AppContext` / app services |
 
 ### Projection, Not Truth
 
 | Projection | Why it is not truth |
 | --- | --- |
-| Android UI text such as `Module config received` | 只是 App 侧阶段显示，不能证明 firmware 已完成 config flow 或保存成功。 |
-| Android UI text such as `Nodes(0)` | 只是 App 当前 NodeDB 视图，不能作为 firmware node store 或 BLE queue 的事实来源。 |
-| `fromNum` characteristic value | 是唤醒 Android 继续读取 `FromRadio` 的信号；transport 可发送单调 token 或当前预装帧的 `from_num`，但它不是独立业务队列。 |
-| BLE connected flag | 只证明 GAP 连接存在，不证明 Meshtastic config snapshot 完成。 |
-| Android MQTT connected status | 只是 Android MQTT client 的网络状态，不证明 firmware 已经进入 `SEND_PACKETS`，也不证明 `FromRadio.mqttClientProxyMessage` 可被安全交付。 |
-| `fromRadio` zero-length read | 是 drain 结束信号，不是错误；但在配置流完成前过早出现会导致 App 停在未完成状态。 |
-| `fromRadioSync` | 当前 `kEnableFromRadioSync=false`，不是 Android 主路径。 |
+| Android UI text such as `Module config received` | It is only displayed on the App side and cannot prove that the firmware has completed the config flow or saved successfully. |
+| Android UI text such as `Nodes(0)` | is just the App's current NodeDB view and cannot be used as the source of truth for the firmware node store or BLE queue. |
+| `fromNum` characteristic value | is a signal to wake up Android to continue reading `FromRadio`; transport can send a monotonic token or the current pre-framed `from_num`, but it is not an independent business queue. |
+| BLE connected flag | Only proves that the GAP connection exists, but does not prove that the Meshtastic config snapshot is completed. |
+| Android MQTT connected status | It is just the network status of the Android MQTT client. It does not prove that the firmware has entered `SEND_PACKETS`, nor does it prove that `FromRadio.mqttClientProxyMessage` can be safely delivered. |
+| `fromRadio` zero-length read | is a drain end signal, not an error; however, appearing prematurely before the configuration flow is completed will cause the App to stop in an unfinished state. |
+| `fromRadioSync` | Currently `kEnableFromRadioSync=false`, not the Android main path. |
 
 ### Forbidden Concept Drift
 
-以下切法都是非法的：
+The following methods are illegal:
 
-- 把 `MeshtasticBleService` 当作 Meshtastic 协议语义 owner。
-- 把 Android App 的 UI 文案当作 firmware 状态机。
-- 把 `fromNum` 的 notify value 当作 packet id 或 config nonce。
-- 为 Pager、TDeck、Android 某个版本单独复制一条 BLE config flow。
-- 在 GATT callback 里直接修改 App service、保存配置、重启设备或调用 radio adapter。
-- 在 `set_config` / `set_module_config` 时立即执行阻塞保存，绕过 response drain。
-- 用 `fromRadioSync`、额外 notify、强制空读、强制重启 BLE 等旁路修 `Nodes(0)`。
-- 让 MeshCore BLE 服务复用 Meshtastic Android App 的 protobuf / GATT 语义。
-- 把 `config_flow_active_ == false` 直接等同于官方 `STATE_SEND_PACKETS`。
-- 在 Android 仍处于 `Connecting` / config handshake 时交付或消费 `FromRadio.mqttClientProxyMessage`。
-- 在 PhoneAPI 未进入 `SEND_PACKETS` 时处理 `ToRadio.mqttClientProxyMessage` 并注入 mesh。
-- 把 radio adapter 内部 MQTT queue 当成 Android 端可靠投递状态；可交付性的真相属于 PhoneAPI phase。
+- Treat `MeshtasticBleService` as the Meshtastic protocol semantic owner.
+- Treat the UI copy of Android App as a firmware state machine.
+- Treat the notify value of `fromNum` as packet id or config nonce.
+- Copy a separate BLE config flow for Pager, TDeck, and a certain version of Android.
+- Directly modify App service, save configuration, restart device or call radio adapter in GATT callback.
+- Perform blocking save immediately during `set_config` / `set_module_config`, bypassing response drain.
+- Bypass fix `Nodes(0)` with `fromRadioSync`, additional notify, forced empty read, forced restart of BLE, etc.
+- Let the MeshCore BLE service reuse the protobuf / GATT semantics of the Meshtastic Android App.
+- Make `config_flow_active_ == false` directly equivalent to the official `STATE_SEND_PACKETS`.
+ - Deliver or consume `FromRadio.mqttClientProxyMessage` while Android is still in `Connecting` / config handshake.
+- Handle `ToRadio.mqttClientProxyMessage` and inject mesh when PhoneAPI does not enter `SEND_PACKETS`.
+- Treat the internal MQTT queue of the radio adapter as the reliable delivery state of the Android side; the truth of deliverability belongs to the PhoneAPI phase.
 
 ## GATT Contract
 
-Meshtastic Android App 连接的是 Meshtastic BLE service，不是 MeshCore NUS service。
+The Meshtastic Android App is connected to the Meshtastic BLE service, not the MeshCore NUS service.
 
 | Name | UUID | Direction | Role |
 | --- | --- | --- | --- |
-| Mesh Service | `6ba1b218-15a8-461f-9fa8-5dcae273eafd` | service | Meshtastic Android App 发现入口。 |
-| `ToRadio` | `f75c76d2-129e-4dad-a1dd-7866124401e7` | phone writes | App 写入 nanopb-encoded `meshtastic_ToRadio`。 |
-| `FromRadio` | `2c55e69e-4993-11ed-b878-0242ac120002` | phone reads | App 读取 nanopb-encoded `meshtastic_FromRadio`。 |
-| `FromNum` | `ed9da18c-a800-4f66-a670-aa7547e34453` | notify/read | Firmware 通知 App 有新 `FromRadio` 数据可读。 |
-| `LogRadio` | `5a3d6e49-06e6-4423-9944-e9de8cdf9547` | read/notify | 日志投影，不参与连接完成判定。 |
-| `FromRadioSync` | `888a50c3-982d-45db-9963-c7923769165d` | notify/indicate | 当前禁用，不是主路径。 |
-| Battery | `0x180F/0x2A19` | read/notify | Android 可读电量投影，不参与 Meshtastic config flow。 |
+| Mesh Service | `6ba1b218-15a8-461f-9fa8-5dcae273eafd` | service | Meshtastic Android App discovery portal. |
+| `ToRadio` | `f75c76d2-129e-4dad-a1dd-7866124401e7` | phone writes | App writes nanopb-encoded `meshtastic_ToRadio`. |
+| `FromRadio` | `2c55e69e-4993-11ed-b878-0242ac120002` | phone reads | App reads nanopb-encoded `meshtastic_FromRadio`. |
+| `FromNum` | `ed9da18c-a800-4f66-a670-aa7547e34453` | notify/read | Firmware notifies the App that new `FromRadio` data is available for reading. |
+| `LogRadio` | `5a3d6e49-06e6-4423-9944-e9de8cdf9547` | read/notify | Log projection, does not participate in connection completion determination. |
+| `FromRadioSync` | `888a50c3-982d-45db-9963-c7923769165d` | notify/indicate | Currently disabled, not the main path. |
+| Battery | `0x180F/0x2A19` | read/notify | Android readable power projection, does not participate in Meshtastic config flow. |
 
 Pairing mode:
 
-- `NO_PIN` 时 characteristic 不要求加密认证。
-- `RANDOM_PIN` 或 `FIXED_PIN` 时 `ToRadio`/`FromRadio`/`FromNum`/`LogRadio` 必须带相应 authenticated/encrypted property。
-- passkey 显示由 `MeshtasticServerCallbacks::onPassKeyDisplay()` 产生，`AppPhoneFacade::loadDeviceConnectionStatus()` 可以投影给 App。
+- When `NO_PIN` is used, the characteristic does not require encryption authentication.
+- When `RANDOM_PIN` or `FIXED_PIN` is used, `ToRadio`/`FromRadio`/`FromNum`/`LogRadio` must have corresponding authenticated/encrypted properties.
+- Passkey display is generated by `MeshtasticServerCallbacks::onPassKeyDisplay()` and `AppPhoneFacade::loadDeviceConnectionStatus()` can be projected to App.
 
 ## Architecture Class Diagram
 
@@ -467,12 +467,12 @@ Rules:
 
 ### BLE Session Liveness Observation
 
-`App connected/online` 是 Android/iOS 基于多个事实投影出来的 UI 状态，不是单一 BLE 字段。诊断时必须同时观察：
+`App connected/online` is a UI state projected by Android/iOS based on multiple facts, not a single BLE field. When making a diagnosis, you must also observe:
 
-- BLE transport session: GAP connected、secured、bonded、MTU、connection interval、supervision timeout。
-- Notification readiness: `FromNum` CCCD 是否订阅、最近一次 `FromNum` notify、最近一次 `FromRadio` read。
-- PhoneAPI phase: `SendNothing`、`ConfigFlow`、`SendPackets`。
-- App liveness traffic: 最近一次 `ToRadio.heartbeat`、`ToRadio.want_config_id`、`FromRadio.queueStatus`。
+- BLE transport session: GAP connected、secured、bonded、MTU、connection interval、supervision timeout.
+- Notification readiness: `FromNum` CCCD whether to subscribe, the latest `FromNum` notify, the latest `FromRadio` read.
+- PhoneAPI phase: `SendNothing`、`ConfigFlow`、`SendPackets`.
+- App liveness traffic: the latest `ToRadio.heartbeat`, `ToRadio.want_config_id`, `FromRadio.queueStatus`.
 
 Trail Mate nRF Meshtastic BLE implementation must emit a low-rate session trace using one `session_seq` per transport session:
 
@@ -1055,7 +1055,7 @@ Symptom mapping:
 | Android stuck at `Module config received` | Admin response or module config response did not drain; save/restart happened too early; `FromRadio` empty arrived before expected response. |
 | Android stuck at `Nodes(0)` | Stage 2 nodes snapshot missing self/peer `node_info`; premature empty read; `config_complete_id` missing; `fromNum` notify/read loop broken. |
 | App connects but never finishes setup | `want_config_id` not handled; config flow inactive; `shouldBlockOnRead()` false during config; queue full/drop. |
-| App UI says offline / `尚未联机`, but peer messages still appear | GATT and data-plane are alive, but Android app-level connection projection did not complete or was reset. Check config/node handshake completion, heartbeat response freshness, and whether proactive `FromRadio` drain was prematurely ended by an empty read such as an unread-but-not-notified frame. |
+| App UI says offline / `Not yet online`, but peer messages still appear | GATT and data-plane are alive, but Android app-level connection projection did not complete or was reset. Check config/node handshake completion, heartbeat response freshness, and whether proactive `FromRadio` drain was prematurely ended by an empty read such as an unread-but-not-notified frame. |
 
 `get_device_connection_status_response.bluetooth` is part of the app-level
 connection projection. ESP and nRF transports must compute it from the same

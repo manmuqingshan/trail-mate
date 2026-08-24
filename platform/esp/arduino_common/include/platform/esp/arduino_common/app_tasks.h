@@ -105,6 +105,17 @@ class AppTasks
     static bool pauseRadioTasks(uint32_t timeout_ms = 2000U);
 
     /**
+     * @brief Put the radio hardware into its board-defined external-storage
+     * standby state after radio and mesh tasks have quiesced.
+     *
+     * USB MSC uses this to make the SD card the sole shared-SPI client for
+     * the duration of an external-storage session. Callers must own the task
+     * pause established by pauseRadioTasks(); this method never pauses or
+     * resumes tasks on its own.
+     */
+    static bool quiesceRadioHardwareForExternalStorage();
+
+    /**
      * @brief Resume radio + mesh tasks after pause
      */
     static void resumeRadioTasks();

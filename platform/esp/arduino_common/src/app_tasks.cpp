@@ -367,6 +367,31 @@ bool AppTasks::pauseRadioTasks(uint32_t timeout_ms)
     return true;
 }
 
+bool AppTasks::quiesceRadioHardwareForExternalStorage()
+{
+    const bool radio_quiesced =
+        radio_task_handle_ == nullptr || radio_task_quiesced_;
+    const bool mesh_quiesced =
+        mesh_task_handle_ == nullptr || mesh_task_quiesced_;
+    if (!radio_tasks_paused_ || !radio_quiesced || !mesh_quiesced)
+    {
+        Serial.printf("[LORA] external-storage standby rejected paused=%u radio=%u mesh=%u\n",
+                      radio_tasks_paused_ ? 1U : 0U,
+                      radio_quiesced ? 1U : 0U,
+                      mesh_quiesced ? 1U : 0U);
+        return false;
+    }
+
+    if (board_ == nullptr)
+    {
+        return true;
+    }
+
+    const bool quiesced = board_->quiesceForExternalStorage();
+    Serial.printf("[LORA] external-storage standby=%u\n", quiesced ? 1U : 0U);
+    return quiesced;
+}
+
 void AppTasks::resumeRadioTasks()
 {
     if (!radio_tasks_paused_)

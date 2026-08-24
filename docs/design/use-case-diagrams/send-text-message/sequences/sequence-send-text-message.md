@@ -1,8 +1,8 @@
-# Sequence Diagram：Compose 到 Ledger
+# Sequence Diagram: Compose to Ledger
 
 ```mermaid
 sequenceDiagram
-  actor U as 用户
+ actor U as user
   participant UI as Chat Compose
   participant Send as SendMessageService
   participant Ledger as ChatMessageLedger
@@ -19,22 +19,22 @@ sequenceDiagram
   Ledger-->>UI: committed message projection
 ```
 
-## 场景与责任
+## Scenarios and responsibilities
 
-该时序描述首轮提交和发射，不包含协议 ACK 的最终竞争。UI 只提交用户意图；SendMessageService 验证并创建稳定 identity；Ledger 拥有消息状态；Backend 拥有协议编码；Radio owner 拥有硬件排队和发射结果。
+This sequence describes the first round of submission and emission, excluding the final competition for protocol ACK. The UI only submits user intent; SendMessageService verifies and creates a stable identity; Ledger owns the message state; Backend owns the protocol encoding; Radio owner owns the hardware queuing and emission results.
 
-## 顺序约束
+## Sequence constraints
 
-Queued 必须先 Durable，随后才允许编码和 radio enqueue。这样发射回调即使很快到达，也总能按 message identity 找到 Ledger 记录。UI 不能在 `send()` 返回或 enqueue 接受时直接显示 Delivered。
+Queued must be Durable first before encoding and radio enqueue are allowed. In this way, even if the emission callback arrives soon, the Ledger record can always be found according to the message identity. The UI cannot display Delivered directly when `send()` returns or when enqueue accepts.
 
-## 持久化结果
+## Persistent results
 
-Ledger 返回 Deferred 时 Send 保留同一 identity 并等待受控 pump；Rejected 时不触发 backend。Radio transmit outcome 只提交 Sent/Failed 事实，是否 Delivered 留给协议回执时序。
+When Ledger returns Deferred, Send retains the same identity and waits for the controlled pump; backend is not triggered when Rejected. Radio transmit outcome only submits the Sent/Failed fact, whether it is Delivered is left to the protocol receipt timing.
 
-## 重复与失败
+## Repeat and failure
 
-重复点击通过 client intent/message identity 去重。Backend 编码失败、radio queue 满和发射失败必须保留不同原因。迟到 radio outcome 按 generation/message key 合并，不能更新另一次发送。
+Repeated clicks are used to remove duplicates through client intent/message identity. Backend encoding failure, radio queue full and transmission failure must maintain different causes. Late radio outcomes are merged by generation/message key and cannot be updated for another send.
 
-## 验证
+## Verification
 
-测试记录 Ledger 与 radio 的调用顺序，覆盖 Queued Deferred、编码失败、queue 拒绝、重复点击和 UI 只消费 committed projection。
+The test records the calling sequence of Ledger and radio, covering Queued Deferred, encoding failure, queue rejection, repeated clicks and UI consumption only committed projection.

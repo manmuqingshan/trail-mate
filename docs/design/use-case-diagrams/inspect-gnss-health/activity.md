@@ -1,38 +1,38 @@
-# Activity：GNSS 诊断与时间更新
+# Activity: GNSS diagnostics and time update
 ```mermaid
 flowchart TD
-  Open --> Lease["申请 GNSS power lease"]
-  Lease --> Snapshot["读取 status + sats + diagnostics"]
+ Open --> Lease["Apply for GNSS power lease"]
+ Lease --> Snapshot["Read status + sats + diagnostics"]
   Snapshot --> State{"receiver state"}
-  State -- disabled/starting/no-data --> Explain["显示具体空状态"]
-  State -- data --> Sky["天空图 + 表格 + fix 摘要"]
-  Snapshot --> RMC{"RMC 日期时间有效且策略允许?"}
-  RMC -- 是 --> Time["TimeAuthorityUpdater 更新时钟"]
-  RMC -- 否 --> Keep["保留当前时钟"]
-  Sky --> Release["退出释放 lease"]
+ State -- disabled/starting/no-data --> Explain["Show specific empty status"]
+ State -- data --> Sky["Sky chart + table + fix summary"]
+ Snapshot --> RMC{"RMC date and time is valid and allowed by policy?"}
+ RMC -- Yes --> Time["TimeAuthorityUpdater updates clock"]
+ RMC -- No --> Keep["Keep current clock"]
+ Sky --> Release["Exit release lease"]
   Explain --> Release
 ```
 
-## 本图回答的问题
+## Questions answered by this picture
 
-用户如何判断 GNSS 是关闭、启动中、无数据、无 fix 还是正常工作，以及何时允许 GNSS 时间更新系统时钟。天空图、诊断表、定位和时间更新使用同一 revision 快照，避免相互矛盾。
+How users judge GNSS Is it shut down, starting up, no data, no fix, or working normally, and when to allow GNSS time to update the system clock. Sky maps, diagnostic tables, positioning and time updates use the same revision snapshot to avoid conflicts with each other.
 
-## 快照内容
+## Snapshot content
 
-快照至少包含 receiver state、卫星列表、fix validity、位置/精度、NMEA revision、诊断计数和候选 RMC 日期时间。缺字段必须显示 unknown，不能沿用上一 revision 的值伪装当前有效。
+The snapshot contains at least receiver state, satellite list, fix validity, position/accuracy, NMEA revision, diagnostic count and candidate RMC date and time. Missing fields must be displayed as unknown, and the value from the previous revision cannot be used to pretend that it is currently valid.
 
-## 时间权威规则
+## Time authority rules
 
-只有日期、时间和 revision 均有效，且策略允许 GNSS 成为当前时间来源时，才调用 `ITimeAuthorityUpdater`。无 fix 不必自动否定所有时间输入，但必须按实现的 RMC 可信条件裁决。旧 revision、明显跳变或重复输入不得倒退系统时钟。
+Only call `ITimeAuthorityUpdater` when the date, time and revision are all valid and the policy allows GNSS to be the current time source. No fix does not have to automatically negate all time inputs, but must be arbitrated according to the implementation's RMC trust conditions. Old revisions, significant transitions, or duplicate inputs must not rewind the system clock.
 
-## 空状态
+## Empty state
 
-Disabled、Starting、NoData 和 NoFix 是不同状态：前两者涉及电源/初始化，NoData 涉及接收链，NoFix 表示收到卫星数据但定位条件不足。将它们合成 “GPS unavailable” 会隐藏可操作诊断。
+Disabled, Starting, NoData and NoFix are different states: the first two involve power/initialization, NoData involves the receiving chain, and NoFix means that satellite data is received but the positioning conditions are insufficient. Combining them into "GPS unavailable" hides actionable diagnostics.
 
-## 资源与退出
+## Resources and Exit
 
-页面通过 power lease 保持诊断期间接收器可用；退出、页面销毁或获取失败都必须释放自己的 lease。释放页面 lease 不等于关闭被 Tracker、Navigation 或其他 owner 使用的 GNSS。
+The page remains available to the receiver during diagnostics via a power lease; exit, page destruction, or acquisition failure must release its own lease. Releasing a page lease is not equivalent to turning off GNSS used by Tracker, Navigation or other owners.
 
-## 源码与测试
+## Source code and testing
 
-`LocationService`、GNSS status/diagnostics snapshot 和 `ITimeAuthorityUpdater` 是主要边界。测试覆盖 revision 去重、过期卫星、无 fix 的合法/非法时间、时钟倒退保护和 lease 共享。
+`LocationService`, GNSS status/diagnostics snapshot and `ITimeAuthorityUpdater` are the main boundaries. Tests cover revision deduplication, expired satellites, legal/illegal times without fixes, clock rollback protection, and lease sharing.

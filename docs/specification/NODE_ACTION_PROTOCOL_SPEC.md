@@ -1,22 +1,22 @@
 # Node Action Protocol Specification
 
-本规格定义节点列表操作菜单中与协议相关的动作边界，重点约束
-nRF mono UI 上的 Trace Route 与 Exchange Position 行为。它的目标是避免
-把 Meshtastic 的 app port 语义误投射到 MeshCore，或把本地发送入队误描述成
-远端动作成功。
+This specification defines the protocol-related action boundaries in the node list operation menu, focusing on constraining the Trace Route and Exchange Position behaviors on the nRF mono UI.
+ Its goal is to avoid
+mistakenly projecting Meshtastic's app port semantics to MeshCore, or mischaracterizing local sending into the queue as
+remote action success.
 
 ## Source Baseline
 
-- Meshtastic 官方代码：
+- Meshtastic official code:
   - `.tmp/firmware/src/modules/TraceRouteModule.cpp`
   - `.tmp/firmware/src/mesh/PhoneAPI.cpp`
   - `.tmp/firmware/src/modules/PositionModule.cpp`
   - `.tmp/firmware/src/mesh/MeshModule.cpp`
-- MeshCore 官方代码：
+- MeshCore official code:
   - `.tmp/MeshCore/src/Packet.h`
   - `.tmp/MeshCore/src/Mesh.cpp`
   - `.tmp/MeshCore/examples/companion_radio/MyMesh.cpp`
-- Trail Mate 当前适配代码：
+-Trail Mate current adaptation code:
   - `modules/ui_mono/src/runtime.cpp`
   - `platform/nrf52/arduino_common/src/chat/infra/meshtastic/meshtastic_radio_adapter.cpp`
   - `platform/nrf52/arduino_common/src/chat/infra/meshcore/meshcore_radio_adapter.cpp`
@@ -26,70 +26,70 @@ nRF mono UI 上的 Trace Route 与 Exchange Position 行为。它的目标是避
 
 ### Local Send Admission
 
-本地发送入队或交给 radio adapter 成功，只能说明请求被本机接受。
-它不能说明远端已经收到、远端已经响应、TraceRoute 已经完成，或 Position
-已经交换成功。
+The success of local sending into the queue or handing over to the radio adapter only means that the request is accepted by the local machine.
+It cannot indicate that the remote end has received, the remote end has responded, TraceRoute has been completed, or Position
+has been successfully exchanged.
 
-UI 文案必须使用等待语义，例如 `WAIT REPLY`。只有本地发送失败时才显示
-`SEND FAILED`。
+UI copy must use wait semantics, such as `WAIT REPLY`. It is only displayed when the local transmission fails
+`SEND FAILED`.
 
 ### Remote Response
 
-远端响应必须由后续收到的协议报文、ACK/NAK、routing error、timeout 或节点
-Position 更新来确认。没有这类后续事实时，不得显示 `SUCCESS`。
+The remote response must consist of subsequent received protocol messages, ACK/NAK, routing error, timeout or node
+Position updates to confirm. `SUCCESS` shall not be displayed without such subsequent facts.
 
 ### Protocol Ownership
 
-Meshtastic 节点动作只能使用 Meshtastic portnum 与 Meshtastic wire 语义。
-MeshCore 节点动作只能使用 MeshCore payload type / command 语义。
+Meshtastic node actions can only use Meshtastic portnum and Meshtastic wire semantics.
+MeshCore node actions can only use MeshCore payload type / command semantics.
 
-跨协议发送 app-data 是非法行为，即使字段名看起来类似。
+It is illegal to send app-data across protocols, even if the field names look similar.
 
 ## Meshtastic Trace Route
 
-Meshtastic Trace Route 请求必须满足：
+Meshtastic Trace Route requests must satisfy:
 
-- 目标是非广播、非本机的 Meshtastic 节点。
-- `decoded.portnum = meshtastic_PortNum_TRACEROUTE_APP`。
-- payload 是 `meshtastic_RouteDiscovery`，内容可以为空编码。
-- `decoded.want_response = true`。
-- 对非广播目标必须设置 `want_ack = true`，与官方
-  `TraceRouteModule::startTraceRoute()` 和 `PhoneAPI` 的可靠投递升级一致。
+ - Target a non-broadcast, non-native Meshtastic node.
+- `decoded.portnum = meshtastic_PortNum_TRACEROUTE_APP`.
+- The payload is `meshtastic_RouteDiscovery`, and the content can be empty encoded.
+- `decoded.want_response = true`.
+- `want_ack = true` must be set for non-broadcast targets, consistent with the official
+ `TraceRouteModule::startTraceRoute()` and `PhoneAPI` reliable delivery upgrades.
 
-本地发送成功后的 UI 文案是 `WAIT REPLY`。最终结果应由后续
-`TRACEROUTE_APP` response、routing error 或 timeout 驱动。
+The UI copy after successful local sending is `WAIT REPLY`. The final result should be driven by a subsequent
+`TRACEROUTE_APP` response, routing error, or timeout.
 
 ## Meshtastic Exchange Position
 
-Meshtastic Exchange Position 请求必须满足：
+Meshtastic Exchange Position request must meet:
 
-- 目标是 Meshtastic 节点。
-- `decoded.portnum = meshtastic_PortNum_POSITION_APP`。
-- 请求可以为空 payload。
-- `decoded.want_response = true`。
+- Target is a Meshtastic node.
+- `decoded.portnum = meshtastic_PortNum_POSITION_APP`.
+- The request can have an empty payload.
+- `decoded.want_response = true`.
 
-本地发送成功后的 UI 文案是 `WAIT REPLY`。远端可能因为没有新 GPS、策略限制、
-或官方 `PositionModule::allocReply()` 的 3 分钟节流而不回复。最终成功应由后续
-Position 报文更新节点位置来确认。
+The UI copy after successful local sending is `WAIT REPLY`. The remote end may not reply due to lack of new GPS, policy restrictions,
+or the official 3-minute throttling of `PositionModule::allocReply()`. Final success should be confirmed by subsequent
+Position messages updating the node position.
 
 ## MeshCore Trace And Position
 
-MeshCore 官方协议确实有 `PAYLOAD_TYPE_TRACE`，但它不是 Meshtastic
-`TRACEROUTE_APP`。官方 `Mesh::createTrace()` 创建 trace payload，
-`Mesh::sendDirect()` 将目标 path 追加到 payload 尾部，`onTraceRecv()` 返回
-path hash 与 SNR 数据。
+The official MeshCore protocol does have `PAYLOAD_TYPE_TRACE`, but it is not Meshtastic
+`TRACEROUTE_APP`. Official `Mesh::createTrace()` creates trace payload,
+`Mesh::sendDirect()` appends the target path to the end of the payload, `onTraceRecv()` returns
+path hash and SNR data.
 
-Trail Mate 当前 MeshCore adapter 尚未提供等价的 Trace Route 操作接口；
-`sendAppData()` 也不会承载 MeshCore 原生 trace 语义。因此 mono UI 不得在
-MeshCore 节点菜单中显示或执行 `TRACE ROUTE`。
+Trail Mate's current MeshCore adapter does not yet provide an equivalent Trace Route operation interface;
+`sendAppData()` will not carry MeshCore's native trace semantics. Therefore mono UI must not display or execute `TRACE ROUTE` in the
+MeshCore node menu.
 
-MeshCore 位置请求同理：当前 Trail Mate 没有实现一个与 Meshtastic
-`POSITION_APP + want_response` 等价的 MeshCore 位置交换动作。MeshCore adapter
-当前也不会处理 app-data 的 `want_response`。因此 mono UI 不得在 MeshCore
-节点菜单中显示或执行 `EXCHANGE POSITION`。
+MeshCore position request is the same: currently Trail Mate does not implement a MeshCore position exchange action equivalent to Meshtastic
+`POSITION_APP + want_response`. MeshCore adapter
+Currently also does not handle app-data's `want_response`. Therefore mono UI must not display or execute `EXCHANGE POSITION` in the MeshCore
+ node menu.
 
-在 MeshCore 节点菜单中，当前位置相关的合法动作是基于已持久化节点位置打开
-`OPEN COMPASS`。它不是一次位置交换请求。
+In the MeshCore node menu, the legal action related to the current position is to open
+`OPEN COMPASS` based on the persisted node position. It is not a location exchange request.
 
 ## Current Mono UI Rule
 
@@ -111,6 +111,6 @@ MeshCore mode:
 - `IGNORE NODE` / `UNIGNORE NODE`
 - `OPEN COMPASS`
 
-未来如果实现 MeshCore 原生 trace 或原生位置请求，必须先在 adapter 层提供明确
-接口，并按 MeshCore 官方 `PAYLOAD_TYPE_TRACE` 或相应位置/telemetry 语义建模，
-不能复用 Meshtastic portnum。
+If you implement MeshCore native trace or native location request in the future, you must first provide a clear
+ interface at the adapter layer and model it according to MeshCore official `PAYLOAD_TYPE_TRACE` or corresponding location/telemetry semantics.
+ Meshtastic portnum cannot be reused.

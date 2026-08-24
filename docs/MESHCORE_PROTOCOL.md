@@ -1,148 +1,148 @@
-# MeshCore 通信协议介绍
+# Introduction to MeshCore communication protocol
 
-## 📋 概述
+## 📋 Overview
 
-MeshCore是一个轻量级的C++ LoRa Mesh网络协议库，专注于多跳包路由。与Meshtastic相比，MeshCore更注重**简洁性**和**可扩展性**，适合嵌入式项目的定制开发。
+MeshCore is a lightweight C++ LoRa Mesh network protocol library focusing on multi-hop packet routing. Compared with Meshtastic, MeshCore pays more attention to **simplicity** and **scalability**, and is suitable for customized development of embedded projects.
 
-## 🔧 协议架构
+## 🔧 Protocol architecture
 
-### 核心特性
-- **多跳路由**: 支持Flood和Direct两种路由模式
-- **自定义二进制格式**: 不使用Google Protocol Buffers
-- **Ed25519加密**: 完整的端到端安全支持
-- **轻量级设计**: 适合资源受限的嵌入式设备
+### Core features
+- **Multi-hop routing**: Supports Flood and Direct routing modes
+- **Custom binary format**: Does not use Google Protocol Buffers
+- **Ed25519 encryption**: Complete end-to-end security support
+- **Lightweight design**: suitable for resource-constrained embedded devices
 
-### 架构优势
-- **紧凑包结构**: 最小化空中传输时间
-- **灵活路由策略**: 支持多种路由算法
-- **强加密保证**: 完整的节点身份验证
-- **易于扩展**: 支持自定义负载类型
+### Architectural advantages
+- **Compact package structure**: Minimize air transmission time
+- **Flexible routing policy**: Support multiple routing algorithms
+- **Strong encryption guarantee**: Full node authentication
+- **Easy to extend**: Supports custom payload types
 
-## 📦 数据包结构
+## 📦 Packet structure
 
-### 包头格式 (1字节)
+### Header format (1 byte)
 
 ```
 Bits:  7 6 5 4 3 2 1 0
-       [版本:2][类型:4][路由:2]
+ [Version: 2] [Type: 4] [Route: 2]
 ```
 
-**字段说明**:
-- **路由类型** (Bits 0-1): 决定包的路由方式
-- **负载类型** (Bits 2-5): 指定负载的数据类型
-- **版本号** (Bits 6-7): 协议版本控制
+**Field description**:
+- **Route type** (Bits 0-1): Determine how the packet is routed
+- **Payload type** (Bits 2-5): Specify the data type of the payload
+- **Version number** (Bits 6-7): Protocol version control
 
-### 完整包结构
+### Complete packet structure
 
-| 字段 | 大小 | 描述 |
+| Fields | Size | Description |
 |------|------|------|
-| `header` | 1字节 | 路由类型 + 负载类型 + 版本 |
-| `transport_codes` | 4字节* | 传输层路由优化代码 |
-| `path_len` | 1字节 | 路径字段长度 |
-| `path` | 最多64字节 | 路由路径数据 |
-| `payload` | 最多184字节 | 实际传输数据 |
+| `header` | 1 byte | route type + payload type + version |
+| `transport_codes` | 4 bytes* | Transport layer routing optimization code |
+| `path_len` | 1 byte | path field length |
+| `path` | up to 64 bytes | routing path data |
+| `payload` | Maximum 184 bytes | Actual transmission data |
 
-* 仅在特定路由类型时存在
+* Only exists for specific route types
 
-## 🛣️ 路由类型
+## 🛣️ Route type
 
-### 1. Flood路由 (`ROUTE_TYPE_FLOOD = 0x01`)
-- **动态路径构建**: 在传输过程中建立路由路径
-- **网络发现**: 自动探索网络拓扑
-- **适用场景**: 网络初始化、广播消息
+### 1. Flood routing (`ROUTE_TYPE_FLOOD = 0x01`)
+- **Dynamic path construction**: Establish routing paths during transmission
+- **Network discovery**: Automatically explore network topology
+- **Applicable scenarios**: Network initialization, broadcast messages
 
-### 2. Direct路由 (`ROUTE_TYPE_DIRECT = 0x02`)
-- **预设路径**: 使用指定的路由路径
-- **高效传输**: 减少路由开销
-- **适用场景**: 点对点通信、已知路径
+### 2. Direct routing (`ROUTE_TYPE_DIRECT = 0x02`)
+- **Default path**: Use the specified routing path
+- **Efficient transmission**: Reduce routing overhead
+- **Applicable scenarios**: point-to-point communication, known paths
 
-### 3. Transport路由 (扩展模式)
-- **Flood+Transport**: 带传输编码的Flood路由
-- **Direct+Transport**: 带传输编码的Direct路由
-- **优化传输**: 通过编码提高可靠性
+### 3. Transport routing (extended mode)
+- **Flood+Transport**: Flood routing with transfer encoding
+- **Direct+Transport**: Direct routing with transfer encoding
+- **Optimized transmission**: Improved reliability through coding
 
-## 📄 负载类型 (16种)
+## 📄 Payload Types (16)
 
-### 基础通信类型
-| 值 | 名称 | 描述 |
+### Base Communication Types
+| Value | Name | Description |
 |----|------|------|
-| `0x00` | `PAYLOAD_TYPE_REQ` | 请求消息 (带哈希和MAC) |
-| `0x01` | `PAYLOAD_TYPE_RESPONSE` | 响应消息 |
-| `0x02` | `PAYLOAD_TYPE_TXT_MSG` | 纯文本消息 |
-| `0x03` | `PAYLOAD_TYPE_ACK` | 确认消息 |
+| `0x00` | `PAYLOAD_TYPE_REQ` | Request message (with hash and MAC) |
+| `0x01` | `PAYLOAD_TYPE_RESPONSE` | Response message |
+| `0x02` | `PAYLOAD_TYPE_TXT_MSG` | Plain text message |
+| `0x03` | `PAYLOAD_TYPE_ACK` | Confirmation message |
 
-### 高级功能类型
-| 值 | 名称 | 描述 |
+### Advanced feature type
+| Value | Name | Description |
 |----|------|------|
-| `0x04` | `PAYLOAD_TYPE_ADVERT` | 节点广告 |
-| `0x05` | `PAYLOAD_TYPE_GRP_TXT` | 组文本消息 (未验证) |
-| `0x06` | `PAYLOAD_TYPE_GRP_DATA` | 组数据报 (未验证) |
-| `0x08` | `PAYLOAD_TYPE_PATH` | 返回路径 |
-| `0x09` | `PAYLOAD_TYPE_TRACE` | 路由跟踪 |
+| `0x04` | `PAYLOAD_TYPE_ADVERT` | Node advertisement |
+| `0x05` | `PAYLOAD_TYPE_GRP_TXT` | Group text message (not verified) |
+| `0x06` | `PAYLOAD_TYPE_GRP_DATA` | Group datagram (not verified) |
+| `0x08` | `PAYLOAD_TYPE_PATH` | Return path |
+| `0x09` | `PAYLOAD_TYPE_TRACE` | Traceroute |
 
-### 扩展类型
-| 值 | 名称 | 描述 |
+### Extended type
+| Value | Name | Description |
 |----|------|------|
-| `0x0A` | `PAYLOAD_TYPE_MULTIPART` | 多段包 |
-| `0x0B` | `PAYLOAD_TYPE_CONTROL` | 控制包 |
-| `0x0F` | `PAYLOAD_TYPE_RAW_CUSTOM` | 自定义包 |
+| `0x0A` | `PAYLOAD_TYPE_MULTIPART` | Multipart package |
+| `0x0B` | `PAYLOAD_TYPE_CONTROL` | Control package |
+| `0x0F` | `PAYLOAD_TYPE_RAW_CUSTOM` | Custom package |
 
-## 🔐 安全机制
+## 🔐 Security mechanism
 
-### 加密架构
-- **Ed25519公钥**: 32字节公钥用于节点身份
-- **消息认证**: 2字节MAC保证数据完整性
-- **端到端加密**: 支持敏感数据加密传输
-- **节点指纹**: 1字节公钥哈希用于路由决策
+### Encryption architecture
+- **Ed25519 Public Key**: 32-byte public key used for node identity
+- **Message Authentication**: 2-byte MAC ensures data integrity
+- **End-to-end encryption**: Supports encrypted transmission of sensitive data
+- **Node Fingerprint**: 1-byte public key hash used for routing decisions
 
-### 密钥管理
-- **节点公钥**: 首次通信时交换
-- **会话密钥**: 基于节点公钥派生
-- **密钥缓存**: 本地存储已知节点的公钥
+### Key management
+- **Node public key**: exchanged during the first communication
+- **Session key**: derived based on the node public key
+- **Key cache**: local storage of the public key of a known node
 
-## 💬 通信流程
+## 💬 Communication process
 
-### 1. 节点发现 (Advertising)
+### 1. Node discovery (Advertising)
 ```cpp
-// 节点广告包结构
+// Node advertising packet structure
 struct NodeAdvert {
-    uint8_t public_key[32];    // Ed25519公钥
-    uint32_t timestamp;        // 发送时间戳
-    uint8_t signature[64];     // 数字签名
-    uint8_t appdata[];         // 可选应用数据
+    uint8_t public_key[32];    // Ed25519 public key
+    uint32_t timestamp;        // send timestamp
+    uint8_t signature[64];     // digital signature
+    uint8_t appdata[];         // optional application data
 };
 ```
 
-### 2. 文本消息通信
+### 2. Text message communication
 ```cpp
-// 文本消息负载结构
+// Text message payload structure
 struct TextMessage {
-    uint32_t timestamp;        // 发送时间戳
-    uint8_t flags;            // 消息标志
-    uint8_t text[];           // UTF-8编码的文本
+    uint32_t timestamp;        // send timestamp
+    uint8_t flags;            // message flags
+    uint8_t text[];           // UTF-8-encoded text
 };
 ```
 
-### 3. 路由跟踪 (Trace)
-- **收集SNR**: 每个跳收集信号质量数据
-- **路径记录**: 记录完整的路由路径
-- **诊断信息**: 提供网络状态分析
+### 3. Route tracing (Trace)
+- **Collect SNR**: Collect signal quality data for each hop
+- **Path record**: Record the complete routing path
+- **Diagnostic information**: Provide network status analysis
 
-## 🆚 与Meshtastic对比
+## 🆚 Comparison with Meshtastic
 
-| 特性 | MeshCore | Meshtastic |
+| Features | MeshCore | Meshtastic |
 |------|----------|------------|
-| **数据格式** | 自定义二进制 | Google Protocol Buffers |
-| **包大小** | 更紧凑 | 相对较大 |
-| **扩展性** | 高 (自定义) | 中等 (proto定义) |
-| **解析速度** | 快 | 中等 |
-| **跨平台性** | C++专用 | 多语言支持 |
+| **Data format** | Custom binary | Google Protocol Buffers |
+| **Packet size** | More compact | Relatively large |
+| **Extensibility** | High (custom) | Medium (proto definition) |
+| **Parsing Speed** | Fast | Medium |
+| **Cross-platform** | C++ specific | Multi-language support|
 
-## 🛠️ 协议实现要点
+## 🛠️ Key points of protocol implementation
 
-### 包编解码
+### Packet encoding and decoding
 ```cpp
-// 包序列化
+//Packet serialization
 uint8_t Packet::writeTo(uint8_t dest[]) const {
     uint8_t i = 0;
     dest[i++] = header;
@@ -156,69 +156,69 @@ uint8_t Packet::writeTo(uint8_t dest[]) const {
     return i;
 }
 
-// 包反序列化
+//Packet deserialization
 bool Packet::readFrom(const uint8_t src[], uint8_t len) {
-    // 实现包解析逻辑
+ // Implement package parsing logic
 }
 ```
 
-### 路由决策
-- **Flood模式**: 广播到所有邻居节点
-- **Direct模式**: 根据路径字段直接转发
-- **Transport模式**: 使用编码优化传输
+### Routing decision
+- **Flood mode**: Broadcast to all neighbor nodes
+- **Direct mode**: Direct forwarding based on the path field
+- **Transport mode**: Use encoding to optimize transmission
 
-### 去重机制
-- **包哈希**: SHA256哈希用于包唯一标识
-- **时间窗口**: 基于时间戳的去重检查
-- **节点过滤**: 避免向源节点回传
+### Deduplication mechanism
+- **Packet Hash**: SHA256 hash is used to uniquely identify the package
+- **Time Window**: Timestamp-based deduplication check
+- **Node filtering**: Avoid postback to the source node
 
-## 🎯 使用场景
+## 🎯Usage scenarios
 
-### 1. 离线通信网络
-- **应急通信**: 灾难情况下保持连接
-- **户外活动**: 徒步、露营团队通信
-- **战术应用**: 军事和安全场景
+### 1. Offline communication network
+- **Emergency communication**: Stay connected in disaster situations
+- **Outdoor activities**: Hiking and camping team communication
+- **Tactical applications**: Military and security scenarios
 
-### 2. 传感器网络
-- **环境监测**: 远程传感器数据收集
-- **工业物联网**: 设备状态监控
-- **农业应用**: 田间设备通信
+### 2. Sensor network
+- **Environmental monitoring**: Remote sensor data collection
+- **Industrial Internet of Things**: Equipment status monitoring
+- **Agricultural applications**: Field equipment communication
 
-### 3. 自定义Mesh应用
-- **专用协议**: 特定应用场景优化
-- **轻量级实现**: 资源受限设备
-- **灵活扩展**: 支持自定义负载类型
+### 3. Customized Mesh application
+- **Specialized protocol**: Optimized for specific application scenarios
+- **Lightweight implementation**: Resource-constrained equipment
+- **Flexible expansion**: Supports custom load types
 
-## 📊 性能特点
+## 📊 Performance characteristics
 
-### 网络指标
-- **最大跳数**: 可配置，通常3-5跳
-- **包大小**: 最小20字节，最大256字节
-- **传输延迟**: 取决于跳数和传播时间
+### Network indicators
+- **Maximum number of hops**: configurable, usually 3-5 hops
+- **Packet size**: minimum 20 bytes, maximum 256 bytes
+- **Transmission delay**: Depends on hop count and propagation time
 
-### 可靠性特性
-- **自动重试**: 失败包自动重传
-- **路径优化**: 动态选择最佳路由
-- **拥塞控制**: 避免网络过载
+### Reliability features
+- **Auto-retry**: Automatic retransmission of failed packets
+- **Path optimization**: Dynamically select the best route
+- **Congestion control**: Avoid network overload
 
-## 🔄 协议扩展
+## 🔄 Protocol extensions
 
-### 自定义负载类型
-MeshCore支持扩展到16种以上的负载类型，开发者可以：
-1. 定义新的负载格式
-2. 实现对应的编解码逻辑
-3. 添加处理函数
+### Custom payload types
+MeshCore supports expansion to more than 16 payload types. Developers can:
+1. Define new payload formats
+2. Implement corresponding encoding and decoding logic
+3. Add processing function
 
-### 路由算法扩展
-- **自定义路由策略**: 实现新的路由算法
-- **QoS支持**: 服务质量保证
-- **多路径路由**: 并行传输优化
+### Routing algorithm extension
+- **Customized routing strategy**: Implement new routing algorithm
+- **QoS support**: Service quality assurance
+- **Multipath routing**: Parallel transmission optimization
 
-## 📚 参考资源
+## 📚 Reference resources
 
-- **协议规范**: `docs/packet_structure.md`
-- **负载格式**: `docs/payloads.md`
-- **示例代码**: `examples/` 目录
-- **API文档**: `include/MeshCore.h`
+- **Protocol specification**: `docs/packet_structure.md`
+- **Payload format**: `docs/payloads.md`
+- **Example code**: `examples/` Directory
+- **API Documentation**: `include/MeshCore.h`
 
-这个协议设计非常适合需要定制LoRa Mesh网络的嵌入式项目，既保持了简洁性又提供了强大的功能扩展能力。
+This protocol design is very suitable for embedded projects that require customized LoRa Mesh networks, maintaining simplicity while providing powerful function expansion capabilities.

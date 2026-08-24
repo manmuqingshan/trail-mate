@@ -1,8 +1,8 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>定位有效性生命周期</title><style>:root{color-scheme:dark}body{background:#0b1219;color:#e8f2f8;font:15px/1.6 system-ui}main{max-width:900px;margin:auto;padding:28px}section{background:#111c26;border:1px solid #294052;border-radius:12px;padding:20px}a{color:#70d7ff}pre{white-space:pre-wrap;background:#081018;padding:18px;border-radius:8px}</style></head><body><main><h1>定位有效性生命周期</h1><p><a href="model.html">返回定位与时间权威模型</a></p><section><pre class="mermaid">stateDiagram-v2
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Positioning validity life cycle</title><style>:root{color-scheme:dark}body{background:#0b1219;color:#e8f2f8;font:15px/1.6 system-ui}main{max-width:900px;margin:auto;padding:28px}section{background:#111c26;border:1px solid #294052;border-radius:12px;padding:20px}a{color:#70d7ff}pre{white-space:pre-wrap;background:#081018;padding:18px;border-radius:8px}</style></head><body><main><h1>Positioning validity life cycle</h1><p><a href="model.html">Return positioning and time authoritative model</a></p><section><pre class="mermaid">stateDiagram-v2
   [*] --&gt; NoFix
   NoFix --&gt; Candidate: sample
   Candidate --&gt; Valid: accepted
   Candidate --&gt; NoFix: rejected
   Valid --&gt; Stale: freshness deadline
   Stale --&gt; Valid: fresh sample
-  Valid --&gt; NoFix: source lost</pre><p>有坐标不等于 Valid；Stale 不能继续伪装为实时位置。</p></section></main></body></html>
+  Valid --&gt; NoFix: source lost</pre><p>Some coordinates are not equal to Valid; Stale cannot continue to pretend to be a real-time location.</p></section></main></body></html>

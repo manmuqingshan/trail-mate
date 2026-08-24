@@ -2,6 +2,7 @@
 """Prevent USB MSC callbacks from widening a shared-SPI transaction."""
 
 from pathlib import Path
+import re
 import sys
 
 
@@ -28,6 +29,13 @@ def forbid(text: str, fragment: str, message: str) -> None:
         raise ValueError(message)
 
 
+def require_bool_call(text: str, argument: bool, message: str) -> None:
+    value = "true" if argument else "false"
+    pattern = rf"sd_set_external_block_owner_active\s*\(\s*{value}\s*\)"
+    if re.search(pattern, text) is None:
+        raise ValueError(message)
+
+
 def main() -> int:
     try:
         usb_source = USB_RUNTIME.read_text(encoding="utf-8")
@@ -41,6 +49,16 @@ def main() -> int:
             usb_source,
             "int32_t usbWriteCallback(",
             "bool usbStartStopCallback(",
+        )
+        storage_session_begin = section(
+            usb_source,
+            "bool begin()",
+            "bool end()",
+        )
+        storage_session_end = section(
+            usb_source,
+            "bool end()",
+            "bool active() const",
         )
 
         for fragment in (
@@ -57,10 +75,15 @@ def main() -> int:
                 f"USB MSC must not acquire shared SPI directly: {fragment}",
             )
 
-        require(
-            usb_source,
-            "sd_set_external_block_owner_active(\n            true);",
+        require_bool_call(
+            storage_session_begin,
+            True,
             "USB MSC must retain its semantic external-owner state",
+        )
+        require_bool_call(
+            storage_session_end,
+            False,
+            "USB MSC must release its semantic external-owner state",
         )
         require(
             read_callback,

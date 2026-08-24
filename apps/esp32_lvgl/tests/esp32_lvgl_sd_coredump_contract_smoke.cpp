@@ -221,10 +221,6 @@ int main(int argc, char** argv)
     assert(!contains(idf_sources,
                      "platform/esp/idf_common/src/platform_ui_pack_repository_runtime.cpp"));
     assert(contains(idf_sources,
-                    "platform/esp/arduino_common/src/platform_ui_settings_backup_runtime.cpp"));
-    assert(!contains(idf_sources,
-                     "platform/esp/idf_common/src/platform_ui_settings_backup_runtime.cpp"));
-    assert(contains(idf_sources,
                     "platform/esp/arduino_common/src/ui/screens/team/team_ui_store.cpp"));
     assert(!contains(idf_sources,
                      "platform/esp/idf_common/src/platform_ui_team_ui_store_runtime.cpp"));

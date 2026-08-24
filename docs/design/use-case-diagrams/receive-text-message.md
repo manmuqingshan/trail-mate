@@ -1,42 +1,42 @@
-# Use Case：接收、验证并提交去中心化消息
+# Use Case: Receive, verify and submit decentralized messages
 
-状态：**confirmed**
+Status: **confirmed**
 
-业务边界：通信、媒体与投递
+Business Boundary: Communications, Media and Delivery
 
-触发者：Radio IRQ / transport event / active protocol backend
-主要受益者：设备用户
+Triggered by: Radio IRQ / transport event / active protocol backend
+Main beneficiaries: device users
 
-## 用户目标
+## User Goals
 
-只看到通过当前协议验证、没有重复、已经可靠提交到正确会话的消息，并能识别发送者、未读状态和必要回执。
+Only see messages that have been verified by the current protocol, have no duplicates, have been reliably submitted to the correct session, and can identify the sender, unread status, and necessary receipts.
 
-## 成功场景
+## Success Scenario
 
-1. Radio/transport 把帧交给当前活动 backend；UI 不是接收链的发起者。
-2. backend 先检查长度、目的、协议 framing，再执行解密、签名/密钥或 LXMF proof 验证。
-3. `ReceivePacketService`/协议适配器建立协议身份和消息身份；去重键包含协议上下文。
-4. 接收提交按有界顺序更新消息、peer/contact facts、会话元数据、未读与所需 ACK。
-5. 只有提交成功或进入明确 deferred 恢复路径后才发布 UI 事件。
+1. Radio/transport hands the frame to the current active backend; the UI is not the initiator of the receiving chain.
+2. The backend first checks the length, purpose, and protocol framing, and then performs decryption, signature/key or LXMF proof verification.
+3. `ReceivePacketService`/protocol adapter establishes protocol identity and message identity; the deduplication key contains the protocol context.
+4. Receive submissions to update messages, peer/contact facts, session metadata, unread and required ACKs in bounded order.
+5. Only publish UI events after successful submission or after entering an explicit deferred recovery path.
 
-## 拒绝与恢复
+## Rejection and recovery
 
-- malformed、目的不匹配、认证失败在修改业务状态前拒绝。
-- duplicate 不创建第二条消息；必要时仍可回应协议级 ACK。
-- 存储 Busy/暂不可用返回 Deferred，放入有界 deferred slot；溢出必须计数并可诊断。
-- Rejected 不能触发未读、联系人提升或“收到消息”提示。
-- ESP 热路径使用 scratch/ring storage，不在 task stack 创建大型 protobuf/frame。
+- malformed, purpose mismatch, authentication failure are rejected before modifying the business status.
+- duplicate does not create a second message; protocol-level ACK can still be responded to if necessary.
+- Storage Busy/temporarily unavailable returns Deferred and puts it into bounded deferred slot; overflow must be counted and can be diagnosed.
+- Rejected cannot trigger unread, contact promotion, or "message received" prompts.
+ - ESP hot path uses scratch/ring storage and does not create large protobuf/frames in the task stack.
 
-## 源码证据
+## Source code evidence
 
 - `modules/core_mesh/include/mesh/usecase/receive_packet_service.h`
 - `modules/core_mesh/src/usecase/receive_packet_service.cpp`
 - `modules/core_chat/include/chat/usecase/chat_message_ledger.h`
 - `platform/esp/arduino_common/src/chat/infra/mesh_adapter_router.cpp`
 
-## 下钻
+## Drill down
 
-- [Activity：帧验证、去重与提交](receive-text-message/activity.md)
-- [Sequence：Radio 到 Ledger](receive-text-message/sequences/sequence-receive-text-message.md)
-- [Sequence：Deferred 存储恢复](receive-text-message/sequences/sequence-receive-text-message-sequence.md)
-- [Class Collaboration：接收职责边界](receive-text-message/realization/class-collaboration.md)
+- [Activity: Frame verification, deduplication and submission](receive-text-message/activity.md)
+- [Sequence: Radio to Ledger](receive-text-message/sequences/sequence-receive-text-message.md)
+- [Sequence: Deferred Storage recovery](receive-text-message/sequences/sequence-receive-text-message-sequence.md)
+-

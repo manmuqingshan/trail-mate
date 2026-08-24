@@ -1,5 +1,5 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Class Collaboration：接收职责</title></head><body><main data-praxis-kind="design_class_collaboration_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/receive-text-message/realization/class-collaboration.md"><h1>接收职责边界</h1><pre class="mermaid">classDiagram
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Class Collaboration: Receive Responsibility</title></head><body><main data-praxis-kind="design_class_collaboration_diagram" data-praxis-status="confirmed" data-praxis-source-md="docs/design/use-case-diagrams/receive-text-message/realization/class-collaboration.md"><h1>Receive Responsibility Boundary</h1><pre class="mermaid">classDiagram
 ActiveProtocolBackend --> ReceivePacketService : verified packet
 ReceivePacketService --> IMeshPeerDirectory : peer facts
 ReceivePacketService --> ChatMessageLedger : Incoming fact
-ChatMessageLedger --> IMessageStore : durable commit</pre><p>Wire validation、接收用例、状态合并和存储提交是四个不同责任。</p></main></body></html>
+ChatMessageLedger --> IMessageStore : durable commit</pre><p>Wire validation, receiving use cases, state merging and storage submission are four different responsibilities.</p></main></body></html>

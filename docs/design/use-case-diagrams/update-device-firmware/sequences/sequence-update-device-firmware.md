@@ -1,7 +1,7 @@
-# Sequence：Firmware Settings 到 OTA
+# Sequence: Firmware Settings to OTA
 ```mermaid
 sequenceDiagram
-  actor U as 用户
+ actor U as user
   participant UI as Settings
   participant FW as Firmware Runtime
   participant Access as Wi-Fi Access
@@ -22,22 +22,22 @@ sequenceDiagram
   FW->>OTA: set boot partition + reboot
 ```
 
-## 两阶段场景
+## Two-stage scenario
 
-Check 和 Install 是两次独立操作。Check 使用普通 metadata 访问，返回 UpToDate/UpdateAvailable/Error；Install 重新验证所选 metadata，并申请 OTA exclusive，不能沿用已经过期的“有更新”UI 状态直接写 flash。
+Check and Install are two independent operations. Check uses ordinary metadata to access and returns UpToDate/UpdateAvailable/Error; Install re-verifies the selected metadata and applies for OTA exclusive. The expired "updated" UI status cannot be used to directly write to flash.
 
-## 顺序约束
+## Sequence constraints
 
-metadata 的来源、target/profile、版本和摘要先验证。镜像下载完成后再次验证 size/hash/signature，再开始 inactive partition write。Writer 报告 complete 仍需 finalize/验证；之后才能 set boot partition。
+Verify the source, target/profile, version and summary of metadata first. After the image download is completed, verify size/hash/signature again, and then start inactive partition write. Writer reports that complete still needs to be finalized/validated; then the boot partition can be set.
 
-## 独占与取消
+## Exclusive and Cancellation
 
-OTA exclusive 覆盖下载、写入和 boot 标记。下载阶段允许安全取消；开始 flash write 后取消策略必须由平台 contract 定义，至少不能同时启动第二次 install。所有失败路径释放 Access 并保持当前 boot target。
+OTA exclusive overrides download, write and boot flags. Safe cancellation is allowed during the download phase; the cancellation policy after starting flash write must be defined by the platform contract, at least the second install cannot be started at the same time. All failed paths release Access and maintain the current boot target.
 
-## 重启语义
+## Restart semantics
 
-`set boot partition` 成功是持久提交，UI 进入 RebootPending。实际更新成功要等新固件启动并通过确认；bootloader rollback 是另一终态，应用启动后必须读取并报告。
+`set boot partition` is successfully submitted and the UI enters RebootPending. The actual update is successful until the new firmware is started and confirmed; the bootloader rollback is another final state that must be read and reported after the application is started.
 
-## 测试
+## Testing
 
-覆盖 Check 后 metadata 变化、exclusive 拒绝、断流、验证失败、partial write、boot 标记失败、重启前掉电和 rollback。
+Override metadata changes after Check, exclusive rejection, stream interruption, verification failure, partial write, boot mark failure, power failure before restart, and rollback.

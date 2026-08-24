@@ -1755,7 +1755,7 @@ bool LinuxAppServices::initialize()
 
     loadPersistedConfig();
     seedDefaultIdentity();
-    config_persistence_runtime_.initialize(config_);
+    config_persistence_runtime_.initialize();
     (void)::sys::EventBus::init();
     ensureServicesReady();
     syncLocalIdentity();
@@ -1851,20 +1851,19 @@ void LinuxAppServices::saveConfig(::app::AppConfigChangeSet changes)
         ::chat::infra::normalizeMeshProtocol(config_.mesh_protocol);
     const uint32_t now_ms = ::sys::millis_now();
     const auto submission = config_persistence_runtime_.submit(
-        config_, changes, now_ms, ::app::ConfigPersistenceUrgency::Debounced);
+        changes, now_ms, ::app::ConfigPersistenceUrgency::Debounced);
     (void)submission;
 }
 
 void LinuxAppServices::flushConfigPersistence(uint32_t now_ms)
 {
     ::app::ConfigPersistenceWork work{};
-    if (!config_persistence_runtime_.takeDue(now_ms, work) ||
-        work.snapshot == nullptr)
+    if (!config_persistence_runtime_.takeDue(now_ms, work))
     {
         return;
     }
 
-    const bool ok = writePersistedConfig(*work.snapshot);
+    const bool ok = writePersistedConfig(config_);
     config_persistence_runtime_.complete(
         work.generation,
         ok ? ::app::ConfigPersistenceResultKind::Completed

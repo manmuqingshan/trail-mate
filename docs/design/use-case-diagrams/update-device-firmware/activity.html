@@ -1,11 +1,11 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Activity：固件更新</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed"><h1>固件检查与安装</h1><pre class="mermaid">flowchart TD
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Activity: Firmware Update</title></head><body><main data-praxis-kind="design_activity_diagram" data-praxis-status="confirmed"><h1>Firmware Check and Installation</h1><pre class="mermaid">flowchart TD
 Check --> Meta{"compatible metadata?"}
-Meta -- 是 --> Offer
+Meta -- Yes--> Offer
 Offer --> Exclusive
 Exclusive --> Download
 Download --> Verify{"valid image?"}
-Verify -- 是 --> Write["inactive partition"]
+Verify -- Yes--> Write["inactive partition"]
 Write --> Boot["mark boot"]
 Boot --> Reboot
-Meta -- 否 --> Error
-Verify -- 否 --> Error</pre></main></body></html>
+Meta -- No--> Error
+Verify -- No--> Error</pre></main></body></html>

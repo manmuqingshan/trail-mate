@@ -676,14 +676,6 @@ if(BUILD_TESTING)
              COMMAND trailmate_auto_reply_settings_persistence_contract_smoke
                      "${TRAIL_MATE_REPO_ROOT}")
 
-    add_executable(trailmate_settings_backup_coverage_contract_smoke
-        "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_settings_backup_coverage_contract.cpp")
-    target_compile_features(trailmate_settings_backup_coverage_contract_smoke
-        PRIVATE cxx_std_17)
-    add_test(NAME trailmate_settings_backup_coverage_contract_smoke
-             COMMAND trailmate_settings_backup_coverage_contract_smoke
-                     "${TRAIL_MATE_REPO_ROOT}")
-
     add_executable(trailmate_reticulum_network_defaults_refresh_contract_smoke
         "${TRAIL_MATE_REPO_ROOT}/platform/esp/arduino_common/tests/test_reticulum_network_defaults_refresh_contract.cpp")
     target_compile_features(trailmate_reticulum_network_defaults_refresh_contract_smoke
@@ -1116,6 +1108,22 @@ if(BUILD_TESTING)
         PRIVATE cxx_std_17)
     add_test(NAME trailmate_config_persistence_runtime_smoke
              COMMAND trailmate_config_persistence_runtime_smoke)
+
+    add_executable(trailmate_tms_config_codec_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_tms_config_codec.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/src/app/tms_config_codec.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/src/infra/mesh_protocol_utils.cpp")
+    target_include_directories(trailmate_tms_config_codec_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_chat/include"
+            "${TRAIL_MATE_REPO_ROOT}/modules/core_gps/include")
+    target_compile_definitions(trailmate_tms_config_codec_smoke
+        PRIVATE TRAIL_MATE_LORA_TX_POWER_MAX_DBM=22)
+    target_compile_features(trailmate_tms_config_codec_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_tms_config_codec_smoke
+             COMMAND trailmate_tms_config_codec_smoke)
 
     add_executable(trailmate_screen_brightness_steps_smoke
         "${TRAIL_MATE_REPO_ROOT}/modules/core_sys/tests/test_screen_brightness_steps.cpp")

@@ -8,6 +8,7 @@ namespace platform::ui::wifi
 
 constexpr std::size_t kMaxSsidLength = 32;
 constexpr std::size_t kMaxPasswordLength = 64;
+constexpr std::size_t kMaxSavedProfileCount = 10;
 constexpr std::size_t kMaxIpLength = 47;
 constexpr std::size_t kMaxStatusMessageLength = 95;
 
@@ -44,6 +45,16 @@ struct Status
     ConnectionState state = ConnectionState::Unsupported;
 };
 
+// Ownership token for a temporary external-storage session. This is runtime
+// state only; it must never be persisted as the user's Wi-Fi preference.
+struct ExternalStorageSuspension
+{
+    bool resume_required = false;
+};
+
+static_assert(sizeof(ExternalStorageSuspension) == 1U,
+              "Wi-Fi external-storage suspension must stay metadata-only");
+
 struct ScanResult
 {
     char ssid[kMaxSsidLength + 1] = {};
@@ -51,11 +62,23 @@ struct ScanResult
     bool requires_password = true;
 };
 
+// Iteration keeps callers from materialising a ten-profile automatic object
+// merely to serialize the persistent network set. `index == 0` is the highest
+// connection priority.
+using SavedProfileVisitor = bool (*)(void* context, std::size_t index, const Config& profile);
+
 bool is_supported();
 bool load_config(Config& out);
 bool save_config(const Config& config);
 bool find_saved_config(const char* ssid, Config& out);
+bool visit_saved_profiles(bool* enabled,
+                          std::size_t* count,
+                          SavedProfileVisitor visitor,
+                          void* context);
+bool replace_saved_profiles(bool enabled, const Config* profiles, std::size_t count);
 bool apply_enabled(bool enabled);
+bool suspend_for_external_storage(ExternalStorageSuspension* out_suspension);
+void resume_after_external_storage(ExternalStorageSuspension* suspension);
 bool connect(const Config* override_config = nullptr);
 void disconnect();
 bool scan(ScanResult* out_results, std::size_t capacity, std::size_t& out_count);

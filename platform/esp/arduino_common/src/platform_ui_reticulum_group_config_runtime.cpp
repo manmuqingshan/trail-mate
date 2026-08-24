@@ -5,7 +5,6 @@
 
 #include <cstdio>
 #include <cstring>
-#include <string>
 
 namespace platform::ui::reticulum_groups
 {
@@ -14,24 +13,29 @@ namespace
 
 using ::platform::esp::arduino_common::storage::SdRuntimeFile;
 
-constexpr const char* kConfigDir = "/trailmate/reticulum";
-constexpr const char* kConfigPath = "/trailmate/reticulum/groups.tsv";
-constexpr const char* kConfigTempPath = "/trailmate/reticulum/groups.tmp";
-constexpr std::size_t kMaxConfigBytes = 2048;
+constexpr const char* kWorkingConfigPath = "/trailmate/config.tms";
+constexpr const char* kLegacyConfigPath = "/trailmate/reticulum/groups.tsv";
+constexpr const char* kLegacyTempPath = "/trailmate/reticulum/groups.tmp";
+constexpr std::size_t kLegacyMaxFileBytes = 2048U;
+constexpr std::size_t kLegacyLineBytes = 384U;
+
+// Migration runs before application tasks begin. Keep its temporary state in
+// static storage, rather than placing a group array or a line buffer on the
+// ESP task stack.
+char s_legacy_line[kLegacyLineBytes] = {};
 chat::ReticulumGroupDestinationConfig
-    s_pending_groups[chat::kReticulumGroupDestinationMaxCount] = {};
-bool s_pending = false;
+    s_imported_groups[chat::kReticulumGroupDestinationMaxCount] = {};
 
 void copy_text(char* out, std::size_t out_len, const char* text)
 {
-    if (!out || out_len == 0)
+    if (!out || out_len == 0U)
     {
         return;
     }
     std::snprintf(out, out_len, "%s", text ? text : "");
 }
 
-void set_status(Status& out, const char* message, const char* detail = nullptr)
+void set_status(Status& out, const char* message, const char* detail = kWorkingConfigPath)
 {
     copy_text(out.message, sizeof(out.message), message);
     copy_text(out.detail, sizeof(out.detail), detail);
@@ -43,129 +47,124 @@ bool sd_available()
            ::platform::esp::arduino_common::storage::sd_card_ready();
 }
 
-bool ensure_config_dir()
+char* trim_line(char* line)
 {
-    if (::platform::esp::arduino_common::storage::sd_exists(kConfigDir))
+    if (!line)
     {
-        return ::platform::esp::arduino_common::storage::sd_is_directory(kConfigDir);
+        return nullptr;
     }
-    return ::platform::esp::arduino_common::storage::sd_mkdir(kConfigDir);
+    std::size_t length = std::strlen(line);
+    while (length > 0U &&
+           (line[length - 1U] == '\r' || line[length - 1U] == ' ' ||
+            line[length - 1U] == '\t'))
+    {
+        line[--length] = '\0';
+    }
+    while (*line == ' ' || *line == '\t')
+    {
+        ++line;
+    }
+    return line;
 }
 
-bool enabled_text(const std::string& value)
+bool parse_enabled(const char* value, bool* enabled)
 {
-    return value == "1" || value == "true" || value == "yes" || value == "enabled";
-}
-
-std::string trim_line(std::string line)
-{
-    while (!line.empty() &&
-           (line.back() == '\r' || line.back() == '\n' ||
-            line.back() == ' ' || line.back() == '\t'))
-    {
-        line.pop_back();
-    }
-    std::size_t start = 0;
-    while (start < line.size() && (line[start] == ' ' || line[start] == '\t'))
-    {
-        ++start;
-    }
-    return start == 0 ? line : line.substr(start);
-}
-
-bool parse_group_line(const std::string& line,
-                      chat::ReticulumGroupDestinationConfig& out,
-                      char* error,
-                      std::size_t error_len)
-{
-    const std::size_t first_tab = line.find('\t');
-    const std::size_t second_tab =
-        first_tab == std::string::npos ? std::string::npos : line.find('\t', first_tab + 1);
-    if (first_tab == std::string::npos || second_tab == std::string::npos)
-    {
-        copy_text(error, error_len, "Invalid group config line");
-        return false;
-    }
-
-    const std::string enabled = line.substr(0, first_tab);
-    const std::string name = line.substr(first_tab + 1, second_tab - first_tab - 1);
-    const std::string destination = line.substr(second_tab + 1);
-
-    out = chat::ReticulumGroupDestinationConfig{};
-    if (!chat::parseReticulumDestinationHashText(destination.c_str(),
-                                                 &out.identity,
-                                                 error,
-                                                 error_len))
+    if (!value || !enabled)
     {
         return false;
     }
-    out.enabled = enabled_text(enabled);
-    std::snprintf(out.name, sizeof(out.name), "%s", name.c_str());
+    if (std::strcmp(value, "1") == 0 || std::strcmp(value, "true") == 0 ||
+        std::strcmp(value, "yes") == 0 || std::strcmp(value, "enabled") == 0)
+    {
+        *enabled = true;
+        return true;
+    }
+    if (std::strcmp(value, "0") == 0 || std::strcmp(value, "false") == 0 ||
+        std::strcmp(value, "no") == 0 || std::strcmp(value, "disabled") == 0)
+    {
+        *enabled = false;
+        return true;
+    }
+    return false;
+}
+
+bool parse_group_line(char* line, chat::ReticulumGroupDestinationConfig* out)
+{
+    if (!line || !out)
+    {
+        return false;
+    }
+    char* const first_tab = std::strchr(line, '\t');
+    if (!first_tab)
+    {
+        return false;
+    }
+    *first_tab = '\0';
+    char* const name = first_tab + 1U;
+    char* const second_tab = std::strchr(name, '\t');
+    if (!second_tab || std::strchr(second_tab + 1U, '\t'))
+    {
+        return false;
+    }
+    *second_tab = '\0';
+    const char* const destination = second_tab + 1U;
+    if (destination[0] == '\0' || std::strlen(name) >= sizeof(out->name))
+    {
+        return false;
+    }
+
+    chat::ReticulumGroupDestinationConfig parsed{};
+    if (!parse_enabled(line, &parsed.enabled) ||
+        !chat::parseReticulumDestinationHashText(destination,
+                                                 &parsed.identity,
+                                                 nullptr,
+                                                 0U))
+    {
+        return false;
+    }
+    std::snprintf(parsed.name, sizeof(parsed.name), "%s", name);
+    *out = parsed;
     return true;
 }
 
-bool read_config_text(std::string& out)
+bool consume_legacy_line(std::size_t* slot)
 {
-    out.clear();
-    SdRuntimeFile file;
-    if (!file.open(kConfigPath, "r"))
+    if (!slot)
     {
         return false;
     }
-    const std::size_t size = static_cast<std::size_t>(file.size());
-    if (size == 0 || size > kMaxConfigBytes)
+    char* const line = trim_line(s_legacy_line);
+    if (!line || line[0] == '\0' || line[0] == '#')
     {
-        file.close();
+        return true;
+    }
+    if (std::strcmp(line, "version\t1") == 0)
+    {
+        return true;
+    }
+    if (*slot >= chat::kReticulumGroupDestinationMaxCount ||
+        !parse_group_line(line, &s_imported_groups[*slot]))
+    {
         return false;
     }
-    out.resize(size);
-    const std::size_t read = file.read_bytes(&out[0], size);
-    file.close();
-    if (read != size)
-    {
-        out.clear();
-        return false;
-    }
+    ++(*slot);
     return true;
 }
 
-bool write_text_atomic(const std::string& text)
+Status direct_storage_disabled()
 {
-    if (::platform::esp::arduino_common::storage::sd_exists(kConfigTempPath))
-    {
-        ::platform::esp::arduino_common::storage::sd_remove(kConfigTempPath);
-    }
-
-    SdRuntimeFile file;
-    if (!file.open(kConfigTempPath, "w"))
-    {
-        return false;
-    }
-    const bool wrote = file.write(text.data(), text.size()) == text.size();
-    file.close();
-    if (!wrote)
-    {
-        ::platform::esp::arduino_common::storage::sd_remove(kConfigTempPath);
-        return false;
-    }
-
-    if (::platform::esp::arduino_common::storage::sd_exists(kConfigPath))
-    {
-        ::platform::esp::arduino_common::storage::sd_remove(kConfigPath);
-    }
-    if (!::platform::esp::arduino_common::storage::sd_rename(kConfigTempPath, kConfigPath))
-    {
-        ::platform::esp::arduino_common::storage::sd_remove(kConfigTempPath);
-        return false;
-    }
-    return true;
+    Status out{};
+    out.supported = false;
+    out.sd_present = sd_available();
+    set_status(out, "Reticulum groups are stored in config.tms");
+    return out;
 }
 
 } // namespace
 
 const char* config_path()
 {
-    return kConfigPath;
+    return kWorkingConfigPath;
 }
 
 void clear(chat::ReticulumGroupDestinationConfig* groups, std::size_t group_count)
@@ -174,191 +173,123 @@ void clear(chat::ReticulumGroupDestinationConfig* groups, std::size_t group_coun
     {
         return;
     }
-    for (std::size_t index = 0; index < group_count; ++index)
+    for (std::size_t index = 0U; index < group_count; ++index)
     {
         groups[index] = chat::ReticulumGroupDestinationConfig{};
     }
 }
 
-Status load(chat::ReticulumGroupDestinationConfig* groups, std::size_t group_count)
+Status load(chat::ReticulumGroupDestinationConfig*, std::size_t)
 {
-    Status out{};
-    out.supported = true;
-    out.sd_present = sd_available();
-    if (!groups || group_count == 0)
-    {
-        set_status(out, "Group storage unavailable", kConfigPath);
-        return out;
-    }
-
-    clear(groups, group_count);
-    if (!out.sd_present)
-    {
-        set_status(out, "SD card required", kConfigPath);
-        return out;
-    }
-
-    out.file_present = ::platform::esp::arduino_common::storage::sd_exists(kConfigPath);
-    if (!out.file_present)
-    {
-        out.loaded = true;
-        set_status(out, "No Reticulum groups", kConfigPath);
-        return out;
-    }
-
-    std::string text;
-    if (!read_config_text(text))
-    {
-        set_status(out, "Cannot read Reticulum groups", kConfigPath);
-        return out;
-    }
-
-    std::size_t slot = 0;
-    std::size_t line_start = 0;
-    while (line_start <= text.size() && slot < group_count)
-    {
-        const std::size_t line_end = text.find('\n', line_start);
-        std::string line = text.substr(
-            line_start,
-            line_end == std::string::npos ? std::string::npos : line_end - line_start);
-        line = trim_line(line);
-        if (!line.empty() && line[0] != '#')
-        {
-            if (line.rfind("version\t", 0) != 0)
-            {
-                char error[96] = {};
-                chat::ReticulumGroupDestinationConfig parsed{};
-                if (parse_group_line(line, parsed, error, sizeof(error)))
-                {
-                    groups[slot++] = parsed;
-                }
-                else
-                {
-                    std::printf("[RTGroupConfig] skip invalid line: %s\n", error);
-                }
-            }
-        }
-        if (line_end == std::string::npos)
-        {
-            break;
-        }
-        line_start = line_end + 1;
-    }
-
-    out.loaded = true;
-    set_status(out, slot == 0 ? "No Reticulum groups" : "Reticulum groups loaded", kConfigPath);
-    return out;
+    return direct_storage_disabled();
 }
 
-Status submit(const chat::ReticulumGroupDestinationConfig* groups,
-              std::size_t group_count)
+Status submit(const chat::ReticulumGroupDestinationConfig*, std::size_t)
 {
-    Status out{};
-    out.supported = true;
-    out.sd_present = sd_available();
-    if (!groups || group_count == 0 ||
-        group_count > chat::kReticulumGroupDestinationMaxCount)
-    {
-        set_status(out, "Group storage unavailable", kConfigPath);
-        return out;
-    }
-    if (!out.sd_present)
-    {
-        set_status(out, "SD card required", kConfigPath);
-        return out;
-    }
-
-    std::memcpy(s_pending_groups,
-                groups,
-                group_count * sizeof(chat::ReticulumGroupDestinationConfig));
-    for (std::size_t index = group_count;
-         index < chat::kReticulumGroupDestinationMaxCount;
-         ++index)
-    {
-        s_pending_groups[index] = chat::ReticulumGroupDestinationConfig{};
-    }
-    s_pending = true;
-    out.queued = true;
-    set_status(out, "Reticulum groups save queued", kConfigPath);
-    return out;
+    return direct_storage_disabled();
 }
 
 Status flushPending()
 {
-    if (!s_pending)
-    {
-        Status out{};
-        out.supported = true;
-        out.sd_present = sd_available();
-        out.saved = true;
-        set_status(out, "Reticulum groups idle", kConfigPath);
-        return out;
-    }
-
-    const Status out = save(s_pending_groups,
-                            chat::kReticulumGroupDestinationMaxCount);
-    if (out.saved)
-    {
-        s_pending = false;
-    }
-    return out;
+    return direct_storage_disabled();
 }
 
 bool hasPending()
 {
-    return s_pending;
+    return false;
 }
 
-Status save(const chat::ReticulumGroupDestinationConfig* groups, std::size_t group_count)
+Status save(const chat::ReticulumGroupDestinationConfig*, std::size_t)
 {
-    Status out{};
-    out.supported = true;
-    out.sd_present = sd_available();
-    if (!groups || group_count == 0)
+    return direct_storage_disabled();
+}
+
+LegacyImportResult importLegacy(chat::ReticulumGroupDestinationConfig* groups,
+                                std::size_t group_count)
+{
+    if (!groups || group_count != chat::kReticulumGroupDestinationMaxCount)
     {
-        set_status(out, "Group storage unavailable", kConfigPath);
-        return out;
+        return LegacyImportResult::Invalid;
     }
-    if (!out.sd_present)
+    if (!sd_available())
     {
-        set_status(out, "SD card required", kConfigPath);
-        return out;
+        return LegacyImportResult::Unavailable;
     }
-    if (!ensure_config_dir())
+    if (!::platform::esp::arduino_common::storage::sd_exists(kLegacyConfigPath))
     {
-        set_status(out, "Cannot create group directory", kConfigDir);
-        return out;
+        return LegacyImportResult::NotPresent;
     }
 
-    std::string text;
-    text.reserve(384);
-    text += "# Trail Mate Reticulum groups\n";
-    text += "version\t1\n";
-    for (std::size_t index = 0; index < group_count; ++index)
+    SdRuntimeFile file;
+    if (!file.open(kLegacyConfigPath, "r"))
     {
-        const auto& group = groups[index];
-        if (!chat::hasReticulumDestinationIdentity(group.identity))
+        return LegacyImportResult::Invalid;
+    }
+    const uint64_t size = file.size();
+    if (size == 0U || size > kLegacyMaxFileBytes)
+    {
+        file.close();
+        return LegacyImportResult::Invalid;
+    }
+
+    clear(s_imported_groups, chat::kReticulumGroupDestinationMaxCount);
+    std::size_t slot = 0U;
+    std::size_t length = 0U;
+    bool valid = true;
+    for (uint64_t offset = 0U; valid && offset < size; ++offset)
+    {
+        const int raw = file.read_byte();
+        if (raw < 0)
         {
+            valid = false;
+            break;
+        }
+        if (static_cast<char>(raw) == '\n')
+        {
+            s_legacy_line[length] = '\0';
+            valid = consume_legacy_line(&slot);
+            length = 0U;
             continue;
         }
-        char hash[chat::kReticulumPeerHashSize * 2 + 1] = {};
-        chat::formatReticulumDestinationHashText(group.identity, hash, sizeof(hash));
-        text += group.enabled ? "1\t" : "0\t";
-        text += group.name[0] != '\0' ? group.name : "Group";
-        text += "\t";
-        text += hash;
-        text += "\n";
+        if (length + 1U >= sizeof(s_legacy_line))
+        {
+            valid = false;
+            break;
+        }
+        s_legacy_line[length++] = static_cast<char>(raw);
+    }
+    if (valid && length > 0U)
+    {
+        s_legacy_line[length] = '\0';
+        valid = consume_legacy_line(&slot);
+    }
+    file.close();
+    if (!valid)
+    {
+        return LegacyImportResult::Invalid;
     }
 
-    if (!write_text_atomic(text))
+    clear(groups, group_count);
+    for (std::size_t index = 0U; index < slot; ++index)
     {
-        set_status(out, "Cannot write Reticulum groups", kConfigPath);
-        return out;
+        groups[index] = s_imported_groups[index];
     }
-    out.file_present = true;
-    out.saved = true;
-    set_status(out, "Reticulum groups saved", kConfigPath);
-    return out;
+    return LegacyImportResult::Imported;
+}
+
+bool discardLegacySource()
+{
+    if (!sd_available())
+    {
+        return false;
+    }
+    const bool removed_config =
+        !::platform::esp::arduino_common::storage::sd_exists(kLegacyConfigPath) ||
+        ::platform::esp::arduino_common::storage::sd_remove(kLegacyConfigPath);
+    const bool removed_temp =
+        !::platform::esp::arduino_common::storage::sd_exists(kLegacyTempPath) ||
+        ::platform::esp::arduino_common::storage::sd_remove(kLegacyTempPath);
+    return removed_config && removed_temp;
 }
 
 } // namespace platform::ui::reticulum_groups

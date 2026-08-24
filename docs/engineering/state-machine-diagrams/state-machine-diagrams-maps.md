@@ -1,15 +1,15 @@
 # State Machine Diagrams
 
-根索引：[docs/engineering/engineering-maps.md](../engineering-maps.md)
+Root index: [docs/engineering/engineering-maps.md](../engineering-maps.md)
 
-说明：仅在代码事实表明存在明确状态语义时生成。
+Description: Generated only when the facts of the code indicate that explicit state semantics exist.
 
 | Diagram | Confidence | Document | HTML | Summary |
 | --- | --- | --- | --- | --- |
-| _无_ | - | - | - | 当前没有基于证据生成的具体图。 |
+| _None_ | - | - | - | There is currently no specific graph generated based on the evidence. |
 
-## 地图变更记录
+## Map Change History
 
 ### 0.1.30-alpha - 2026-06-25T09:19:20.669Z
 
-- 更新 State Machine Diagrams maps，当前包含 0 个具体文档。
+- Updated State Machine Diagrams maps, currently containing 0 specific documents.

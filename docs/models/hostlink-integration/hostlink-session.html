@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>LinkState 与 handshake 生命周期</title></head><body><main data-praxis-anchor="diagram:hostlink-session" data-praxis-kind="uml_diagram"><h1>LinkState 与 handshake 生命周期</h1><pre class="mermaid">stateDiagram-v2
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>LinkState and handshake life cycle</title></head><body><main data-praxis-anchor="diagram:hostlink-session" data-praxis-kind="uml_diagram"><h1>LinkState and handshake life cycle</h1><pre class="mermaid">stateDiagram-v2
 [*] --&gt; Stopped
 Stopped --&gt; Waiting: reset_session
 Waiting --&gt; Connected: transport connected
@@ -7,4 +7,4 @@ Handshaking --&gt; Ready: mark_handshake_complete
 Handshaking --&gt; Error: handshake_expired or note_error
 Ready --&gt; Waiting: mark_disconnected
 Error --&gt; Waiting: reset or retry
-Waiting --&gt; Stopped: stop_session</pre><p>Observed 状态只有 Stopped、Waiting、Connected、Handshaking、Ready、Error。</p></main></body></html>
+Waiting --&gt; Stopped: stop_session</pre><p>The Observed states are Stopped, Waiting, Connected, Handshaking, Ready, and Error.</p></main></body></html>

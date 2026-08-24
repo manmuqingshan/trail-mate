@@ -1,13 +1,13 @@
-# Sequence Diagram：客户端取得和释放 Wi-Fi Lease
+# Sequence Diagram: Client acquires and releases Wi-Fi Lease
 
 ```mermaid
 sequenceDiagram
-  actor U as 用户
+ actor U as user
   participant Settings as Wi-Fi Settings
   participant Wifi as Wi-Fi Runtime
   participant Client as Package/Firmware/MQTT/Call
   participant Access as Wi-Fi Access Runtime
-  U->>Settings: 启用并连接网络
+ U->>Settings: Enable and connect to the network
   Settings->>Wifi: save config + connect
   Wifi-->>Settings: connected / explicit failure
   Client->>Access: acquire(Request)
@@ -21,29 +21,29 @@ sequenceDiagram
   end
 ```
 
-## 时序范围
+## Timing range
 
-该图从用户保存 Wi-Fi 配置开始，但核心场景是后台 Client 获取 Lease。Settings 只建立连接条件；Package、Firmware、MQTT 或 Call 必须独立向 Access Runtime 申请访问，不能直接以 `Wifi.connected == true` 作为授权。
+This diagram starts with the user saving the Wi-Fi configuration, but the core scenario is the background Client acquiring the Lease. Settings only establishes connection conditions; Package, Firmware, MQTT or Call must independently apply for access to Access Runtime and cannot directly use `Wifi.connected == true` as authorization.
 
-## 参与者责任
+## Participant Responsibilities
 
-- **Wi-Fi Settings**：收集凭据、保存配置、展示连接失败。
-- **Wi-Fi Runtime**：拥有驱动连接状态与退避。
-- **Client**：声明访问类型、优先级和工作预算，响应撤销。
-- **Wi-Fi Access Runtime**：统一裁决并维护 Lease generation。
+- **Wi-Fi Settings**: Collect credentials, save configuration, display connection failure.
+- **Wi-Fi Runtime**: Has driver connection status and backoff.
+- **Client**: Declare access type, priority and work budget, respond to revocation.
+- **Wi-Fi Access Runtime**: Unify adjudication and maintain Lease generation.
 
-## 消息与提交语义
+## Message and submission semantics
 
-`save config` 成功不等于网络已连接；`connected` 也不等于 Client 已获授权。只有 `acquire(Request)` 返回 Lease 后，Client 才能开始网络副作用。`release(Lease)` 是资源生命周期的完成点，不是可选清理动作。
+`save config` success does not mean that the network is connected; `connected` does not mean that the Client has been authorized. Only after `acquire(Request)` returns Lease can the Client start network side effects. `release(Lease)` is the completion point of the resource life cycle and is not an optional cleanup action.
 
-## 竞争条件
+## Race conditions
 
-策略在 acquire 与实际 I/O 之间可能变化，因此 Lease 携带 generation。Call 或 OTA 获得独占权时，Access Runtime 递增 generation；Client 在每个安全检查点检测失效并终止。旧 Lease 的迟到 release 必须是幂等操作，不能释放后来签发给其他 Client 的租约。
+The strategy may change between acquire and actual I/O, so Lease carries generation. When Call or OTA gains exclusive rights, Access Runtime increments generation; Client detects failures and terminates at each security checkpoint. The late release of the old Lease must be an idempotent operation, and leases subsequently issued to other Clients cannot be released.
 
-## 失败与重试
+## Failure and retry
 
-Denied Decision 要保留原因，调用方据此区分“需要用户配置”“等待连接”“等待高优先级 owner”和“不可恢复错误”。禁止所有拒绝都转换成固定时间轮询，否则会绕过退避并放大功耗与网络压力。
+Denied Decision The reason should be retained, so that the caller can distinguish between "requires user configuration", "waiting for connection", "waiting for high priority owner" and "unrecoverable error". Disable all rejections from being converted to fixed-time polling, which would bypass backoff and amplify power consumption and network stress.
 
-## 验证
+## Verification
 
-时序测试应使用虚拟时钟和可控连接状态，证明授权消息发生在工作之前、撤销可打断工作、重复 release 安全，以及 denied 情况没有网络副作用。
+ Timing tests should use virtual clocks and controllable connection states to prove that authorization messages occur before work, revocation can interrupt work, repeated releases are safe, and denied situations have no network side effects.

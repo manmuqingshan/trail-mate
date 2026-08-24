@@ -2,7 +2,7 @@
 
 ## Product State
 
-This is the target UI for Protocol Probe (Chinese: 协议包探测). It replaces the
+T
 former Energy Sweep / Spectrum dashboard. The internal route remains
 `energy_sweep`; the visible name is `PROTOCOL PROBE` and the menu icon is
 `radar.c`.

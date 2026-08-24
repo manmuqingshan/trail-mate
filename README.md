@@ -4,7 +4,7 @@
 
 > An edge-first decentralized communication and situational-awareness system where identity, data, and connectivity choices remain with the user
 
-[English](README.md) | [中文](README_CN.md) | [Join Discord](https://discord.gg/UpDsAz9H3)
+[English](README.md) | [Join Discord](https://discord.gg/UpDsAz9H3)
 
 ---
 
@@ -34,6 +34,92 @@ Trail Mate is organized around four defining capabilities:
 * **TAK capability**: the device provides member, position, waypoint, track, status, and team-message awareness. Trail Mate's current TAK claim covers its own on-device team-awareness capability. ATAK, WinTAK, and CoT interoperability sit outside the present claim.
 
 The system models public discovery position, contact position, Team position, and local tracks as four distinct data relationships. Users should be able to confirm the shared content, its recipients, and the network path used.
+
+## ⚖️ Responsible Use, Legal Compliance, and Scope
+
+Trail Mate is an assistance system for hiking, camping, trail running, and
+other outdoor activities. Its purpose is to help people share positions,
+coordinate with a group, maintain safety contact, and seek assistance when
+normal connectivity is limited or unavailable.
+
+Trail Mate is not intended to serve anyone who harms, controls, surveils,
+harasses, or stalks others, or who engages in any other unlawful activity.
+Use this device and its software only for lawful, legitimate purposes that
+respect the rights, safety, and privacy of others.
+
+The product boundary is deliberate: Trail Mate focuses on helping people stay
+in contact and obtain assistance during outdoor activities. It is not a
+general-purpose radio experimentation platform or a complete communication
+protocol terminal. Features unrelated to outdoor activity, safety
+coordination, or assistance—and especially features aimed primarily at radio
+operation, network administration, or other non-outdoor uses—are outside the
+scope of this project.
+
+### Legal compliance
+
+Before using Trail Mate, understand and comply with every applicable law,
+regulation, and local requirement where it is used. This includes, but is not
+limited to:
+
+* Radio-spectrum rules, including permitted frequencies, transmit power,
+  transmission duration, and duty-cycle limits
+* Radio-equipment approval, licensing, registration, or amateur-radio operator
+  requirements
+* Rules set by countries, regions, parks, protected areas, campsites, and
+  event organizers
+* Privacy, personal-data, location-data, and communication-content protections
+* Restrictions governing emergency, public-safety, and other protected
+  communications
+
+Requirements vary substantially by country and region. A feature being
+technically capable of operating does not mean it is lawful to use in a given
+location. Each user is responsible for ensuring that their device
+configuration, frequency plan, transmit power, and operating practice comply
+with local requirements.
+
+Do not use Trail Mate, derivative devices, software, or networks for illegal
+activity. This includes unauthorized interception, tracking, or location of
+people; privacy violations; harassment; fraud; regulatory evasion;
+interference with lawful radio communications; or assisting anyone in harming
+others.
+
+### Meshtastic and MeshCore interoperability
+
+Trail Mate integrates selected Meshtastic and MeshCore protocol capabilities
+so that outdoor users can establish the necessary interoperability with people
+running their official firmware. The intended use is outdoor coordination,
+safety contact, and seeking or offering assistance when conventional network
+coverage is absent or unreliable.
+
+Trail Mate does not aim to implement every Meshtastic or MeshCore feature, nor
+to replace their official firmware, clients, or ecosystems. It implements only
+the capabilities that fit Trail Mate's purpose of outdoor assistance,
+coordination, and safety contact.
+
+Features without a direct relationship to outdoor activities and safety
+communication—particularly those focused on radio experimentation, network
+administration, general-purpose communication extensions, or other
+non-outdoor uses—are not planned for implementation. This is a product-scope
+decision, not a judgment on Meshtastic, MeshCore, their communities, or their
+respective feature directions.
+
+Meshtastic and MeshCore names, software, protocols, and related materials
+belong to their respective owners and communities. Compatibility or
+interoperability with those projects does not imply their endorsement,
+approval, or official support of Trail Mate.
+
+### Safety notice
+
+Trail Mate can support outdoor activities, but it cannot replace thorough trip
+planning, route preparation, weather assessment, navigation skills, first-aid
+knowledge, group coordination, or professional rescue equipment.
+
+In remote, high-risk, extreme-weather, or otherwise unreliable communication
+environments, do not treat Trail Mate as your only life-safety measure. Choose
+appropriate additional equipment for the activity, such as maps and a compass,
+backup power, first-aid supplies, a whistle, satellite communications, or a
+personal locator beacon, and share your itinerary with a reliable contact
+before departure.
 
 ## 🔒 Frozen Embedded-Firmware Boundary
 
@@ -374,10 +460,9 @@ idf.py -B build.t_display_p4_amoled -DTRAIL_MATE_IDF_TARGET=t_display_p4_amoled 
 
 ---
 
-## 🌐 Languages
+## 🌐 Documentation Language
 
-* [English](README.md) ← You are here
-* [中文](README_CN.md)
+English documentation is maintained in this repository.
 
 ---
 
@@ -562,7 +647,7 @@ Trail Mate has benefited from real support from the community and hardware vendo
 
 These contributions lowered the barrier to prototyping and allowed Trail Mate to receive real-world feedback much earlier.
 
-If other hardware vendors resonate with the project’s design philosophy and wish to explore its potential in offline outdoor scenarios, feel free to get in touch.
+If other hardware vendors resonate with the project's design philosophy and wish to explore its potential in offline outdoor scenarios, feel free to get in touch.
 When feasible, I am happy to adapt the software to additional devices and provide feedback based on real usage.
 
 

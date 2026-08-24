@@ -25,7 +25,6 @@
 #include "platform/esp/arduino_common/team/event/team_pairing_event_bus_sink.h"
 #include "platform/esp/arduino_common/team_platform_bundle.h"
 #include "platform/esp/arduino_common/voice/vmp_pager_session.h"
-#include "platform/ui/reticulum_group_config_runtime.h"
 #include "platform/ui/team_ui_store_runtime.h"
 #include "team/usecase/team_controller.h"
 #include "team/usecase/team_track_sampler.h"
@@ -113,28 +112,6 @@ void deferred_storage_ready(app::IAppFacade& app_facade)
     // as the authoritative text store. This is a local restore only; it never
     // republishes an attachment to a radio, MQTT, or LXMF carrier.
     ::platform::esp::arduino_common::voice::vmp_session::onPersistentStorageReady();
-
-    const app::AppConfig& config = app_facade.readConfig();
-    if (chat::infra::isReticulumMeshProtocol(
-            chat::infra::normalizeMeshProtocol(config.mesh_protocol)))
-    {
-        auto edit = app_facade.beginConfigEdit();
-        if (!edit)
-        {
-            return;
-        }
-        const auto status = ::platform::ui::reticulum_groups::load(
-            edit.config().reticulumConfig().reticulum_groups,
-            chat::kReticulumGroupDestinationMaxCount);
-        edit.commit(app::AppConfigChangeSet::none());
-        Serial.printf("[RTGroupConfig] deferred sd=%u loaded=%u file=%u message=%s detail=%s\n",
-                      status.sd_present ? 1U : 0U,
-                      status.loaded ? 1U : 0U,
-                      status.file_present ? 1U : 0U,
-                      status.message,
-                      status.detail);
-        app_facade.applyMeshConfig();
-    }
 
     auto& recorder = gps::TrackRecorder::getInstance();
     if (recorder.restoreActiveSession())

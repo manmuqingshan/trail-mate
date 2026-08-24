@@ -1,4 +1,4 @@
-# Sequence：Host、Session 与 Handler
+# Sequence: Host, Session and Handler
 ```mermaid
 sequenceDiagram
   actor Host as External Host
@@ -19,22 +19,22 @@ sequenceDiagram
   Transport->>Session: link lost; clear session pending
 ```
 
-## 场景与责任
+## Scenarios and responsibilities
 
-Transport 管理字节流和连接事件；SessionRuntime 管理 handshake、generation、pending request 与有序 TX；Codec/Router 验证帧并选择 handler；Service 执行有界应用命令。
+Transport manages byte streams and connection events; SessionRuntime manages handshake, generation, pending request and ordered TX; Codec/Router verifies frames and selects handlers; Service executes bounded application commands.
 
-## Handshake 与会话
+## Handshake and session
 
-ready response 只在版本/capability 协商完成后发送。每次连接创建新 generation；旧连接的迟到 frame、handler result 和 TX callback 不得进入新 session。
+ready response is only sent after version/capability negotiation is completed. A new generation is created for each connection; late frames, handler results, and TX callbacks from old connections must not enter the new session.
 
-## 请求/响应关联
+## Request/response association
 
-`seq` 在 session 内唯一或按窗口管理。Router 在调用 Service 前完成大小、类型和 capability 验证。副作用 handler 返回 committed result 后才编码 success；超时或 rejected 返回稳定 error code。
+`seq` is unique within the session or managed by window. Router completes size, type and capability verification before calling Service. Side effects: handler returns committed result before encoding success; timeout or rejected returns stable error code.
 
-## TX 顺序与背压
+## TX order and back pressure
 
-Session 维护固定容量 ordered TX。异步 event 与 command response 的排序规则必须明确；队列满时不能无界分配。断连清理 pending，但业务已经 committed 的命令不能回滚为“未执行”。
+Session maintains a fixed capacity of ordered TX. The ordering rules for asynchronous events and command responses must be clear; unbounded allocation is not allowed when the queue is full. Disconnect and clean up pending commands, but the business has been committed and cannot be rolled back to "not executed".
 
-## 测试
+## test
 
-覆盖 handshake 失败、重复 seq、handler 迟到、TX 满、response 编码失败、断连时已提交命令和快速重连。
+ Covers handshake failure, repeated seq, handler lateness, TX full, response encoding failure, command submitted when disconnected and fast reconnection.

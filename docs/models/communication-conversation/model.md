@@ -1,22 +1,22 @@
-# 通信、会话与投递
+# Communication, Conversation and Delivery
 
-模型状态：**confirmed，边界仍有缺口**
+Model status: **confirmed, still gaps in boundaries**
 
-## 这部分代码实际解决什么
+## What this part of the code actually solves
 
-Trail Mate 把 Meshtastic、MeshCore 和 Reticulum 的文本消息投影为共同的聊天记录，但会话身份仍保留协议差异。这里真正存在的模型不是抽象的“Conversation aggregate”，而是 `ConversationId`、`ConversationMeta`、`ChatMessage`、`MessageStatus` 与 `ChatMessageLedger` 的协作。
+Trail Mate projects text messages from Meshtastic, MeshCore and Reticulum into a common chat record, but the session identity still retains protocol differences. The real model here is not the abstract "Conversation aggregate", but the collaboration of `ConversationId`, `ConversationMeta`, `ChatMessage`, `MessageStatus` and `ChatMessageLedger`.
 
-## 已观察到的领域语言
+## Observed Domain Language
 
-| 符号 | 代码中的含义 | 证据 |
+| Symbols | Meaning in code | Evidence |
 | --- | --- | --- |
-| `ConversationId` | 由 `MeshProtocol + ChannelId + peer` 标识；Reticulum 使用 destination identity 比较 | `chat_types.h:297` |
-| `ConversationMeta` | 会话列表投影：name、preview、last timestamp、unread | `chat_types.h:432` |
-| `ChatMessage` | 消息正文、协议、发送者、peer、时间、地理信息、来源可信度与状态 | `chat_types.h:377` |
+| `ConversationId` | Identified by `MeshProtocol + ChannelId + peer`; Reticulum uses destination identity comparison | `chat_types.h:297` |
+| `ConversationMeta` | Conversation list projection: name, preview, last timestamp, unread | `chat_types.h:432` |
+| `ChatMessage` | Message text, protocol, sender, peer, time, geographical information, source credibility and status | `chat_types.h:377` |
 | `MessageStatus` | `Incoming / Queued / Sent / Failed / Delivered` | `chat_types.h:365` |
-| `ChatMessageLedger` | 写入消息、应用状态、延迟持久化、分页读取和发布 delivery event | `chat_message_ledger.h:22` |
+| `ChatMessageLedger` | Write message, apply state, delayed persistence, paged reading and publish delivery event | `chat_message_ledger.h:22` |
 
-## 发出一条消息后发生什么
+## What happens after a message is sent
 
 ```mermaid
 sequenceDiagram
@@ -35,28 +35,28 @@ sequenceDiagram
   Ledger->>Events: publish delivery event
 ```
 
-这里有一个重要的已实现约束：状态查找提供 `MessageId + MeshProtocol` 版本，说明仅靠 `MessageId` 不足以跨协议唯一定位消息。
+There is an important implemented constraint here: state lookup provides a `MessageId + MeshProtocol` version, indicating that `MessageId` alone is not sufficient to uniquely locate a message across protocols.
 
-## 接收路径的边界
+## Boundaries of the receive path
 
-`ReceivePacketService` 属于 `core_mesh`，负责把 radio/protocol 输入变成经过验证的接收事实；`ChatMessageLedger.recordIncoming` 才把它提交到聊天存储。协议解析、身份验证和聊天持久化因此是相邻但不同的职责。
+`ReceivePacketService` belongs to `core_mesh` and is responsible for turning radio/protocol input into verified reception facts; `ChatMessageLedger.recordIncoming` only submits it to the chat storage. Protocol parsing, authentication, and chat persistence are therefore adjacent but distinct responsibilities.
 
-## 资源与失败语义
+## Resources and failure semantics
 
-- outbound pending write 深度固定为 8。
-- pending status write 深度固定为 16。
-- `LedgerPersistence` 明确区分 `Durable / Deferred / Rejected`。
-- delivery failure 通过 `SendFailureKind` 进入事件，而不是只剩一个布尔值。
+- outbound pending write depth is fixed at 8.
+- pending status write depth is fixed at 16.
+- `LedgerPersistence` clearly differentiates between `Durable / Deferred / Rejected`.
+- Delivery failure is entered into the event via `SendFailureKind` instead of just being left with a boolean value.
 
-## 仍未解决的设计问题
+## Unresolved design issues
 
-- Chat 中仍包含 Reticulum 专属 identity/hash 字段；跨协议消息抽象没有完全把 wire identity 隔离出去。
-- `ConversationMeta` 是 UI 投影，不应被描述成聚合根。
-- 联系人和对端目录已有独立模型；缺失的是它与 Mesh verified key、会话参与者之间显式可撤销的 IdentityLink，见 Review Queue。
+- Chat still contains Reticulum-specific identity/hash fields; cross-protocol message abstraction does not completely isolate wire identity.
+- `ConversationMeta` is a UI projection and should not be described as an aggregate root.
+- The contact and peer directories already have separate models; what is missing is an explicit revocable IdentityLink between it and the Mesh verified key and session participants, see Review Queue.
 
-## 下钻
+## Drill down
 
-- [MessageStatus 与 Ledger 状态变化](message-delivery-lifecycle.md)
-- 源码：`modules/core_chat/include/chat/domain/chat_types.h`
-- 源码：`modules/core_chat/include/chat/delivery/chat_message_ledger.h`
-- 测试：`modules/core_chat/tests/test_chat_message_ledger.cpp`
+- [MessageStatus and Ledger status changes](message-delivery-lifecycle.md)
+- Source code: `modules/core_chat/include/chat/domain/chat_types.h`
+- Source code: `modules/core_chat/include/chat/delivery/chat_message_ledger.h`
+- Test: `modules/core_chat/tests/test_chat_message_ledger.cpp`

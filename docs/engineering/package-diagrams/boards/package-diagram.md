@@ -1,41 +1,41 @@
-# 模块边界：boards
+# Module boundary: boards
 
-图种：Package Diagrams
-状态：candidate
-置信度：high
-项目版本：0.1.30-alpha
-Git：34aad0bffa2f / main / dirty
-更新于：2026-06-25T09:19:20.669Z
+Image type: Package Diagrams
+Status: candidate
+Confidence: high
+Project version: 0.1.30-alpha
+Git:34aad0bffa2f / main / dirty
+Updated on: 2026-06-25T09:19:20.669Z
 
-## 定位
+## Positioning
 
-解释 boards 的包/模块边界、文件数量、符号数量和跨模块依赖。
+Explain the package/module boundaries of boards, number of files, number of symbols, and cross-module dependencies.
 
-## 图的读法
+## How to read the picture
 
-- 这张 Package Diagram 以 boards 为中心，展示它作为工程模块边界时观察到的文件规模、符号规模和跨模块依赖。
-- 图中的箭头表示本地仓库证据观察到的跨模块关系，主要用于理解技术依赖方向；它不是业务流程顺序，也不是运行时消息时序。
-- 当前观察到的主要外部依赖包括：apps/esp32_lvgl、apps/linux_cardputer_zero、apps/nrf52_node、apps/linux_uconsole_gtk、apps/linux_sim_shell、firmware。
+- This Package Diagram is centered on boards, showing the file size, symbol size, and cross-module dependencies observed when it serves as a project module boundary.
+- The arrows in the figure represent the cross-module relationships observed by the local warehouse evidence, which are mainly used to understand the direction of technical dependencies; it is not the business process sequence, nor the runtime message timing.
+- The main external dependencies currently observed include: apps/esp32_lvgl, apps/linux_cardputer_zero, apps/nrf52_node, apps/linux_uconsole_gtk, apps/linux_sim_shell, firmware.
 
-## 技术复杂度分析
+## Technical Complexity Analysis
 
-- boards 当前包含 92 个文件和 1952 个符号，属于软件结构模型识别出的技术组织边界。
-- 跨模块关系呈现为：被其它模块引用或调用 47 次，主动依赖或调用外部模块 183 次，因此它依赖外部模块更多。
-- 较多外部依赖可能说明该模块承担编排、聚合或桥接多处能力的职责；当前按候选技术耦合中心处理。
+- boards currently contains 92 files and 1952 symbols belonging to technical organizational boundaries identified by the software architecture model.
+- The cross-module relationship is as follows: it is referenced or called 47 times by other modules, and it actively depends on or calls external modules 183 times, so it depends more on external modules.
+- More external dependencies may indicate that this module is responsible for orchestrating, aggregating or bridging multiple capabilities; it is currently handled as a candidate technology coupling center.
 
-## 与业务复杂度的关联
+## Correlation with business complexity
 
-- boards 不是业务故事本身，而是业务能力落地时可能经过的技术边界。
-- 如果组织/过程模型中某个 Use Case 的证据、入口或下钻图落在 boards，该 Use Case 应当反向链接到这张 Package Diagram，说明业务故事由哪个工程模块承载。
-- 当前关联仍是 CANDIDATE：这里只能根据仓库证据解释技术边界，不能替代组织/过程模型对业务故事、参与者和业务目标的确认。
+- Boards are not the business story itself, but the technical boundaries that business capabilities may pass through when implemented.
+- If the evidence, entry or drill-down diagram of a Use Case in the organization/process model falls on boards, the Use Case should be linked back to this Package Diagram to indicate which engineering module the business story is hosted by.
+ - The current association is still CANDIDATE: Technical boundaries can only be explained here based on warehouse evidence and are not a substitute for the organization/process model's confirmation of the business story, actors and business goals.
 
-## 治理建议
+## Governance suggestions
 
-- 新增功能时，优先确认它属于该模块的稳定职责，而不是因为调用方便而落入该模块。
-- 如果未来多次变更都增加该模块的外部依赖，应考虑拆分端口、适配器或应用服务边界。
-- 当业务 Use Case 文档引用该模块时，应在 Use Case 下钻文档中记录具体入口、调用链或配置证据。
+- When adding a new function, give priority to confirming that it belongs to the stable responsibility of the module, rather than falling into the module because of the convenience of calling.
+- If multiple future changes increase the module's external dependencies, consider splitting the port, adapter, or application service boundary.
+- When the business Use Case document references this module, the specific entry, call chain or configuration evidence should be recorded in the Use Case drill-down document.
 
-## UML / 技术图
+## UML / technical diagram
 
 ```mermaid
 flowchart LR
@@ -54,63 +54,63 @@ flowchart LR
   package_node --> dependency_6
 ```
 
-## 覆盖范围
+## coverage
 
-- 模块路径：boards
-- 文件数：92
-- 符号数：1952
-- 被其他模块依赖或调用：47
-- 依赖或调用外部模块：183
+-Module path: boards
+-Number of files: 92
+-Number of symbols: 1952
+-Dependent or called by other modules: 47
+- Depend on or call external modules: 183
 
-## 图内语义元素下钻
+## Drill-down of semantic elements in the diagram
 
 ### boards
 
-- 元素类型：package
-- 说明：boards 是当前 Package Diagram 的中心工程边界，用来观察它自身规模、依赖方向和可下钻技术复杂度。
-- 技术角色：技术组织边界：它把 boards 下的文件、符号和跨模块关系聚合成一个可讨论的工程单元。
-- 为什么出现：本地仓库证据在 boards 下观察到足够文件、符号或跨模块关系，因此它值得被提升为软件结构模型中的 package 级入口。
-- 关系意义：图中从 boards 指向其它节点的箭头表示当前边界依赖外部 package/module；被其他模块依赖或调用 47 次、依赖或调用外部模块 183 次，用于判断它更像稳定复用边界还是编排/桥接边界。
-- 下钻意图：下钻该节点可以继续查看 boards 内的关键组件、结构协作切片、运行链路、部署节点和复杂度热点，从而理解这个工程边界如何承载功能变化。
-- 业务关联：该节点不是业务故事本身，但组织/过程模型中落到 boards 的 Use Case 可以把这里作为技术承载边界引用。当前关联仍是 CANDIDATE。
-- 变更影响：修改 boards 的公共入口、依赖方向或目录边界，可能影响引用它的组件图、sequence 片段、部署配置和相关业务故事的验证路径。
-- 置信度：high
-- 证据：
+- Element type: package
+- Description: boards are the central project boundary of the current Package Diagram, used to observe its own scale, dependency direction and drill-down technical complexity.
+- Technical role: Technical organizational boundary: It aggregates files, symbols and cross-module relationships under boards into a discussable engineering unit.
+- Why it appears: Local repository evidence observes enough files, symbols, or cross-module relationships under boards that it deserves to be promoted to a package-level entry in the software structure model.
+- Relationship meaning: The arrows pointing from boards to other nodes in the figure indicate that the current boundary depends on external packages/modules; it is dependent on or called 47 times by other modules, and depends on or called external modules 183 times, which is used to determine whether it is more like a stable reuse boundary or an orchestration/bridging boundary.
+- Drill down intention: Drill down into this node to continue to view key components, structural collaboration slices, running links, deployment nodes and complexity hotspots within boards to understand how this engineering boundary carries functional changes.
+-Business correlation: This node is not the business story itself, but the Use Case that falls on boards in the organization/process model can refer to this as a technology carrying boundary. The current association is still CANDIDATE.
+- Change impact: Modifying the public entry, dependency direction or directory boundary of boards may affect the verification path of component diagrams, sequence fragments, deployment configurations and related business stories that reference it.
+- Confidence: high
+- Evidence:
   - package scope: boards
-  - 模块路径：boards
-  - 文件数：92
-  - 符号数：1952
-  - 被其他模块依赖或调用：47
-  - 依赖或调用外部模块：183
+ - Module path: boards
+ - Number of files: 92
+ - Number of symbols: 1952
+ - Depends on or called by other modules: 47
+ - Depends on or calls external modules: 183
   - boards/cardputerzero/board_facts.h
   - boards/cardputerzero/BOARD.md
-- 风险：
-  - 如果只把该节点当作目录名，会遗漏它作为稳定工程边界的职责判断。
-  - 如果依赖外部模块的迹象持续增加，可能说明该边界承担过多编排或桥接职责。
-- 问题：
-  - 当前仓库证据尚未把该 package 明确 Trace 到某个 Use Case；因此业务关联保持候选。
-- 下钻：[函数节点：makeBoardProfile](../../component-diagrams/boards-makeboardprofile/component-diagram.md) - 打开 函数节点：makeBoardProfile 是为了确认 boards 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[函数节点：pinNum](../../component-diagrams/boards-pinnum/component-diagram.md) - 打开 函数节点：pinNum 是为了确认 boards 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[结构协作：结构切片 boards · gat562_mesh_evb_pro/include/boards](../../class-structural-diagrams/boards-gat562_mesh_evb_pro-include-boards/class-structural-diagram.md) - 打开 结构协作：结构切片 boards · gat562_mesh_evb_pro/include/boards 是为了从对象协作角度解释 boards：哪些对象像入口，哪些像编排核心，哪些像适配/共享边界；它帮助判断复杂度来自职责分布，而不只是文件数量。
-- 下钻：[结构协作：结构切片 boards · t_echo_lite/include/boards](../../class-structural-diagrams/boards-t_echo_lite-include-boards/class-structural-diagram.md) - 打开 结构协作：结构切片 boards · t_echo_lite/include/boards 是为了从对象协作角度解释 boards：哪些对象像入口，哪些像编排核心，哪些像适配/共享边界；它帮助判断复杂度来自职责分布，而不只是文件数量。
-- 下钻：[结构协作：结构切片 boards · tab5/include/boards](../../class-structural-diagrams/boards-tab5-include-boards/class-structural-diagram.md) - 打开 结构协作：结构切片 boards · tab5/include/boards 是为了从对象协作角度解释 boards：哪些对象像入口，哪些像编排核心，哪些像适配/共享边界；它帮助判断复杂度来自职责分布，而不只是文件数量。
-- 下钻：[结构协作：结构切片 boards · t_display_p4/include/boards](../../class-structural-diagrams/boards-t_display_p4-include-boards/class-structural-diagram.md) - 打开 结构协作：结构切片 boards · t_display_p4/include/boards 是为了从对象协作角度解释 boards：哪些对象像入口，哪些像编排核心，哪些像适配/共享边界；它帮助判断复杂度来自职责分布，而不只是文件数量。
-- 下钻：[结构协作：结构切片 boards · tlora_pager/include/boards](../../class-structural-diagrams/boards-tlora_pager-include-boards/class-structural-diagram.md) - 打开 结构协作：结构切片 boards · tlora_pager/include/boards 是为了从对象协作角度解释 boards：哪些对象像入口，哪些像编排核心，哪些像适配/共享边界；它帮助判断复杂度来自职责分布，而不只是文件数量。
-- 下钻：[依赖簇：boards 技术热点](../../technical-hotspots/dependency-cluster--boards/technical-hotspot.md) - 查看 依赖簇：boards 技术热点 这个复杂度信号是否会抬高 boards 的阅读、修改、测试或回归成本。
-- 下钻：[承担外部协作的候选对象：boards/tlora_pager/src/tlora_pager_board.cpp 技术热点](../../technical-hotspots/collaboration-pressure--boards-tlora_pager-src-tlora_pager_board-cpp/technical-hotspot.md) - 查看 承担外部协作的候选对象：boards/tlora_pager/src/tlora_pager_board.cpp 技术热点 这个复杂度信号是否会抬高 boards 的阅读、修改、测试或回归成本。
+ - Risk:
+ - If you only regard this node as a directory name, you will miss its responsibility as a stable project boundary.
+ - If signs of dependency on external modules continue to increase, it may be a sign that the boundary is taking on too much orchestration or bridging responsibility.
+- Question:
+ - The current repository evidence does not yet explicitly trace the package to a Use Case; therefore the business association remains a candidate.
+-Drill down: [Function node: makeBoardProfile](../../component-diagrams/boards-makeboardprofile/component-diagram.md) - Open the function node: makeBoardProfile to confirm which specific object within boards assumes entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will spread.
+-Drill down: [Function node: pinNum](../../component-diagrams/boards-pinnum/component-diagram.md) - Open the function node: pinNum to confirm which specific object within the boards assumes entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will spread.
+ - Drill down: [Structure Collaboration: Structural Slice boards · gat562_mesh_evb_pro/include/boards](../../class-structural-diagrams/boards-gat562_mesh_evb_pro-include-boards/class-structural-diagram.md) - Open Structural Collaboration: Structural Slice boards · gat562_mesh_evb_pro/include/boards is to explain boards from an object collaboration perspective: which objects are like portals, which are like orchestration cores, and which are like adaptation/sharing boundaries; it helps judge that complexity comes from the distribution of responsibilities, not just the number of files.
+ - Drill down: [Structural collaboration: Structural slice boards · t_echo_lite/include/boards](../../class-structural-diagrams/boards-t_echo_lite-include-boards/class-structural-diagram.md) - Open Structural collaboration: Structural slicing boards · t_echo_lite/include/boards is to explain from the object collaboration perspective boards: Which objects are like portals, which are like orchestration cores, and which are like adaptation/sharing boundaries; it helps determine whether complexity comes from the distribution of responsibilities, not just the number of files.
+-Drill down: [Structural Collaboration: Structural Slicing boards · tab5/include/boards](../../class-structural-diagrams/boards-tab5-include-boards/class-structural-diagram.md) - Open Structural Collaboration: Structural Slicing boards · tab5/include/boards is to explain from the perspective of object collaboration boards: Which objects are like portals, which are like orchestration cores, and which are like adaptation/sharing boundaries; it helps determine whether complexity comes from the distribution of responsibilities, not just the number of files.
+ - Drill down: [Structural Collaboration: Structural Slice boards · t_display_p4/include/boards](../../class-structural-diagrams/boards-t_display_p4-include-boards/class-structural-diagram.md) - Open Structural Collaboration: Structural Slice boards · t_display_p4/include/boards It is to explain boards from the perspective of object collaboration: which objects are like portals, which are like orchestration cores, and which are like adaptation/sharing boundaries; it helps to judge that complexity comes from the distribution of responsibilities, not just the number of files.
+ - Drill down: [Structural collaboration: Structural slicing boards · tlora_pager/include/boards](../../class-structural-diagrams/boards-tlora_pager-include-boards/class-structural-diagram.md) - Open Structural collaboration: Structural slicing boards · tlora_pager/include/boards is to explain from the object collaboration perspective boards: Which objects are like portals, which are like orchestration cores, and which are like adaptation/sharing boundaries; it helps determine whether complexity comes from the distribution of responsibilities, not just the number of files.
+ - Drill down: [Dependency cluster: boards technical hotspots](../../technical-hotspots/dependency-cluster--boards/technical-hotspot.md) - View dependency cluster: boards technical hotspot whether this complexity signal will increase the cost of reading, modifying, testing or regression of boards.
+ - Drill down: [Candidates for external collaboration: boards/tlora_pager/src/tlora_pager_board.cpp Technical Hotspots](../../technical-hotspots/collaboration-pressure--boards-tlora_pager-src-tlora_pager_board-cpp/technical-hotspot.md) - View Candidates for external collaboration: boards/tlora_pager/src/tlora_pager_board.cpp Technical Hotspot Whether this complexity signal will increase the cost of reading, modifying, testing or regression of boards.
 
 ### apps/esp32_lvgl
 
-- 元素类型：package
-- 说明：apps/esp32_lvgl 是 boards 当前观察到的外部技术边界依赖；它说明当前模块不是孤立实现，而是需要借助另一组工程能力完成职责。
-- 技术角色：跨模块技术依赖边界：当前 package 需要另一个 package/module 提供能力、契约、配置或运行支撑。
-- 为什么出现：本地仓库证据在 boards 与 apps/esp32_lvgl 之间观察到跨模块事实关系，因此该依赖被放入 Package Diagram，而不是只藏在代码 import/call 里。
-- 关系意义：boards -> apps/esp32_lvgl 表示本地仓库证据观察到跨模块关系；它解释技术依赖方向，但不直接证明业务流程。
-- 下钻意图：下钻 apps/esp32_lvgl 可以查看它自己的 Package Diagram，再继续进入其组件、结构、sequence 或热点，判断当前依赖究竟落在入口、运行时、工具注册、模型适配还是基础设施边界。
-- 业务关联：boards 如果承载用户可见能力，那么对 apps/esp32_lvgl 的依赖可能是该能力的运行机制、扩展点或治理约束。该业务关联需要由组织/过程模型的 Use Case 证据确认。
-- 变更影响：修改 apps/esp32_lvgl 的公共接口、路径或运行方式，可能让 boards 的调用链、打包入口、agent 工作流或 UI 行为发生连锁变化。
-- 置信度：high
-- 证据：
+- Element type: package
+- Description: apps/esp32_lvgl is the external technical boundary dependency currently observed by boards; it indicates that the current module is not implemented in isolation, but requires the help of another set of engineering capabilities to complete its responsibilities.
+-Technical role: Cross-module technology dependency boundary: The current package requires another package/module to provide capabilities, contracts, configuration or running support.
+- Why it appears: Local repository evidence observes a cross-module factual relationship between boards and apps/esp32_lvgl, so the dependency is put into the Package Diagram instead of just hiding in the code import/call.
+- Relationship meaning: boards -> apps/esp32_lvgl indicates that the local warehouse evidence observes a cross-module relationship; it explains the technical dependency direction, but does not directly prove the business process.
+- Drill-down intention: Drill down into apps/esp32_lvgl to view its own Package Diagram, and then continue to enter its components, structures, sequences or hotspots to determine whether the current dependency falls on the entry, runtime, tool registration, model adaptation or infrastructure boundary.
+-Business correlation: boards If hosting a user-visible capability, the dependency on apps/esp32_lvgl may be the operating mechanism, extension point, or governance constraint of that capability. This business association needs to be confirmed by the Use Case evidence of the organization/process model.
+- Impact of changes: Modifying the public interface, path or running mode of apps/esp32_lvgl may cause chain changes in the boards' call chain, packaging entry, agent workflow or UI behavior.
+- Confidence: high
+- Evidence:
   - dependency edge: boards -> apps/esp32_lvgl
   - apps/esp32_lvgl/APP_SHELL_MANIFEST.md
   - apps/esp32_lvgl/CMakeLists.txt
@@ -119,34 +119,34 @@ flowchart LR
   - apps/esp32_lvgl/src/esp32_lvgl_app_shell.cpp
   - apps/esp32_lvgl/src/esp32_lvgl_app_shell.h
   - apps/esp32_lvgl/src/esp32_lvgl_arduino_app_registry.cpp
-- 风险：
-  - 跨模块依赖只能证明技术关系，不能直接证明业务关系。
-  - 如果该依赖只是因为实现方便而存在，未来变更可能形成边界漂移或隐式公共工具箱。
-- 问题：
-  - 当前证据尚未证明 boards 依赖 apps/esp32_lvgl 与某个 Use Case、runtime command 或配置决策直接相关。
-  - 当前依赖方向按仓库事实记录为候选，尚未发现架构决策文档证明它是稳定边界。
-- 下钻：[模块边界：apps/esp32_lvgl](../apps-esp32_lvgl/package-diagram.md) - 打开 apps/esp32_lvgl 自己的包级边界，检查 boards 依赖它时借用的是运行命令、共享能力、治理工具、模型适配还是基础设施职责。
-- 下钻：[函数节点：main](../../component-diagrams/apps-esp32_lvgl-main/component-diagram.md) - 打开 函数节点：main 是为了确认 apps/esp32_lvgl 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 apps/esp32_lvgl/tests/esp32_lvgl_sd_coredump_contract_smoke.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[函数节点：contains](../../component-diagrams/apps-esp32_lvgl-contains/component-diagram.md) - 打开 函数节点：contains 是为了确认 apps/esp32_lvgl 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 apps/esp32_lvgl/tests/esp32_lvgl_sd_coredump_contract_smoke.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[函数节点：companion_enter](../../component-diagrams/apps-esp32_lvgl-companion_enter/component-diagram.md) - 打开 函数节点：companion_enter 是为了确认 apps/esp32_lvgl 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 apps/esp32_lvgl/src/esp32_lvgl_idf_app_registry.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[动态协作：tick 调用 log_loop_interval](../../sequence-diagrams/tick-calls-log_loop_interval/sequence-diagram.md) - 打开这条 sequence 是为了把 apps/esp32_lvgl 的静态依赖还原成一段可读协作：tick -> log_loop_interval。重点判断这是 import、调用、引用还是消息方向，以及它是否真的影响运行路径。
-- 下钻：[动态协作：add_status_line 调用 add_label](../../sequence-diagrams/add_status_line-calls-add_label/sequence-diagram.md) - 打开这条 sequence 是为了把 apps/esp32_lvgl 的静态依赖还原成一段可读协作：add_status_line -> add_label。重点判断这是 import、调用、引用还是消息方向，以及它是否真的影响运行路径。
-- 下钻：[动态协作：add_u32_line 调用 add_label](../../sequence-diagrams/add_u32_line-calls-add_label/sequence-diagram.md) - 打开这条 sequence 是为了把 apps/esp32_lvgl 的静态依赖还原成一段可读协作：add_u32_line -> add_label。重点判断这是 import、调用、引用还是消息方向，以及它是否真的影响运行路径。
-- 下钻：[动态协作：add_hex_line 调用 add_status_line](../../sequence-diagrams/add_hex_line-calls-add_status_line/sequence-diagram.md) - 打开这条 sequence 是为了把 apps/esp32_lvgl 的静态依赖还原成一段可读协作：add_hex_line -> add_status_line。重点判断这是 import、调用、引用还是消息方向，以及它是否真的影响运行路径。
-- 下钻：[动态协作：companion_enter 调用 add_label](../../sequence-diagrams/companion_enter-calls-add_label/sequence-diagram.md) - 打开这条 sequence 是为了把 apps/esp32_lvgl 的静态依赖还原成一段可读协作：companion_enter -> add_label。重点判断这是 import、调用、引用还是消息方向，以及它是否真的影响运行路径。
+ - Risk:
+ - Cross-module dependencies can only prove technical relationships, not business relationships directly.
+ - If this dependency only exists for implementation convenience, future changes may cause boundary drift or implicit public toolboxes.
+- Question:
+ - Current evidence does not prove that boards' dependency on apps/esp32_lvgl is directly related to a Use Case, runtime command, or configuration decision.
+ - The current dependency direction is a candidate according to the warehouse fact record, and no architectural decision document has been found to prove that it is a stable boundary.
+ - Drill down: [Module Boundary: apps/esp32_lvgl](../apps-esp32_lvgl/package-diagram.md) - Open apps/esp32_lvgl's own package-level boundary and check whether boards depend on it by borrowing run commands, shared capabilities, governance tools, model adaptation, or infrastructure responsibilities.
+- Drill down: [Function node: main](../../component-diagrams/apps-esp32_lvgl-main/component-diagram.md) - Open function node: main to confirm which specific object within apps/esp32_lvgl is responsible for entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor apps/esp32_lvgl/tests/esp32_lvgl_sd_coredump_contract_smoke.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will propagate.
+-Drill down: [Function node: contains](../../component-diagrams/apps-esp32_lvgl-contains/component-diagram.md) - Open the function node: contains to confirm which specific object within apps/esp32_lvgl is responsible for entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor apps/esp32_lvgl/tests/esp32_lvgl_sd_coredump_contract_smoke.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will propagate.
+-Drill down: [Function node: companion_enter](../../component-diagrams/apps-esp32_lvgl-companion_enter/component-diagram.md) - Open function node: companion_enter to confirm which specific object within apps/esp32_lvgl assumes entry, orchestration, adaptation, contract or shared responsibilities. Focus on checking the code anchor apps/esp32_lvgl/src/esp32_lvgl_idf_app_registry.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will propagate.
+-Drill down: [Dynamic collaboration: tick calls log_loop_interval](../../sequence-diagrams/tick-calls-log_loop_interval/sequence-diagram.md) - This sequence is opened to restore the static dependency of apps/esp32_lvgl to a readable collaboration: tick -> log_loop_interval. Focus on determining whether this is an import, call, reference or message direction, and whether it really affects the running path.
+-Drill down: [Dynamic collaboration: add_status_line calls add_label](../../sequence-diagrams/add_status_line-calls-add_label/sequence-diagram.md) - This sequence is opened to restore the static dependency of apps/esp32_lvgl to a readable collaboration: add_status_line -> add_label. Focus on determining whether this is an import, call, reference or message direction, and whether it really affects the running path.
+-Drill down: [Dynamic collaboration: add_u32_line calls add_label](../../sequence-diagrams/add_u32_line-calls-add_label/sequence-diagram.md) - This sequence is opened to restore the static dependency of apps/esp32_lvgl to a readable collaboration: add_u32_line -> add_label. Focus on determining whether this is an import, call, reference or message direction, and whether it really affects the running path.
+-Drill down: [Dynamic collaboration: add_hex_line calls add_status_line](../../sequence-diagrams/add_hex_line-calls-add_status_line/sequence-diagram.md) - This sequence is opened to restore the static dependency of apps/esp32_lvgl into a readable collaboration: add_hex_line -> add_status_line. Focus on determining whether this is an import, call, reference or message direction, and whether it really affects the running path.
+-Drill down: [Dynamic collaboration: companion_enter calls add_label](../../sequence-diagrams/companion_enter-calls-add_label/sequence-diagram.md) - This sequence is opened to restore the static dependency of apps/esp32_lvgl to a readable collaboration: companion_enter -> add_label. Focus on determining whether this is an import, call, reference or message direction, and whether it really affects the running path.
 
 ### apps/linux_cardputer_zero
 
-- 元素类型：package
-- 说明：apps/linux_cardputer_zero 是 boards 当前观察到的外部技术边界依赖；它说明当前模块不是孤立实现，而是需要借助另一组工程能力完成职责。
-- 技术角色：跨模块技术依赖边界：当前 package 需要另一个 package/module 提供能力、契约、配置或运行支撑。
-- 为什么出现：本地仓库证据在 boards 与 apps/linux_cardputer_zero 之间观察到跨模块事实关系，因此该依赖被放入 Package Diagram，而不是只藏在代码 import/call 里。
-- 关系意义：boards -> apps/linux_cardputer_zero 表示本地仓库证据观察到跨模块关系；它解释技术依赖方向，但不直接证明业务流程。
-- 下钻意图：下钻 apps/linux_cardputer_zero 可以查看它自己的 Package Diagram，再继续进入其组件、结构、sequence 或热点，判断当前依赖究竟落在入口、运行时、工具注册、模型适配还是基础设施边界。
-- 业务关联：boards 如果承载用户可见能力，那么对 apps/linux_cardputer_zero 的依赖可能是该能力的运行机制、扩展点或治理约束。该业务关联需要由组织/过程模型的 Use Case 证据确认。
-- 变更影响：修改 apps/linux_cardputer_zero 的公共接口、路径或运行方式，可能让 boards 的调用链、打包入口、agent 工作流或 UI 行为发生连锁变化。
-- 置信度：high
-- 证据：
+- Element type: package
+- Description: apps/linux_cardputer_zero is the external technical boundary dependency currently observed by boards; it indicates that the current module is not implemented in isolation, but requires the help of another set of engineering capabilities to complete its responsibilities.
+-Technical role: Cross-module technology dependency boundary: The current package requires another package/module to provide capabilities, contracts, configuration or running support.
+- Why it appears: Local repository evidence observed a cross-module factual relationship between boards and apps/linux_cardputer_zero, so the dependency was put into the Package Diagram instead of just hiding in the code import/call.
+- Relationship meaning: boards -> apps/linux_cardputer_zero indicates that the local warehouse evidence observes a cross-module relationship; it explains the technical dependency direction, but does not directly prove the business process.
+- Drill-down intention: Drill down into apps/linux_cardputer_zero to view its own Package Diagram, and then continue to enter its components, structures, sequences or hotspots to determine whether the current dependency falls on the entry, runtime, tool registration, model adaptation or infrastructure boundary.
+-Business correlation: boards If hosting a user-visible capability, the dependency on apps/linux_cardputer_zero may be the running mechanism, extension point, or governance constraint of the capability. This business association needs to be confirmed by the Use Case evidence of the organization/process model.
+- Impact of changes: Modifying the public interface, path or running mode of apps/linux_cardputer_zero may cause chain changes in the boards' call chain, packaging entry, agent workflow or UI behavior.
+- Confidence: high
+- Evidence:
   - dependency edge: boards -> apps/linux_cardputer_zero
   - apps/linux_cardputer_zero/APP_SHELL_MANIFEST.md
   - apps/linux_cardputer_zero/CMakeLists.txt
@@ -155,32 +155,32 @@ flowchart LR
   - apps/linux_cardputer_zero/packaging/trailmate-cardputer-zero.png
   - apps/linux_cardputer_zero/README.md
   - apps/linux_cardputer_zero/src/cardputer_zero_input_method_port.cpp
-- 风险：
-  - 跨模块依赖只能证明技术关系，不能直接证明业务关系。
-  - 如果该依赖只是因为实现方便而存在，未来变更可能形成边界漂移或隐式公共工具箱。
-- 问题：
-  - 当前证据尚未证明 boards 依赖 apps/linux_cardputer_zero 与某个 Use Case、runtime command 或配置决策直接相关。
-  - 当前依赖方向按仓库事实记录为候选，尚未发现架构决策文档证明它是稳定边界。
-- 下钻：[模块边界：apps/linux_cardputer_zero](../apps-linux_cardputer_zero/package-diagram.md) - 打开 apps/linux_cardputer_zero 自己的包级边界，检查 boards 依赖它时借用的是运行命令、共享能力、治理工具、模型适配还是基础设施职责。
-- 下钻：[函数节点：main](../../component-diagrams/apps-linux_cardputer_zero-main/component-diagram.md) - 打开 函数节点：main 是为了确认 apps/linux_cardputer_zero 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[函数节点：contains](../../component-diagrams/apps-linux_cardputer_zero-contains/component-diagram.md) - 打开 函数节点：contains 是为了确认 apps/linux_cardputer_zero 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[函数节点：not_contains](../../component-diagrams/apps-linux_cardputer_zero-not_contains/component-diagram.md) - 打开 函数节点：not_contains 是为了确认 apps/linux_cardputer_zero 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[函数节点：read_file](../../component-diagrams/apps-linux_cardputer_zero-read_file/component-diagram.md) - 打开 函数节点：read_file 是为了确认 apps/linux_cardputer_zero 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[承担外部协作的候选对象：main 技术热点](../../technical-hotspots/collaboration-pressure--main/technical-hotspot.md) - 查看 承担外部协作的候选对象：main 技术热点 这个复杂度信号是否会抬高 apps/linux_cardputer_zero 的阅读、修改、测试或回归成本。
-- 下钻：[被广泛复用的候选对象：contains 技术热点](../../technical-hotspots/reuse-pressure--contains/technical-hotspot.md) - 查看 被广泛复用的候选对象：contains 技术热点 这个复杂度信号是否会抬高 apps/linux_cardputer_zero 的阅读、修改、测试或回归成本。
+ - Risk:
+ - Cross-module dependencies can only prove technical relationships, not business relationships directly.
+ - If this dependency only exists for implementation convenience, future changes may cause boundary drift or implicit public toolboxes.
+- Question:
+ - There is currently no evidence that boards' dependency on apps/linux_cardputer_zero is directly related to a Use Case, runtime command, or configuration decision.
+ - The current dependency direction is a candidate according to the warehouse fact record, and no architectural decision document has been found to prove that it is a stable boundary.
+ - Drill down: [Module Boundary: apps/linux_cardputer_zero](../apps-linux_cardputer_zero/package-diagram.md) - Open apps/linux_cardputer_zero's own package-level boundary and check whether boards depend on it by borrowing run commands, shared capabilities, governance tools, model adaptation, or infrastructure responsibilities.
+-Drill down: [Function node: main](../../component-diagrams/apps-linux_cardputer_zero-main/component-diagram.md) - Open function node: main to confirm which specific object within apps/linux_cardputer_zero is responsible for entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will propagate.
+-Drill down: [Function node: contains](../../component-diagrams/apps-linux_cardputer_zero-contains/component-diagram.md) - Open the function node: contains to confirm which specific object within apps/linux_cardputer_zero assumes entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will propagate.
+-Drill down: [Function node: not_contains](../../component-diagrams/apps-linux_cardputer_zero-not_contains/component-diagram.md) - Open the function node: not_contains to confirm which specific object within apps/linux_cardputer_zero is responsible for entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will propagate.
+-Drill down: [Function node: read_file](../../component-diagrams/apps-linux_cardputer_zero-read_file/component-diagram.md) - Open the function node: read_file to confirm which specific object within apps/linux_cardputer_zero assumes entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor apps/linux_cardputer_zero/tests/linux_cardputer_zero_business_wiring_smoke.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will propagate.
+ - Drill down: [Candidates for external collaboration: main Technology Hotspot](../../technical-hotspots/collaboration-pressure--main/technical-hotspot.md) - See whether this complexity signal increases the cost of reading, modifying, testing, or regression apps/linux_cardputer_zero.
+ - Drill down: [Widely reused candidates: contains technical hotspots](../../technical-hotspots/reuse-pressure--contains/technical-hotspot.md) - See whether this complexity signal increases the cost of reading, modifying, testing, or regression apps/linux_cardputer_zero.
 
 ### apps/nrf52_node
 
-- 元素类型：package
-- 说明：apps/nrf52_node 是 boards 当前观察到的外部技术边界依赖；它说明当前模块不是孤立实现，而是需要借助另一组工程能力完成职责。
-- 技术角色：跨模块技术依赖边界：当前 package 需要另一个 package/module 提供能力、契约、配置或运行支撑。
-- 为什么出现：本地仓库证据在 boards 与 apps/nrf52_node 之间观察到跨模块事实关系，因此该依赖被放入 Package Diagram，而不是只藏在代码 import/call 里。
-- 关系意义：boards -> apps/nrf52_node 表示本地仓库证据观察到跨模块关系；它解释技术依赖方向，但不直接证明业务流程。
-- 下钻意图：下钻 apps/nrf52_node 可以查看它自己的 Package Diagram，再继续进入其组件、结构、sequence 或热点，判断当前依赖究竟落在入口、运行时、工具注册、模型适配还是基础设施边界。
-- 业务关联：boards 如果承载用户可见能力，那么对 apps/nrf52_node 的依赖可能是该能力的运行机制、扩展点或治理约束。该业务关联需要由组织/过程模型的 Use Case 证据确认。
-- 变更影响：修改 apps/nrf52_node 的公共接口、路径或运行方式，可能让 boards 的调用链、打包入口、agent 工作流或 UI 行为发生连锁变化。
-- 置信度：high
-- 证据：
+- Element type: package
+- Description: apps/nrf52_node is the external technical boundary dependency currently observed by boards; it indicates that the current module is not implemented in isolation, but requires the help of another set of engineering capabilities to complete its responsibilities.
+-Technical role: Cross-module technology dependency boundary: The current package requires another package/module to provide capabilities, contracts, configuration or running support.
+- Why it appears: Local repository evidence observes a cross-module factual relationship between boards and apps/nrf52_node, so the dependency is put into the Package Diagram instead of just hiding in the code import/call.
+- Relationship meaning: boards -> apps/nrf52_node indicates that the local warehouse evidence observes a cross-module relationship; it explains the technical dependency direction, but does not directly prove the business process.
+- Drill-down intention: Drill down into apps/nrf52_node to view its own Package Diagram, and then continue to enter its components, structures, sequences or hotspots to determine whether the current dependency falls on the entry, runtime, tool registration, model adaptation or infrastructure boundary.
+-Business correlation: boards If hosting a user-visible capability, the dependency on apps/nrf52_node may be the running mechanism, extension point, or governance constraint of the capability. This business association needs to be confirmed by the Use Case evidence of the organization/process model.
+- Impact of changes: Modifying the public interface, path or running mode of apps/nrf52_node may cause chain changes in the boards' call chain, packaging entry, agent workflow or UI behavior.
+- Confidence: high
+- Evidence:
   - dependency edge: boards -> apps/nrf52_node
   - apps/nrf52_node/APP_SHELL_MANIFEST.md
   - apps/nrf52_node/library.json
@@ -189,26 +189,26 @@ flowchart LR
   - apps/nrf52_node/src/nrf52_node_app_facade_runtime.h
   - apps/nrf52_node/src/nrf52_node_app_runtime_access.cpp
   - apps/nrf52_node/src/nrf52_node_app_runtime_access.h
-- 风险：
-  - 跨模块依赖只能证明技术关系，不能直接证明业务关系。
-  - 如果该依赖只是因为实现方便而存在，未来变更可能形成边界漂移或隐式公共工具箱。
-- 问题：
-  - 当前证据尚未证明 boards 依赖 apps/nrf52_node 与某个 Use Case、runtime command 或配置决策直接相关。
-  - 当前依赖方向按仓库事实记录为候选，尚未发现架构决策文档证明它是稳定边界。
-- 下钻：[模块边界：apps/nrf52_node](../apps-nrf52_node/package-diagram.md) - 打开 apps/nrf52_node 自己的包级边界，检查 boards 依赖它时借用的是运行命令、共享能力、治理工具、模型适配还是基础设施职责。
+ - Risk:
+ - Cross-module dependencies can only prove technical relationships, not business relationships directly.
+ - If this dependency only exists for implementation convenience, future changes may cause boundary drift or implicit public toolboxes.
+- Question:
+ - There is currently no evidence that boards' dependency on apps/nrf52_node is directly related to a Use Case, runtime command, or configuration decision.
+ - The current dependency direction is a candidate according to the warehouse fact record, and no architectural decision document has been found to prove that it is a stable boundary.
+ - Drill down: [Module Boundary: apps/nrf52_node](../apps-nrf52_node/package-diagram.md) - Open apps/nrf52_node's own package-level boundary and check whether boards depend on it by borrowing run commands, shared capabilities, governance tools, model adaptation, or infrastructure responsibilities.
 
 ### apps/linux_uconsole_gtk
 
-- 元素类型：package
-- 说明：apps/linux_uconsole_gtk 是 boards 当前观察到的外部技术边界依赖；它说明当前模块不是孤立实现，而是需要借助另一组工程能力完成职责。
-- 技术角色：跨模块技术依赖边界：当前 package 需要另一个 package/module 提供能力、契约、配置或运行支撑。
-- 为什么出现：本地仓库证据在 boards 与 apps/linux_uconsole_gtk 之间观察到跨模块事实关系，因此该依赖被放入 Package Diagram，而不是只藏在代码 import/call 里。
-- 关系意义：boards -> apps/linux_uconsole_gtk 表示本地仓库证据观察到跨模块关系；它解释技术依赖方向，但不直接证明业务流程。
-- 下钻意图：下钻 apps/linux_uconsole_gtk 可以查看它自己的 Package Diagram，再继续进入其组件、结构、sequence 或热点，判断当前依赖究竟落在入口、运行时、工具注册、模型适配还是基础设施边界。
-- 业务关联：boards 如果承载用户可见能力，那么对 apps/linux_uconsole_gtk 的依赖可能是该能力的运行机制、扩展点或治理约束。该业务关联需要由组织/过程模型的 Use Case 证据确认。
-- 变更影响：修改 apps/linux_uconsole_gtk 的公共接口、路径或运行方式，可能让 boards 的调用链、打包入口、agent 工作流或 UI 行为发生连锁变化。
-- 置信度：high
-- 证据：
+- Element type: package
+- Description: apps/linux_uconsole_gtk is the external technical boundary dependency currently observed by boards; it indicates that the current module is not implemented in isolation, but requires the help of another set of engineering capabilities to complete its responsibilities.
+-Technical role: Cross-module technology dependency boundary: The current package requires another package/module to provide capabilities, contracts, configuration or running support.
+- Why it appears: Local repository evidence observed a cross-module fact relationship between boards and apps/linux_uconsole_gtk, so the dependency was put into the Package Diagram instead of just hiding in the code import/call.
+- Relationship meaning: boards -> apps/linux_uconsole_gtk indicates that the local warehouse evidence observes a cross-module relationship; it explains the technical dependency direction, but does not directly prove the business process.
+- Drill-down intention: Drill down into apps/linux_uconsole_gtk to view its own Package Diagram, and then continue to enter its components, structures, sequences or hotspots to determine whether the current dependency falls on the entry, runtime, tool registration, model adaptation or infrastructure boundary.
+- Business correlation: boards If hosting a user-visible capability, the dependency on apps/linux_uconsole_gtk may be the operating mechanism, extension point, or governance constraint of that capability. This business association needs to be confirmed by the Use Case evidence of the organization/process model.
+- Impact of changes: Modifying the public interface, path or running mode of apps/linux_uconsole_gtk may cause chain changes in the boards' call chain, packaging entry, agent workflow or UI behavior.
+- Confidence: high
+- Evidence:
   - dependency edge: boards -> apps/linux_uconsole_gtk
   - apps/linux_uconsole_gtk/APP_SHELL_MANIFEST.md
   - apps/linux_uconsole_gtk/CMakeLists.txt
@@ -217,34 +217,34 @@ flowchart LR
   - apps/linux_uconsole_gtk/README.md
   - apps/linux_uconsole_gtk/src/linux_uconsole_gtk_app_shell.cpp
   - apps/linux_uconsole_gtk/src/linux_uconsole_gtk_app_shell.h
-- 风险：
-  - 跨模块依赖只能证明技术关系，不能直接证明业务关系。
-  - 如果该依赖只是因为实现方便而存在，未来变更可能形成边界漂移或隐式公共工具箱。
-- 问题：
-  - 当前证据尚未证明 boards 依赖 apps/linux_uconsole_gtk 与某个 Use Case、runtime command 或配置决策直接相关。
-  - 当前依赖方向按仓库事实记录为候选，尚未发现架构决策文档证明它是稳定边界。
-- 下钻：[模块边界：apps/linux_uconsole_gtk](../apps-linux_uconsole_gtk/package-diagram.md) - 打开 apps/linux_uconsole_gtk 自己的包级边界，检查 boards 依赖它时借用的是运行命令、共享能力、治理工具、模型适配还是基础设施职责。
-- 下钻：[函数节点：launchSettingsLayout](../../component-diagrams/apps-linux_uconsole_gtk-launchsettingslayout/component-diagram.md) - 打开 函数节点：launchSettingsLayout 是为了确认 apps/linux_uconsole_gtk 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_layout.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[函数节点：makeLabel](../../component-diagrams/apps-linux_uconsole_gtk-makelabel/component-diagram.md) - 打开 函数节点：makeLabel 是为了确认 apps/linux_uconsole_gtk 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_widgets.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[函数节点：makeSettingsRow](../../component-diagrams/apps-linux_uconsole_gtk-makesettingsrow/component-diagram.md) - 打开 函数节点：makeSettingsRow 是为了确认 apps/linux_uconsole_gtk 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_layout.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[函数节点：refreshUi](../../component-diagrams/apps-linux_uconsole_gtk-refreshui/component-diagram.md) - 打开 函数节点：refreshUi 是为了确认 apps/linux_uconsole_gtk 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_shell.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[函数节点：refreshMap](../../component-diagrams/apps-linux_uconsole_gtk-refreshmap/component-diagram.md) - 打开 函数节点：refreshMap 是为了确认 apps/linux_uconsole_gtk 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[函数节点：main](../../component-diagrams/apps-linux_uconsole_gtk-main/component-diagram.md) - 打开 函数节点：main 是为了确认 apps/linux_uconsole_gtk 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 apps/linux_uconsole_gtk/tests/uconsole_meshtastic_node_payload_smoke.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[函数节点：launchMapLayout](../../component-diagrams/apps-linux_uconsole_gtk-launchmaplayout/component-diagram.md) - 打开 函数节点：launchMapLayout 是为了确认 apps/linux_uconsole_gtk 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[函数节点：expect](../../component-diagrams/apps-linux_uconsole_gtk-expect/component-diagram.md) - 打开 函数节点：expect 是为了确认 apps/linux_uconsole_gtk 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 apps/linux_uconsole_gtk/tests/uconsole_meshtastic_node_payload_smoke.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
+ - Risk:
+ - Cross-module dependencies can only prove technical relationships, not business relationships directly.
+ - If this dependency only exists for implementation convenience, future changes may cause boundary drift or implicit public toolboxes.
+- Question:
+ - There is currently no evidence that boards' dependency on apps/linux_uconsole_gtk is directly related to a Use Case, runtime command, or configuration decision.
+ - The current dependency direction is a candidate according to the warehouse fact record, and no architectural decision document has been found to prove that it is a stable boundary.
+ - Drill down: [Module Boundary: apps/linux_uconsole_gtk](../apps-linux_uconsole_gtk/package-diagram.md) - Open apps/linux_uconsole_gtk's own package-level boundary and check whether boards depend on it by borrowing run commands, shared capabilities, governance tools, model adaptation, or infrastructure responsibilities.
+ - Drill down: [Function node: launchSettingsLayout](../../component-diagrams/apps-linux_uconsole_gtk-launchsettingslayout/component-diagram.md) - Open function node: launchSettingsLayout to confirm apps/linux_uconsole_gtk Which specific internal object is responsible for entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_layout.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will spread.
+ - Drill down: [Function node: makeLabel](../../component-diagrams/apps-linux_uconsole_gtk-makelabel/component-diagram.md) - Open the function node: makeLabel to confirm which specific object within apps/linux_uconsole_gtk is responsible for entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_widgets.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will spread.
+ - Drill down: [Function node: makeSettingsRow](../../component-diagrams/apps-linux_uconsole_gtk-makesettingsrow/component-diagram.md) - Open the function node: makeSettingsRow to confirm apps/linux_uconsole_gtk Which specific internal object is responsible for entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_settings_layout.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will spread.
+-Drill down: [Function node: refreshUi](../../component-diagrams/apps-linux_uconsole_gtk-refreshui/component-diagram.md) - Open the function node: refreshUi to confirm which specific object within apps/linux_uconsole_gtk assumes entry, orchestration, adaptation, contract or shared responsibilities. Focus on checking the code anchor apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_shell.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will spread.
+-Drill down: [Function node: refreshMap](../../component-diagrams/apps-linux_uconsole_gtk-refreshmap/component-diagram.md) - Open the function node: refreshMap to confirm which specific object within apps/linux_uconsole_gtk is responsible for entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_logic.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will spread.
+-Drill down: [Function node: main](../../component-diagrams/apps-linux_uconsole_gtk-main/component-diagram.md) - Open function node: main to confirm which specific object within apps/linux_uconsole_gtk is responsible for entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor apps/linux_uconsole_gtk/tests/uconsole_meshtastic_node_payload_smoke.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will spread.
+ - Drill down: [Function node: launchMapLayout](../../component-diagrams/apps-linux_uconsole_gtk-launchmaplayout/component-diagram.md) - Open function node: launchMapLayout to confirm apps/linux_uconsole_gtk Which specific internal object is responsible for entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor apps/linux_uconsole_gtk/src/platform/gtk/gtk_uconsole_map_layout.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will spread.
+ - Drill down: [Function node: expect](../../component-diagrams/apps-linux_uconsole_gtk-expect/component-diagram.md) - Open function node: expect to confirm which specific object within apps/linux_uconsole_gtk is responsible for entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor apps/linux_uconsole_gtk/tests/uconsole_meshtastic_node_payload_smoke.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will spread.
 
 ### apps/linux_sim_shell
 
-- 元素类型：package
-- 说明：apps/linux_sim_shell 是 boards 当前观察到的外部技术边界依赖；它说明当前模块不是孤立实现，而是需要借助另一组工程能力完成职责。
-- 技术角色：跨模块技术依赖边界：当前 package 需要另一个 package/module 提供能力、契约、配置或运行支撑。
-- 为什么出现：本地仓库证据在 boards 与 apps/linux_sim_shell 之间观察到跨模块事实关系，因此该依赖被放入 Package Diagram，而不是只藏在代码 import/call 里。
-- 关系意义：boards -> apps/linux_sim_shell 表示本地仓库证据观察到跨模块关系；它解释技术依赖方向，但不直接证明业务流程。
-- 下钻意图：下钻 apps/linux_sim_shell 可以查看它自己的 Package Diagram，再继续进入其组件、结构、sequence 或热点，判断当前依赖究竟落在入口、运行时、工具注册、模型适配还是基础设施边界。
-- 业务关联：boards 如果承载用户可见能力，那么对 apps/linux_sim_shell 的依赖可能是该能力的运行机制、扩展点或治理约束。该业务关联需要由组织/过程模型的 Use Case 证据确认。
-- 变更影响：修改 apps/linux_sim_shell 的公共接口、路径或运行方式，可能让 boards 的调用链、打包入口、agent 工作流或 UI 行为发生连锁变化。
-- 置信度：high
-- 证据：
+- Element type: package
+- Description: apps/linux_sim_shell is the external technical boundary dependency currently observed by boards; it indicates that the current module is not implemented in isolation, but requires the help of another set of engineering capabilities to complete its responsibilities.
+-Technical role: Cross-module technology dependency boundary: The current package requires another package/module to provide capabilities, contracts, configuration or running support.
+- Why it appears: Local repository evidence observes a cross-module fact relationship between boards and apps/linux_sim_shell, so the dependency is put into the Package Diagram instead of just hiding in the code import/call.
+- Relationship meaning: boards -> apps/linux_sim_shell indicates that the local warehouse evidence observes a cross-module relationship; it explains the technical dependency direction, but does not directly prove the business process.
+- Drill-down intention: Drill down into apps/linux_sim_shell to view its own Package Diagram, and then continue to enter its components, structures, sequences or hotspots to determine whether the current dependency falls on the entry, runtime, tool registration, model adaptation or infrastructure boundary.
+-Business correlation: boards If hosting a user-visible capability, the dependency on apps/linux_sim_shell may be the running mechanism, extension point, or governance constraint of that capability. This business association needs to be confirmed by the Use Case evidence of the organization/process model.
+- Impact of changes: Modifying the public interface, path or running mode of apps/linux_sim_shell may cause chain changes in the boards' call chain, packaging entry, agent workflow or UI behavior.
+- Confidence: high
+- Evidence:
   - dependency edge: boards -> apps/linux_sim_shell
   - apps/linux_sim_shell/APP_SHELL_MANIFEST.md
   - apps/linux_sim_shell/CMakeLists.txt
@@ -253,26 +253,26 @@ flowchart LR
   - apps/linux_sim_shell/src/linux_sim_app_shell.h
   - apps/linux_sim_shell/src/linux_sim_runtime_entry_adoption_probe.cpp
   - apps/linux_sim_shell/src/linux_sim_runtime_entry_adoption_probe.h
-- 风险：
-  - 跨模块依赖只能证明技术关系，不能直接证明业务关系。
-  - 如果该依赖只是因为实现方便而存在，未来变更可能形成边界漂移或隐式公共工具箱。
-- 问题：
-  - 当前证据尚未证明 boards 依赖 apps/linux_sim_shell 与某个 Use Case、runtime command 或配置决策直接相关。
-  - 当前依赖方向按仓库事实记录为候选，尚未发现架构决策文档证明它是稳定边界。
-- 下钻：[模块边界：apps/linux_sim_shell](../apps-linux_sim_shell/package-diagram.md) - 打开 apps/linux_sim_shell 自己的包级边界，检查 boards 依赖它时借用的是运行命令、共享能力、治理工具、模型适配还是基础设施职责。
+ - Risk:
+ - Cross-module dependencies can only prove technical relationships, not business relationships directly.
+ - If this dependency only exists for implementation convenience, future changes may cause boundary drift or implicit public toolboxes.
+- Question:
+ - There is currently no evidence that boards' dependence on apps/linux_sim_shell is directly related to a Use Case, runtime command, or configuration decision.
+ - The current dependency direction is a candidate according to the warehouse fact record, and no architectural decision document has been found to prove that it is a stable boundary.
+ - Drill down: [Module Boundary: apps/linux_sim_shell](../apps-linux_sim_shell/package-diagram.md) - Open apps/linux_sim_shell's own package-level boundary and check whether boards depend on it by borrowing run commands, shared capabilities, governance tools, model adaptation, or infrastructure responsibilities.
 
 ### firmware
 
-- 元素类型：package
-- 说明：firmware 是 boards 当前观察到的外部技术边界依赖；它说明当前模块不是孤立实现，而是需要借助另一组工程能力完成职责。
-- 技术角色：跨模块技术依赖边界：当前 package 需要另一个 package/module 提供能力、契约、配置或运行支撑。
-- 为什么出现：本地仓库证据在 boards 与 firmware 之间观察到跨模块事实关系，因此该依赖被放入 Package Diagram，而不是只藏在代码 import/call 里。
-- 关系意义：boards -> firmware 表示本地仓库证据观察到跨模块关系；它解释技术依赖方向，但不直接证明业务流程。
-- 下钻意图：下钻 firmware 可以查看它自己的 Package Diagram，再继续进入其组件、结构、sequence 或热点，判断当前依赖究竟落在入口、运行时、工具注册、模型适配还是基础设施边界。
-- 业务关联：boards 如果承载用户可见能力，那么对 firmware 的依赖可能是该能力的运行机制、扩展点或治理约束。该业务关联需要由组织/过程模型的 Use Case 证据确认。
-- 变更影响：修改 firmware 的公共接口、路径或运行方式，可能让 boards 的调用链、打包入口、agent 工作流或 UI 行为发生连锁变化。
-- 置信度：high
-- 证据：
+- Element type: package
+- Description: firmware is the external technical boundary dependency currently observed by boards; it indicates that the current module is not implemented in isolation, but requires the help of another set of engineering capabilities to complete its responsibilities.
+-Technical role: Cross-module technology dependency boundary: The current package requires another package/module to provide capabilities, contracts, configuration or running support.
+- Why it appears: Local repository evidence observes a cross-module factual relationship between boards and firmware, so the dependency is put into the Package Diagram instead of just hidden in the code import/call.
+- Relationship meaning: boards -> firmware indicates that the local warehouse evidence observes a cross-module relationship; it explains the technical dependency direction, but does not directly prove the business process.
+- Drill-down intention: Drill-down firmware can view its own Package Diagram, and then continue to enter its components, structures, sequences or hotspots to determine whether the current dependency falls on the entry, runtime, tool registration, model adaptation or infrastructure boundary.
+-Business correlation: boards If carrying user-visible capabilities, the dependency on firmware may be the operating mechanism, extension point, or governance constraint of the capability. This business association needs to be confirmed by the Use Case evidence of the organization/process model.
+- Impact of changes: Modifying the public interface, path or operation mode of the firmware may cause chain changes in the boards' call chain, packaging entry, agent workflow or UI behavior.
+- Confidence: high
+- Evidence:
   - dependency edge: boards -> firmware
   - firmware/c6_companion/CMakeLists.txt
   - firmware/c6_companion/components/tm_ble/CMakeLists.txt
@@ -281,29 +281,29 @@ flowchart LR
   - firmware/c6_companion/components/tm_diag/CMakeLists.txt
   - firmware/c6_companion/components/tm_diag/include/tm_diag.h
   - firmware/c6_companion/components/tm_diag/tm_diag.c
-- 风险：
-  - 跨模块依赖只能证明技术关系，不能直接证明业务关系。
-  - 如果该依赖只是因为实现方便而存在，未来变更可能形成边界漂移或隐式公共工具箱。
-- 问题：
-  - 当前证据尚未证明 boards 依赖 firmware 与某个 Use Case、runtime command 或配置决策直接相关。
-  - 当前依赖方向按仓库事实记录为候选，尚未发现架构决策文档证明它是稳定边界。
-- 下钻：[模块边界：firmware](../firmware/package-diagram.md) - 打开 firmware 自己的包级边界，检查 boards 依赖它时借用的是运行命令、共享能力、治理工具、模型适配还是基础设施职责。
-- 下钻：[服务对象：main](../../component-diagrams/firmware-main/component-diagram.md) - 打开 服务对象：main 是为了确认 firmware 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 firmware/c6_companion/tests/test_tm_services_functional.cpp，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- 下钻：[界面组件：tm_services_record_error](../../component-diagrams/firmware-tm_services_record_error/component-diagram.md) - 打开 界面组件：tm_services_record_error 是为了确认 firmware 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 firmware/c6_companion/components/tm_services/tm_services.c，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
+ - Risk:
+ - Cross-module dependencies can only prove technical relationships, not business relationships directly.
+ - If this dependency only exists for implementation convenience, future changes may cause boundary drift or implicit public toolboxes.
+- Question:
+ - Current evidence does not demonstrate that boards' dependency on firmware is directly related to a Use Case, runtime command, or configuration decision.
+ - The current dependency direction is a candidate according to the warehouse fact record, and no architectural decision document has been found to prove that it is a stable boundary.
+ - Drill down: [Module Boundary: firmware](../firmware/package-diagram.md) - Open firmware's own package-level boundary and check whether boards depend on it by borrowing run commands, shared capabilities, governance tools, model adaptation, or infrastructure responsibilities.
+-Drill down: [Service Object: main](../../component-diagrams/firmware-main/component-diagram.md) - Open Service Object: main to confirm which specific object within the firmware is responsible for entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor firmware/c6_companion/tests/test_tm_services_functional.cpp, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will spread.
+ - Drill down: [Interface component: tm_services_record_error](../../component-diagrams/firmware-tm_services_record_error/component-diagram.md) - Open interface component: tm_services_record_error to confirm which specific object within the firmware is responsible for entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor firmware/c6_companion/components/tm_services/tm_services.c, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will propagate.
 
-## 可下钻 UML
+## Drill-down UML
 
-- [函数节点：makeBoardProfile](../../component-diagrams/boards-makeboardprofile/component-diagram.md) - 打开 函数节点：makeBoardProfile 是为了确认 boards 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- [函数节点：pinNum](../../component-diagrams/boards-pinnum/component-diagram.md) - 打开 函数节点：pinNum 是为了确认 boards 内部哪一个具体对象承担入口、编排、适配、契约或共享职责。重点查看代码锚点 boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h，以及它的被引用/调用关系和对外依赖/调用关系是否意味着变更会扩散。
-- [结构协作：结构切片 boards · gat562_mesh_evb_pro/include/boards](../../class-structural-diagrams/boards-gat562_mesh_evb_pro-include-boards/class-structural-diagram.md) - 打开 结构协作：结构切片 boards · gat562_mesh_evb_pro/include/boards 是为了从对象协作角度解释 boards：哪些对象像入口，哪些像编排核心，哪些像适配/共享边界；它帮助判断复杂度来自职责分布，而不只是文件数量。
-- [结构协作：结构切片 boards · t_echo_lite/include/boards](../../class-structural-diagrams/boards-t_echo_lite-include-boards/class-structural-diagram.md) - 打开 结构协作：结构切片 boards · t_echo_lite/include/boards 是为了从对象协作角度解释 boards：哪些对象像入口，哪些像编排核心，哪些像适配/共享边界；它帮助判断复杂度来自职责分布，而不只是文件数量。
-- [结构协作：结构切片 boards · tab5/include/boards](../../class-structural-diagrams/boards-tab5-include-boards/class-structural-diagram.md) - 打开 结构协作：结构切片 boards · tab5/include/boards 是为了从对象协作角度解释 boards：哪些对象像入口，哪些像编排核心，哪些像适配/共享边界；它帮助判断复杂度来自职责分布，而不只是文件数量。
-- [结构协作：结构切片 boards · t_display_p4/include/boards](../../class-structural-diagrams/boards-t_display_p4-include-boards/class-structural-diagram.md) - 打开 结构协作：结构切片 boards · t_display_p4/include/boards 是为了从对象协作角度解释 boards：哪些对象像入口，哪些像编排核心，哪些像适配/共享边界；它帮助判断复杂度来自职责分布，而不只是文件数量。
-- [结构协作：结构切片 boards · tlora_pager/include/boards](../../class-structural-diagrams/boards-tlora_pager-include-boards/class-structural-diagram.md) - 打开 结构协作：结构切片 boards · tlora_pager/include/boards 是为了从对象协作角度解释 boards：哪些对象像入口，哪些像编排核心，哪些像适配/共享边界；它帮助判断复杂度来自职责分布，而不只是文件数量。
-- [依赖簇：boards 技术热点](../../technical-hotspots/dependency-cluster--boards/technical-hotspot.md) - 查看 依赖簇：boards 技术热点 这个复杂度信号是否会抬高 boards 的阅读、修改、测试或回归成本。
-- [承担外部协作的候选对象：boards/tlora_pager/src/tlora_pager_board.cpp 技术热点](../../technical-hotspots/collaboration-pressure--boards-tlora_pager-src-tlora_pager_board-cpp/technical-hotspot.md) - 查看 承担外部协作的候选对象：boards/tlora_pager/src/tlora_pager_board.cpp 技术热点 这个复杂度信号是否会抬高 boards 的阅读、修改、测试或回归成本。
+- [Function Node: makeBoardProfile](../../component-diagrams/boards-makeboardprofile/component-diagram.md) - Open the Function Node: makeBoardProfile to confirm which specific object inside the boards is responsible for entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will spread.
+- [Function Node: pinNum](../../component-diagrams/boards-pinnum/component-diagram.md) - Opening Function Node: pinNum is to confirm which specific object within boards is responsible for entry, orchestration, adaptation, contract or sharing responsibilities. Focus on checking the code anchor boards/t_echo_lite/include/boards/t_echo_lite/board_profile.h, and whether its referenced/calling relationship and external dependency/calling relationship mean that changes will spread.
+- [Structural Collaboration: Structural Slicing boards · gat562_mesh_evb_pro/include/boards](../../class-structural-diagrams/boards-gat562_mesh_evb_pro-include-boards/class-structural-diagram.md) - Open Structural Collaboration: Structural Slicing boards · gat562_mesh_evb_pro/include/boards is to explain boards from an object collaboration perspective: which objects are like portals, which are like orchestration cores, and which are like adaptation/sharing boundaries; it helps judge that complexity comes from the distribution of responsibilities, not just the number of files.
+- [Structural collaboration: Structural slicing boards · t_echo_lite/include/boards](../../class-structural-diagrams/boards-t_echo_lite-include-boards/class-structural-diagram.md) - Open Structural collaboration: Structural slicing boards · t_echo_lite/include/boards is to explain from the perspective of object collaboration boards: Which objects are like portals, which are like orchestration cores, and which are like adaptation/sharing boundaries; it helps determine whether complexity comes from the distribution of responsibilities, not just the number of files.
+- [Structural collaboration: Structural slice boards · tab5/include/boards](../../class-structural-diagrams/boards-tab5-include-boards/class-structural-diagram.md) - Open Structural collaboration: Structural slicing boards · tab5/include/boards is to explain from the perspective of object collaboration boards: Which objects are like portals, which are like orchestration cores, and which are like adaptation/sharing boundaries; it helps determine whether complexity comes from the distribution of responsibilities, not just the number of files.
+- [Structural collaboration: Structural slicing boards · t_display_p4/include/boards](../../class-structural-diagrams/boards-t_display_p4-include-boards/class-structural-diagram.md) - Open Structural collaboration: Structural slicing boards · t_display_p4/include/boards is to explain from the perspective of object collaboration boards: Which objects are like portals, which are like orchestration cores, and which are like adaptation/sharing boundaries; it helps determine whether complexity comes from the distribution of responsibilities, not just the number of files.
+- [Structural collaboration: Structural slicing boards · tlora_pager/include/boards](../../class-structural-diagrams/boards-tlora_pager-include-boards/class-structural-diagram.md) - Open Structural collaboration: Structural slicing boards · tlora_pager/include/boards is to explain from the perspective of object collaboration boards: Which objects are like portals, which are like orchestration cores, and which are like adaptation/sharing boundaries; it helps determine whether complexity comes from the distribution of responsibilities, not just the number of files.
+- [Dependency cluster: boards technical hotspots](../../technical-hotspots/dependency-cluster--boards/technical-hotspot.md) - Check whether this complexity signal will increase the cost of reading, modifying, testing or regression of boards.
+- [Candidates for external collaboration: boards/tlora_pager/src/tlora_pager_board.cpp Technical Hotspots](../../technical-hotspots/collaboration-pressure--boards-tlora_pager-src-tlora_pager_board-cpp/technical-hotspot.md) - View Candidates for external collaboration: boards/tlora_pager/src/tlora_pager_board.cpp Technical Hotspot Whether this complexity signal will increase the cost of reading, modifying, testing or regression of boards.
 
-## 证据
+## Evidence
 
 - boards/cardputerzero/board_facts.h
 - boards/cardputerzero/BOARD.md
@@ -314,12 +314,12 @@ flowchart LR
 - boards/gat562_mesh_evb_pro/include/boards/gat562_mesh_evb_pro/gat562_board.h
 - boards/gat562_mesh_evb_pro/include/boards/gat562_mesh_evb_pro/gps_runtime.h
 
-## 问题
+## Problem
 
-- 暂无未决问题。
+- There are no open issues yet.
 
-## 变更记录
+## Change record
 
 ### 0.1.30-alpha - 2026-06-25T09:19:20.669Z
 
-- 从本地仓库证据生成 模块边界：boards。
+- Generate module boundaries from local repository evidence: boards.
