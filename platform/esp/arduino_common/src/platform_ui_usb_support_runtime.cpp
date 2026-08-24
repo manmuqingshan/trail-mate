@@ -1,7 +1,6 @@
 ﻿#include "platform/ui/usb_support_runtime.h"
 
 #include "app/app_facade_access.h"
-#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "platform/esp/arduino_common/app_tasks.h"
@@ -9,6 +8,7 @@
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
 #include "platform/ui/device_runtime.h"
 #include "platform/ui/screen_runtime.h"
+#include "platform/ui/wifi_runtime.h"
 #include "screen_sleep.h"
 #include "team/usecase/team_pairing_service.h"
 
@@ -31,6 +31,8 @@ Status s_status{};
 char s_message[96] = "";
 bool s_prepared = false;
 bool s_radio_tasks_paused_by_usb = false;
+TaskHandle_t s_gps_task_suspended_by_usb = nullptr;
+::platform::ui::wifi::ExternalStorageSuspension s_wifi_suspension{};
 
 #define USB_MSC_LOG(...) std::printf("[USBMSC] " __VA_ARGS__)
 
@@ -43,6 +45,10 @@ void set_status_message(const char* message)
 
 void stop_pairing()
 {
+    if (!app::hasAppFacade())
+    {
+        return;
+    }
     if (team::TeamPairingService* pairing = app::teamFacade().getTeamPairing())
     {
         pairing->stop();
@@ -318,11 +324,14 @@ bool is_supported()
 #endif
 }
 
-void prepare_mass_storage_mode()
+bool prepare_mass_storage_mode()
 {
-    stop_pairing();
-    esp_wifi_stop();
-    ::platform::ui::screen::disable_sleep();
+    if (!::platform::ui::wifi::suspend_for_external_storage(&s_wifi_suspension))
+    {
+        USB_MSC_LOG("Wi-Fi quiesce failed for USB mass storage\n");
+        set_status_message("Wi-Fi Busy");
+        return false;
+    }
 
     if (!app::AppTasks::areRadioTasksPaused())
     {
@@ -334,24 +343,32 @@ void prepare_mass_storage_mode()
         else
         {
             USB_MSC_LOG("radio task quiesce failed for USB mass storage\n");
+            ::platform::ui::wifi::resume_after_external_storage(&s_wifi_suspension);
+            set_status_message("Radio Busy");
+            return false;
         }
     }
 
     TaskHandle_t gps_task_handle = gps::gps_get_task_handle();
-    if (gps_task_handle != nullptr)
+    if (gps_task_handle != nullptr && eTaskGetState(gps_task_handle) != eSuspended)
     {
         vTaskSuspend(gps_task_handle);
+        s_gps_task_suspended_by_usb = gps_task_handle;
     }
+
+    stop_pairing();
+    ::platform::ui::screen::disable_sleep();
+    return true;
 }
 
 void restore_mass_storage_mode()
 {
     ::platform::ui::screen::enable_sleep();
 
-    TaskHandle_t gps_task_handle = gps::gps_get_task_handle();
-    if (gps_task_handle != nullptr)
+    if (s_gps_task_suspended_by_usb != nullptr)
     {
-        vTaskResume(gps_task_handle);
+        vTaskResume(s_gps_task_suspended_by_usb);
+        s_gps_task_suspended_by_usb = nullptr;
     }
 
     if (s_radio_tasks_paused_by_usb)
@@ -360,6 +377,8 @@ void restore_mass_storage_mode()
         s_radio_tasks_paused_by_usb = false;
         USB_MSC_LOG("radio tasks resumed after USB mass storage\n");
     }
+
+    ::platform::ui::wifi::resume_after_external_storage(&s_wifi_suspension);
 }
 
 bool start()
@@ -393,7 +412,11 @@ bool start()
         return false;
     }
 
-    prepare_mass_storage_mode();
+    if (!prepare_mass_storage_mode())
+    {
+        s_status.active = false;
+        return false;
+    }
     s_prepared = true;
     if (!s_storage_session.begin())
     {

@@ -35,6 +35,23 @@ bool apply_enabled(bool enabled)
     return false;
 }
 
+bool suspend_for_external_storage(ExternalStorageSuspension* out_suspension)
+{
+    if (out_suspension)
+    {
+        *out_suspension = ExternalStorageSuspension{};
+    }
+    return true;
+}
+
+void resume_after_external_storage(ExternalStorageSuspension* suspension)
+{
+    if (suspension)
+    {
+        *suspension = ExternalStorageSuspension{};
+    }
+}
+
 bool connect(const Config* override_config)
 {
     (void)override_config;

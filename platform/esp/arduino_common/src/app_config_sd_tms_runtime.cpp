@@ -2,7 +2,10 @@
 
 #include "app/tms_config_codec.h"
 #include "platform/esp/arduino_common/app_config_tms_settings_extension.h"
+#include "platform/esp/arduino_common/chat/infra/store/fixed_slot_journal.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/ui/reticulum_group_config_runtime.h"
+#include "platform/ui/reticulum_network_config_runtime.h"
 #include "platform/ui/settings_store.h"
 
 #include <Arduino.h>
@@ -20,196 +23,85 @@ using ::platform::esp::arduino_common::storage::SdRuntimeFile;
 
 constexpr const char* kConfigDir = "/trailmate";
 constexpr const char* kConfigPath = "/trailmate/config.tms";
-constexpr const char* kConfigTempPath = "/trailmate/config.tms.tmp";
-constexpr const char* kCommitPath = "/trailmate/config.tms.commit";
-constexpr const char* kCommitTempPath = "/trailmate/config.tms.commit.tmp";
-constexpr const char* kReplicaNamespace = "cfgmirror";
-constexpr const char* kReplicaKey = "meta";
-constexpr uint32_t kReplicaMagic = 0x544D4352UL; // TMCR
-constexpr uint32_t kCommitMagic = 0x544D434DUL;  // TMCM
+constexpr const char* kConfigTempPath = "/trailmate/config.tms.new";
+constexpr const char* kConfigRecoveryPath = "/trailmate/config.tms.bak";
+constexpr const char* kBackupDir = "/trailmate/backup";
+constexpr const char* kBackupPath = "/trailmate/backup/settings.tms";
+constexpr const char* kBackupTempPath = "/trailmate/backup/settings.tms.new";
+constexpr const char* kBackupRecoveryPath = "/trailmate/backup/settings.tms.bak";
+constexpr const char* kResetNamespace = "cfgreset";
+constexpr const char* kResetPendingKey = "working";
 
-enum class ReplicaState : uint8_t
+// The only NVS state owned by this repository is an operation marker.  It
+// contains no configuration and exists solely so a Factory Reset performed
+// without an SD card cannot be undone by inserting an old card later.
+bool reset_pending()
 {
-    NvsCommitted = 1U,
-    Synced = 2U,
-    // Factory Reset may occur while the SD card is absent.  Keep a tiny NVS
-    // tombstone until the next SD sync so an old card cannot repopulate a
-    // freshly reset device before its working document is replaced.
-    FactoryResetPending = 3U,
-};
-
-struct ReplicaMeta
-{
-    uint32_t magic = kReplicaMagic;
-    uint32_t revision = 0U;
-    uint32_t last_sd_crc = 0U;
-    uint8_t state = static_cast<uint8_t>(ReplicaState::NvsCommitted);
-    uint8_t reserved[3]{};
-    uint32_t crc = 0U;
-};
-
-static_assert(sizeof(ReplicaMeta) <= 24U,
-              "NVS SD replica metadata must remain a tiny scalar record");
-
-struct CommitRecord
-{
-    uint32_t magic = kCommitMagic;
-    uint16_t schema = tms::kSchemaVersion;
-    uint16_t records = 0U;
-    uint32_t file_bytes = 0U;
-    uint32_t file_crc = 0U;
-    uint32_t crc = 0U;
-};
-
-static_assert(sizeof(CommitRecord) <= 24U,
-              "SD commit sidecar must remain a tiny scalar record");
-
-struct FileDigest
-{
-    uint32_t bytes = 0U;
-    uint32_t crc = 0U;
-    uint16_t records = 0U;
-};
-
-// This is deliberately static storage, not a task-stack object and not a
-// transient heap allocation.  The SD runtime itself places its file handles in
-// PSRAM; keeping this sub-384 byte parser buffer in BSS also keeps boot usable
-// on ESP variants without PSRAM and avoids a hidden allocator fallback.
-tms::LineScratch s_line_scratch{};
-const AppConfig* s_working_config = nullptr;
-bool s_sync_pending = false;
-bool s_sync_suppressed = false;
-uint32_t s_next_sync_attempt_ms = 0U;
-
-class ScopedSyncSuppression
-{
-  public:
-    ScopedSyncSuppression()
-        : previous_(s_sync_suppressed)
-    {
-        s_sync_suppressed = true;
-    }
-
-    ~ScopedSyncSuppression() { s_sync_suppressed = previous_; }
-
-  private:
-    bool previous_ = false;
-};
-
-bool tracksWorkingSettings(const char* ns)
-{
-    // A batched notification intentionally has no key.  The current ESP
-    // multi-key owners are Wi-Fi and cellular and are both working-config
-    // fields, so it must be retained rather than dropped.
-    return ns == nullptr || std::strcmp(ns, "settings") == 0 ||
-           std::strcmp(ns, "power") == 0 || std::strcmp(ns, "a7682e") == 0;
-}
-
-void onSettingsStoreChanged(void*, const char* ns, const char*)
-{
-    if (s_sync_suppressed || !tracksWorkingSettings(ns))
-    {
-        return;
-    }
-    // This small NVS marker is the write-ahead record.  If power is lost
-    // before the loop can flush SD, boot detects the stale SD replica and
-    // retains the newer NVS settings instead of reversing the user's change.
-    (void)::app::sd_tms::markNvsCommitted();
-    s_sync_pending = true;
-    s_next_sync_attempt_ms = 0U;
-}
-
-uint32_t crc32Update(uint32_t crc, const uint8_t* data, std::size_t length)
-{
-    for (std::size_t index = 0U; index < length; ++index)
-    {
-        crc ^= data[index];
-        for (uint8_t bit = 0U; bit < 8U; ++bit)
-        {
-            crc = (crc & 1U) != 0U ? (crc >> 1U) ^ 0xEDB88320UL : crc >> 1U;
-        }
-    }
-    return crc;
-}
-
-uint32_t crc32(const void* data, std::size_t length)
-{
-    return crc32Update(0xFFFFFFFFUL,
-                       static_cast<const uint8_t*>(data),
-                       length) ^
-           0xFFFFFFFFUL;
-}
-
-bool metaIsValid(const ReplicaMeta& meta)
-{
-    return meta.magic == kReplicaMagic &&
-           (meta.state == static_cast<uint8_t>(ReplicaState::NvsCommitted) ||
-            meta.state == static_cast<uint8_t>(ReplicaState::Synced) ||
-            meta.state == static_cast<uint8_t>(ReplicaState::FactoryResetPending)) &&
-           meta.crc == crc32(&meta, sizeof(meta) - sizeof(meta.crc));
-}
-
-bool readMeta(ReplicaMeta* out)
-{
-    if (!out)
-    {
-        return false;
-    }
-    *out = ReplicaMeta{};
     Preferences preferences;
-    if (!preferences.begin(kReplicaNamespace, true))
+    if (!preferences.begin(kResetNamespace, true))
     {
         return false;
     }
-    const std::size_t read = preferences.getBytes(kReplicaKey, out, sizeof(*out));
+    const bool pending = preferences.getBool(kResetPendingKey, false);
     preferences.end();
-    return read == sizeof(*out) && metaIsValid(*out);
+    return pending;
 }
 
-bool writeMeta(ReplicaMeta meta)
+bool set_reset_pending(bool pending)
 {
-    meta.magic = kReplicaMagic;
-    meta.crc = crc32(&meta, sizeof(meta) - sizeof(meta.crc));
     Preferences preferences;
-    if (!preferences.begin(kReplicaNamespace, false))
+    if (!preferences.begin(kResetNamespace, false))
     {
         return false;
     }
-    const bool written = preferences.putBytes(kReplicaKey, &meta, sizeof(meta)) == sizeof(meta);
+    const bool ok = pending ? preferences.putBool(kResetPendingKey, true)
+                            : preferences.remove(kResetPendingKey);
     preferences.end();
-    return written;
+    return ok;
 }
 
-bool sdAvailable()
+bool sd_available()
 {
     return ::platform::esp::arduino_common::storage::sd_card_ready();
 }
 
-bool ensureConfigDirectory()
+bool ensure_directory(const char* path)
 {
-    if (::platform::esp::arduino_common::storage::sd_exists(kConfigDir))
+    if (::platform::esp::arduino_common::storage::sd_exists(path))
     {
-        return ::platform::esp::arduino_common::storage::sd_is_directory(kConfigDir);
+        return ::platform::esp::arduino_common::storage::sd_is_directory(path);
     }
-    return ::platform::esp::arduino_common::storage::sd_mkdir(kConfigDir);
+    return ::platform::esp::arduino_common::storage::sd_mkdir(path);
 }
 
-bool atomicReplace(const char* temporary_path, const char* destination_path)
+bool remove_if_present(const char* path)
 {
-    if (::platform::esp::arduino_common::storage::sd_exists(destination_path) &&
-        !::platform::esp::arduino_common::storage::sd_remove(destination_path))
-    {
-        return false;
-    }
-    if (::platform::esp::arduino_common::storage::sd_rename(temporary_path, destination_path))
-    {
-        return true;
-    }
-    (void)::platform::esp::arduino_common::storage::sd_remove(temporary_path);
-    return false;
+    return !::platform::esp::arduino_common::storage::sd_exists(path) ||
+           ::platform::esp::arduino_common::storage::sd_remove(path);
 }
 
-bool consumePhysicalLine(tms::Decoder& decoder, std::size_t length)
+tms::LineScratch s_line_scratch{};
+const AppConfig* s_working_config = nullptr;
+bool s_sync_pending = false;
+bool s_reset_in_progress = false;
+bool s_repair_required = false;
+uint32_t s_next_sync_attempt_ms = 0U;
+
+bool tracks_working_settings(const char* ns)
+{
+    return ns == nullptr || std::strcmp(ns, "settings") == 0 ||
+           std::strcmp(ns, "power") == 0 || std::strcmp(ns, "a7682e") == 0;
+}
+
+void on_settings_store_changed(void*, const char* ns, const char*)
+{
+    if (!s_reset_in_progress && tracks_working_settings(ns))
+    {
+        requestWorkingConfigSync();
+    }
+}
+
+bool consume_physical_line(tms::Decoder& decoder, std::size_t length)
 {
     if (length >= sizeof(s_line_scratch.bytes))
     {
@@ -223,36 +115,47 @@ bool consumePhysicalLine(tms::Decoder& decoder, std::size_t length)
     return decoder.consumeLine(s_line_scratch.bytes);
 }
 
-bool readDocument(AppConfig* target, FileDigest* digest, tms::DocumentInfo* info)
+bool read_document(const char* path,
+                   tms::DocumentKind kind,
+                   AppConfig* target,
+                   uint16_t* schema_version,
+                   tms::DocumentInfo* info)
 {
-    if (!digest || !sdAvailable() ||
-        !::platform::esp::arduino_common::storage::sd_exists(kConfigPath))
+    if (schema_version)
+    {
+        *schema_version = 0U;
+    }
+    if (info)
+    {
+        *info = {};
+    }
+    if (!path || !sd_available() ||
+        !::platform::esp::arduino_common::storage::sd_exists(path))
     {
         return false;
     }
+
     SdRuntimeFile file;
-    if (!file.open(kConfigPath, "r"))
+    if (!file.open(path, "r"))
     {
         return false;
     }
-    const uint64_t file_size = file.size();
-    if (file_size == 0U || file_size > tms::kMaxDocumentBytes)
+    const uint64_t size = file.size();
+    if (size == 0U || size > tms::kMaxDocumentBytes)
     {
         file.close();
         return false;
     }
 
-    ScopedSyncSuppression suppress_sync;
     settings_extension::beginRead(target != nullptr);
     tms::Decoder decoder(target,
-                         tms::DocumentKind::Working,
+                         kind,
                          settings_extension::consumeRecord,
                          nullptr,
                          settings_extension::finishDocument);
-    uint32_t running_crc = 0xFFFFFFFFUL;
     std::size_t line_length = 0U;
     bool ok = true;
-    for (uint64_t offset = 0U; offset < file_size; ++offset)
+    for (uint64_t offset = 0U; offset < size; ++offset)
     {
         const int raw = file.read_byte();
         if (raw < 0)
@@ -260,11 +163,10 @@ bool readDocument(AppConfig* target, FileDigest* digest, tms::DocumentInfo* info
             ok = false;
             break;
         }
-        const uint8_t byte = static_cast<uint8_t>(raw);
-        running_crc = crc32Update(running_crc, &byte, 1U);
-        if (byte == '\n')
+        const char value = static_cast<char>(raw);
+        if (value == '\n')
         {
-            if (!consumePhysicalLine(decoder, line_length))
+            if (!consume_physical_line(decoder, line_length))
             {
                 ok = false;
                 break;
@@ -277,168 +179,298 @@ bool readDocument(AppConfig* target, FileDigest* digest, tms::DocumentInfo* info
             ok = false;
             break;
         }
-        s_line_scratch.bytes[line_length++] = static_cast<char>(byte);
+        s_line_scratch.bytes[line_length++] = value;
     }
     if (ok && line_length > 0U)
     {
-        ok = consumePhysicalLine(decoder, line_length);
+        ok = consume_physical_line(decoder, line_length);
     }
     file.close();
+
     const bool finished = ok && decoder.finish();
-    settings_extension::endRead();
-    if (!finished)
+    if (schema_version)
     {
-        if (info)
-        {
-            *info = decoder.info();
-        }
-        return false;
+        *schema_version = decoder.schemaVersion();
     }
-    digest->bytes = static_cast<uint32_t>(file_size);
-    digest->crc = running_crc ^ 0xFFFFFFFFUL;
-    digest->records = decoder.info().records;
     if (info)
     {
         *info = decoder.info();
     }
-    return true;
-}
-
-bool commitIsValid(const CommitRecord& record)
-{
-    return record.magic == kCommitMagic && record.schema == tms::kSchemaVersion &&
-           record.crc == crc32(&record, sizeof(record) - sizeof(record.crc));
-}
-
-bool readCommit(CommitRecord* out)
-{
-    if (!out || !sdAvailable() ||
-        !::platform::esp::arduino_common::storage::sd_exists(kCommitPath))
-    {
-        return false;
-    }
-    SdRuntimeFile file;
-    if (!file.open(kCommitPath, "r") || file.size() != sizeof(*out))
-    {
-        file.close();
-        return false;
-    }
-    const bool read = file.read(out, sizeof(*out)) == static_cast<int>(sizeof(*out));
-    file.close();
-    return read && commitIsValid(*out);
+    settings_extension::endRead();
+    return finished;
 }
 
 struct FileOutput
 {
     SdRuntimeFile* file = nullptr;
-    uint32_t running_crc = 0xFFFFFFFFUL;
-    uint32_t bytes = 0U;
 };
 
-bool writeOutput(void* context, const char* data, std::size_t length)
+bool write_output(void* context, const char* data, std::size_t length)
 {
     auto* output = static_cast<FileOutput*>(context);
-    if (!output || !output->file || !data || length == 0U ||
-        output->file->write(data, length) != length)
-    {
-        return false;
-    }
-    output->running_crc = crc32Update(output->running_crc,
-                                      reinterpret_cast<const uint8_t*>(data),
-                                      length);
-    output->bytes += static_cast<uint32_t>(length);
-    return true;
+    return output != nullptr && output->file != nullptr && data != nullptr &&
+           output->file->write(data, length) == length;
 }
 
-bool writeCommitTemporary(const CommitRecord& record)
+bool write_document_candidate(const AppConfig& config,
+                              tms::DocumentKind kind,
+                              const char* directory,
+                              const char* temporary_path)
 {
-    (void)::platform::esp::arduino_common::storage::sd_remove(kCommitTempPath);
-    SdRuntimeFile file;
-    if (!file.open(kCommitTempPath, "w"))
+    if (!ensure_directory(directory) || !remove_if_present(temporary_path))
     {
         return false;
     }
-    const bool wrote = file.write(&record, sizeof(record)) == sizeof(record);
+    SdRuntimeFile file;
+    if (!file.open(temporary_path, "w"))
+    {
+        return false;
+    }
+
+    FileOutput output{&file};
+    tms::DocumentInfo emitted{};
+    const bool wrote = tms::writeDocument(config,
+                                          kind,
+                                          {&output, write_output},
+                                          s_line_scratch,
+                                          &emitted,
+                                          settings_extension::writeRecords,
+                                          const_cast<AppConfig*>(&config));
     const bool flushed = file.flush();
     file.close();
     if (!wrote || !flushed)
     {
-        (void)::platform::esp::arduino_common::storage::sd_remove(kCommitTempPath);
+        (void)remove_if_present(temporary_path);
         return false;
     }
-    return true;
+
+    tms::DocumentInfo validated{};
+    const bool valid = read_document(temporary_path, kind, nullptr, nullptr, &validated);
+    if (!valid)
+    {
+        std::printf("[AppCfg][TMS] candidate invalid path=%s error=%s\n",
+                    temporary_path,
+                    tms::decodeErrorName(validated.error));
+        (void)remove_if_present(temporary_path);
+    }
+    return valid;
+}
+
+bool promote_candidate(const char* temporary_path,
+                       const char* final_path,
+                       const char* recovery_path)
+{
+    return chat::storage::v2::replaceFileAtomically(temporary_path,
+                                                     final_path,
+                                                     recovery_path);
+}
+
+bool recover_transaction(const char* final_path,
+                         const char* temporary_path,
+                         const char* recovery_path)
+{
+    return chat::storage::v2::recoverAtomicFile(final_path,
+                                                 temporary_path,
+                                                 recovery_path);
+}
+
+bool copy_backup_as_working_candidate()
+{
+    SdRuntimeFile source;
+    SdRuntimeFile destination;
+    if (!source.open(kBackupPath, "r") ||
+        !remove_if_present(kConfigTempPath) ||
+        !destination.open(kConfigTempPath, "w"))
+    {
+        source.close();
+        destination.close();
+        return false;
+    }
+
+    bool ok = true;
+    std::size_t line_length = 0U;
+    const uint64_t size = source.size();
+    for (uint64_t offset = 0U; ok && offset < size; ++offset)
+    {
+        const int raw = source.read_byte();
+        if (raw < 0)
+        {
+            ok = false;
+            break;
+        }
+        const char value = static_cast<char>(raw);
+        if (value != '\n')
+        {
+            if (line_length + 1U >= sizeof(s_line_scratch.bytes))
+            {
+                ok = false;
+                break;
+            }
+            s_line_scratch.bytes[line_length++] = value;
+            continue;
+        }
+
+        std::size_t comparable_length = line_length;
+        if (comparable_length > 0U &&
+            s_line_scratch.bytes[comparable_length - 1U] == '\r')
+        {
+            --comparable_length;
+        }
+        const char terminator = s_line_scratch.bytes[comparable_length];
+        s_line_scratch.bytes[comparable_length] = '\0';
+        const bool is_backup_kind =
+            std::strcmp(s_line_scratch.bytes, "document.kind=enum:backup") == 0;
+        s_line_scratch.bytes[comparable_length] = terminator;
+        if (is_backup_kind)
+        {
+            constexpr const char* kWorkingKind = "document.kind=enum:working\n";
+            ok = destination.write(kWorkingKind, std::strlen(kWorkingKind)) ==
+                 std::strlen(kWorkingKind);
+        }
+        else
+        {
+            ok = destination.write(s_line_scratch.bytes, line_length) == line_length &&
+                 destination.write("\n", 1U) == 1U;
+        }
+        line_length = 0U;
+    }
+    if (line_length != 0U)
+    {
+        ok = false;
+    }
+    ok = ok && destination.flush();
+    source.close();
+    destination.close();
+    if (!ok)
+    {
+        (void)remove_if_present(kConfigTempPath);
+    }
+    return ok;
+}
+
+bool remove_working_documents()
+{
+    return remove_if_present(kConfigTempPath) && remove_if_present(kConfigRecoveryPath) &&
+           remove_if_present(kConfigPath);
+}
+
+bool remove_backup_documents()
+{
+    return remove_if_present(kBackupTempPath) && remove_if_present(kBackupRecoveryPath) &&
+           remove_if_present(kBackupPath);
 }
 
 } // namespace
 
 LoadResult loadWorkingConfig(AppConfig& config)
 {
-    if (!sdAvailable())
+    s_repair_required = false;
+    if (!sd_available())
     {
         return LoadResult::Unavailable;
+    }
+    if (reset_pending())
+    {
+        if (!remove_working_documents() || !remove_backup_documents() ||
+            !::platform::ui::reticulum_groups::discardLegacySource() ||
+            !::platform::ui::reticulum_network_config::discardLegacySource() ||
+            !set_reset_pending(false))
+        {
+            s_repair_required = true;
+            return LoadResult::Invalid;
+        }
+    }
+    if (!recover_transaction(kConfigPath, kConfigTempPath, kConfigRecoveryPath))
+    {
+        s_repair_required = true;
+        return LoadResult::Invalid;
     }
     if (!::platform::esp::arduino_common::storage::sd_exists(kConfigPath))
     {
         return LoadResult::Missing;
     }
 
-    FileDigest digest{};
+    uint16_t schema = 0U;
     tms::DocumentInfo info{};
-    if (!readDocument(nullptr, &digest, &info))
+    if (!read_document(kConfigPath,
+                       tms::DocumentKind::Working,
+                       nullptr,
+                       &schema,
+                       &info))
     {
-        std::printf("[AppCfg][SD] config.tms invalid error=%s\n",
+        std::printf("[AppCfg][TMS] invalid working file error=%s\n",
                     tms::decodeErrorName(info.error));
+        s_repair_required = true;
         return LoadResult::Invalid;
     }
-
-    ReplicaMeta meta{};
-    const bool has_meta = readMeta(&meta);
-    if (has_meta && meta.state == static_cast<uint8_t>(ReplicaState::FactoryResetPending))
+    if (schema != tms::kSchemaVersion)
     {
-        std::printf("[AppCfg][SD] deferred config.tms after factory reset\n");
-        return LoadResult::DeferredToNvs;
-    }
-    if (has_meta && meta.state == static_cast<uint8_t>(ReplicaState::NvsCommitted) &&
-        digest.crc == meta.last_sd_crc)
-    {
-        std::printf("[AppCfg][SD] deferred stale replica crc=%08lx\n",
-                    static_cast<unsigned long>(digest.crc));
-        return LoadResult::DeferredToNvs;
+        return LoadResult::Legacy;
     }
 
-    CommitRecord commit{};
-    const bool commit_matches = readCommit(&commit) && commit.file_crc == digest.crc &&
-                                commit.file_bytes == digest.bytes &&
-                                commit.records == digest.records;
-    if (!commit_matches)
+    if (!read_document(kConfigPath,
+                       tms::DocumentKind::Working,
+                       &config,
+                       nullptr,
+                       &info))
     {
-        std::printf("[AppCfg][SD] config.tms has no matching commit; treating as external edit\n");
-    }
-
-    if (!readDocument(&config, &digest, &info))
-    {
-        // The validation pass already succeeded.  This guards card removal or
-        // an I/O error between passes without treating a partially applied
-        // document as authoritative on the next boot.
-        std::printf("[AppCfg][SD] config.tms changed while applying\n");
+        std::printf("[AppCfg][TMS] working file changed during apply error=%s\n",
+                    tms::decodeErrorName(info.error));
+        s_repair_required = true;
         return LoadResult::Invalid;
     }
-    std::printf("[AppCfg][SD] applied config.tms crc=%08lx records=%u source=%s\n",
-                static_cast<unsigned long>(digest.crc),
-                static_cast<unsigned>(digest.records),
-                commit_matches ? "committed" : "external");
     return LoadResult::Applied;
+}
+
+bool applyLegacyWorkingConfig(AppConfig& config)
+{
+    uint16_t schema = 0U;
+    tms::DocumentInfo info{};
+    if (!read_document(kConfigPath,
+                       tms::DocumentKind::Working,
+                       nullptr,
+                       &schema,
+                       &info) ||
+        schema >= tms::kSchemaVersion)
+    {
+        return false;
+    }
+    return read_document(kConfigPath,
+                         tms::DocumentKind::Working,
+                         &config,
+                         nullptr,
+                         &info);
+}
+
+bool workingConfigRequiresRepair()
+{
+    return s_repair_required;
+}
+
+void requireWorkingConfigRepair()
+{
+    s_repair_required = true;
 }
 
 void bindWorkingConfig(const AppConfig& config)
 {
     s_working_config = &config;
-    ::platform::ui::settings_store::set_change_observer(onSettingsStoreChanged, nullptr);
+    ::platform::ui::settings_store::set_change_observer(on_settings_store_changed,
+                                                         nullptr);
+}
+
+void requestWorkingConfigSync()
+{
+    if (!s_reset_in_progress)
+    {
+        s_sync_pending = true;
+        s_next_sync_attempt_ms = 0U;
+    }
 }
 
 void serviceWorkingConfig()
 {
-    if (!s_sync_pending || !s_working_config)
+    if (!s_sync_pending || !s_working_config || s_repair_required)
     {
         return;
     }
@@ -454,102 +486,71 @@ void serviceWorkingConfig()
         s_next_sync_attempt_ms = 0U;
         return;
     }
-    // Card insertion/removal and SD contention are expected states.  Retry at
-    // a bounded cadence from the foreground loop rather than from a timer or
-    // a settings-store write call.
     s_next_sync_attempt_ms = now_ms + 1000U;
-}
-
-bool markNvsCommitted()
-{
-    ReplicaMeta meta{};
-    const bool has_meta = readMeta(&meta);
-    if (has_meta && meta.state == static_cast<uint8_t>(ReplicaState::FactoryResetPending))
-    {
-        // A user may change NVS-backed settings before an absent card returns.
-        // Do not let that ordinary write-ahead transition erase the Factory
-        // Reset tombstone; only a successful SD replacement may do so.
-        return true;
-    }
-    meta.magic = kReplicaMagic;
-    meta.state = static_cast<uint8_t>(ReplicaState::NvsCommitted);
-    return writeMeta(meta);
 }
 
 bool syncWorkingConfig(const AppConfig& config)
 {
-    ScopedSyncSuppression suppress_sync;
-    if (!sdAvailable())
+    if (s_repair_required || !sd_available() ||
+        !write_document_candidate(config,
+                                  tms::DocumentKind::Working,
+                                  kConfigDir,
+                                  kConfigTempPath))
     {
         return false;
     }
-    if (!ensureConfigDirectory())
+    return promote_candidate(kConfigTempPath, kConfigPath, kConfigRecoveryPath);
+}
+
+bool backupWorkingConfig(const AppConfig& config)
+{
+    if (!sd_available() ||
+        !write_document_candidate(config,
+                                  tms::DocumentKind::Backup,
+                                  kBackupDir,
+                                  kBackupTempPath))
     {
         return false;
     }
-    (void)::platform::esp::arduino_common::storage::sd_remove(kConfigTempPath);
-    SdRuntimeFile file;
-    if (!file.open(kConfigTempPath, "w"))
+    return promote_candidate(kBackupTempPath, kBackupPath, kBackupRecoveryPath);
+}
+
+bool restoreWorkingConfig()
+{
+    if (!sd_available() ||
+        !recover_transaction(kBackupPath, kBackupTempPath, kBackupRecoveryPath) ||
+        !::platform::esp::arduino_common::storage::sd_exists(kBackupPath))
     {
         return false;
     }
-    FileOutput output{&file};
     tms::DocumentInfo info{};
-    const bool wrote = tms::writeDocument(config,
-                                          tms::DocumentKind::Working,
-                                          {&output, writeOutput},
-                                          s_line_scratch,
-                                          &info,
-                                          settings_extension::writeRecords,
-                                          nullptr);
-    const bool flushed = file.flush();
-    file.close();
-    if (!wrote || !flushed)
+    if (!read_document(kBackupPath,
+                       tms::DocumentKind::Backup,
+                       nullptr,
+                       nullptr,
+                       &info) ||
+        !copy_backup_as_working_candidate() ||
+        !read_document(kConfigTempPath,
+                       tms::DocumentKind::Working,
+                       nullptr,
+                       nullptr,
+                       &info))
     {
-        (void)::platform::esp::arduino_common::storage::sd_remove(kConfigTempPath);
+        (void)remove_if_present(kConfigTempPath);
         return false;
     }
-
-    CommitRecord commit{};
-    // Encoder accounting includes the magic and END physical lines; the
-    // decoder's record count intentionally counts only key/value records.
-    commit.records = info.records >= 2U ? static_cast<uint16_t>(info.records - 2U) : 0U;
-    commit.file_bytes = output.bytes;
-    commit.file_crc = output.running_crc ^ 0xFFFFFFFFUL;
-    commit.crc = crc32(&commit, sizeof(commit) - sizeof(commit.crc));
-    if (!writeCommitTemporary(commit) || !atomicReplace(kConfigTempPath, kConfigPath) ||
-        !atomicReplace(kCommitTempPath, kCommitPath))
-    {
-        return false;
-    }
-
-    ReplicaMeta meta{};
-    (void)readMeta(&meta);
-    meta.magic = kReplicaMagic;
-    ++meta.revision;
-    meta.last_sd_crc = commit.file_crc;
-    meta.state = static_cast<uint8_t>(ReplicaState::Synced);
-    if (!writeMeta(meta))
-    {
-        return false;
-    }
-    std::printf("[AppCfg][SD] synchronized config.tms revision=%lu crc=%08lx records=%u\n",
-                static_cast<unsigned long>(meta.revision),
-                static_cast<unsigned long>(meta.last_sd_crc),
-                static_cast<unsigned>(commit.records));
-    s_sync_pending = false;
-    s_next_sync_attempt_ms = 0U;
-    return true;
+    s_repair_required = false;
+    return promote_candidate(kConfigTempPath, kConfigPath, kConfigRecoveryPath);
 }
 
 void beginWorkingConfigReset()
 {
-    s_sync_suppressed = true;
+    s_reset_in_progress = true;
 }
 
 void endWorkingConfigReset()
 {
-    s_sync_suppressed = false;
+    s_reset_in_progress = false;
     s_sync_pending = false;
     s_next_sync_attempt_ms = 0U;
 }
@@ -558,36 +559,15 @@ bool resetWorkingConfig()
 {
     s_sync_pending = false;
     s_next_sync_attempt_ms = 0U;
-    if (!sdAvailable())
+    s_repair_required = false;
+    if (!sd_available())
     {
-        ReplicaMeta meta{};
-        (void)readMeta(&meta);
-        meta.magic = kReplicaMagic;
-        ++meta.revision;
-        meta.last_sd_crc = 0U;
-        meta.state = static_cast<uint8_t>(ReplicaState::FactoryResetPending);
-        return writeMeta(meta);
+        return set_reset_pending(true);
     }
-    bool ok = true;
-    const char* paths[] = {kConfigTempPath, kCommitTempPath, kConfigPath, kCommitPath};
-    for (const char* path : paths)
-    {
-        if (::platform::esp::arduino_common::storage::sd_exists(path))
-        {
-            ok = ::platform::esp::arduino_common::storage::sd_remove(path) && ok;
-        }
-    }
-    if (!ok)
-    {
-        return false;
-    }
-    Preferences preferences;
-    if (preferences.begin(kReplicaNamespace, false))
-    {
-        (void)preferences.remove(kReplicaKey);
-        preferences.end();
-    }
-    return true;
+    return remove_working_documents() && remove_backup_documents() &&
+           ::platform::ui::reticulum_groups::discardLegacySource() &&
+           ::platform::ui::reticulum_network_config::discardLegacySource() &&
+           set_reset_pending(false);
 }
 
 const char* loadResultName(LoadResult result)
@@ -598,10 +578,10 @@ const char* loadResultName(LoadResult result)
         return "unavailable";
     case LoadResult::Missing:
         return "missing";
+    case LoadResult::Legacy:
+        return "legacy";
     case LoadResult::Invalid:
         return "invalid";
-    case LoadResult::DeferredToNvs:
-        return "deferred_to_nvs";
     case LoadResult::Applied:
         return "applied";
     }

@@ -85,6 +85,7 @@ struct RuntimeState
     bool handlers_registered = false;
     bool wifi_started = false;
     bool wifi_initialized = false;
+    bool externally_suspended = false;
     bool ble_paused_for_wifi = false;
     bool network_time_sync_in_progress = false;
     std::time_t network_time_sync_epoch = 0;
@@ -1163,6 +1164,17 @@ void wifi_event_handler(void*,
                 std::printf("[WiFi] sta disconnected ssid=%s\n",
                             current_config().ssid[0] ? current_config().ssid : "<unset>");
             }
+            if (s_runtime.externally_suspended)
+            {
+                // USB Disk owns the radio teardown. A driver disconnect is
+                // expected here and must never consume a saved-profile retry
+                // or persist the user's enabled preference as false.
+                s_runtime.intentional_disconnect_pending = false;
+                clear_connection_details();
+                refresh_runtime_status_message();
+                std::printf("[WiFi] USB Disk suspension disconnect ignored\n");
+                break;
+            }
             if (s_runtime.intentional_disconnect_pending)
             {
                 s_runtime.intentional_disconnect_pending = false;
@@ -1205,6 +1217,11 @@ void wifi_event_handler(void*,
     }
     else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
     {
+        if (s_runtime.externally_suspended)
+        {
+            std::printf("[WiFi] USB Disk suspension GOT_IP ignored\n");
+            return;
+        }
         const auto* got_ip = static_cast<ip_event_got_ip_t*>(event_data);
         s_runtime.connected = true;
         s_runtime.connecting = false;
@@ -1362,6 +1379,11 @@ bool ensure_wifi_initialized()
 
 bool ensure_wifi_started()
 {
+    if (s_runtime.externally_suspended)
+    {
+        set_status_message("Wi-Fi suspended for USB Disk");
+        return false;
+    }
     if (s_runtime.wifi_started)
     {
         return true;
@@ -1393,6 +1415,46 @@ bool ensure_wifi_started()
 
     s_runtime.wifi_started = true;
     refresh_runtime_status_message();
+    return true;
+}
+
+bool stop_wifi_runtime(const char* success_message)
+{
+    reset_automatic_profile_failure_cycle();
+    cancel_profile_retry();
+    if (!::platform::ui::wifi_access::set_transport_enabled(false))
+    {
+        std::printf("[WiFi] transport clients failed to quiesce; keeping driver active\n");
+        set_status_message("Wi-Fi clients busy");
+        return false;
+    }
+    if (s_runtime.wifi_started)
+    {
+        (void)esp_wifi_disconnect();
+        (void)esp_wifi_stop();
+    }
+    if (s_runtime.wifi_initialized)
+    {
+        const esp_err_t deinit_err = esp_wifi_deinit();
+        if (deinit_err != ESP_OK && deinit_err != ESP_ERR_WIFI_NOT_INIT)
+        {
+            std::printf("[WiFi] esp_wifi_deinit failed err=0x%x\n",
+                        static_cast<unsigned>(deinit_err));
+        }
+        else
+        {
+            log_heap_snapshot("after deinit");
+        }
+    }
+#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+    trail_mate_tab5_set_wifi_power_enabled(false);
+#endif
+    s_runtime.wifi_started = false;
+    s_runtime.wifi_initialized = false;
+    release_reconnect_memory_reserve();
+    clear_connection_details();
+    restore_runtime_ble_after_wifi(success_message);
+    set_status_message(success_message);
     return true;
 }
 
@@ -1542,42 +1604,7 @@ bool apply_enabled(bool enabled)
 
     if (!enabled)
     {
-        reset_automatic_profile_failure_cycle();
-        cancel_profile_retry();
-        if (!::platform::ui::wifi_access::set_transport_enabled(false))
-        {
-            std::printf("[WiFi] transport clients failed to quiesce; keeping driver active\n");
-            set_status_message("Wi-Fi clients busy");
-            return false;
-        }
-        if (s_runtime.wifi_started)
-        {
-            (void)esp_wifi_disconnect();
-            (void)esp_wifi_stop();
-        }
-        if (s_runtime.wifi_initialized)
-        {
-            const esp_err_t deinit_err = esp_wifi_deinit();
-            if (deinit_err != ESP_OK && deinit_err != ESP_ERR_WIFI_NOT_INIT)
-            {
-                std::printf("[WiFi] esp_wifi_deinit failed err=0x%x\n",
-                            static_cast<unsigned>(deinit_err));
-            }
-            else
-            {
-                log_heap_snapshot("after deinit");
-            }
-        }
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
-        trail_mate_tab5_set_wifi_power_enabled(false);
-#endif
-        s_runtime.wifi_started = false;
-        s_runtime.wifi_initialized = false;
-        release_reconnect_memory_reserve();
-        clear_connection_details();
-        restore_runtime_ble_after_wifi("Wi-Fi disabled");
-        set_status_message("Wi-Fi disabled");
-        return true;
+        return stop_wifi_runtime("Wi-Fi disabled");
     }
 
     if (!ensure_wifi_started())
@@ -1602,6 +1629,53 @@ bool apply_enabled(bool enabled)
         (void)connect(nullptr);
     }
     return true;
+}
+
+bool suspend_for_external_storage(ExternalStorageSuspension* out_suspension)
+{
+    if (!out_suspension)
+    {
+        return false;
+    }
+    *out_suspension = ExternalStorageSuspension{};
+    if (s_runtime.externally_suspended)
+    {
+        return false;
+    }
+
+    const bool active = s_runtime.wifi_started || s_runtime.wifi_initialized;
+    s_runtime.externally_suspended = true;
+    if (!active)
+    {
+        return true;
+    }
+    if (!stop_wifi_runtime("Wi-Fi suspended for USB Disk"))
+    {
+        s_runtime.externally_suspended = false;
+        return false;
+    }
+    out_suspension->resume_required = true;
+    return true;
+}
+
+void resume_after_external_storage(ExternalStorageSuspension* suspension)
+{
+    if (!suspension)
+    {
+        return;
+    }
+    const bool resume_required = suspension->resume_required;
+    *suspension = ExternalStorageSuspension{};
+    s_runtime.externally_suspended = false;
+    if (!resume_required)
+    {
+        return;
+    }
+
+    const bool resumed = apply_enabled(true);
+    std::printf("[WiFi] usb storage resume requested=%u resumed=%u\n",
+                resume_required ? 1U : 0U,
+                resumed ? 1U : 0U);
 }
 
 enum class ConnectStartResult : uint8_t
@@ -1842,6 +1916,13 @@ Status status()
     {
         copy_bounded(out.message, sizeof(out.message), "Wi-Fi unsupported");
         out.state = ConnectionState::Unsupported;
+        return out;
+    }
+
+    if (s_runtime.externally_suspended)
+    {
+        out.state = ConnectionState::ResourceDeferred;
+        copy_bounded(out.message, sizeof(out.message), "Wi-Fi suspended for USB Disk");
         return out;
     }
 

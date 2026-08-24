@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 namespace trailmate::apps::esp32_lvgl::arduino_app_runtime_access
 {
 
@@ -11,6 +13,14 @@ struct Status
     bool background_tasks_started = false;
 };
 
+enum class ConfigurationPreloadResult : uint8_t
+{
+    Ready,
+    RepairRequired,
+    Failed,
+};
+
+ConfigurationPreloadResult preloadConfiguration();
 bool initialize(bool use_mock);
 void startDeferredStorage();
 void tick();

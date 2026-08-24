@@ -12,14 +12,379 @@ namespace app::tms
 namespace
 {
 
-constexpr const char* kMagic = "TMSET3";
-constexpr const char* kLegacyMagic = "TMSET2";
+constexpr const char* kMagic = "TMSET7";
+constexpr const char* kLegacyMagicV6 = "TMSET6";
+constexpr const char* kLegacyMagicV5 = "TMSET5";
+constexpr const char* kLegacyMagicV4 = "TMSET4";
+constexpr const char* kLegacyMagicV3 = "TMSET3";
+constexpr const char* kLegacyMagicV2 = "TMSET2";
 constexpr const char* kWorkingKind = "working";
 constexpr const char* kBackupKind = "backup";
 // The full AppConfig projection currently emits just over two hundred short
 // records (MeshCore has eight independent channel slots).  This remains a
 // parser-only scalar limit; it never reserves one entry per record.
 constexpr uint16_t kMaxRecords = 384U;
+
+constexpr const char* kGeneralFields[] = {
+    "policy.relay",
+    "policy.hop_limit",
+    "policy.ack_broadcast",
+    "policy.ack_squad",
+    "policy.max_retries",
+    "policy.max_channels",
+    "protocol.active",
+    "device.node_name",
+    "device.short_name",
+    "device.ble_enabled",
+    "channel.primary_enabled",
+    "channel.secondary_enabled",
+    "channel.primary_uplink",
+    "channel.primary_downlink",
+    "channel.secondary_uplink",
+    "channel.secondary_downlink",
+    "channel.primary_has_module",
+    "channel.primary_position_precision",
+    "channel.primary_muted",
+    "channel.secondary_has_module",
+    "channel.secondary_position_precision",
+    "channel.secondary_muted",
+    "legacy.secondary_psk",
+    "gps.enabled",
+    "gps.init_baud",
+    "gps.init_probe_ms",
+    "gps.init_profile",
+    "gps.init_rxm_policy",
+    "gps.init_gnss_policy",
+    "gps.init_nmea_policy",
+    "gps.interval_ms",
+    "gps.mode",
+    "gps.sat_mask",
+    "gps.strategy",
+    "gps.alt_ref",
+    "gps.coord_format",
+    "gps.motion_idle_ms",
+    "gps.motion_sensor",
+    "gps.external_nmea_hz",
+    "gps.external_nmea_mask",
+    "map.coord_system",
+    "map.source",
+    "map.contour_enabled",
+    "map.track_enabled",
+    "map.track_interval",
+    "map.track_format",
+    "chat.channel",
+    "network.duty_cycle",
+    "network.channel_util",
+    "privacy.encrypt_mode",
+    "route.enabled",
+    "route.path",
+    "aprs.enabled",
+    "aprs.igate_callsign",
+    "aprs.igate_ssid",
+    "aprs.tocall",
+    "aprs.path",
+    "aprs.tx_min_interval_s",
+    "aprs.dedupe_window_s",
+    "aprs.symbol_table",
+    "aprs.symbol_code",
+    "aprs.position_interval_s",
+    "aprs.node_map",
+    "aprs.self_enabled",
+    "aprs.self_callsign",
+};
+
+constexpr const char* kMeshBaseFields[] = {
+    "region",
+    "use_preset",
+    "modem_preset",
+    "bandwidth_khz",
+    "spread_factor",
+    "coding_rate",
+    "tx_power",
+    "hop_limit",
+    "tx_enabled",
+    "override_duty_cycle",
+    "channel_num",
+    "frequency_offset_mhz",
+    "override_frequency_mhz",
+    "enable_relay",
+    "ignore_mqtt",
+    "config_ok_to_mqtt",
+    "primary_channel_name",
+    "secondary_channel_name",
+    "primary_channel_id",
+    "secondary_channel_id",
+    "primary_psk",
+    "secondary_psk",
+};
+
+constexpr const char* kMqttFields[] = {
+    "enabled",
+    "uplink",
+    "downlink",
+    "host",
+    "port",
+    "root",
+    "username",
+    "password",
+};
+
+constexpr const char* kMeshCoreFields[] = {
+    "region_preset",
+    "frequency_mhz",
+    "bandwidth_khz",
+    "spread_factor",
+    "coding_rate",
+    "client_repeat",
+    "rx_delay_base",
+    "airtime_factor",
+    "flood_max",
+    "multi_acks",
+    "send_profile",
+    "forward_profile",
+    "active_slot",
+};
+
+constexpr const char* kMeshCoreChannelFields[] = {
+    "enabled",
+    "name",
+    "key",
+};
+
+constexpr const char* kReticulumFields[] = {
+    "lora_enabled",
+    "wifi_enabled",
+    "wifi_auto_connect",
+    "anonymous_peer",
+    "wifi_host",
+    "wifi_port",
+    "interface_policy",
+    "allow_location_requests",
+};
+
+constexpr const char* kReticulumGroupFields[] = {
+    "enabled",
+    "name",
+    "identity_valid",
+    "destination_hash",
+    "identity_hash",
+};
+
+constexpr std::size_t kGeneralFieldCount =
+    sizeof(kGeneralFields) / sizeof(kGeneralFields[0]);
+constexpr std::size_t kMeshBaseFieldCount =
+    sizeof(kMeshBaseFields) / sizeof(kMeshBaseFields[0]);
+constexpr std::size_t kMqttFieldCount =
+    sizeof(kMqttFields) / sizeof(kMqttFields[0]);
+constexpr std::size_t kMeshCoreFieldCount =
+    sizeof(kMeshCoreFields) / sizeof(kMeshCoreFields[0]);
+constexpr std::size_t kMeshCoreChannelFieldCount =
+    sizeof(kMeshCoreChannelFields) / sizeof(kMeshCoreChannelFields[0]);
+constexpr std::size_t kReticulumFieldCount =
+    sizeof(kReticulumFields) / sizeof(kReticulumFields[0]);
+constexpr std::size_t kReticulumGroupFieldCount =
+    sizeof(kReticulumGroupFields) / sizeof(kReticulumGroupFields[0]);
+constexpr std::size_t kCoreRecordCount =
+    kGeneralFieldCount +
+    kMeshBaseFieldCount + kMqttFieldCount +
+    kMeshBaseFieldCount + kMeshCoreFieldCount +
+    chat::kMeshCoreChannelMaxCount * kMeshCoreChannelFieldCount + kMqttFieldCount +
+    kMeshBaseFieldCount + kReticulumFieldCount +
+    chat::kReticulumGroupDestinationMaxCount * kReticulumGroupFieldCount;
+constexpr std::size_t kLegacyV6ReticulumGroupFieldCount = 3U;
+constexpr std::size_t kLegacyV6CoreRecordCount =
+    kCoreRecordCount -
+    chat::kReticulumGroupDestinationMaxCount * kReticulumGroupFieldCount +
+    chat::kReticulumGroupDestinationMaxCount * kLegacyV6ReticulumGroupFieldCount;
+
+static_assert(kCoreRecordCount == 212U,
+              "Update the strict TMSET core-record count with its field table.");
+static_assert(kCoreRecordCount <= 4U * 64U,
+              "Decoder core-presence bitmap must remain bounded.");
+static_assert(kLegacyV6CoreRecordCount == 204U,
+              "Update the strict pre-release TMSET6 core-record count.");
+
+int fieldIndex(const char* value,
+               const char* const* fields,
+               std::size_t field_count)
+{
+    for (std::size_t index = 0U; index < field_count; ++index)
+    {
+        if (std::strcmp(value, fields[index]) == 0)
+        {
+            return static_cast<int>(index);
+        }
+    }
+    return -1;
+}
+
+int prefixedFieldIndex(const char* key,
+                       const char* prefix,
+                       const char* const* fields,
+                       std::size_t field_count,
+                       std::size_t base)
+{
+    const std::size_t prefix_length = std::strlen(prefix);
+    if (std::strncmp(key, prefix, prefix_length) != 0)
+    {
+        return -1;
+    }
+    const int field = fieldIndex(key + prefix_length, fields, field_count);
+    return field < 0 ? -1 : static_cast<int>(base + static_cast<std::size_t>(field));
+}
+
+int coreRecordIndex(const char* key)
+{
+    int index = fieldIndex(key, kGeneralFields, kGeneralFieldCount);
+    if (index >= 0)
+    {
+        return index;
+    }
+
+    std::size_t base = kGeneralFieldCount;
+    index = prefixedFieldIndex(key,
+                               "mt.",
+                               kMeshBaseFields,
+                               kMeshBaseFieldCount,
+                               base);
+    if (index >= 0)
+    {
+        return index;
+    }
+    base += kMeshBaseFieldCount;
+    index = prefixedFieldIndex(key, "mt.mqtt.", kMqttFields, kMqttFieldCount, base);
+    if (index >= 0)
+    {
+        return index;
+    }
+    base += kMqttFieldCount;
+    index = prefixedFieldIndex(key,
+                               "mc.base.",
+                               kMeshBaseFields,
+                               kMeshBaseFieldCount,
+                               base);
+    if (index >= 0)
+    {
+        return index;
+    }
+    base += kMeshBaseFieldCount;
+    index = prefixedFieldIndex(key, "mc.", kMeshCoreFields, kMeshCoreFieldCount, base);
+    if (index >= 0)
+    {
+        return index;
+    }
+    base += kMeshCoreFieldCount;
+
+    constexpr const char* kMeshCoreChannelPrefix = "mc.channel.";
+    constexpr std::size_t kMeshCoreChannelPrefixLength = 11U;
+    if (std::strncmp(key,
+                     kMeshCoreChannelPrefix,
+                     kMeshCoreChannelPrefixLength) == 0 &&
+        key[kMeshCoreChannelPrefixLength] >= '0' &&
+        key[kMeshCoreChannelPrefixLength] <
+            static_cast<char>('0' + chat::kMeshCoreChannelMaxCount) &&
+        key[kMeshCoreChannelPrefixLength + 1U] == '.')
+    {
+        const int field = fieldIndex(key + kMeshCoreChannelPrefixLength + 2U,
+                                     kMeshCoreChannelFields,
+                                     kMeshCoreChannelFieldCount);
+        if (field >= 0)
+        {
+            const std::size_t slot =
+                static_cast<std::size_t>(key[kMeshCoreChannelPrefixLength] - '0');
+            return static_cast<int>(base + slot * kMeshCoreChannelFieldCount +
+                                    static_cast<std::size_t>(field));
+        }
+    }
+    base += chat::kMeshCoreChannelMaxCount * kMeshCoreChannelFieldCount;
+    index = prefixedFieldIndex(key, "mc.mqtt.", kMqttFields, kMqttFieldCount, base);
+    if (index >= 0)
+    {
+        return index;
+    }
+    base += kMqttFieldCount;
+    index = prefixedFieldIndex(key,
+                               "rt.",
+                               kMeshBaseFields,
+                               kMeshBaseFieldCount,
+                               base);
+    if (index >= 0)
+    {
+        return index;
+    }
+    base += kMeshBaseFieldCount;
+    index = prefixedFieldIndex(key,
+                               "rt.",
+                               kReticulumFields,
+                               kReticulumFieldCount,
+                               base);
+    if (index >= 0)
+    {
+        return index;
+    }
+    base += kReticulumFieldCount;
+
+    constexpr const char* kReticulumGroupPrefix = "rt.group.";
+    constexpr std::size_t kReticulumGroupPrefixLength = 9U;
+    if (std::strncmp(key, kReticulumGroupPrefix, kReticulumGroupPrefixLength) == 0 &&
+        key[kReticulumGroupPrefixLength] >= '0' &&
+        key[kReticulumGroupPrefixLength] <
+            static_cast<char>('0' + chat::kReticulumGroupDestinationMaxCount) &&
+        key[kReticulumGroupPrefixLength + 1U] == '.')
+    {
+        const int field = fieldIndex(key + kReticulumGroupPrefixLength + 2U,
+                                     kReticulumGroupFields,
+                                     kReticulumGroupFieldCount);
+        if (field >= 0)
+        {
+            const std::size_t slot =
+                static_cast<std::size_t>(key[kReticulumGroupPrefixLength] - '0');
+            return static_cast<int>(base + slot * kReticulumGroupFieldCount +
+                                    static_cast<std::size_t>(field));
+        }
+    }
+    return -1;
+}
+
+int legacyV6CoreRecordIndex(const char* key)
+{
+    constexpr const char* kGroupPrefix = "rt.group.";
+    constexpr std::size_t kGroupPrefixLength = 9U;
+    if (std::strncmp(key, kGroupPrefix, kGroupPrefixLength) == 0 &&
+        key[kGroupPrefixLength] >= '0' &&
+        key[kGroupPrefixLength] <
+            static_cast<char>('0' + chat::kReticulumGroupDestinationMaxCount) &&
+        key[kGroupPrefixLength + 1U] == '.')
+    {
+        const char* const field = key + kGroupPrefixLength + 2U;
+        std::size_t field_index = kLegacyV6ReticulumGroupFieldCount;
+        if (std::strcmp(field, "enabled") == 0)
+        {
+            field_index = 0U;
+        }
+        else if (std::strcmp(field, "name") == 0)
+        {
+            field_index = 1U;
+        }
+        else if (std::strcmp(field, "destination") == 0)
+        {
+            field_index = 2U;
+        }
+        if (field_index < kLegacyV6ReticulumGroupFieldCount)
+        {
+            const std::size_t group_index =
+                static_cast<std::size_t>(key[kGroupPrefixLength] - '0');
+            const std::size_t group_base =
+                kCoreRecordCount -
+                chat::kReticulumGroupDestinationMaxCount * kReticulumGroupFieldCount;
+            return static_cast<int>(group_base +
+                                    group_index * kLegacyV6ReticulumGroupFieldCount +
+                                    field_index);
+        }
+        return -1;
+    }
+    return coreRecordIndex(key);
+}
 
 bool isTextSafe(unsigned char value)
 {
@@ -752,17 +1117,56 @@ bool writeMeshCore(Encoder& encoder, const AppConfig& config)
 bool writeReticulum(Encoder& encoder, const AppConfig& config)
 {
     const chat::MeshConfig& mesh = config.reticulumConfig();
-    return writeMeshBase(encoder, "rt.", mesh) &&
-           encoder.boolean("rt.lora_enabled", mesh.reticulum_lora_enabled) &&
-           encoder.boolean("rt.wifi_enabled", mesh.reticulum_wifi_gateway_enabled) &&
-           encoder.boolean("rt.wifi_auto_connect", mesh.reticulum_wifi_auto_connect) &&
-           encoder.boolean("rt.anonymous_peer", mesh.reticulum_anonymous_peer) &&
-           encoder.text("rt.wifi_host", mesh.reticulum_wifi_gateway_host) &&
-           encoder.u16("rt.wifi_port", mesh.reticulum_wifi_gateway_port) &&
-           encoder.u8("rt.interface_policy",
-                      static_cast<uint8_t>(mesh.reticulum_interface_policy)) &&
-           encoder.boolean("rt.allow_location_requests",
-                           mesh.reticulum_allow_location_requests);
+    if (!writeMeshBase(encoder, "rt.", mesh) ||
+        !encoder.boolean("rt.lora_enabled", mesh.reticulum_lora_enabled) ||
+        !encoder.boolean("rt.wifi_enabled", mesh.reticulum_wifi_gateway_enabled) ||
+        !encoder.boolean("rt.wifi_auto_connect", mesh.reticulum_wifi_auto_connect) ||
+        !encoder.boolean("rt.anonymous_peer", mesh.reticulum_anonymous_peer) ||
+        !encoder.text("rt.wifi_host", mesh.reticulum_wifi_gateway_host) ||
+        !encoder.u16("rt.wifi_port", mesh.reticulum_wifi_gateway_port) ||
+        !encoder.u8("rt.interface_policy",
+                    static_cast<uint8_t>(mesh.reticulum_interface_policy)) ||
+        !encoder.boolean("rt.allow_location_requests",
+                         mesh.reticulum_allow_location_requests))
+    {
+        return false;
+    }
+
+    for (std::size_t slot = 0U; slot < chat::kReticulumGroupDestinationMaxCount; ++slot)
+    {
+        const chat::ReticulumGroupDestinationConfig& group = mesh.reticulum_groups[slot];
+        char key[40]{};
+        std::snprintf(key, sizeof(key), "rt.group.%u.enabled", static_cast<unsigned>(slot));
+        if (!encoder.boolean(key, group.enabled))
+        {
+            return false;
+        }
+        std::snprintf(key, sizeof(key), "rt.group.%u.name", static_cast<unsigned>(slot));
+        if (!encoder.text(key, group.name))
+        {
+            return false;
+        }
+        std::snprintf(key, sizeof(key), "rt.group.%u.identity_valid", static_cast<unsigned>(slot));
+        if (!encoder.boolean(key, group.identity.valid))
+        {
+            return false;
+        }
+        std::snprintf(key, sizeof(key), "rt.group.%u.destination_hash", static_cast<unsigned>(slot));
+        if (!encoder.blob(key,
+                          group.identity.destination_hash,
+                          sizeof(group.identity.destination_hash)))
+        {
+            return false;
+        }
+        std::snprintf(key, sizeof(key), "rt.group.%u.identity_hash", static_cast<unsigned>(slot));
+        if (!encoder.blob(key,
+                          group.identity.identity_hash,
+                          sizeof(group.identity.identity_hash)))
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool writeGeneral(Encoder& encoder, const AppConfig& config)
@@ -1196,7 +1600,23 @@ bool Decoder::consumeLine(char* line)
         {
             magic_version_ = kSchemaVersion;
         }
-        else if (std::strcmp(line, kLegacyMagic) == 0)
+        else if (std::strcmp(line, kLegacyMagicV6) == 0)
+        {
+            magic_version_ = 6U;
+        }
+        else if (std::strcmp(line, kLegacyMagicV5) == 0)
+        {
+            magic_version_ = 5U;
+        }
+        else if (std::strcmp(line, kLegacyMagicV4) == 0)
+        {
+            magic_version_ = 4U;
+        }
+        else if (std::strcmp(line, kLegacyMagicV3) == 0)
+        {
+            magic_version_ = 3U;
+        }
+        else if (std::strcmp(line, kLegacyMagicV2) == 0)
         {
             magic_version_ = 2U;
         }
@@ -1238,6 +1658,26 @@ bool Decoder::consumeLine(char* line)
     {
         info_.error = DecodeError::InvalidKnownValue;
     }
+    if (accepted && saw_user_record_ &&
+        (schema_version_ == kSchemaVersion || schema_version_ == 6U))
+    {
+        const int core_index = schema_version_ == kSchemaVersion
+                                   ? coreRecordIndex(line)
+                                   : legacyV6CoreRecordIndex(line);
+        if (core_index >= 0)
+        {
+            const std::size_t index = static_cast<std::size_t>(core_index);
+            const uint64_t mask = 1ULL << (index % 64U);
+            uint64_t& word = core_seen_[index / 64U];
+            if ((word & mask) != 0U)
+            {
+                info_.error = DecodeError::DuplicateRecord;
+                return false;
+            }
+            word |= mask;
+            ++core_records_;
+        }
+    }
     return accepted;
 }
 
@@ -1267,6 +1707,16 @@ bool Decoder::finish()
         info_.error = DecodeError::MissingEnd;
         return false;
     }
+    const uint16_t required_core_records = schema_version_ == kSchemaVersion
+                                               ? static_cast<uint16_t>(kCoreRecordCount)
+                                               : schema_version_ == 6U
+                                                     ? static_cast<uint16_t>(kLegacyV6CoreRecordCount)
+                                                     : 0U;
+    if (required_core_records != 0U && core_records_ != required_core_records)
+    {
+        info_.error = DecodeError::MissingRequiredRecord;
+        return false;
+    }
     if (target_)
     {
         target_->meshcore_config.meshCoreChannel(0).enabled = true;
@@ -1285,11 +1735,13 @@ bool Decoder::consumeRecord(char* key, char* type, char* value)
     if (std::strcmp(key, "schema.version") == 0)
     {
         uint16_t version = 0U;
-        if (!assignU16(type, value, &version) ||
-            (version != 2U && version != kSchemaVersion) ||
+        if (saw_schema_ || saw_user_record_ || !assignU16(type, value, &version) ||
+            (version != 2U && version != 3U && version != 4U && version != 5U &&
+             version != 6U && version != kSchemaVersion) ||
             version != magic_version_)
         {
-            info_.error = DecodeError::UnsupportedSchema;
+            info_.error = saw_schema_ ? DecodeError::DuplicateRecord
+                                      : DecodeError::UnsupportedSchema;
             return false;
         }
         schema_version_ = version;
@@ -1299,14 +1751,23 @@ bool Decoder::consumeRecord(char* key, char* type, char* value)
     if (std::strcmp(key, "document.kind") == 0)
     {
         const char* expected = expected_kind_ == DocumentKind::Working ? kWorkingKind : kBackupKind;
-        if (!typeIs(type, "enum") || std::strcmp(value, expected) != 0)
+        if (!saw_schema_ || saw_kind_ || saw_user_record_ || !typeIs(type, "enum") ||
+            std::strcmp(value, expected) != 0)
         {
-            info_.error = DecodeError::InvalidDocumentKind;
+            info_.error = saw_kind_ ? DecodeError::DuplicateRecord
+                                    : DecodeError::InvalidDocumentKind;
             return false;
         }
         saw_kind_ = true;
         return true;
     }
+
+    if (!saw_schema_ || !saw_kind_)
+    {
+        info_.error = DecodeError::RecordBeforeHeader;
+        return false;
+    }
+    saw_user_record_ = true;
 
     bool known = false;
 #define TMS_APPLY_BOOL(name, member)                                                        \
@@ -1635,6 +2096,70 @@ bool Decoder::consumeRecord(char* key, char* type, char* value)
         }
         else if (std::strcmp(field, "allow_location_requests") == 0)
             known = assignBool(type, value, mesh ? &mesh->reticulum_allow_location_requests : nullptr);
+        else if (std::strncmp(field, "group.", 6U) == 0 &&
+                 field[6] >= '0' &&
+                 field[6] < static_cast<char>('0' + chat::kReticulumGroupDestinationMaxCount) &&
+                 field[7] == '.')
+        {
+            const char* group_field = field + 8U;
+            const std::size_t slot = static_cast<std::size_t>(field[6] - '0');
+            chat::ReticulumGroupDestinationConfig* group =
+                mesh ? &mesh->reticulum_groups[slot] : nullptr;
+            if (std::strcmp(group_field, "enabled") == 0)
+                known = assignBool(type, value, group ? &group->enabled : nullptr);
+            else if (std::strcmp(group_field, "name") == 0)
+                known = assignText(type,
+                                   value,
+                                   group ? group->name : nullptr,
+                                   chat::kReticulumGroupNameMaxLen);
+            else if (std::strcmp(group_field, "identity_valid") == 0)
+                known = assignBool(type, value, group ? &group->identity.valid : nullptr);
+            else if (std::strcmp(group_field, "destination_hash") == 0)
+                known = assignBlob(type,
+                                   value,
+                                   group ? group->identity.destination_hash : nullptr,
+                                   chat::kReticulumPeerHashSize,
+                                   nullptr,
+                                   chat::kReticulumPeerHashSize);
+            else if (std::strcmp(group_field, "identity_hash") == 0)
+                known = assignBlob(type,
+                                   value,
+                                   group ? group->identity.identity_hash : nullptr,
+                                   chat::kReticulumPeerHashSize,
+                                   nullptr,
+                                   chat::kReticulumPeerHashSize);
+            else if (std::strcmp(group_field, "destination") == 0 &&
+                     schema_version_ != kSchemaVersion)
+            {
+                std::size_t destination_length = 0U;
+                if (group)
+                {
+                    group->identity.valid = false;
+                    std::memset(group->identity.destination_hash,
+                                0,
+                                sizeof(group->identity.destination_hash));
+                    std::memset(group->identity.identity_hash,
+                                0,
+                                sizeof(group->identity.identity_hash));
+                }
+                known = assignBlob(type,
+                                   value,
+                                   group ? group->identity.destination_hash : nullptr,
+                                   chat::kReticulumPeerHashSize,
+                                   &destination_length);
+                if (known && destination_length != 0U &&
+                    destination_length != chat::kReticulumPeerHashSize)
+                {
+                    known = false;
+                }
+                if (known && destination_length == chat::kReticulumPeerHashSize && group)
+                {
+                    group->identity.valid = true;
+                }
+            }
+            else
+                known = false;
+        }
         else
             known = applyMeshBase(field, type, value, mesh);
         const bool reticulum_field = std::strcmp(field, "lora_enabled") == 0 ||
@@ -1645,7 +2170,8 @@ bool Decoder::consumeRecord(char* key, char* type, char* value)
                                      std::strcmp(field, "wifi_port") == 0 ||
                                      std::strcmp(field, "interface_policy") == 0 ||
                                      std::strcmp(field, "allow_location_requests") == 0;
-        if (!known && (reticulum_field || isMeshBaseField(field)))
+        const bool reticulum_group_field = std::strncmp(field, "group.", 6U) == 0;
+        if (!known && (reticulum_field || reticulum_group_field || isMeshBaseField(field)))
         {
             info_.error = DecodeError::InvalidKnownValue;
             return false;
@@ -1664,7 +2190,12 @@ bool Decoder::consumeRecord(char* key, char* type, char* value)
     }
     if (!known)
     {
-        // Unknown keys are forward-compatible.  A known namespace with a
+        if (schema_version_ == kSchemaVersion || schema_version_ == 6U)
+        {
+            info_.error = DecodeError::UnknownRecord;
+            return false;
+        }
+        // Legacy keys are forward-compatible.  A known namespace with a
         // malformed value has already returned false from its handler.
         ++info_.unknown_records;
     }
@@ -1693,6 +2224,14 @@ const char* decodeErrorName(DecodeError error)
         return "invalid_known_value";
     case DecodeError::TooManyRecords:
         return "too_many_records";
+    case DecodeError::DuplicateRecord:
+        return "duplicate_record";
+    case DecodeError::MissingRequiredRecord:
+        return "missing_required_record";
+    case DecodeError::UnknownRecord:
+        return "unknown_record";
+    case DecodeError::RecordBeforeHeader:
+        return "record_before_header";
     }
     return "unknown";
 }

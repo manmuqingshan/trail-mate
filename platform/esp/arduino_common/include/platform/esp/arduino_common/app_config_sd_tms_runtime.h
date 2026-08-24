@@ -1,6 +1,6 @@
 /**
  * @file app_config_sd_tms_runtime.h
- * @brief SD-card working projection for the ESP AppConfig Preferences store.
+ * @brief SD-authoritative working configuration repository for ESP targets.
  */
 
 #pragma once
@@ -16,41 +16,41 @@ enum class LoadResult : uint8_t
 {
     Unavailable,
     Missing,
+    Legacy,
     Invalid,
-    DeferredToNvs,
     Applied,
 };
 
-// Validates the on-card document first and applies it in a second pass only
-// when it is the current SD authority.  `config` is otherwise untouched.
+// Reads a complete current TMS working document in two passes. A valid legacy
+// document is reported as Legacy but is not applied until NVS has supplied the
+// migration baseline. Invalid current documents never fall back to NVS.
 LoadResult loadWorkingConfig(AppConfig& config);
+bool applyLegacyWorkingConfig(AppConfig& config);
 
-// Binds the live AppConfig after startup.  Independent settings-store owners
-// then mark a coalesced SD projection dirty without reaching back into UI code.
+// An invalid current document is a repair condition.  Startup must expose the
+// SD card for repair instead of starting the normal application services.
+bool workingConfigRequiresRepair();
+void requireWorkingConfigRepair();
+
+// Binds the one live AppConfig instance.  Independent Settings owners use the
+// observer only to schedule a repository write; it never makes NVS authoritative.
 void bindWorkingConfig(const AppConfig& config);
-
-// Flushes a pending settings-store change from the normal application loop.
-// It deliberately does no SD I/O from Wi-Fi timers or other write callers.
+void requestWorkingConfigSync();
 void serviceWorkingConfig();
 
-// Records that NVS now contains a newer configuration before the SD projection
-// is replaced.  This prevents an old SD file from overwriting fresh NVS after
-// a card removal or interrupted write.
-bool markNvsCommitted();
-
-// Streams the supplied configuration to /trailmate/config.tms and writes the
-// matching small binary commit record.  A missing card is intentionally not a
-// failure of the primary NVS configuration save.
+// Streams and validates a fresh canonical TMS document before a recoverable
+// replacement of /trailmate/config.tms.
 bool syncWorkingConfig(const AppConfig& config);
 
-// Suppresses settings-store change notifications across the NVS half of a
-// factory reset.  This prevents a partially reset runtime from recreating the
-// just-removed SD authority before the restart.
+// A backup is a complete TMS document at /trailmate/backup/settings.tms.
+// Restore validates it, transforms only the document kind into a candidate
+// working file, and atomically promotes it.  It deliberately takes effect on
+// the next boot, so no second AppConfig instance is needed.
+bool backupWorkingConfig(const AppConfig& config);
+bool restoreWorkingConfig();
+
 void beginWorkingConfigReset();
 void endWorkingConfigReset();
-
-// Factory reset removes the SD authority as well as its tiny commit metadata.
-// A missing SD card is already-reset from this runtime's perspective.
 bool resetWorkingConfig();
 
 const char* loadResultName(LoadResult result);

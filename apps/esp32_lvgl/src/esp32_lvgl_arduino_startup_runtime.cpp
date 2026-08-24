@@ -12,6 +12,7 @@
 #include "platform/esp/boards/board_runtime.h"
 #include "platform/ui/screen_brightness_steps.h"
 #include "platform/ui/settings_store.h"
+#include "platform/ui/usb_support_runtime.h"
 #include "ui/app_registry.h"
 #include "ui/app_runtime.h"
 #include "ui/startup_shell.h"
@@ -99,10 +100,7 @@ void run()
     platform::esp::arduino_common::display_runtime::initialize();
     Serial.println("[Setup] LVGL init done");
 
-    applyStartupBrightness("after_lvgl");
-    ui::startup_shell::beginBootUi(waking_from_sleep, "Starting services...");
-    platform::esp::boards::initializeBoardServices(waking_from_sleep);
-    ui::startup_shell::setBootLogLine("Starting services...");
+    ui::startup_shell::beginBootUi(waking_from_sleep, "Mounting SD card...");
     ui::startup_shell::setBootLogLine("Mounting SD card...");
     const bool sd_ready = platform::esp::boards::initializeStorage();
     Serial.printf("[Setup] SD storage initialized after boot UI ready=%d\n", sd_ready ? 1 : 0);
@@ -118,8 +116,42 @@ void run()
     ui::startup_shell::setBootLogLine("Checking crash dump...");
     platform::esp::arduino_common::debug::export_previous_coredump_to_sd();
 
+    ui::startup_shell::setBootLogLine("Loading working configuration...");
+    const auto config_preload =
+        trailmate::apps::esp32_lvgl::arduino_app_runtime_access::preloadConfiguration();
+    if (config_preload == trailmate::apps::esp32_lvgl::arduino_app_runtime_access::
+                              ConfigurationPreloadResult::RepairRequired)
+    {
+        Serial.printf("[Setup] Working configuration is invalid; entering USB repair mode\n");
+        platform::esp::arduino_common::debug::append_line(
+            "[Setup] Working configuration is invalid; entering USB repair mode");
+        ui::startup_shell::setBootLogLine("Configuration invalid - USB repair mode");
+        platform::esp::arduino_common::debug::flush();
+        if (!platform::ui::usb_support::start())
+        {
+            Serial.printf("[Setup] ERROR: USB repair mode failed: %s\n",
+                          platform::ui::usb_support::get_status().message);
+            ui::startup_shell::setBootLogLine("USB repair mode unavailable");
+        }
+        return;
+    }
+    if (config_preload != trailmate::apps::esp32_lvgl::arduino_app_runtime_access::
+                              ConfigurationPreloadResult::Ready)
+    {
+        Serial.printf("[Setup] ERROR: working configuration preload failed\n");
+        ui::startup_shell::setBootLogLine("Configuration unavailable");
+        return;
+    }
+
+    // TMS settings (locale and brightness included) are now reflected in the
+    // small NVS compatibility mirror before any UI or board service consumes
+    // them.
+    applyStartupBrightness("after_config");
     ui::startup_shell::setBootLogLine("Loading language packs...");
     ui::startup_shell::prepareBootResources();
+
+    ui::startup_shell::setBootLogLine("Starting board services...");
+    platform::esp::boards::initializeBoardServices(waking_from_sleep);
 
     bool use_mock = false;
     ui::startup_shell::setBootLogLine("Initializing app context...");

@@ -24,7 +24,11 @@ constexpr std::size_t kMaxLineBytes = 384U;
 // input without reserving document-sized RAM; it also leaves room for all ten
 // Wi-Fi profiles and optional cellular credentials alongside AppConfig.
 constexpr std::size_t kMaxDocumentBytes = 32U * 1024U;
-constexpr uint16_t kSchemaVersion = 3U;
+// TMSET7 is the complete, strict working-document schema. TMSET6 was emitted
+// by a pre-release implementation with a different Reticulum key dialect and
+// no BLE projection, so it is a migration input only. Earlier versions follow
+// the same one-time migration rule and are never emitted as working config.
+constexpr uint16_t kSchemaVersion = 7U;
 
 struct LineScratch
 {
@@ -51,6 +55,10 @@ enum class DecodeError : uint8_t
     MalformedRecord,
     InvalidKnownValue,
     TooManyRecords,
+    DuplicateRecord,
+    MissingRequiredRecord,
+    UnknownRecord,
+    RecordBeforeHeader,
 };
 
 struct DocumentInfo
@@ -179,9 +187,12 @@ class Decoder
     DocumentInfo info_{};
     uint16_t schema_version_ = 0U;
     uint16_t magic_version_ = 0U;
+    uint16_t core_records_ = 0U;
+    uint64_t core_seen_[4]{};
     bool saw_magic_ = false;
     bool saw_schema_ = false;
     bool saw_kind_ = false;
+    bool saw_user_record_ = false;
     bool saw_end_ = false;
 };
 

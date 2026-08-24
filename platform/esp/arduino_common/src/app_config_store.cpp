@@ -1,5 +1,8 @@
 #include "platform/esp/arduino_common/app_config_store.h"
 #include "platform/esp/arduino_common/app_config_sd_tms_runtime.h"
+#include "platform/esp/arduino_common/storage/sd_card_runtime.h"
+#include "platform/ui/reticulum_group_config_runtime.h"
+#include "platform/ui/reticulum_network_config_runtime.h"
 
 #include <Arduino.h>
 #include <Preferences.h>
@@ -1590,27 +1593,23 @@ uint8_t loadMessageToneVolume()
 
 bool loadAppConfig(AppConfig& config)
 {
-    // `config` is still factory-initialized at this point.  A valid working
-    // file therefore has real SD priority; Preferences are only opened as the
-    // fallback baseline when the card is absent, missing its projection, or
-    // explicitly known to be stale after an interrupted SD mirror write.
     const sd_tms::LoadResult sd_result = sd_tms::loadWorkingConfig(config);
     if (sd_result == sd_tms::LoadResult::Applied)
     {
         Preferences preferences;
-        const bool nvs_saved = saveAppConfigToPreferences(
+        const bool mirrored = saveAppConfigToPreferences(
             config, preferences, AppConfigChangeSet::allPersisted(), true);
-        if (nvs_saved)
-        {
-            const bool meta_saved = sd_tms::markNvsCommitted();
-            const bool sd_synced = sd_tms::syncWorkingConfig(config);
-            Serial.printf("[AppCfg][SD] startup source=sd nvs_mirror=%u meta=%u canonical=%u\n",
-                          nvs_saved ? 1U : 0U,
-                          meta_saved ? 1U : 0U,
-                          sd_synced ? 1U : 0U);
-        }
+        Serial.printf("[AppCfg][TMS] startup source=sd nvs_mirror=%u\n",
+                      mirrored ? 1U : 0U);
         sd_tms::bindWorkingConfig(config);
-        return nvs_saved;
+        return true;
+    }
+    if (sd_result == sd_tms::LoadResult::Invalid)
+    {
+        // A present but malformed current TMS document is an operator-repair
+        // condition.  Never merge or replace it from NVS.
+        Serial.printf("[AppCfg][TMS] startup repair_required=1\n");
+        return false;
     }
 
     Preferences prefs;
@@ -1620,24 +1619,94 @@ bool loadAppConfig(AppConfig& config)
         return false;
     }
 
-    // A missing projection is materialized from NVS.  An invalid hand-edited
-    // file is intentionally preserved for diagnosis; it is never silently
-    // overwritten at boot.  A deferred file is a known old replica, so it is
-    // safe to repair from the primary NVS state.
-    if (sd_result == sd_tms::LoadResult::Missing ||
-        sd_result == sd_tms::LoadResult::DeferredToNvs)
+    bool migrated = false;
+    if (sd_result == sd_tms::LoadResult::Legacy)
     {
-        const bool meta_saved = sd_tms::markNvsCommitted();
-        const bool sd_synced = sd_tms::syncWorkingConfig(config);
-        Serial.printf("[AppCfg][SD] startup source=nvs reason=%s meta=%u sync=%u\n",
+        // Legacy TMS was never a complete document.  It is deliberately
+        // applied only after the NVS migration baseline is loaded, then
+        // immediately materialized as a complete strict TMS document.
+        migrated = sd_tms::applyLegacyWorkingConfig(config);
+        if (!migrated)
+        {
+            Serial.printf("[AppCfg][TMS] legacy migration apply failed\n");
+            return false;
+        }
+    }
+
+    bool legacy_network_imported = false;
+    bool legacy_groups_imported = false;
+    if (sd_result == sd_tms::LoadResult::Missing || migrated)
+    {
+        const auto network_import =
+            ::platform::ui::reticulum_network_config::importLegacy(config.reticulumConfig());
+        if (network_import ==
+                ::platform::ui::reticulum_network_config::LegacyImportResult::Invalid ||
+            network_import ==
+                ::platform::ui::reticulum_network_config::LegacyImportResult::Unavailable)
+        {
+            Serial.printf("[AppCfg][TMS] legacy Reticulum network requires repair\n");
+            sd_tms::requireWorkingConfigRepair();
+            return false;
+        }
+        legacy_network_imported =
+            network_import ==
+            ::platform::ui::reticulum_network_config::LegacyImportResult::Imported;
+
+        const auto import_result = ::platform::ui::reticulum_groups::importLegacy(
+            config.reticulumConfig().reticulum_groups,
+            chat::kReticulumGroupDestinationMaxCount);
+        if (import_result == ::platform::ui::reticulum_groups::LegacyImportResult::Invalid ||
+            import_result == ::platform::ui::reticulum_groups::LegacyImportResult::Unavailable)
+        {
+            Serial.printf("[AppCfg][TMS] legacy Reticulum groups require repair\n");
+            sd_tms::requireWorkingConfigRepair();
+            return false;
+        }
+        legacy_groups_imported =
+            import_result == ::platform::ui::reticulum_groups::LegacyImportResult::Imported;
+    }
+
+    if (migrated)
+    {
+        Preferences mirror;
+        (void)saveAppConfigToPreferences(
+            config, mirror, AppConfigChangeSet::allPersisted(), true);
+    }
+
+    const bool should_materialize =
+        sd_result == sd_tms::LoadResult::Missing || migrated;
+    if (should_materialize)
+    {
+        const bool synced = sd_tms::syncWorkingConfig(config);
+        Serial.printf("[AppCfg][TMS] startup source=nvs reason=%s sync=%u\n",
                       sd_tms::loadResultName(sd_result),
-                      meta_saved ? 1U : 0U,
-                      sd_synced ? 1U : 0U);
+                      synced ? 1U : 0U);
+        if (!synced)
+        {
+            sd_tms::requestWorkingConfigSync();
+        }
+        else
+        {
+            const bool groups_cleaned =
+                !legacy_groups_imported ||
+                ::platform::ui::reticulum_groups::discardLegacySource();
+            const bool network_cleaned =
+                !legacy_network_imported ||
+                ::platform::ui::reticulum_network_config::discardLegacySource();
+            if (!groups_cleaned || !network_cleaned)
+            {
+                Serial.printf("[AppCfg][TMS] legacy Reticulum cleanup failed\n");
+            }
+        }
     }
     else
     {
-        Serial.printf("[AppCfg][SD] startup source=nvs reason=%s\n",
+        Serial.printf("[AppCfg][TMS] startup source=nvs reason=%s\n",
                       sd_tms::loadResultName(sd_result));
+        if (sd_result == sd_tms::LoadResult::Unavailable)
+        {
+            sd_tms::requestWorkingConfigSync();
+        }
     }
     sd_tms::bindWorkingConfig(config);
     return true;
@@ -1646,24 +1715,33 @@ bool loadAppConfig(AppConfig& config)
 bool saveAppConfig(const AppConfig& config, AppConfigChangeSet changes)
 {
     sd_tms::bindWorkingConfig(config);
-    Preferences prefs;
-    const bool nvs_saved = saveAppConfigToPreferences(config, prefs, changes, true);
-    if (!nvs_saved)
+    const bool sd_present =
+        ::platform::esp::arduino_common::storage::sd_card_ready();
+    if (sd_present)
     {
-        return false;
+        if (!sd_tms::syncWorkingConfig(config))
+        {
+            Serial.printf("[AppCfg][TMS] save canonical=0 nvs_mirror=skipped\n");
+            return false;
+        }
+        Preferences mirror;
+        const bool mirrored = saveAppConfigToPreferences(config, mirror, changes, true);
+        Serial.printf("[AppCfg][TMS] save canonical=1 nvs_mirror=%u\n",
+                      mirrored ? 1U : 0U);
+        // SD has already committed the authoritative state.  A mirror failure
+        // must not cause a retry that overwrites a subsequent card edit.
+        return true;
     }
 
-    // NVS remains the write-ahead primary store.  The small replica state is
-    // persisted before the SD replacement so power loss/card removal cannot
-    // make an old valid SD file reverse a newer NVS edit on the next boot.
-    const bool meta_saved = sd_tms::markNvsCommitted();
-    const bool sd_synced = sd_tms::syncWorkingConfig(config);
-    Serial.printf("[AppCfg][SD] save nvs=1 meta=%u sync=%u\n",
-                  meta_saved ? 1U : 0U,
-                  sd_synced ? 1U : 0U);
-    // SD is a durable, repairable projection.  A missing/removed card must
-    // not make the already-successful NVS transaction retry indefinitely.
-    return true;
+    Preferences prefs;
+    const bool nvs_saved = saveAppConfigToPreferences(config, prefs, changes, true);
+    if (nvs_saved)
+    {
+        sd_tms::requestWorkingConfigSync();
+    }
+    Serial.printf("[AppCfg][TMS] save source=nvs_no_sd ok=%u\n",
+                  nvs_saved ? 1U : 0U);
+    return nvs_saved;
 }
 
 } // namespace app

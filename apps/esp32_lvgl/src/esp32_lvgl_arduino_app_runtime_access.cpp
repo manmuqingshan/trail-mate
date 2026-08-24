@@ -3,6 +3,8 @@
 #include <Arduino.h>
 
 #include "app/app_context.h"
+#include "platform/esp/arduino_common/app_config_sd_tms_runtime.h"
+#include "platform/esp/arduino_common/app_context_platform_bindings.h"
 #include "platform/esp/arduino_common/app_runtime_bootstrap_support.h"
 #include "platform/esp/arduino_common/app_runtime_support.h"
 #include "platform/esp/arduino_common/storage/storage_runtime.h"
@@ -33,6 +35,26 @@ bool wake_gate_active(uint32_t now_ms)
 }
 
 } // namespace
+
+ConfigurationPreloadResult preloadConfiguration()
+{
+    if (s_status.initialized)
+    {
+        return s_status.app_context_bound ? ConfigurationPreloadResult::Ready
+                                          : ConfigurationPreloadResult::Failed;
+    }
+
+    app::AppContext& app_context = app::AppContext::getInstance();
+    app_context.configurePlatformBindings(
+        platform::esp::arduino_common::makeAppContextPlatformBindings());
+    if (app_context.preloadConfig())
+    {
+        return ConfigurationPreloadResult::Ready;
+    }
+    return app::sd_tms::workingConfigRequiresRepair()
+               ? ConfigurationPreloadResult::RepairRequired
+               : ConfigurationPreloadResult::Failed;
+}
 
 bool initialize(bool use_mock)
 {
@@ -100,6 +122,10 @@ void startDeferredStorage()
 
 void tick()
 {
+    if (!s_status.app_context_bound)
+    {
+        return;
+    }
     platform::esp::arduino_common::storage::tick_deferred_storage();
 #if defined(ARDUINO_T_DECK_PRO) && defined(TRAIL_MATE_TDECK_PRO_A7682E)
     // Receive call/SMS URCs even while the EPD saver owns the foreground UI.

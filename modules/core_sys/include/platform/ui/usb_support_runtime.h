@@ -14,7 +14,7 @@ bool is_supported();
 bool start();
 void stop();
 Status get_status();
-void prepare_mass_storage_mode();
+bool prepare_mass_storage_mode();
 void restore_mass_storage_mode();
 
 } // namespace platform::ui::usb_support

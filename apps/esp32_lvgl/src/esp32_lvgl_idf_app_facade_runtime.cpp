@@ -1097,7 +1097,7 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
         applyUserInfo();
         applyNetworkLimits();
         applyPrivacyConfig();
-        config_persistence_runtime_.initialize(config_);
+        config_persistence_runtime_.initialize();
 
         contact_service_.begin();
         chat_service_.reset(new chat::ChatService(chat_model_, meshAdapter(), *chat_store_));
@@ -1195,7 +1195,6 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
 
         const uint32_t now_ms = persistenceNowMs();
         const auto submission = config_persistence_runtime_.submit(
-            config_,
             changes,
             now_ms,
             app::ConfigPersistenceUrgency::Debounced);
@@ -1829,13 +1828,12 @@ class IdfAppFacadeRuntime final : public app::IAppFacade
     void flushConfigPersistence(uint32_t now_ms)
     {
         app::ConfigPersistenceWork work{};
-        if (!config_persistence_runtime_.takeDue(now_ms, work) ||
-            work.snapshot == nullptr)
+        if (!config_persistence_runtime_.takeDue(now_ms, work))
         {
             return;
         }
 
-        const bool ok = saveIdfAppConfig(*work.snapshot);
+        const bool ok = saveIdfAppConfig(config_);
         config_persistence_runtime_.complete(
             work.generation,
             ok ? app::ConfigPersistenceResultKind::Completed

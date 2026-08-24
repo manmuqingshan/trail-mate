@@ -530,6 +530,23 @@ bool apply_enabled(bool enabled)
     return saved && c6::c6_companion().configureWifi(make_companion_wifi_config(config));
 }
 
+bool suspend_for_external_storage(ExternalStorageSuspension* out_suspension)
+{
+    if (out_suspension)
+    {
+        *out_suspension = ExternalStorageSuspension{};
+    }
+    return true;
+}
+
+void resume_after_external_storage(ExternalStorageSuspension* suspension)
+{
+    if (suspension)
+    {
+        *suspension = ExternalStorageSuspension{};
+    }
+}
+
 bool connect(const Config* override_config)
 {
     Config config = override_config ? *override_config : load_saved_config();

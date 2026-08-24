@@ -23,7 +23,6 @@
 #include "platform/esp/arduino_common/voice/vmp_pager_session.h"
 #include "platform/ui/reticulum_call_runtime.h"
 #include "platform/ui/reticulum_directory_runtime.h"
-#include "platform/ui/reticulum_group_config_runtime.h"
 #include "sys/event_bus.h"
 #include "ui/chat_ui_runtime_proxy.h"
 #include "ui/chat_voice_runtime.h"
@@ -260,16 +259,6 @@ void sync_reticulum_group_config(AppConfig& config)
         return;
     }
     normalize_reticulum_interface_strategy(config);
-
-    const auto status = ::platform::ui::reticulum_groups::load(
-        config.reticulumConfig().reticulum_groups,
-        chat::kReticulumGroupDestinationMaxCount);
-    std::printf("[RTGroupConfig] sync sd=%u loaded=%u file=%u message=%s detail=%s\n",
-                status.sd_present ? 1U : 0U,
-                status.loaded ? 1U : 0U,
-                status.file_present ? 1U : 0U,
-                status.message,
-                status.detail);
 }
 } // namespace
 
@@ -300,6 +289,28 @@ AppContext::~AppContext() = default;
 void AppContext::configurePlatformBindings(const AppContextPlatformBindings& bindings)
 {
     platform_bindings_ = bindings;
+}
+
+bool AppContext::preloadConfig()
+{
+    if (config_preloaded_)
+    {
+        return true;
+    }
+    if (!platform_bindings_.load_app_config)
+    {
+        Serial.printf("[AppContext] ERROR: app config loader is not configured\n");
+        return false;
+    }
+
+    ::ui::boot::set_log_line("Loading app config...");
+    if (!platform_bindings_.load_app_config(config_))
+    {
+        Serial.printf("[AppContext] ERROR: app config preload failed\n");
+        return false;
+    }
+    config_preloaded_ = true;
+    return true;
 }
 
 void AppContext::assignBoards(BoardBase& board, LoraBoard* lora_board, GpsBoard* gps_board,
@@ -565,8 +576,7 @@ void AppContext::enqueueConfigSave(AppConfigChangeSet requested_changes)
 
         uint32_t generation = 0;
         AppConfigChangeSet queued_changes = AppConfigChangeSet::none();
-        const bool should_signal = enqueueConfigSaveLocked(config_,
-                                                           requested_changes,
+        const bool should_signal = enqueueConfigSaveLocked(requested_changes,
                                                            &generation,
                                                            &queued_changes);
         xSemaphoreGive(config_state_mutex_);
@@ -583,14 +593,12 @@ void AppContext::enqueueConfigSave(AppConfigChangeSet requested_changes)
     }
 }
 
-bool AppContext::enqueueConfigSaveLocked(const AppConfig& desired_config,
-                                         AppConfigChangeSet requested_changes,
+bool AppContext::enqueueConfigSaveLocked(AppConfigChangeSet requested_changes,
                                          uint32_t* out_generation,
                                          AppConfigChangeSet* out_changes)
 {
     const ConfigPersistenceSubmission submission =
-        config_persistence_runtime_.submit(desired_config,
-                                           requested_changes,
+        config_persistence_runtime_.submit(requested_changes,
                                            millis());
     if (!submission.queued)
     {
@@ -612,8 +620,7 @@ void AppContext::finishConfigEdit(AppConfigChangeSet changes)
 {
     uint32_t generation = 0;
     AppConfigChangeSet queued_changes = AppConfigChangeSet::none();
-    const bool should_signal = enqueueConfigSaveLocked(config_,
-                                                       changes,
+    const bool should_signal = enqueueConfigSaveLocked(changes,
                                                        &generation,
                                                        &queued_changes);
     xSemaphoreGive(config_state_mutex_);
@@ -659,28 +666,22 @@ void AppContext::flushConfigPersistence(uint32_t now_ms)
     {
         return;
     }
-    const bool has_work = config_persistence_runtime_.takeDue(now_ms, work);
-    xSemaphoreGive(config_state_mutex_);
-    if (!has_work || !work.snapshot)
+    if (!config_persistence_runtime_.takeDue(now_ms, work))
     {
+        xSemaphoreGive(config_state_mutex_);
         return;
     }
 
     Serial.printf("[AppCfg][SAVE_OWNER] flush begin gen=%lu changes=0x%08lx\n",
                   static_cast<unsigned long>(work.generation),
                   static_cast<unsigned long>(work.changes.bits()));
-    const bool ok = platform_bindings_.save_app_config(*work.snapshot,
-                                                       work.changes);
-
-    if (xSemaphoreTake(config_state_mutex_, kConfigSaveMutexWait) == pdTRUE)
-    {
-        config_persistence_runtime_.complete(
-            work.generation,
-            ok ? ConfigPersistenceResultKind::Completed
-               : ConfigPersistenceResultKind::IoError,
-            millis());
-        xSemaphoreGive(config_state_mutex_);
-    }
+    const bool ok = platform_bindings_.save_app_config(config_, work.changes);
+    config_persistence_runtime_.complete(
+        work.generation,
+        ok ? ConfigPersistenceResultKind::Completed
+           : ConfigPersistenceResultKind::IoError,
+        millis());
+    xSemaphoreGive(config_state_mutex_);
     Serial.printf("[AppCfg][SAVE_OWNER] flush done gen=%lu ok=%u\n",
                   static_cast<unsigned long>(work.generation),
                   ok ? 1U : 0U);
@@ -788,12 +789,14 @@ bool AppContext::init(BoardBase& board, LoraBoard* lora_board, GpsBoard* gps_boa
     }
     platform::esp::arduino_common::memory_diag::logHeapSnapshot("appctx.after_event_bus");
 
-    if (platform_bindings_.load_app_config)
+    if (!config_preloaded_)
     {
-        ::ui::boot::set_log_line("Loading app config...");
-        platform_bindings_.load_app_config(config_);
+        if (!preloadConfig())
+        {
+            return false;
+        }
     }
-    config_persistence_runtime_.initialize(config_);
+    config_persistence_runtime_.initialize();
     const uint32_t after_config_ms = millis();
     Serial.printf("[AppContext] phase=load_config elapsed_ms=%lu total_ms=%lu\n",
                   static_cast<unsigned long>(after_config_ms - init_started_ms),
@@ -978,10 +981,6 @@ void AppContext::updateCoreServices()
     // failure prevented the local VMP attachment snapshot from restoring.
     ::platform::esp::arduino_common::voice::vmp_session::servicePersistentInbox();
 #endif
-    if (::platform::ui::reticulum_groups::hasPending())
-    {
-        (void)::platform::ui::reticulum_groups::flushPending();
-    }
     if (event_runtime_hooks_.update_core_services)
     {
         event_runtime_hooks_.update_core_services(*this);

@@ -68,6 +68,9 @@ class AppContext final : public IAppBleFacade
   public:
     static AppContext& getInstance();
 
+    // Loads the one resident AppConfig before board services are allowed to
+    // start. This phase has no radio, GPS, BLE, or task side effects.
+    bool preloadConfig();
     bool init(BoardBase& board, LoraBoard* lora_board = nullptr, GpsBoard* gps_board = nullptr,
               MotionBoard* motion_board = nullptr, bool use_mock_adapter = true, uint32_t disable_hw_init = 0);
     void startDeferredStorage();
@@ -245,8 +248,7 @@ class AppContext final : public IAppBleFacade
     void initContactServices();
     void ensureConfigPersistenceLock();
     void enqueueConfigSave(AppConfigChangeSet requested_changes);
-    bool enqueueConfigSaveLocked(const AppConfig& desired_config,
-                                 AppConfigChangeSet requested_changes,
+    bool enqueueConfigSaveLocked(AppConfigChangeSet requested_changes,
                                  uint32_t* out_generation,
                                  AppConfigChangeSet* out_changes);
     void finishConfigEdit(AppConfigChangeSet changes);
@@ -282,6 +284,7 @@ class AppContext final : public IAppBleFacade
 
     AppConfig config_;
     AppContextPlatformBindings platform_bindings_{};
+    bool config_preloaded_ = false;
     SemaphoreHandle_t config_state_mutex_ = nullptr;
     ConfigPersistenceRuntime config_persistence_runtime_{};
     bool deferred_storage_started_ = false;

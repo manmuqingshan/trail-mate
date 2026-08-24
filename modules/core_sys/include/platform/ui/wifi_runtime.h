@@ -45,6 +45,16 @@ struct Status
     ConnectionState state = ConnectionState::Unsupported;
 };
 
+// Ownership token for a temporary external-storage session. This is runtime
+// state only; it must never be persisted as the user's Wi-Fi preference.
+struct ExternalStorageSuspension
+{
+    bool resume_required = false;
+};
+
+static_assert(sizeof(ExternalStorageSuspension) == 1U,
+              "Wi-Fi external-storage suspension must stay metadata-only");
+
 struct ScanResult
 {
     char ssid[kMaxSsidLength + 1] = {};
@@ -67,6 +77,8 @@ bool visit_saved_profiles(bool* enabled,
                           void* context);
 bool replace_saved_profiles(bool enabled, const Config* profiles, std::size_t count);
 bool apply_enabled(bool enabled);
+bool suspend_for_external_storage(ExternalStorageSuspension* out_suspension);
+void resume_after_external_storage(ExternalStorageSuspension* suspension);
 bool connect(const Config* override_config = nullptr);
 void disconnect();
 bool scan(ScanResult* out_results, std::size_t capacity, std::size_t& out_count);

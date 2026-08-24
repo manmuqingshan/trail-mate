@@ -1,6 +1,7 @@
 #include "ble/meshcore_ble.h"
 
 #include "app/app_config.h"
+#include "platform/esp/arduino_common/app_config_sd_tms_runtime.h"
 #include "ble/ble_uuids.h"
 #include "chat/domain/contact_types.h"
 #include "display/DisplayConfig.h"
@@ -1725,15 +1726,20 @@ void MeshCoreBleService::loadBlePin()
 void MeshCoreBleService::saveBlePin()
 {
     Preferences prefs;
+    bool saved = false;
     if (prefs.begin("mc_ble", false))
     {
-        prefs.putUInt("pin", ble_pin_);
-        prefs.putBool("manual_add", manual_add_contacts_);
-        prefs.putUChar("telem_base", telemetry_mode_base_);
-        prefs.putUChar("telem_loc", telemetry_mode_loc_);
-        prefs.putUChar("telem_env", telemetry_mode_env_);
-        prefs.putUChar("advert_loc", advert_loc_policy_);
+        saved = prefs.putUInt("pin", ble_pin_) &&
+                prefs.putBool("manual_add", manual_add_contacts_) &&
+                prefs.putUChar("telem_base", telemetry_mode_base_) &&
+                prefs.putUChar("telem_loc", telemetry_mode_loc_) &&
+                prefs.putUChar("telem_env", telemetry_mode_env_) &&
+                prefs.putUChar("advert_loc", advert_loc_policy_);
         prefs.end();
+    }
+    if (saved)
+    {
+        app::sd_tms::requestWorkingConfigSync();
     }
 }
 
