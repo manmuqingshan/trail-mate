@@ -1,10 +1,10 @@
 #include "ble/meshcore_ble.h"
 
 #include "app/app_config.h"
-#include "platform/esp/arduino_common/app_config_sd_tms_runtime.h"
 #include "ble/ble_uuids.h"
 #include "chat/domain/contact_types.h"
 #include "display/DisplayConfig.h"
+#include "platform/esp/arduino_common/app_config_sd_tms_runtime.h"
 #include "platform/esp/arduino_common/chat/infra/meshcore/meshcore_adapter.h"
 #include "ui/widgets/ble_pairing_popup.h"
 #include <Arduino.h>

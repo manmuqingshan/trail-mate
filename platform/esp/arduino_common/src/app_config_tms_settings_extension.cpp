@@ -459,7 +459,7 @@ bool valid_network_records(uint16_t schema_version)
 bool write_network_records(tms::RecordWriter& writer, const AppConfig& config)
 {
     if (!::platform::ui::reticulum_network_config::snapshotForTms(config.reticulumConfig(),
-                                                                    &s_state.network) ||
+                                                                  &s_state.network) ||
         !writer.u16("rt.net.version", 1U) ||
         !writer.u8("rt.net.interface_count", s_state.network.interface_count))
     {
@@ -619,10 +619,10 @@ enum CellularSeen : uint32_t
 };
 
 constexpr uint32_t kRequiredCellular = CellularEnabled | CellularAutoAnswer | CellularSpeakerGain |
-                                        CellularMicrophoneGain | CellularSmtpPort | CellularSmtpSecurity |
-                                        CellularApn | CellularApnUser | CellularApnPassword | CellularSmsc |
-                                        CellularSmtpHost | CellularSmtpUser | CellularSmtpPassword |
-                                        CellularSmtpFrom | CellularSmtpRecipient;
+                                       CellularMicrophoneGain | CellularSmtpPort | CellularSmtpSecurity |
+                                       CellularApn | CellularApnUser | CellularApnPassword | CellularSmsc |
+                                       CellularSmtpHost | CellularSmtpUser | CellularSmtpPassword |
+                                       CellularSmtpFrom | CellularSmtpRecipient;
 
 bool mark_cellular_once(uint32_t bit)
 {
@@ -844,27 +844,27 @@ tms::RecordConsumeResult consumeRecord(void*, const tms::RecordReader& reader)
     }
 
 #if defined(ARDUINO_T_DECK_PRO) && defined(TRAIL_MATE_TDECK_PRO_A7682E)
-#define TMS_CELL_BOOL(name, field, bit)                                                       \
-    if (key_equals(reader, name))                                                             \
-        return mark_cellular_once(bit) && reader.boolean(&s_state.cellular.field)             \
-                   ? tms::RecordConsumeResult::Accepted                                      \
-                   : tms::RecordConsumeResult::Invalid
-#define TMS_CELL_U8(name, field, bit)                                                         \
-    if (key_equals(reader, name))                                                             \
-        return mark_cellular_once(bit) && reader.u8(&s_state.cellular.field)                  \
-                   ? tms::RecordConsumeResult::Accepted                                      \
-                   : tms::RecordConsumeResult::Invalid
-#define TMS_CELL_U16(name, field, bit)                                                        \
-    if (key_equals(reader, name))                                                             \
-        return mark_cellular_once(bit) && reader.u16(&s_state.cellular.field)                 \
-                   ? tms::RecordConsumeResult::Accepted                                      \
-                   : tms::RecordConsumeResult::Invalid
-#define TMS_CELL_TEXT(name, field, bit)                                                       \
-    if (key_equals(reader, name))                                                             \
-        return mark_cellular_once(bit) &&                                                     \
-                       reader.text(s_state.cellular.field, sizeof(s_state.cellular.field))   \
-                   ? tms::RecordConsumeResult::Accepted                                      \
-                   : tms::RecordConsumeResult::Invalid
+#define TMS_CELL_BOOL(name, field, bit)                                       \
+    if (key_equals(reader, name))                                             \
+    return mark_cellular_once(bit) && reader.boolean(&s_state.cellular.field) \
+               ? tms::RecordConsumeResult::Accepted                           \
+               : tms::RecordConsumeResult::Invalid
+#define TMS_CELL_U8(name, field, bit)                                    \
+    if (key_equals(reader, name))                                        \
+    return mark_cellular_once(bit) && reader.u8(&s_state.cellular.field) \
+               ? tms::RecordConsumeResult::Accepted                      \
+               : tms::RecordConsumeResult::Invalid
+#define TMS_CELL_U16(name, field, bit)                                    \
+    if (key_equals(reader, name))                                         \
+    return mark_cellular_once(bit) && reader.u16(&s_state.cellular.field) \
+               ? tms::RecordConsumeResult::Accepted                       \
+               : tms::RecordConsumeResult::Invalid
+#define TMS_CELL_TEXT(name, field, bit)                                                \
+    if (key_equals(reader, name))                                                      \
+    return mark_cellular_once(bit) &&                                                  \
+                   reader.text(s_state.cellular.field, sizeof(s_state.cellular.field)) \
+               ? tms::RecordConsumeResult::Accepted                                    \
+               : tms::RecordConsumeResult::Invalid
     TMS_CELL_BOOL("cellular.enabled", enabled, CellularEnabled);
     TMS_CELL_BOOL("cellular.auto_answer", auto_answer, CellularAutoAnswer);
     TMS_CELL_U8("cellular.speaker_gain", speaker_gain, CellularSpeakerGain);
@@ -958,9 +958,9 @@ bool finishDocument(void*, bool applying, uint16_t schema_version)
               ::platform::ui::settings_store::put_string(
                   kSettingsNs, "enabled_imes", s_state.enabled_imes) &&
               ::platform::ui::settings_store::put_blob(kSettingsNs,
-                                                        "timezone_tzdef",
-                                                        s_state.timezone_tzdef,
-                                                        s_state.timezone_tzdef_len);
+                                                       "timezone_tzdef",
+                                                       s_state.timezone_tzdef,
+                                                       s_state.timezone_tzdef_len);
     ::platform::ui::settings_store::put_int(kSettingsNs,
                                             "timezone_profile",
                                             static_cast<int>(s_state.timezone_profile));

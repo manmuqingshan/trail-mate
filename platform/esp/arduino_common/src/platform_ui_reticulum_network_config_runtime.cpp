@@ -413,8 +413,7 @@ bool parse_legacy_document(const char* data, std::size_t length)
         ++parse_end;
     }
     if (!root || !cJSON_IsObject(root) || parse_end != data + length ||
-        !s_active || std::strcmp(json_string(root, "schema") ? json_string(root, "schema") : "",
-                                  kLegacySchema) != 0 ||
+        !s_active || std::strcmp(json_string(root, "schema") ? json_string(root, "schema") : "", kLegacySchema) != 0 ||
         json_int(root, "version", 0) != NetworkConfig::kSchemaVersion)
     {
         cJSON_Delete(root);

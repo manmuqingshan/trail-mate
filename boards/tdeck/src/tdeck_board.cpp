@@ -1160,7 +1160,8 @@ bool TDeckBoard::quiesceForExternalStorage()
     int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
     return withSharedSpiRadioAccess("radio_external_storage_standby",
                                     pdMS_TO_TICKS(50),
-                                    [&]() { rc = radio_.standby(); }) &&
+                                    [&]()
+                                    { rc = radio_.standby(); }) &&
            rc == RADIOLIB_ERR_NONE;
 }
 

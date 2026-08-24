@@ -985,14 +985,14 @@ class Encoder
 bool writeMeshBase(Encoder& encoder, const char* prefix, const chat::MeshConfig& config)
 {
     char key[48] = {};
-#define TMS_MESH_VALUE(method, suffix, value)                                              \
-    do                                                                                       \
-    {                                                                                        \
-        std::snprintf(key, sizeof(key), "%s%s", prefix, suffix);                          \
-        if (!encoder.method(key, value))                                                     \
-        {                                                                                    \
-            return false;                                                                    \
-        }                                                                                    \
+#define TMS_MESH_VALUE(method, suffix, value)                    \
+    do                                                           \
+    {                                                            \
+        std::snprintf(key, sizeof(key), "%s%s", prefix, suffix); \
+        if (!encoder.method(key, value))                         \
+        {                                                        \
+            return false;                                        \
+        }                                                        \
     } while (false)
     TMS_MESH_VALUE(u8, "region", config.region);
     TMS_MESH_VALUE(boolean, "use_preset", config.use_preset);
@@ -1036,14 +1036,14 @@ bool writeMqtt(Encoder& encoder,
                const char* password)
 {
     char key[48] = {};
-#define TMS_MQTT_VALUE(method, suffix, value)                                              \
-    do                                                                                       \
-    {                                                                                        \
-        std::snprintf(key, sizeof(key), "%s%s", prefix, suffix);                          \
-        if (!encoder.method(key, value))                                                     \
-        {                                                                                    \
-            return false;                                                                    \
-        }                                                                                    \
+#define TMS_MQTT_VALUE(method, suffix, value)                    \
+    do                                                           \
+    {                                                            \
+        std::snprintf(key, sizeof(key), "%s%s", prefix, suffix); \
+        if (!encoder.method(key, value))                         \
+        {                                                        \
+            return false;                                        \
+        }                                                        \
     } while (false)
     TMS_MQTT_VALUE(boolean, "enabled", enabled);
     TMS_MQTT_VALUE(boolean, "uplink", uplink);
@@ -1366,12 +1366,28 @@ bool isMqttField(const char* field)
 bool isMeshBaseField(const char* field)
 {
     static constexpr const char* kFields[] = {
-        "region", "use_preset", "modem_preset", "bandwidth_khz", "spread_factor",
-        "coding_rate", "tx_power", "hop_limit", "tx_enabled", "override_duty_cycle",
-        "channel_num", "frequency_offset_mhz", "override_frequency_mhz", "enable_relay",
-        "ignore_mqtt", "config_ok_to_mqtt", "primary_channel_name",
-        "secondary_channel_name", "primary_channel_id", "secondary_channel_id",
-        "primary_psk", "secondary_psk",
+        "region",
+        "use_preset",
+        "modem_preset",
+        "bandwidth_khz",
+        "spread_factor",
+        "coding_rate",
+        "tx_power",
+        "hop_limit",
+        "tx_enabled",
+        "override_duty_cycle",
+        "channel_num",
+        "frequency_offset_mhz",
+        "override_frequency_mhz",
+        "enable_relay",
+        "ignore_mqtt",
+        "config_ok_to_mqtt",
+        "primary_channel_name",
+        "secondary_channel_name",
+        "primary_channel_id",
+        "secondary_channel_id",
+        "primary_psk",
+        "secondary_psk",
     };
     for (const char* candidate : kFields)
     {
@@ -1540,7 +1556,7 @@ bool writeDocument(const AppConfig& config,
     Encoder encoder(output, scratch, info);
     if (!encoder.raw(kMagic) || !encoder.u16("schema.version", kSchemaVersion) ||
         !encoder.enumeration("document.kind", kind == DocumentKind::Working ? kWorkingKind
-                                                                             : kBackupKind) ||
+                                                                            : kBackupKind) ||
         !writeGeneral(encoder, config) || !writeMeshBase(encoder, "mt.", config.meshtastic_config) ||
         !writeMqtt(encoder,
                    "mt.mqtt.",
@@ -1709,9 +1725,9 @@ bool Decoder::finish()
     }
     const uint16_t required_core_records = schema_version_ == kSchemaVersion
                                                ? static_cast<uint16_t>(kCoreRecordCount)
-                                               : schema_version_ == 6U
-                                                     ? static_cast<uint16_t>(kLegacyV6CoreRecordCount)
-                                                     : 0U;
+                                           : schema_version_ == 6U
+                                               ? static_cast<uint16_t>(kLegacyV6CoreRecordCount)
+                                               : 0U;
     if (required_core_records != 0U && core_records_ != required_core_records)
     {
         info_.error = DecodeError::MissingRequiredRecord;
@@ -1770,22 +1786,22 @@ bool Decoder::consumeRecord(char* key, char* type, char* value)
     saw_user_record_ = true;
 
     bool known = false;
-#define TMS_APPLY_BOOL(name, member)                                                        \
-    if (std::strcmp(key, name) == 0)                                                        \
-        return assignBool(type, value, target_ ? &target_->member : nullptr)
-#define TMS_APPLY_U8(name, member)                                                          \
-    if (std::strcmp(key, name) == 0)                                                        \
-        return assignU8(type, value, target_ ? &target_->member : nullptr)
-#define TMS_APPLY_U16(name, member)                                                         \
-    if (std::strcmp(key, name) == 0)                                                        \
-        return assignU16(type, value, target_ ? &target_->member : nullptr)
-#define TMS_APPLY_U32(name, member)                                                         \
-    if (std::strcmp(key, name) == 0)                                                        \
-        return assignU32(type, value, target_ ? &target_->member : nullptr)
-#define TMS_APPLY_TEXT(name, member)                                                        \
-    if (std::strcmp(key, name) == 0)                                                        \
-        return assignText(type, value, target_ ? target_->member : nullptr,                 \
-                          sizeof(AppConfig::member))
+#define TMS_APPLY_BOOL(name, member) \
+    if (std::strcmp(key, name) == 0) \
+    return assignBool(type, value, target_ ? &target_->member : nullptr)
+#define TMS_APPLY_U8(name, member)   \
+    if (std::strcmp(key, name) == 0) \
+    return assignU8(type, value, target_ ? &target_->member : nullptr)
+#define TMS_APPLY_U16(name, member)  \
+    if (std::strcmp(key, name) == 0) \
+    return assignU16(type, value, target_ ? &target_->member : nullptr)
+#define TMS_APPLY_U32(name, member)  \
+    if (std::strcmp(key, name) == 0) \
+    return assignU32(type, value, target_ ? &target_->member : nullptr)
+#define TMS_APPLY_TEXT(name, member)                                    \
+    if (std::strcmp(key, name) == 0)                                    \
+    return assignText(type, value, target_ ? target_->member : nullptr, \
+                      sizeof(AppConfig::member))
     TMS_APPLY_BOOL("policy.relay", chat_policy.enable_relay);
     TMS_APPLY_U8("policy.hop_limit", chat_policy.hop_limit_default);
     TMS_APPLY_BOOL("policy.ack_broadcast", chat_policy.ack_for_broadcast);

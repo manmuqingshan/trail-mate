@@ -346,7 +346,7 @@ bool load_preferences()
 bool encode_module()
 {
     pb_ostream_t stream = pb_ostream_from_buffer(s_state.module_bytes,
-                                                  sizeof(s_state.module_bytes));
+                                                 sizeof(s_state.module_bytes));
     if (!pb_encode(&stream, meshtastic_LocalModuleConfig_fields, &s_state.module) ||
         stream.bytes_written == 0U || stream.bytes_written > sizeof(s_state.module_bytes))
     {

@@ -116,9 +116,9 @@ bool parse_group_line(char* line, chat::ReticulumGroupDestinationConfig* out)
     chat::ReticulumGroupDestinationConfig parsed{};
     if (!parse_enabled(line, &parsed.enabled) ||
         !chat::parseReticulumDestinationHashText(destination,
-                                                  &parsed.identity,
-                                                  nullptr,
-                                                  0U))
+                                                 &parsed.identity,
+                                                 nullptr,
+                                                 0U))
     {
         return false;
     }

@@ -261,8 +261,8 @@ bool promote_candidate(const char* temporary_path,
                        const char* recovery_path)
 {
     return chat::storage::v2::replaceFileAtomically(temporary_path,
-                                                     final_path,
-                                                     recovery_path);
+                                                    final_path,
+                                                    recovery_path);
 }
 
 bool recover_transaction(const char* final_path,
@@ -270,8 +270,8 @@ bool recover_transaction(const char* final_path,
                          const char* recovery_path)
 {
     return chat::storage::v2::recoverAtomicFile(final_path,
-                                                 temporary_path,
-                                                 recovery_path);
+                                                temporary_path,
+                                                recovery_path);
 }
 
 bool copy_backup_as_working_candidate()
@@ -456,7 +456,7 @@ void bindWorkingConfig(const AppConfig& config)
 {
     s_working_config = &config;
     ::platform::ui::settings_store::set_change_observer(on_settings_store_changed,
-                                                         nullptr);
+                                                        nullptr);
 }
 
 void requestWorkingConfigSync()
