@@ -13,6 +13,7 @@ struct Status
 bool is_supported();
 bool start();
 void stop();
+void report_previous_exit_trace();
 Status get_status();
 bool prepare_mass_storage_mode();
 void restore_mass_storage_mode();

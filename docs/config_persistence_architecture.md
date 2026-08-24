@@ -1,6 +1,6 @@
 # Configuration Persistence Architecture
 
-Status date: 2026-07-27
+Status date: 2026-08-21
 
 This document describes only the technical mechanism for persisting `AppConfig`.
 Business specifications such as map behavior, protocol behavior, language packs,
@@ -19,8 +19,10 @@ example, a `Map` request permits the ESP adapter to rewrite the map keys in the
 `settings` section; it is not a promise that only `map_source` is written.
 
 The platform persistence backend maps change domains to concrete storage. On
-ESP Arduino today this storage is Preferences/NVS, not SD card and not shared
-SPI.
+ESP Arduino, the editable working authority is the SD-card TMS document; the
+Preferences/NVS sections are compatibility caches, not a competing authority.
+The SD layer owns card access through the existing shared-storage arbitration;
+the configuration model never names or bypasses an SPI bus.
 
 Runtime apply is separate from persistence. Applying LoRa, GPS, privacy, or map
 runtime changes must not imply a storage implementation detail, and saving a
@@ -62,17 +64,18 @@ request a platform namespace such as `chat`, `settings`, or `gps`.
    immutable work view from the runtime and invokes the adapter. A later edit
    can replace an older pending snapshot, including by reverting to the last
    persisted value.
-6. The ESP backend maps domains to Preferences/NVS sections and writes only the
-   required sections.
+6. The ESP backend writes the complete bounded TMS projection transactionally
+   when a working document is available. Only after that transaction is durable
+   are the corresponding Preferences/NVS compatibility keys updated.
 7. On success, the in-flight snapshot becomes the new save baseline. Any
    pending snapshot is reconciled against that new baseline before another
    write is allowed. If the latest in-memory value reverted while the old
    write was in flight, the runtime schedules that latest value rather than
    replaying the old payload.
-8. On failure, the baseline remains the last successfully persisted snapshot.
-   The failed payload's domains remain dirty and are retried; a newer pending
-   snapshot merges those domains with its own changes without escalating to a
-   full-domain rewrite.
+8. A present but invalid TMS file is retained for repair and blocks NVS
+   fallback. A missing card or missing document permits the established NVS
+   compatibility configuration to be materialized into a new TMS document;
+   it does not make NVS supersede a present SD authority.
 
 The long-lived snapshots are PSRAM-backed on ESP targets. The execution shell
 must not create large `AppConfig`, protocol config, or byte-buffer automatic
@@ -106,9 +109,9 @@ by the same mechanism:
 | State | Owner | `saveConfig()` meaning |
 | --- | --- | --- |
 | `AppConfig::chat_policy.max_channels` | AppConfig / `chat` section | Persisted as part of `Channels` |
-| `AppConfig::reticulumConfig().reticulum_groups` | Reticulum group storage | Runtime mirror only; loaded and saved by its own SD-backed owner |
-| `AppConfig::ble_enabled` | BLE runtime policy | Not an AppConfig persistence field on ESP Arduino; the backend currently keeps it disabled |
-| `/trailmate/config.tms` working projection | SD-first configuration owner | Complete persisted `AppConfig`, NVS-backed settings, saved Wi-Fi profiles, and supported cellular settings; NVS is its durable mirror and fallback |
+| `AppConfig::reticulumConfig().reticulum_groups` | AppConfig core TMS projection | Each group destination is persisted by the strict `rt.group.*` records in `config.tms`; legacy group storage is migration input only |
+| `AppConfig::ble_enabled` | AppConfig core TMS projection | Persisted by the strict `device.ble_enabled` record and applied by the BLE runtime after configuration selection |
+| `/trailmate/config.tms` working configuration | SD-first configuration owner | Complete persisted `AppConfig`, NVS-backed settings, saved Wi-Fi profiles, and supported cellular settings; NVS is a compatibility cache and a fallback only when the card or file is absent |
 
 Adding a field to `AppConfig` does not make it persistent automatically. The
 field must be assigned to a domain, included in change detection, and handled
@@ -118,38 +121,56 @@ by the owning adapter, or explicitly documented as runtime-only.
 
 `/trailmate/config.tms` is the only editable working configuration. It is a
 bounded, line-streamed TMS document—not JSON and not a whole-file object. On
-startup, a valid document is applied before Preferences/NVS; its AppConfig and
-independent settings values are then mirrored to NVS. If the card is absent or
-the document is absent, NVS supplies the fallback values. Invalid documents are
-retained for repair and do not partially apply.
+startup, a valid document is completely validated before it changes `AppConfig`
+or any independent settings owner, then it is mirrored to NVS as a compatibility
+cache. NVS is read only when the card is absent or the file is absent. A present
+but invalid document is retained for repair and blocks an NVS fallback, so a
+typo can never appear to be silently ignored.
 
 | Concern | Active owner | Working-document behavior |
 | --- | --- | --- |
-| `AppConfig` domains | SD working document with Preferences/NVS mirror | All persisted fields are read from valid `config.tms` before NVS and are canonically rewritten after sync. |
+| `AppConfig` domains | SD working document with Preferences/NVS cache | All persisted fields are read from a valid `config.tms` before NVS. A present invalid file is not replaced from NVS. |
 | Device and presentation preferences outside `AppConfig` | `settings_store` / NVS mirror | The full supported set is written and validated under typed `ui.*`, `chat.*`, `debug.*`, and `power.*` keys. |
 | Saved Wi-Fi credentials | Wi-Fi runtime / NVS mirror | An ordered exact set of zero through ten SSID/password profiles is validated as a whole before replacement. |
 | A7682E settings | Cellular runtime / NVS mirror | The complete supported cellular block is emitted only on the A7682E product variant, and is mandatory and validated as a whole there before application. |
-| Reticulum interface configuration | Reticulum network-config owner | Its bounded `/trailmate/reticulum/config.json` has a separate interface schema and PSRAM-backed parser. Factory Reset calls that owner, which removes its SD file/cache or retains a tiny reset-pending marker until an absent card returns. |
-| Reticulum groups | `platform::ui::reticulum_groups` SD owner | Purpose-specific group data remains in its own bounded SD file, not in generic configuration or NVS. |
+| Reticulum network/LXMF interface configuration | Reticulum network-config owner projected into TMS | The complete bounded `rt.net.*` block is validated with the working document. The older `/trailmate/reticulum/config.json` root is imported once for migration and retired only after a durable `TMSET7` write. |
+| Reticulum group destinations | `AppConfig` core TMS projection | Group destinations are part of the strict core projection. Earlier group files are migration inputs only and are retired after the new document is durable. |
 
-NVS changes use a tiny write-ahead marker. The foreground lifecycle atomically
-rewrites `config.tms` after the NVS write; a card removal or power loss between
-those steps cannot make an older SD copy overwrite the newer NVS state at boot.
-The document uses schema 3, while schema-2 AppConfig-only documents are loaded
-for migration and rewritten as a complete schema-3 file on the next successful
-sync. There is no second Settings Backup/Restore schema: another document on
-the same SD card does not protect the NVS-erasure failure mode and would create
-a second source of truth.
+Every supported NVS-backed settings mutation crosses one synchronous durable
+commit boundary. A multi-key owner (Wi-Fi or cellular) is coalesced only until
+its scope exits, then the current call writes the SD document. There is no
+pending flag, retry timer, foreground-loop service, or NVS metadata that can
+make NVS supersede an existing valid SD file.
+
+Writes stream a complete `TMSET7` document to `config.tms.new`, parse and
+canonicalize it, record its tiny SD transaction digest in `config.tms.txn`, move
+the previous document to `config.tms.bak`, and then promote the new file. If
+power is lost while the primary is absent, boot restores the validated `.new`
+candidate that matches the transaction, otherwise the validated `.bak` file.
+The backup is a recovery generation, not a second configuration authority.
+
+`TMSET2` through `TMSET6` remain migration inputs. `TMSET6` was an
+unreleased transitional dialect that used `rt.net.*`, legacy group
+`destination` records, and no BLE block; it is accepted only when that exact
+complete layout validates, then is immediately rewritten. New writes always
+emit strict `TMSET7`: every expected record must appear exactly once in
+canonical order and an unknown key is rejected. This makes an SD edit failure
+visible instead of leaving an old value in effect. `TMSET7` additionally owns
+the Reticulum network/LXMF block, so new firmware does not recreate a separate
+editable Reticulum JSON root.
 
 ### TMS memory budget
 
-TMS is deliberately a streaming format. Each SD read holds one 384-byte line
-buffer and each write holds one shared 192-byte scalar-emission buffer in
-internal RAM. The bounded state required to validate and atomically replace all
-ten Wi-Fi profiles (and the A7682E settings block where present) is allocated
-explicitly from PSRAM only for the active read or write, then released. There
-is no whole-document buffer, JSON DOM, task-stack `AppConfig` copy, or fallback
-of that staging object into internal RAM when PSRAM is unavailable.
+TMS is deliberately a streaming format. Each read and write share one 384-byte
+line buffer in BSS; the document is never retained in RAM. The bounded settings
+projection—needed to validate all ten Wi-Fi profiles, cellular settings, and
+the Reticulum network block—lives in PSRAM only while a document is decoded or
+emitted. Both first materialization and an existing-document rewrite pass
+through that same projection and one record writer; a setting candidate is
+merged once before output rather than creating a second field list. The
+temporary 4,556-byte `AppConfig` validation object also prefers PSRAM and is
+released immediately after the decision. No ESP task stack receives a whole
+configuration object or JSON DOM.
 
 ## Edit Boundary And Platform Semantics
 
@@ -251,22 +272,25 @@ The platform execution shells are intentionally thin:
 
 | Platform | Intent submission | Persistence owner execution |
 | --- | --- | --- |
-| ESP Arduino | `AppContext::beginConfigEdit()` / `requestSaveConfig()` | `AppContext::updateCoreServices()` calls `takeDue()` and the Preferences adapter |
+| ESP Arduino | `AppContext::beginConfigEdit()` / `requestSaveConfig()` | `AppContext::updateCoreServices()` calls `takeDue()` and the SD-first TMS adapter, then mirrors its NVS compatibility cache |
 | ESP IDF | `IdfAppFacadeRuntime::beginConfigEdit()` / `saveConfig()` | `IdfAppFacadeRuntime::updateCoreServices()` calls `takeDue()` and the full-blob adapter |
 | Linux | `LinuxAppServices::beginConfigEdit()` / `saveConfig()` | `LinuxAppServices::tick()` calls `takeDue()` and the settings-store adapter |
 | nRF52 | `AppConfigChangeSet` facade request | Board-owned deferred settings store; full snapshot is the explicit platform fallback |
 
-No caller performs routine configuration I/O in the callback that submits the
-intent. Critical protocol-switch persistence may still use an immediate
-platform path where the board contract requires it, but that path is separate
-from routine debounce/retry persistence.
+`AppConfig` edits do not perform routine storage I/O in the callback that
+submits the intent; their debounced snapshots are owned by the application
+persistence runtime. Independently owned typed settings are deliberately
+different: they synchronously commit the complete TMS document before updating
+their NVS cache or applying the new runtime value. This is the same SD-first
+authority transaction, not a second background worker. Critical
+protocol-switch persistence may still use an immediate platform path where the
+board contract requires it.
 
-Reticulum groups use the same ownership rule without pretending to be fields
-owned by the AppConfig writer. Contacts edits a local candidate array, commits
-the necessary runtime mirror through `AppConfigEdit`, and submits the candidate
-to `platform::ui::reticulum_groups`. The Reticulum group owner performs the
-physical SD write from the platform service tick. The legacy `save()` method is
-retained only as the physical backend operation and is not a UI submission API.
+Reticulum group destinations are strict fields in the `AppConfig` TMS core
+projection. A contacts flow edits its candidate through `AppConfigEdit` and
+submits the appropriate change domain; it must not call a separate Reticulum
+group storage owner. Earlier dedicated group files are migration input only and
+are retired after the canonical `TMSET7` document is durable.
 
 Mesh peer directory hydration follows the same split on IDF: the facade binds
 an empty, valid directory during construction, and the storage maintenance

@@ -3,7 +3,7 @@
 flowchart TD
   Enter --> Cap{"USB + SD ready?"}
  Cap -- No --> Unavailable
- Cap -- Yes --> Quiesce{"track/file/radio/GPS owners stopped and flushed?"}
+ Cap -- Yes --> Quiesce{"Wi-Fi, LoRa, GPS, track, and file owners quiesced?"}
  Quiesce -- No --> Restore["Restore paused owner"]
  Quiesce -- Yes --> Unmount{"application SD unmount?"}
  Unmount -- No --> Restore
@@ -13,7 +13,7 @@ flowchart TD
  Active --> Exit["User exit/disconnect"]
   Exit --> Stop["stop USB"]
   Stop --> Remount
-  Remount --> Resume["resume tasks + screen policy"]
+  Remount --> Resume["restore screen, GPS, LoRa, then Wi-Fi"]
 ```
 
 ## Questions answered by this picture
@@ -22,7 +22,14 @@ How to put the same SD The card is safely handed over to the USB Host from the a
 
 ## Quiesce sequence
 
-The system first blocks new file/track operations, then requires each owner to drain, flush, and close; then uninstalls the application file system. If either owner cannot confirm the quiescence, the transfer will be terminated and the suspended owner will be restored. Simply closing the map page is not enough to prove that SD has been released.
+The system first asks the Wi-Fi runtime to suspend without changing its saved
+setting. It then blocks new file/track operations, rejects a LoRa pause owned
+by another exclusive feature, and requires the radio/mesh tasks to quiesce
+before the board puts the radio hardware in standby. GPS is suspended next.
+Only then may storage owners drain, flush, close, and uninstall the
+application file system. If any owner cannot confirm the quiescence, the
+transfer is terminated and completed stages are restored in reverse order.
+Simply closing the map page is not enough to prove that SD has been released.
 
 ## Ownership invariants
 
@@ -30,7 +37,11 @@ The system first blocks new file/track operations, then requires each owner to d
 
 ## Failure compensation
 
-If unmount fails, the suspended task will be resumed; if USB start fails, first stop the remaining backend and then remount; if remount fails, it will enter explicit recovery-required, and tasks that access SD cannot be directly resumed. Compensation is performed in reverse order of completed stages.
+If a LoRa standby or SD unmount fails, the Wi-Fi, LoRa, and GPS stages that USB
+successfully owns are restored. If USB start fails, first stop the remaining
+backend and then remount; if remount fails, it will enter explicit
+recovery-required, and tasks that access SD cannot be directly resumed.
+Compensation is performed in reverse order of completed stages.
 
 ## Exit and disconnect
 

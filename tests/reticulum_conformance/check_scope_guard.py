@@ -344,7 +344,7 @@ def check_reticulum_group_source_boundary() -> list[str]:
     if "reticulum_groups[" in text:
         errors.append(
             "Reticulum groups must not be persisted in ESP NVS app config; "
-            "the SD-card groups.tsv file is the source of truth"
+            "the working configuration document is the source of truth"
         )
     if "reticulum_group_key(" in text:
         errors.append(

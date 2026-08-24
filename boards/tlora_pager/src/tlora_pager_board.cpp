@@ -1809,6 +1809,11 @@ int TLoRaPagerBoard::radioStandby()
     return RADIOLIB_ERR_SPI_WRITE_FAILED;
 }
 
+bool TLoRaPagerBoard::quiesceForExternalStorage()
+{
+    return !isRadioOnline() || radioStandby() == RADIOLIB_ERR_NONE;
+}
+
 int TLoRaPagerBoard::startRadioReceive()
 {
     int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;

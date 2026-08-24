@@ -122,6 +122,7 @@ class TDeckBoard : public BoardBase,
     int configureLoraRadio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr_denom,
                            int8_t tx_power, uint16_t preamble_len, uint8_t sync_word,
                            uint8_t crc_len) override;
+    bool quiesceForExternalStorage() override;
 
     // GpsBoard
     void setGPSReceiverInitConfig(const gps::GpsReceiverInitConfig& config) override

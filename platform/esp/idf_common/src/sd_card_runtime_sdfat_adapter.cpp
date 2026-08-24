@@ -660,9 +660,15 @@ bool sd_external_block_owner_active()
     return s_external_block_owner_active;
 }
 
-void sd_set_external_block_owner_active(bool active)
+bool sd_set_external_block_owner_active(bool active)
 {
+    SdRuntimeBusGuard guard("sd_external_owner_transition");
+    if (!guard.locked())
+    {
+        return false;
+    }
     s_external_block_owner_active = active;
+    return true;
 }
 
 bool sd_exists(const char* path)

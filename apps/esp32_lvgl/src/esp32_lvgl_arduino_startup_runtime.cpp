@@ -79,6 +79,7 @@ void run()
 {
     Serial.begin(115200);
     delay(100);
+    platform::ui::usb_support::report_previous_exit_trace();
     Serial.printf("\n\n[Setup] ===== SYSTEM STARTUP =====\n");
     Serial.printf("[Setup] Serial initialized at 115200 baud\n");
 

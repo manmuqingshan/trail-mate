@@ -2,11 +2,11 @@
 ```mermaid
 stateDiagram-v2
   [*] --> ApplicationOwned
-  ApplicationOwned --> Preparing: enter USB
+  ApplicationOwned --> Preparing: Wi-Fi/LoRa/GPS quiesce + SD hand-off
   Preparing --> HostOwned: owners quiesced + SD unmounted + MSC started
   Preparing --> Restoring: any failure
   HostOwned --> Restoring: exit/disconnect
-  Restoring --> ApplicationOwned: MSC stopped + SD remounted + owners resumed
+  Restoring --> ApplicationOwned: MSC stopped + SD remounted + reverse restore
   Restoring --> Error: remount/restore failed
   Error --> Restoring: retry recovery
 ```
@@ -17,22 +17,32 @@ The USB Support Runtime is the sole coordinating owner and holds the session gen
 
 ## Ownership invariants
 
-When ApplicationOwned, the application can access the SD and the MSC must be stopped; when HostOwned, the MSC can be accessed, the application must be unmounted and all related owners are quiescent. Preparing/Restoring is a transition state that cannot be declared externally as writable.
+When ApplicationOwned, the application can access the SD and the MSC must be
+stopped. When HostOwned, the MSC can be accessed, the application must be
+unmounted, Wi-Fi must be suspended without a persisted setting change, the
+LoRa task/board owner must be paused and in standby, and all related owners
+must be quiescent. Preparing/Restoring is a transition state that cannot be
+declared externally as writable.
 
 ## Transition table
 
 | Current state | Completion guard | Next state |
 | --- | --- | --- |
-| ApplicationOwned | enter accepted | Preparing |
+| ApplicationOwned | Wi-Fi/LoRa/GPS quiesce accepted | Preparing |
 | Preparing | all quiesced + unmounted + MSC active | HostOwned |
 | Preparing | Failure in any stage | Restoring |
 | HostOwned | exit/disconnect/error | Restoring |
-| Restoring | MSC stopped + remounted + owners resumed | ApplicationOwned |
+| Restoring | MSC stopped + remounted + reverse restore | ApplicationOwned |
 | Restoring | remount/resume failed | Error |
 
 ## Ban and restore
 
-The second enter is rejected in Preparing/Restoring/Error. HostOwned does not allow application file operations. Error remains affected owner paused until retry recovery is clearly successful; cannot pretend to be ApplicationOwned in order to return to the UI homepage.
+The second enter is rejected in Preparing/Restoring/Error. HostOwned does not
+allow application file operations. USB cannot steal a pre-existing exclusive
+LoRa pause, and any failed prepare stage restores only the owners USB has
+already suspended. Error remains affected owner paused until retry recovery is
+clearly successful; it cannot pretend to be ApplicationOwned in order to
+return to the UI homepage.
 
 ## test
 

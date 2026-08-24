@@ -53,7 +53,11 @@ WIFI_CONNECT_PATTERNS = (
 
 def iter_source_files(root: Path):
     for current_root, dir_names, file_names in os.walk(root):
-        dir_names[:] = [name for name in dir_names if name not in EXCLUDED_DIR_NAMES]
+        dir_names[:] = [
+            name
+            for name in dir_names
+            if name not in EXCLUDED_DIR_NAMES and not name.startswith(".codex-")
+        ]
         current_root_path = Path(current_root)
         for file_name in file_names:
             path = current_root_path / file_name

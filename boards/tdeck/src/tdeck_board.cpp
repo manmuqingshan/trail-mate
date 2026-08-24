@@ -1150,6 +1150,20 @@ int TDeckBoard::startRadioReceive()
     return RADIOLIB_ERR_SPI_WRITE_FAILED;
 }
 
+bool TDeckBoard::quiesceForExternalStorage()
+{
+    if (!isRadioOnline())
+    {
+        return true;
+    }
+
+    int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    return withSharedSpiRadioAccess("radio_external_storage_standby",
+                                    pdMS_TO_TICKS(50),
+                                    [&]() { rc = radio_.standby(); }) &&
+           rc == RADIOLIB_ERR_NONE;
+}
+
 uint32_t TDeckBoard::getRadioIrqFlags()
 {
     uint32_t flags = 0;

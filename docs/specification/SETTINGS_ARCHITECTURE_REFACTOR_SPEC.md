@@ -286,17 +286,20 @@ Authoritative file names:
 
 ```text
 /trailmate/config.tms
-/trailmate/config.tms.tmp
+/trailmate/config.tms.new
+/trailmate/config.tms.bak
+/trailmate/config.tms.txn
 ```
 
-There is no parallel settings backup/restore file. A second schema on the same SD card
-would not protect the NVS-erasure scenario and would reintroduce consistency drift.
+`.bak` is the immediately preceding committed generation and `.txn` is a tiny digest for
+recovering an interrupted replacement. Neither is a second working authority: while a
+valid `config.tms` exists it is the only selected document.
 
 ### Format Sketch
 
 ```text
-TMSET3
-schema.version=u16:3
+TMSET7
+schema.version=u16:7
 document.kind=enum:working
 device.owner.long=str:Trail Mate
 device.owner.short=str:TM
@@ -322,20 +325,34 @@ wifi.enabled=bool:1
 wifi.profile_count=u8:2
 wifi.profile.0.ssid=str:Office
 wifi.profile.0.password=str:secret
+
+rt.net.version=u16:1
+rt.net.interface_count=u8:1
+rt.net.interface.0.id=str:tcp
+rt.net.interface.0.type=u8:1
 ```
 
 Rules:
 
-- First line is magic: `TMSET3`.
+- First line is magic: `TMSET7`.
 - Max content line length is 383 bytes; max document size is 32 KiB. Any longer line is rejected before apply.
 - Key is ASCII stable storage key.
 - Type prefix is mandatory.
 - Strings are bounded by descriptor metadata.
 - Hex blob max length is bounded by descriptor metadata before decoding.
-- Unknown keys are ignored but counted.
+- Unknown keys are rejected. A hand-edited working document must not silently retain an
+  old value because of a misspelled key.
 - Known key with invalid value is rejected and reported, not partially applied.
-- Validation completes before independent settings owners are written; a static/PSRAM staging area is used only for the ten Wi-Fi profiles.
-- Every normal settings write first commits NVS metadata, then a foreground service uses temp file + flush/close + replace to update `config.tms`.
+- Validation completes before independent settings owners are written. The bounded
+  extension staging state and temporary `AppConfig` prefer PSRAM; neither is a task-stack
+  object or a whole-file buffer.
+- Every supported setting write commits the SD working document synchronously in the
+  current call. A multi-key owner coalesces until its scope exits; there is no pending
+  loop service, retry timer, or NVS metadata authority.
+- `TMSET7` is the only newly-written schema. It contains the Reticulum
+  network/LXMF `rt.net.*` projection as well as the core Reticulum group
+  destinations; a separate editable Reticulum JSON file is migration input,
+  not a second working authority.
 
 ### Why Not Binary TLV First
 
@@ -377,18 +394,18 @@ raw `sizeof(AppConfig)` blob can only be used as legacy input. The new path must
 
 `/trailmate/config.tms` is the startup authority when complete and valid. It
 is parsed and validated in a streaming pass before any supported independent
-settings owner is modified; the second pass applies it and mirrors values to
-NVS. When the card or file is absent, NVS provides the fallback. A small NVS
-write-ahead marker prevents an interrupted SD mirror write from making a stale
-file overwrite a newer NVS change on the next boot:
+settings owner is modified; the second step applies it and mirrors values to
+NVS as a compatibility cache. Only a missing card or missing file permits the
+NVS fallback. A present invalid file is retained for repair and must not be
+overridden by NVS. The replacement transaction is SD-local:
 
 ```text
 durable setting change
-  -> commit NVS value
-  -> commit tiny NVS stale-replica marker
-  -> foreground service streams a canonical config.tms temporary file
-  -> flush, replace document and commit sidecar
-  -> mark SD replica synchronized
+  -> stream canonical config.tms.new
+  -> parse and canonicalize .new
+  -> write tiny .txn digest
+  -> move primary to .bak and promote .new
+  -> if boot finds no primary, validate and recover .new or .bak
 ```
 
 ## Memory Budget Rules
@@ -484,12 +501,13 @@ Deliverables:
 - fixed max line length.
 - CRC.
 - descriptor-backed working-TMS coverage.
-- legacy schema v2 import that rewrites a complete schema v3 document after a successful boot.
+- legacy schema v2/v3 import that emits a complete strict schema-v4 document on the
+  next working-configuration save.
 
 Acceptance:
 
 - Full working configuration synchronization succeeds without whole-file allocation.
-- Unknown future keys are ignored safely.
+- Unknown or misspelled keys are rejected safely before any configuration is applied.
 - Sensitive fields import correctly and logs are redacted.
 
 ### Slice 5: Channel Management
@@ -572,7 +590,7 @@ Suggested tests:
 | Decision | Recommendation |
 | --- | --- |
 | `.tms` max line length | Fixed at 383 content bytes; max document size is 32 KiB |
-| Legacy schema migration | Accept AppConfig-only TMSET2/schema-2 documents once, retain current NVS device preferences, and rewrite canonical TMSET3 |
+| Legacy schema migration | Accept TMSET2 through TMSET6 as one-time migration inputs; TMSET6 is accepted only as its complete pre-release dialect, and all new writes emit canonical strict TMSET7 including Reticulum network/LXMF and BLE records |
 | MeshCore public MQTT preset | Verify upstream/community default before hardcoding; otherwise default disabled with preset picker |
 | Meshtastic channel slot count | Implement current primary/secondary first, schema list-ready |
 | IDF protocol support | Current IDF runtime appears Meshtastic-only; full protocol UI must either expose capability limits or implement MC/RT there first |

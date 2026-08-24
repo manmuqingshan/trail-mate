@@ -28,6 +28,7 @@
 #include "platform/ui/reticulum_network_config_runtime.h"
 #include "platform/ui/screen_brightness_steps.h"
 #include "platform/ui/screen_runtime.h"
+#include "platform/ui/settings_reset_runtime.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/spi_diagnostics_runtime.h"
 #include "platform/ui/team_ui_store_runtime.h"
@@ -36,9 +37,6 @@
 #include "platform/ui/tracker_runtime.h"
 #include "platform/ui/wifi_runtime.h"
 #include "platform/ui/wireless_companion_runtime.h"
-#if defined(ARDUINO_ARCH_ESP32)
-#include "platform/esp/arduino_common/app_config_sd_tms_runtime.h"
-#endif
 #include "ui/app_runtime.h"
 #include "ui/assets/fonts/font_utils.h"
 #include "ui/components/info_card.h"
@@ -1479,11 +1477,9 @@ static bool perform_factory_reset()
         ::ui::feedback::show_notice(::ui::i18n::tr("Unable to reset Reticulum configuration"), 3500);
         return false;
     }
-    app::sd_tms::beginWorkingConfigReset();
-    if (!app::sd_tms::resetWorkingConfig())
+    if (!::platform::ui::settings_reset::begin())
     {
-        app::sd_tms::endWorkingConfigReset();
-        ::ui::feedback::show_notice(::ui::i18n::tr("Unable to reset SD configuration"), 3500);
+        ::ui::feedback::show_notice(::ui::i18n::tr("Unable to reset configuration"), 3500);
         return false;
     }
 #endif
@@ -1507,7 +1503,7 @@ static bool perform_factory_reset()
     team::ui::team_ui_snapshot_store().clear();
 
 #if defined(ARDUINO_ARCH_ESP32)
-    app::sd_tms::endWorkingConfigReset();
+    ::platform::ui::settings_reset::finish();
 #endif
 
     ::ui::feedback::show_notice(::ui::i18n::tr("Resetting..."), 1500);
@@ -2158,6 +2154,35 @@ static void on_text_modal_key(lv_event_t* e)
     {
         return;
     }
+}
+
+static void on_password_visibility_clicked(lv_event_t* e)
+{
+    if (e == nullptr)
+    {
+        return;
+    }
+
+    lv_obj_t* textarea = static_cast<lv_obj_t*>(lv_event_get_user_data(e));
+    if (textarea == nullptr || !lv_obj_is_valid(textarea))
+    {
+        return;
+    }
+
+    const bool masked = lv_textarea_get_password_mode(textarea);
+    lv_textarea_set_password_mode(textarea, !masked);
+
+    lv_obj_t* button = lv_event_get_target_obj(e);
+    lv_obj_t* label = button ? lv_obj_get_child(button, 0) : nullptr;
+    if (label != nullptr)
+    {
+        lv_label_set_text(label, masked ? LV_SYMBOL_EYE_CLOSE : LV_SYMBOL_EYE_OPEN);
+    }
+
+    // A keyboard-triggered toggle must return immediately to the editor so
+    // the next character cannot activate another modal control.
+    lv_obj_add_state(textarea, LV_STATE_FOCUSED);
+    lv_group_focus_obj(textarea);
 }
 
 static bool text_modal_hardware_keyboard_available()
@@ -2906,15 +2931,39 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
     lv_obj_set_width(title, LV_PCT(100));
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
 
-    g_state.modal_textarea = lv_textarea_create(win);
+    lv_obj_t* input_row = nullptr;
+    lv_obj_t* input_parent = win;
+    if (item.mask_text)
+    {
+        input_row = lv_obj_create(win);
+        lv_obj_set_size(input_row, LV_PCT(100), 36);
+        lv_obj_set_flex_flow(input_row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(input_row,
+                              LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_all(input_row, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_column(input_row, 6, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(input_row, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(input_row, 0, LV_PART_MAIN);
+        lv_obj_clear_flag(input_row, LV_OBJ_FLAG_SCROLLABLE);
+        input_parent = input_row;
+    }
+
+    g_state.modal_textarea = lv_textarea_create(input_parent);
     lv_textarea_set_one_line(g_state.modal_textarea, true);
     lv_textarea_set_max_length(g_state.modal_textarea, static_cast<uint16_t>(item.text_max - 1));
     if (item.mask_text)
     {
         lv_textarea_set_password_mode(g_state.modal_textarea, true);
+        lv_obj_set_flex_grow(g_state.modal_textarea, 1);
+        lv_obj_set_height(g_state.modal_textarea, LV_PCT(100));
     }
-    lv_obj_set_width(g_state.modal_textarea, LV_PCT(100));
-    lv_obj_set_height(g_state.modal_textarea, 36);
+    else
+    {
+        lv_obj_set_width(g_state.modal_textarea, LV_PCT(100));
+        lv_obj_set_height(g_state.modal_textarea, 36);
+    }
     lv_obj_set_style_border_width(g_state.modal_textarea, 1, LV_PART_MAIN);
     lv_obj_set_style_border_color(g_state.modal_textarea,
                                   lv_color_hex(kSettingsAmber),
@@ -2929,6 +2978,24 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
         lv_textarea_set_cursor_pos(g_state.modal_textarea, LV_TEXTAREA_CURSOR_LAST);
     }
     lv_obj_add_event_cb(g_state.modal_textarea, on_text_modal_key, LV_EVENT_KEY, nullptr);
+
+    lv_obj_t* password_visibility_btn = nullptr;
+    if (item.mask_text)
+    {
+        password_visibility_btn = lv_btn_create(input_row);
+        lv_obj_set_size(password_visibility_btn, 36, 36);
+        style::apply_btn_modal(password_visibility_btn);
+        lv_obj_set_style_bg_color(password_visibility_btn,
+                                  lv_color_hex(kSettingsAmber),
+                                  LV_STATE_FOCUSED);
+        lv_obj_t* visibility_label = lv_label_create(password_visibility_btn);
+        lv_label_set_text(visibility_label, LV_SYMBOL_EYE_OPEN);
+        lv_obj_center(visibility_label);
+        lv_obj_add_event_cb(password_visibility_btn,
+                            on_password_visibility_clicked,
+                            LV_EVENT_CLICKED,
+                            g_state.modal_textarea);
+    }
 
     lv_obj_t* ime_host = lv_obj_create(win);
     lv_obj_set_width(ime_host, LV_PCT(100));
@@ -3000,6 +3067,7 @@ static void open_text_modal(const settings::ui::SettingItem& item, settings::ui:
     g_state.editing_widget = &widget;
 
     modal_add_focus_obj(g_state.modal_textarea);
+    modal_add_focus_obj(password_visibility_btn);
     if (s_text_modal_ime && s_text_modal_ime->focus_obj())
     {
         modal_add_focus_obj(s_text_modal_ime->focus_obj());
