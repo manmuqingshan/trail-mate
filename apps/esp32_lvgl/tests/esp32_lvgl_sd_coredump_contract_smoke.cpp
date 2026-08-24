@@ -299,30 +299,36 @@ int main(int argc, char** argv)
     assert(!contains(t_display_p4_runtime,
                      "const uint8_t finger_count = response[0];"));
     assert(contains(t_display_p4_runtime, "ESP_LOGI(kTag, \"touch press x=%ld y=%ld\""));
-    assert(contains(t_display_p4_runtime, "dpi_cfg.num_fbs = 3;"));
-    assert(contains(t_display_p4_runtime, "P4DsiRotatingPresenter s_rotating_presenter;"));
-    assert(contains(t_display_p4_runtime, "s_rotating_presenter.init(s_panel,"));
-    assert(!contains(t_display_p4_runtime, "lvgl_port_add_disp_dsi"));
-    assert(!contains(t_display_p4_runtime, "avoid_tearing = false"));
-    assert(!contains(t_display_p4_runtime, "driver/ppa.h"));
-    assert(!contains(t_display_p4_runtime, "partial_ppa_display_flush_cb"));
+    assert(contains(t_display_p4_runtime, "dpi_cfg.num_fbs = 0;"));
+    assert(contains(t_display_p4_runtime, "lvgl_port_add_disp_dsi(&display_cfg, &dsi_cfg);"));
+    assert(contains(t_display_p4_runtime, "display_cfg.flags.buff_dma = true;"));
+    assert(contains(t_display_p4_runtime, "display_cfg.flags.buff_spiram = true;"));
+    assert(contains(t_display_p4_runtime, "display_cfg.flags.sw_rotate = true;"));
+    assert(contains(t_display_p4_runtime, "display_cfg.flags.full_refresh = false;"));
+    assert(contains(t_display_p4_runtime, "display_cfg.flags.direct_mode = false;"));
+    assert(contains(t_display_p4_runtime, "dsi_cfg.flags.avoid_tearing = false;"));
+    assert(contains(t_display_p4_runtime,
+                    "lv_display_set_rotation(s_display, LV_DISPLAY_ROTATION_90);"));
+    assert(!contains(t_display_p4_runtime, "P4DsiRotatingPresenter"));
+    assert(!contains(t_display_p4_runtime, "esp_lcd_dpi_panel_get_frame_buffer"));
+    assert(!contains(t_display_p4_runtime, "LV_DISPLAY_RENDER_MODE_FULL"));
+    assert(!contains(t_display_p4_runtime, "lv_draw_sw_rotate("));
+    assert(!contains(t_display_p4_runtime, "on_refresh_done"));
+    assert(!std::filesystem::exists(
+        repo_root / "platform/esp/idf_components/t_display_p4/p4_dsi_rotating_presenter.cpp"));
+    assert(!std::filesystem::exists(
+        repo_root / "platform/esp/idf_components/t_display_p4/p4_dsi_rotating_presenter.h"));
+    const std::string t_display_p4_cmake = read_file(
+        repo_root / "platform/esp/idf_components/t_display_p4/CMakeLists.txt");
+    assert(!contains(t_display_p4_cmake, "p4_dsi_rotating_presenter.cpp"));
+    assert(contains(t_display_p4_tft_defaults, "CONFIG_LVGL_PORT_ENABLE_PPA=y"));
+    assert(contains(t_display_p4_amoled_defaults, "CONFIG_LVGL_PORT_ENABLE_PPA=y"));
 
-    const std::string p4_dsi_presenter = read_file(
-        repo_root /
-        "platform/esp/idf_components/t_display_p4/p4_dsi_rotating_presenter.cpp");
-    assert(contains(p4_dsi_presenter, "esp_lcd_dpi_panel_get_frame_buffer(panel_,"));
-    assert(contains(p4_dsi_presenter, "LV_DISPLAY_RENDER_MODE_FULL"));
-    assert(contains(p4_dsi_presenter, "front_buffer_.store(first_scanout"));
-    assert(contains(p4_dsi_presenter, "esp_lcd_panel_draw_bitmap(panel_,"));
-    assert(contains(p4_dsi_presenter, "awaiting_refresh_.store(true"));
-    assert(contains(p4_dsi_presenter, "lv_display_flush_ready(presenter->display_)"));
-    assert(contains(p4_dsi_presenter, "lv_draw_sw_rotate("));
-    assert(!contains(p4_dsi_presenter, "driver/ppa.h"));
-    assert(!contains(p4_dsi_presenter, "ppa_do_scale_rotate_mirror"));
-    assert(contains(t_display_p4_tft_defaults,
-                    "# CONFIG_LVGL_PORT_ENABLE_PPA is not set"));
-    assert(contains(t_display_p4_amoled_defaults,
-                    "# CONFIG_LVGL_PORT_ENABLE_PPA is not set"));
+    const std::string p4_display_architecture = read_file(
+        repo_root / "docs/engineering/t-display-p4-display-runtime-architecture.md");
+    assert(contains(p4_display_architecture, "`PARTIAL`"));
+    assert(contains(p4_display_architecture, "on_color_trans_done"));
+    assert(contains(p4_display_architecture, "P4DsiRotatingPresenter"));
 
     const std::string idf_sd_runtime = read_file(
         repo_root / "platform/esp/idf_common/src/sd_card_runtime_sdfat_adapter.cpp");

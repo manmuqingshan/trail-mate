@@ -26,7 +26,6 @@
 #include "freertos/task.h"
 #include "hi8561_driver.h"
 #include "lvgl.h"
-#include "p4_dsi_rotating_presenter.h"
 #include "platform/esp/idf_common/app_runtime_support.h"
 #include "rm69a10_driver.h"
 #include "sdkconfig.h"
@@ -172,7 +171,6 @@ esp_lcd_dsi_bus_handle_t s_dsi_bus = nullptr;
 esp_lcd_panel_io_handle_t s_panel_io = nullptr;
 esp_lcd_panel_handle_t s_panel = nullptr;
 lv_display_t* s_display = nullptr;
-boards::t_display_p4::P4DsiRotatingPresenter s_rotating_presenter;
 lv_indev_t* s_touch_indev = nullptr;
 lv_indev_t* s_keyboard_indev = nullptr;
 lv_timer_t* s_keyboard_monitor_ui_timer = nullptr;
@@ -2400,10 +2398,9 @@ bool create_panel()
     dpi_cfg.dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT;
     dpi_cfg.dpi_clock_freq_mhz = static_cast<uint32_t>(panel.dpi_clock_mhz);
     dpi_cfg.pixel_format = panel_pixel_format();
-    // Rotation requires a display-owned front/back pair plus one logical LVGL
-    // surface. The presenter assigns those three existing full-frame surfaces
-    // explicit ownership and never writes the DSI front frame in place.
-    dpi_cfg.num_fbs = 3;
+    // LVGL owns an independent partial-rendering buffer. The DPI driver is a
+    // transfer endpoint, never an application-managed front/back swapchain.
+    dpi_cfg.num_fbs = 0;
     dpi_cfg.video_timing.h_size = static_cast<uint32_t>(panel.width);
     dpi_cfg.video_timing.v_size = static_cast<uint32_t>(panel.height);
     dpi_cfg.video_timing.hsync_pulse_width = static_cast<uint32_t>(panel.hsync);
@@ -2496,22 +2493,41 @@ bool create_display()
     }
 
     const auto& panel = active_panel();
-    if (!s_rotating_presenter.init(s_panel,
-                                   static_cast<uint32_t>(panel.width),
-                                   static_cast<uint32_t>(panel.height),
-                                   static_cast<uint8_t>(bits_per_pixel()),
-                                   lvgl_color_format(),
-                                   LV_DISPLAY_ROTATION_90))
-    {
-        ESP_LOGE(kTag, "Failed to create P4 DSI rotating presenter");
-        return false;
-    }
-    s_display = s_rotating_presenter.display();
+    const uint32_t draw_buffer_pixels = static_cast<uint32_t>(panel.width) *
+                                        static_cast<uint32_t>(panel.height);
+
+    // esp_lvgl_port owns the LVGL draw buffer and PPA output buffer. With
+    // CONFIG_LVGL_PORT_ENABLE_PPA=y, sw_rotate selects PPA acceleration for
+    // logical 90-degree rotation; it does not use LVGL's CPU software rotate.
+    lvgl_port_display_cfg_t display_cfg{};
+    display_cfg.io_handle = s_panel_io;
+    display_cfg.panel_handle = s_panel;
+    display_cfg.buffer_size = draw_buffer_pixels;
+    display_cfg.double_buffer = false;
+    display_cfg.hres = static_cast<uint32_t>(panel.width);
+    display_cfg.vres = static_cast<uint32_t>(panel.height);
+    display_cfg.monochrome = false;
+    display_cfg.color_format = lvgl_color_format();
+    display_cfg.flags.buff_dma = true;
+    display_cfg.flags.buff_spiram = true;
+    display_cfg.flags.sw_rotate = true;
+    display_cfg.flags.swap_bytes = false;
+    display_cfg.flags.full_refresh = false;
+    display_cfg.flags.direct_mode = false;
+
+    // Avoid-tearing would reintroduce panel-owned LVGL buffers and refresh
+    // boundary synchronization. Color-transfer completion is the correct
+    // ownership boundary for this independent-buffer path.
+    lvgl_port_display_dsi_cfg_t dsi_cfg{};
+    dsi_cfg.flags.avoid_tearing = false;
+
+    s_display = lvgl_port_add_disp_dsi(&display_cfg, &dsi_cfg);
     if (s_display == nullptr)
     {
-        ESP_LOGE(kTag, "P4 DSI rotating presenter returned no LVGL display");
+        ESP_LOGE(kTag, "Failed to create P4 DSI LVGL display");
         return false;
     }
+    lv_display_set_rotation(s_display, LV_DISPLAY_ROTATION_90);
     return true;
 }
 
