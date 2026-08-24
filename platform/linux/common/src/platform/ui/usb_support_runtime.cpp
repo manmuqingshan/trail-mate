@@ -32,8 +32,9 @@ Status get_status()
     return out;
 }
 
-void prepare_mass_storage_mode()
+bool prepare_mass_storage_mode()
 {
+    return false;
 }
 
 void restore_mass_storage_mode()
