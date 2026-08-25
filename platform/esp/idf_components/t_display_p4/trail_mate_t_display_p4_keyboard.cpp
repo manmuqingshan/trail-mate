@@ -40,12 +40,17 @@ constexpr uint8_t kTca8418RegCfg = 0x01;
 constexpr uint8_t kTca8418RegIntStat = 0x02;
 constexpr uint8_t kTca8418RegKeyLockEventCount = 0x03;
 constexpr uint8_t kTca8418RegKeyEventA = 0x04;
+constexpr uint8_t kTca8418RegGpioIntEnable1 = 0x1A;
+constexpr uint8_t kTca8418RegGpioIntEnable2 = 0x1B;
+constexpr uint8_t kTca8418RegGpioIntEnable3 = 0x1C;
 constexpr uint8_t kTca8418RegKpGpio1 = 0x1D;
 constexpr uint8_t kTca8418RegKpGpio2 = 0x1E;
 constexpr uint8_t kTca8418RegKpGpio3 = 0x1F;
+constexpr uint8_t kTca8418RegGpiEventMode1 = 0x20;
+constexpr uint8_t kTca8418RegGpiEventMode2 = 0x21;
+constexpr uint8_t kTca8418RegGpiEventMode3 = 0x22;
 constexpr uint8_t kTca8418CfgAutoIncrementAndOverflowQueue = 0xA0;
 constexpr uint8_t kTca8418IntKeyEvents = 0x01;
-constexpr uint8_t kTca8418IntAll = 0x1F;
 constexpr uint8_t kTca8418MaxKeyEvents = 10;
 
 constexpr uint32_t kKeyCaps = 0x8B;
@@ -136,14 +141,26 @@ bool configure_bus_pins()
         return false;
     }
 
-    gpio_config_t config{};
-    config.pin_bit_mask = (1ULL << static_cast<uint32_t>(keyboard.sda)) |
-                          (1ULL << static_cast<uint32_t>(keyboard.scl));
-    config.mode = GPIO_MODE_INPUT_OUTPUT_OD;
-    config.pull_up_en = GPIO_PULLUP_ENABLE;
-    config.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    config.intr_type = GPIO_INTR_DISABLE;
-    if (gpio_config(&config) != ESP_OK)
+    // Match LilyGO's Software_Iic pin modes: SDA must be readable for ACKs;
+    // SCL is an open-drain clock output on this non-stretching P2 bus.
+    gpio_config_t sda_config{};
+    sda_config.pin_bit_mask = 1ULL << static_cast<uint32_t>(keyboard.sda);
+    sda_config.mode = GPIO_MODE_INPUT_OUTPUT_OD;
+    sda_config.pull_up_en = GPIO_PULLUP_ENABLE;
+    sda_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    sda_config.intr_type = GPIO_INTR_DISABLE;
+    if (gpio_config(&sda_config) != ESP_OK)
+    {
+        return false;
+    }
+
+    gpio_config_t scl_config{};
+    scl_config.pin_bit_mask = 1ULL << static_cast<uint32_t>(keyboard.scl);
+    scl_config.mode = GPIO_MODE_OUTPUT_OD;
+    scl_config.pull_up_en = GPIO_PULLUP_ENABLE;
+    scl_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    scl_config.intr_type = GPIO_INTR_DISABLE;
+    if (gpio_config(&scl_config) != ESP_OK)
     {
         return false;
     }
@@ -366,13 +383,21 @@ bool initialize_controller()
     const bool configured =
         write_register(keyboard.tca8418, kTca8418RegCfg,
                        kTca8418CfgAutoIncrementAndOverflowQueue) &&
+        // Mirror the complete LilyGO Tca8418::begin() baseline before
+        // assigning the 10x7 keypad window and enabling KEY_EVENTS below.
+        write_register(keyboard.tca8418, kTca8418RegGpiEventMode1, 0xFF) &&
+        write_register(keyboard.tca8418, kTca8418RegGpiEventMode2, 0xFF) &&
+        write_register(keyboard.tca8418, kTca8418RegGpiEventMode3, 0xFF) &&
+        write_register(keyboard.tca8418, kTca8418RegGpioIntEnable1, 0xFF) &&
+        write_register(keyboard.tca8418, kTca8418RegGpioIntEnable2, 0xFF) &&
+        write_register(keyboard.tca8418, kTca8418RegGpioIntEnable3, 0xFF) &&
         write_register(keyboard.tca8418, kTca8418RegKpGpio1, rows) &&
         write_register(keyboard.tca8418, kTca8418RegKpGpio2, columns_low) &&
         write_register(keyboard.tca8418, kTca8418RegKpGpio3, columns_high) &&
         write_register(keyboard.tca8418, kTca8418RegCfg,
                        static_cast<uint8_t>(kTca8418CfgAutoIncrementAndOverflowQueue |
                                             kTca8418IntKeyEvents)) &&
-        write_register(keyboard.tca8418, kTca8418RegIntStat, kTca8418IntAll);
+        write_register(keyboard.tca8418, kTca8418RegIntStat, kTca8418IntKeyEvents);
     if (!configured)
     {
         ESP_LOGW(kTag, "P4 keyboard TCA8418 scan window setup failed");
