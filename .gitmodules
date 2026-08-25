@@ -1,0 +1,3 @@
+[submodule "platform/esp/third_party/lilygo_cpp_bus_driver"]
+	path = platform/esp/third_party/lilygo_cpp_bus_driver
+	url = https://github.com/Llgok/cpp_bus_driver.git

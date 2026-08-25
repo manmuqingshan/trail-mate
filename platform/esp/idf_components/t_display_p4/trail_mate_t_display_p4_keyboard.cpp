@@ -1,15 +1,15 @@
 #include "bsp/trail_mate_t_display_p4_keyboard.h"
 
-#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
 #include "boards/t_display_p4/t_display_p4_board.h"
-#include "driver/gpio.h"
-#include "esp_err.h"
 #include "esp_log.h"
-#include "esp_rom_sys.h"
+#include "bus/i2c/software_i2c.h"
+#include "chip/i2c/tca8418.h"
+#include "chip/i2c/xl95x5.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
@@ -23,35 +23,15 @@ namespace
 
 constexpr const char* kTag = "t-display-p4-kbd";
 
-// P2 is a dedicated, bit-banged two-device bus on the K270 keyboard.  It is
-// not the board SYS-I2C or external I2C bus, so it has one owner: this adapter.
-constexpr uint32_t kI2cDelayUs = 5;
+// P2 is a dedicated, bit-banged two-device bus on the K270 keyboard. It is
+// not the board SYS-I2C or external I2C bus, so this adapter owns its two
+// LilyGO SoftwareI2c instances for the lifetime of the P4 keyboard.
 constexpr uint32_t kPowerSettleMs = 50;
 constexpr uint32_t kResetDelayMs = 10;
 constexpr uint32_t kPollIntervalMs = 30;
 constexpr uint32_t kI2cFailureBackoffMs = 500;
 constexpr uint32_t kI2cFailureLogIntervalMs = 2000;
-
-constexpr uint8_t kXl9555RegOutputPort0 = 0x02;
-constexpr uint8_t kXl9555RegConfigPort0 = 0x06;
-constexpr uint8_t kXl9555Tca8418ResetMask = 1U << 6;
-
-constexpr uint8_t kTca8418RegCfg = 0x01;
-constexpr uint8_t kTca8418RegIntStat = 0x02;
-constexpr uint8_t kTca8418RegKeyLockEventCount = 0x03;
-constexpr uint8_t kTca8418RegKeyEventA = 0x04;
-constexpr uint8_t kTca8418RegGpioIntEnable1 = 0x1A;
-constexpr uint8_t kTca8418RegGpioIntEnable2 = 0x1B;
-constexpr uint8_t kTca8418RegGpioIntEnable3 = 0x1C;
-constexpr uint8_t kTca8418RegKpGpio1 = 0x1D;
-constexpr uint8_t kTca8418RegKpGpio2 = 0x1E;
-constexpr uint8_t kTca8418RegKpGpio3 = 0x1F;
-constexpr uint8_t kTca8418RegGpiEventMode1 = 0x20;
-constexpr uint8_t kTca8418RegGpiEventMode2 = 0x21;
-constexpr uint8_t kTca8418RegGpiEventMode3 = 0x22;
-constexpr uint8_t kTca8418CfgAutoIncrementAndOverflowQueue = 0xA0;
-constexpr uint8_t kTca8418IntKeyEvents = 0x01;
-constexpr uint8_t kTca8418MaxKeyEvents = 10;
+constexpr uint8_t kTca8418FifoDepth = 10;
 
 constexpr uint32_t kKeyCaps = 0x8B;
 constexpr uint32_t kKeyAlt = 0x8C;
@@ -97,244 +77,42 @@ uint32_t s_last_i2c_failure_log_ms = 0;
 std::array<uint32_t, kEventQueueCapacity> s_event_queue{};
 size_t s_event_queue_head = 0;
 size_t s_event_queue_count = 0;
+std::shared_ptr<cpp_bus_driver::SoftwareI2c> s_xl9555_bus;
+std::shared_ptr<cpp_bus_driver::SoftwareI2c> s_tca8418_bus;
+std::unique_ptr<cpp_bus_driver::Xl95x5> s_xl9555;
+std::unique_ptr<cpp_bus_driver::Tca8418> s_tca8418;
 
 const boards::t_display_p4::BoardProfile::KeyboardModule& keyboard_module()
 {
     return boards::t_display_p4::TDisplayP4Board::profile().keyboard;
 }
 
-gpio_num_t sda_pin()
+void reset_vendor_driver_state()
 {
-    return static_cast<gpio_num_t>(keyboard_module().sda);
+    s_tca8418.reset();
+    s_xl9555.reset();
+    s_tca8418_bus.reset();
+    s_xl9555_bus.reset();
 }
 
-gpio_num_t scl_pin()
+bool reset_tca8418_via_xl9555()
 {
-    return static_cast<gpio_num_t>(keyboard_module().scl);
-}
-
-void i2c_delay()
-{
-    esp_rom_delay_us(kI2cDelayUs);
-}
-
-void set_sda(bool high)
-{
-    gpio_set_level(sda_pin(), high ? 1 : 0);
-}
-
-void set_scl(bool high)
-{
-    gpio_set_level(scl_pin(), high ? 1 : 0);
-}
-
-bool read_sda()
-{
-    return gpio_get_level(sda_pin()) != 0;
-}
-
-bool configure_bus_pins()
-{
-    const auto& keyboard = keyboard_module();
-    if (keyboard.sda < 0 || keyboard.scl < 0)
-    {
-        return false;
-    }
-
-    // Match LilyGO's Software_Iic pin modes: SDA must be readable for ACKs;
-    // SCL is an open-drain clock output on this non-stretching P2 bus.
-    gpio_config_t sda_config{};
-    sda_config.pin_bit_mask = 1ULL << static_cast<uint32_t>(keyboard.sda);
-    sda_config.mode = GPIO_MODE_INPUT_OUTPUT_OD;
-    sda_config.pull_up_en = GPIO_PULLUP_ENABLE;
-    sda_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    sda_config.intr_type = GPIO_INTR_DISABLE;
-    if (gpio_config(&sda_config) != ESP_OK)
-    {
-        return false;
-    }
-
-    gpio_config_t scl_config{};
-    scl_config.pin_bit_mask = 1ULL << static_cast<uint32_t>(keyboard.scl);
-    scl_config.mode = GPIO_MODE_OUTPUT_OD;
-    scl_config.pull_up_en = GPIO_PULLUP_ENABLE;
-    scl_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    scl_config.intr_type = GPIO_INTR_DISABLE;
-    if (gpio_config(&scl_config) != ESP_OK)
-    {
-        return false;
-    }
-
-    set_sda(true);
-    set_scl(true);
-    i2c_delay();
-    return true;
-}
-
-void i2c_start()
-{
-    set_sda(true);
-    set_scl(true);
-    i2c_delay();
-    set_sda(false);
-    i2c_delay();
-    set_scl(false);
-    i2c_delay();
-}
-
-void i2c_stop()
-{
-    set_sda(false);
-    i2c_delay();
-    set_scl(true);
-    i2c_delay();
-    set_sda(true);
-    i2c_delay();
-}
-
-bool write_byte(uint8_t value)
-{
-    for (int bit = 7; bit >= 0; --bit)
-    {
-        set_sda((value & (1U << bit)) != 0);
-        i2c_delay();
-        set_scl(true);
-        i2c_delay();
-        set_scl(false);
-        i2c_delay();
-    }
-
-    set_sda(true);
-    i2c_delay();
-    set_scl(true);
-    i2c_delay();
-    const bool acknowledged = !read_sda();
-    set_scl(false);
-    i2c_delay();
-    return acknowledged;
-}
-
-uint8_t read_byte(bool acknowledge)
-{
-    uint8_t value = 0;
-    set_sda(true);
-    for (int bit = 7; bit >= 0; --bit)
-    {
-        set_scl(true);
-        i2c_delay();
-        if (read_sda())
-        {
-            value |= static_cast<uint8_t>(1U << bit);
-        }
-        set_scl(false);
-        i2c_delay();
-    }
-
-    set_sda(!acknowledge);
-    i2c_delay();
-    set_scl(true);
-    i2c_delay();
-    set_scl(false);
-    set_sda(true);
-    i2c_delay();
-    return value;
-}
-
-bool probe(uint16_t address)
-{
-    i2c_start();
-    const bool ok = write_byte(static_cast<uint8_t>(address << 1U));
-    i2c_stop();
-    return ok;
-}
-
-bool write_register(uint16_t address, uint8_t reg, uint8_t value)
-{
-    i2c_start();
-    const bool ok = write_byte(static_cast<uint8_t>(address << 1U)) &&
-                    write_byte(reg) &&
-                    write_byte(value);
-    i2c_stop();
-    return ok;
-}
-
-bool read_registers(uint16_t address, uint8_t reg, uint8_t* out, size_t count)
-{
-    if (out == nullptr || count == 0)
-    {
-        return false;
-    }
-
-    i2c_start();
-    const bool selected = write_byte(static_cast<uint8_t>(address << 1U)) && write_byte(reg);
-    if (!selected)
-    {
-        i2c_stop();
-        return false;
-    }
-
-    i2c_start();
-    if (!write_byte(static_cast<uint8_t>((address << 1U) | 1U)))
-    {
-        i2c_stop();
-        return false;
-    }
-
-    for (size_t index = 0; index < count; ++index)
-    {
-        out[index] = read_byte(index + 1U < count);
-    }
-    i2c_stop();
-    return true;
-}
-
-bool read_register(uint16_t address, uint8_t reg, uint8_t* out)
-{
-    return read_registers(address, reg, out, 1);
-}
-
-uint8_t mask_for_count(int count)
-{
-    if (count <= 0)
-    {
-        return 0;
-    }
-    if (count >= 8)
-    {
-        return 0xFF;
-    }
-    return static_cast<uint8_t>((1U << count) - 1U);
-}
-
-bool reset_controller()
-{
-    const auto& keyboard = keyboard_module();
-    uint8_t config = 0xFF;
-    uint8_t output = 0xFF;
-    if (!read_register(keyboard.xl9555, kXl9555RegConfigPort0, &config) ||
-        !read_register(keyboard.xl9555, kXl9555RegOutputPort0, &output))
-    {
-        return false;
-    }
-
-    config &= static_cast<uint8_t>(~kXl9555Tca8418ResetMask);
-    output |= kXl9555Tca8418ResetMask;
-    if (!write_register(keyboard.xl9555, kXl9555RegConfigPort0, config) ||
-        !write_register(keyboard.xl9555, kXl9555RegOutputPort0, output))
-    {
-        return false;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(kResetDelayMs));
-    output &= static_cast<uint8_t>(~kXl9555Tca8418ResetMask);
-    if (!write_register(keyboard.xl9555, kXl9555RegOutputPort0, output))
+    using Xl95x5 = cpp_bus_driver::Xl95x5;
+    if (s_xl9555 == nullptr ||
+        !s_xl9555->SetGpioMode(Xl95x5::Pin::kIo6, Xl95x5::Mode::kOutput) ||
+        !s_xl9555->GpioWrite(Xl95x5::Pin::kIo6, 1))
     {
         return false;
     }
     vTaskDelay(pdMS_TO_TICKS(kResetDelayMs));
 
-    output |= kXl9555Tca8418ResetMask;
-    if (!write_register(keyboard.xl9555, kXl9555RegOutputPort0, output))
+    if (!s_xl9555->GpioWrite(Xl95x5::Pin::kIo6, 0))
+    {
+        return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(kResetDelayMs));
+
+    if (!s_xl9555->GpioWrite(Xl95x5::Pin::kIo6, 1))
     {
         return false;
     }
@@ -353,54 +131,42 @@ bool initialize_controller()
     }
     vTaskDelay(pdMS_TO_TICKS(kPowerSettleMs));
 
-    if (!configure_bus_pins())
-    {
-        ESP_LOGW(kTag, "P4 keyboard cannot configure P2 bus pins");
-        return false;
-    }
-    if (!probe(keyboard.xl9555))
-    {
-        ESP_LOGI(kTag, "P4 keyboard not attached: XL9555 0x%02X did not ACK",
-                 static_cast<unsigned>(keyboard.xl9555));
-        return false;
-    }
-    if (!reset_controller())
-    {
-        ESP_LOGW(kTag, "P4 keyboard XL9555 reset sequence failed");
-        return false;
-    }
-    if (!probe(keyboard.tca8418))
-    {
-        ESP_LOGW(kTag, "P4 keyboard TCA8418 0x%02X did not ACK after reset",
-                 static_cast<unsigned>(keyboard.tca8418));
-        return false;
-    }
+    reset_vendor_driver_state();
+    s_xl9555_bus = std::make_shared<cpp_bus_driver::SoftwareI2c>(keyboard.sda, keyboard.scl);
+    s_tca8418_bus = std::make_shared<cpp_bus_driver::SoftwareI2c>(keyboard.sda, keyboard.scl);
+    s_xl9555 = std::make_unique<cpp_bus_driver::Xl95x5>(s_xl9555_bus, keyboard.xl9555);
+    s_tca8418 = std::make_unique<cpp_bus_driver::Tca8418>(s_tca8418_bus, keyboard.tca8418);
 
-    const uint8_t rows = mask_for_count(keyboard.rows);
-    const uint8_t columns_low = mask_for_count(std::min(keyboard.columns, 8));
-    const uint8_t columns_high =
-        keyboard.columns > 8 ? mask_for_count(keyboard.columns - 8) : 0;
-    const bool configured =
-        write_register(keyboard.tca8418, kTca8418RegCfg,
-                       kTca8418CfgAutoIncrementAndOverflowQueue) &&
-        // Mirror the complete LilyGO Tca8418::begin() baseline before
-        // assigning the 10x7 keypad window and enabling KEY_EVENTS below.
-        write_register(keyboard.tca8418, kTca8418RegGpiEventMode1, 0xFF) &&
-        write_register(keyboard.tca8418, kTca8418RegGpiEventMode2, 0xFF) &&
-        write_register(keyboard.tca8418, kTca8418RegGpiEventMode3, 0xFF) &&
-        write_register(keyboard.tca8418, kTca8418RegGpioIntEnable1, 0xFF) &&
-        write_register(keyboard.tca8418, kTca8418RegGpioIntEnable2, 0xFF) &&
-        write_register(keyboard.tca8418, kTca8418RegGpioIntEnable3, 0xFF) &&
-        write_register(keyboard.tca8418, kTca8418RegKpGpio1, rows) &&
-        write_register(keyboard.tca8418, kTca8418RegKpGpio2, columns_low) &&
-        write_register(keyboard.tca8418, kTca8418RegKpGpio3, columns_high) &&
-        write_register(keyboard.tca8418, kTca8418RegCfg,
-                       static_cast<uint8_t>(kTca8418CfgAutoIncrementAndOverflowQueue |
-                                            kTca8418IntKeyEvents)) &&
-        write_register(keyboard.tca8418, kTca8418RegIntStat, kTca8418IntKeyEvents);
-    if (!configured)
+    // The device protocol is not reimplemented here. SoftwareI2c, Xl95x5,
+    // Tca8418::Init(), matrix setup, FIFO decoding, and IRQ clearing are all
+    // LilyGO cpp_bus_driver calls. This file only binds that vendor driver to
+    // P4 LDO/reset wiring and Trail's event route.
+    if (!s_xl9555->Init())
     {
-        ESP_LOGW(kTag, "P4 keyboard TCA8418 scan window setup failed");
+        ESP_LOGI(kTag, "P4 keyboard not attached: LilyGO XL9555 0x%02X did not ACK",
+                 static_cast<unsigned>(keyboard.xl9555));
+        reset_vendor_driver_state();
+        return false;
+    }
+    if (!reset_tca8418_via_xl9555())
+    {
+        ESP_LOGW(kTag, "P4 keyboard LilyGO XL9555 reset sequence failed");
+        reset_vendor_driver_state();
+        return false;
+    }
+    if (!s_tca8418->Init())
+    {
+        ESP_LOGW(kTag, "P4 keyboard LilyGO TCA8418 0x%02X did not ACK after reset",
+                 static_cast<unsigned>(keyboard.tca8418));
+        reset_vendor_driver_state();
+        return false;
+    }
+    if (!s_tca8418->SetKeypadScanWindow(0, 0, keyboard.columns, keyboard.rows) ||
+        !s_tca8418->SetInterruptEnable(cpp_bus_driver::Tca8418::IrqMask::kKeyEvents) ||
+        !s_tca8418->ClearIrqFlag(cpp_bus_driver::Tca8418::IrqFlag::kKeyEvents))
+    {
+        ESP_LOGW(kTag, "P4 keyboard LilyGO TCA8418 scan setup failed");
+        reset_vendor_driver_state();
         return false;
     }
 
@@ -713,46 +479,54 @@ void drain_fifo()
         return;
     }
 
-    const auto& keyboard = keyboard_module();
-    uint8_t irq_status = 0;
-    uint8_t count_reg = 0;
-    if (!read_register(keyboard.tca8418, kTca8418RegIntStat, &irq_status) ||
-        !read_register(keyboard.tca8418, kTca8418RegKeyLockEventCount, &count_reg))
+    if (s_tca8418 == nullptr)
     {
-        note_i2c_failure("TCA8418 FIFO read");
+        note_i2c_failure("LilyGO TCA8418 driver state");
         return;
     }
 
-    const uint8_t event_count = std::min<uint8_t>(count_reg & 0x0F, kTca8418MaxKeyEvents);
-    if (event_count == 0)
+    // Do not read TCA8418 registers in Trail. The vendor driver's API owns
+    // FIFO count, event decoding, and interrupt acknowledgement semantics.
+    const uint8_t reported_count = s_tca8418->GetFingerCount();
+    if (reported_count == 0xFFU)
     {
-        if (irq_status != 0)
+        note_i2c_failure("LilyGO TCA8418 FIFO count");
+        return;
+    }
+
+    if (reported_count == 0)
+    {
+        return;
+    }
+    if (reported_count > kTca8418FifoDepth)
+    {
+        note_i2c_failure("LilyGO TCA8418 invalid FIFO count");
+        return;
+    }
+
+    for (uint8_t index = 0; index < reported_count; ++index)
+    {
+        cpp_bus_driver::Tca8418::TouchInfo event{};
+        if (!s_tca8418->ReadKeyEvent(&event))
         {
-            (void)write_register(keyboard.tca8418, kTca8418RegIntStat, irq_status);
+            note_i2c_failure("LilyGO TCA8418 event FIFO transfer");
+            return;
         }
-        return;
-    }
 
-    uint8_t events[kTca8418MaxKeyEvents] = {};
-    if (!read_registers(keyboard.tca8418, kTca8418RegKeyEventA, events, event_count))
-    {
-        note_i2c_failure("TCA8418 event FIFO transfer");
-        return;
-    }
-    (void)write_register(keyboard.tca8418,
-                         kTca8418RegIntStat,
-                         static_cast<uint8_t>(irq_status | kTca8418IntKeyEvents));
-
-    for (uint8_t index = 0; index < event_count; ++index)
-    {
         // The controller reports both edges. Queue only press edges, and do
         // not route them here: a route may replace the active page tree, so
         // the timer must deliver at most one semantic action per turn.
-        if ((events[index] & 0x80U) == 0)
+        if (event.event_type != cpp_bus_driver::Tca8418::EventType::kKeypad ||
+            !event.press_flag)
         {
             continue;
         }
-        enqueue_key(translate_key(events[index] & 0x7FU));
+        enqueue_key(translate_key(event.num));
+    }
+
+    if (!s_tca8418->ClearIrqFlag(cpp_bus_driver::Tca8418::IrqFlag::kKeyEvents))
+    {
+        note_i2c_failure("LilyGO TCA8418 IRQ acknowledgement");
     }
 }
 
