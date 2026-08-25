@@ -54,6 +54,9 @@ constexpr uint32_t kKeyCtrl = 0x8D;
 constexpr uint32_t kKeyFn = 0x8E;
 constexpr uint32_t kKeyWin = 0x8F;
 constexpr uint32_t kKeyShift = 0x90;
+constexpr uint32_t kKeyF11 = 0x91;
+constexpr uint32_t kKeyRecord = 0x92;
+constexpr size_t kEventQueueCapacity = 16;
 
 // These are the LilyGO TCA8418 scan maps used by the K270 keyboard example.
 // The controller reports a key number (1-based), not a matrix coordinate.
@@ -72,7 +75,7 @@ constexpr std::array<uint32_t, 68> kShiftKeyMap = {
     0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A,
     kKeyCaps, kKeyAlt, '!', '@', '#', '$', '%', '^', '&', '*',
     '\'', '_', '-', '+', '=', '\\', '|', ';', ':', '"',
-    kKeyCtrl, '~', '[', ']', '{', '}', '\'', '`', '/', '?',
+    kKeyCtrl, '~', '[', ']', '{', '}', ',', '`', '/', '?',
     kKeyFn, kKeyWin, kKeyShift, 0x91, 0x92, '.', '<', '>',
     0x93, LV_KEY_UP,
     0x95, 0x96, kKeyShift, LV_KEY_NEXT,
@@ -86,6 +89,9 @@ bool s_fn = false;
 lv_timer_t* s_poll_timer = nullptr;
 uint32_t s_next_i2c_attempt_ms = 0;
 uint32_t s_last_i2c_failure_log_ms = 0;
+std::array<uint32_t, kEventQueueCapacity> s_event_queue{};
+size_t s_event_queue_head = 0;
+size_t s_event_queue_count = 0;
 
 const boards::t_display_p4::BoardProfile::KeyboardModule& keyboard_module()
 {
@@ -375,6 +381,8 @@ bool initialize_controller()
     s_caps_lock = false;
     s_shift = false;
     s_fn = false;
+    s_event_queue_head = 0;
+    s_event_queue_count = 0;
     s_next_i2c_attempt_ms = 0;
     s_last_i2c_failure_log_ms = 0;
     boards::t_display_p4::TDisplayP4Board::instance().setKeyboardReady(true);
@@ -419,6 +427,8 @@ uint32_t translate_key(uint8_t key_number)
     }
     case kKeyAlt:
     case kKeyCtrl:
+    case kKeyF11:
+    case kKeyRecord:
         return 0;
     default:
         break;
@@ -454,6 +464,31 @@ uint32_t translate_key(uint8_t key_number)
         }
     }
     return base;
+}
+
+void enqueue_key(uint32_t key)
+{
+    if (key == 0 || s_event_queue_count == s_event_queue.size())
+    {
+        return;
+    }
+
+    const size_t tail = (s_event_queue_head + s_event_queue_count) % s_event_queue.size();
+    s_event_queue[tail] = key;
+    ++s_event_queue_count;
+}
+
+uint32_t dequeue_key()
+{
+    if (s_event_queue_count == 0)
+    {
+        return 0;
+    }
+
+    const uint32_t key = s_event_queue[s_event_queue_head];
+    s_event_queue_head = (s_event_queue_head + 1U) % s_event_queue.size();
+    --s_event_queue_count;
+    return key;
 }
 
 bool key_is_text_input(uint32_t key)
@@ -638,7 +673,7 @@ void note_i2c_failure(const char* operation)
     }
 }
 
-void drain_fifo_and_route()
+void drain_fifo()
 {
     const uint32_t now = lv_tick_get();
     if (static_cast<int32_t>(now - s_next_i2c_attempt_ms) < 0)
@@ -678,23 +713,37 @@ void drain_fifo_and_route()
 
     for (uint8_t index = 0; index < event_count; ++index)
     {
-        // The controller reports both edges. The P4 UI has semantic key
-        // actions, so only press edges are routed; a release must never replay
-        // a button click or append a second character.
+        // The controller reports both edges. Queue only press edges, and do
+        // not route them here: a route may replace the active page tree, so
+        // the timer must deliver at most one semantic action per turn.
         if ((events[index] & 0x80U) == 0)
         {
             continue;
         }
-        route_key(translate_key(events[index] & 0x7FU));
+        enqueue_key(translate_key(events[index] & 0x7FU));
     }
 }
 
 void poll_timer_cb(lv_timer_t* timer)
 {
     (void)timer;
-    if (s_ready)
+    if (!s_ready)
     {
-        drain_fifo_and_route();
+        return;
+    }
+
+    uint32_t key = dequeue_key();
+    if (key != 0)
+    {
+        route_key(key);
+        return;
+    }
+
+    drain_fifo();
+    key = dequeue_key();
+    if (key != 0)
+    {
+        route_key(key);
     }
 }
 

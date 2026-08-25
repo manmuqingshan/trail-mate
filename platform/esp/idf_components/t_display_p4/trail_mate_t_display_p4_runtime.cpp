@@ -888,10 +888,6 @@ extern "C" bool trail_mate_t_display_p4_display_runtime_init(void)
     {
         return false;
     }
-    if (!trail_mate_t_display_p4_keyboard_start())
-    {
-        ESP_LOGI(kTag, "T-Display-P4 keyboard module is not available");
-    }
     if (set_brightness_percent(kStartupBrightnessPercent) != ESP_OK)
     {
         ESP_LOGW(kTag, "Initial brightness update failed");
@@ -899,6 +895,13 @@ extern "C" bool trail_mate_t_display_p4_display_runtime_init(void)
 
     create_boot_screen();
     (void)start_app_lifecycle_ui_timer();
+    // The P2 keyboard delivers keys directly to the active Trail UI route.
+    // Start its LVGL timer only after the boot screen and lifecycle dispatcher
+    // exist, matching the P4 keyboard's single-threaded UI ownership model.
+    if (!trail_mate_t_display_p4_keyboard_start())
+    {
+        ESP_LOGI(kTag, "T-Display-P4 keyboard module is not available");
+    }
 
     s_ready = true;
     ESP_LOGI(kTag,
