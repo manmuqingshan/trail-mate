@@ -1,5 +1,13 @@
 menu "TrailMate T-Display-P4"
 
+    # The P4 display uses the official esp_lvgl_port DSI rotation path.
+    # sw_rotate is PPA-backed only when this component option is selected;
+    # without it esp_lvgl_port silently compiles LVGL CPU software rotation.
+    config TRAIL_MATE_T_DISPLAY_P4_REQUIRE_PPA
+        bool
+        default y
+        select LVGL_PORT_ENABLE_PPA
+
     choice TRAIL_MATE_T_DISPLAY_P4_PANEL
         prompt "Display panel"
         default TRAIL_MATE_T_DISPLAY_P4_PANEL_HI8561
