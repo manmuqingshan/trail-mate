@@ -328,9 +328,10 @@ bool reset_controller()
 bool initialize_controller()
 {
     const auto& keyboard = keyboard_module();
-    if (!boards::t_display_p4::TDisplayP4Board::instance().ensureExternal3v3Power())
+    auto& board = boards::t_display_p4::TDisplayP4Board::instance();
+    if (!board.ensureKeyboardLdo4Power())
     {
-        ESP_LOGW(kTag, "P4 keyboard cannot enable shared LDO4");
+        ESP_LOGW(kTag, "P4 keyboard cannot enable P2 LDO4 at 3300mV");
         return false;
     }
     vTaskDelay(pdMS_TO_TICKS(kPowerSettleMs));
@@ -385,11 +386,17 @@ bool initialize_controller()
     s_event_queue_count = 0;
     s_next_i2c_attempt_ms = 0;
     s_last_i2c_failure_log_ms = 0;
-    boards::t_display_p4::TDisplayP4Board::instance().setKeyboardReady(true);
+    board.setKeyboardReady(true);
+    // GPIO47 is the keyboard backlight's SY7200A PWM/enable pin.  Arm it at
+    // zero duty immediately after detection, matching Meck's safe boot-off
+    // state instead of leaving the pin unconfigured until the LilyGO key.
+    board.keyboardSetBrightness(0);
     ESP_LOGI(kTag,
-             "P4 keyboard ready P2=(sda=%d,scl=%d) XL9555=0x%02X TCA8418=0x%02X matrix=%dx%d poll=%lums",
+             "P4 keyboard ready P2=(sda=%d,scl=%d,int=%d,backlight=%d) XL9555=0x%02X TCA8418=0x%02X matrix=%dx%d poll=%lums",
              keyboard.sda,
              keyboard.scl,
+             keyboard.interrupt,
+             keyboard.backlight,
              static_cast<unsigned>(keyboard.xl9555),
              static_cast<unsigned>(keyboard.tca8418),
              keyboard.columns,

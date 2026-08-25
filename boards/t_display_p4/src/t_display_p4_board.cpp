@@ -485,6 +485,13 @@ uint8_t TDisplayP4Board::keyboardGetBrightness()
     return keyboard_brightness_;
 }
 
+bool TDisplayP4Board::ensureKeyboardLdo4Power()
+{
+    // P2 is powered by LDO4.  The XL9535-controlled external rail below is
+    // for board peripherals and must not make keyboard detection conditional.
+    return ensure_external_3v3_power_control();
+}
+
 bool TDisplayP4Board::ensureExternal3v3Power()
 {
     if (!ensure_external_3v3_power_control())
