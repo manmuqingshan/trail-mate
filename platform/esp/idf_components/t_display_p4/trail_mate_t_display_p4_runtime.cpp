@@ -628,6 +628,12 @@ struct KeyboardProbeResult
     {
         return xl9555_ack && tca8418_ack && tca8418_cfg_readable;
     }
+
+    bool no_i2c_responder() const
+    {
+        return power_ready && gpio_ready && !xl9555_ack && !tca8418_ack &&
+               !swapped_xl9555_ack && !swapped_tca8418_ack;
+    }
 };
 
 void keyboard_i2c_delay()
@@ -1857,6 +1863,13 @@ bool init_keyboard_backend(bool log_missing = true)
             log_keyboard_probe_result("startup_not_detected", probe, true);
             log_keyboard_i2c_scan("startup_not_detected");
             log_keyboard_hardware_i2c_scan("startup_not_detected");
+            if (probe.no_i2c_responder())
+            {
+                ESP_LOGW(kTag,
+                         "T-Display-P4 keyboard has no I2C ACK at XL9555=0x%02X or TCA8418=0x%02X after the external 3V3 request on both SDA/SCL orders; check the keyboard power switch, battery, and P2 cable. Shared LDO4 is not auto-cycled because GNSS/LoRa also depend on it.",
+                         static_cast<unsigned>(keyboard_module().xl9555),
+                         static_cast<unsigned>(keyboard_module().tca8418));
+            }
         }
         return false;
     }
