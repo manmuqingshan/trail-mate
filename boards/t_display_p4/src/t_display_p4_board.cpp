@@ -499,8 +499,12 @@ uint8_t TDisplayP4Board::keyboardGetBrightness()
 
 bool TDisplayP4Board::ensureKeyboardLdo4Power()
 {
-    // The official P4 driver acquires LDO4 before it probes P2's XL9555.
-    return ensure_external_3v3_power_control();
+    // The official P4 start-up has two parts before it reaches P2: it acquires
+    // LDO4 and it leaves the XL9535 external 3.3 V gate asserted.  Keyboard
+    // attach is deliberately independent of a historical cold-boot latch, so
+    // perform the same two board-owned operations immediately before probing
+    // the XL9555.  This does not alter any non-P4 board power path.
+    return ensureExternal3v3Power();
 }
 
 bool TDisplayP4Board::ensureExternal3v3Power()

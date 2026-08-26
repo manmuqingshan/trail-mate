@@ -68,6 +68,7 @@ constexpr std::array<uint32_t, 68> kShiftKeyMap = {
     0x9F, '(', LV_KEY_BACKSPACE, LV_KEY_ENTER, 0xA2, LV_KEY_ENTER, ')', LV_KEY_RIGHT};
 
 bool s_ready = false;
+bool s_initialization_attempted = false;
 bool s_caps_lock = false;
 bool s_shift = false;
 bool s_fn = false;
@@ -555,11 +556,11 @@ void poll_timer_cb(lv_timer_t* timer)
 
 } // namespace
 
-extern "C" bool trail_mate_t_display_p4_keyboard_start(void)
+extern "C" bool trail_mate_t_display_p4_keyboard_initialize(void)
 {
-    if (s_poll_timer != nullptr)
+    if (s_ready)
     {
-        return s_ready;
+        return true;
     }
 
     if (!boards::t_display_p4::TDisplayP4Board::profile().supports_keyboard_module)
@@ -567,9 +568,29 @@ extern "C" bool trail_mate_t_display_p4_keyboard_start(void)
         return false;
     }
 
+    // Do not silently fall back to probing from the running LVGL task.  The
+    // official P4 keyboard example performs this 5 us software-I2C exchange
+    // before it starts LVGL, and a failed early attach must remain observable
+    // rather than being retried later under the display workload.
+    if (s_initialization_attempted)
+    {
+        return false;
+    }
+
+    s_initialization_attempted = true;
     boards::t_display_p4::TDisplayP4Board::instance().setKeyboardReady(false);
     s_ready = initialize_controller();
-    if (!s_ready)
+    return s_ready;
+}
+
+extern "C" bool trail_mate_t_display_p4_keyboard_start(void)
+{
+    if (s_poll_timer != nullptr)
+    {
+        return s_ready;
+    }
+
+    if (!trail_mate_t_display_p4_keyboard_initialize())
     {
         return false;
     }
@@ -579,6 +600,8 @@ extern "C" bool trail_mate_t_display_p4_keyboard_start(void)
     {
         boards::t_display_p4::TDisplayP4Board::instance().setKeyboardReady(false);
         s_ready = false;
+        s_initialization_attempted = false;
+        reset_vendor_driver_state();
         ESP_LOGW(kTag, "P4 keyboard could not create the LVGL polling timer");
         return false;
     }

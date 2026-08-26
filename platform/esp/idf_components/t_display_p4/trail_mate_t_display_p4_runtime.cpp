@@ -876,6 +876,16 @@ extern "C" bool trail_mate_t_display_p4_display_runtime_init(void)
              active_panel().width,
              active_panel().height);
 
+    // Keep the first P2 software-I2C probe outside the LVGL/PPA render task.
+    // LilyGO's working P4 keyboard example brings up XL9555/TCA8418 before it
+    // creates LVGL.  Trail's create_display() starts that task as part of
+    // display creation, so perform the vendor-controller phase first while the
+    // P4 board power sequence is already complete and UI rendering is absent.
+    const bool keyboard_controller_ready = trail_mate_t_display_p4_keyboard_initialize();
+    ESP_LOGI(kTag,
+             "P4 keyboard controller pre-LVGL initialization ready=%u",
+             keyboard_controller_ready ? 1U : 0U);
+
     if (!create_display())
     {
         return false;
@@ -898,7 +908,7 @@ extern "C" bool trail_mate_t_display_p4_display_runtime_init(void)
     // The P2 keyboard delivers keys directly to the active Trail UI route.
     // Start its LVGL timer only after the boot screen and lifecycle dispatcher
     // exist, matching the P4 keyboard's single-threaded UI ownership model.
-    if (!trail_mate_t_display_p4_keyboard_start())
+    if (!keyboard_controller_ready || !trail_mate_t_display_p4_keyboard_start())
     {
         ESP_LOGI(kTag, "T-Display-P4 keyboard module is not available");
     }
