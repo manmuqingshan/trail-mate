@@ -65,7 +65,7 @@ platform/esp/idf_components/t_display_p4/include/rm69a10_driver.h
 variants/t_echo_lite_nrf52840/variant.cpp
 variants/t_echo_lite_nrf52840/variant.h
 
-# GitNexus parser timeout guards for oversized implementation files
+# GitNexus parser timeout guards
 modules/ui_mono/src/runtime.cpp
 modules/ui_shared/src/ui/screens/settings/settings_page_components.cpp
 platform/esp/arduino_common/src/ble/meshtastic_ble_owner_hooks.cpp
@@ -78,3 +78,28 @@ platform/esp/arduino_common/src/chat/infra/meshcore/meshcore_adapter.cpp
 platform/esp/arduino_common/src/chat/infra/meshcore/meshcore_identity.cpp
 platform/esp/arduino_common/src/chat/infra/meshtastic/mt_adapter.cpp
 platform/linux/common/src/chat/linux_raw_lora_mesh_adapter.cpp
+
+# These translation units repeatedly exhaust the parser worker deadline. Keep
+# the rest of the repository indexed (including the P4 board and keyboard
+# paths) instead of allowing one source file to invalidate the entire graph.
+modules/core_chat/src/infra/lxmf/lxmf_wire.cpp
+modules/core_sys/include/platform/ui/reticulum_directory_runtime.h
+modules/core_sys/src/app/tms_config_codec.cpp
+modules/ui_shared/src/ui/i18n/resource_pack_registry.cpp
+modules/ui_shared/src/ui/screens/chat/chat_ui_controller.cpp
+modules/ui_shared/src/ui/screens/chat_watch/chat_compose_components_watch.cpp
+modules/ui_shared/src/ui/screens/chat_watch/chat_conversation_components_watch.cpp
+modules/ui_shared/src/ui/screens/chat_watch/chat_message_list_components_watch.cpp
+modules/ui_shared/src/ui/screens/common/placeholder_page.cpp
+modules/ui_shared/src/ui/screens/contacts/contacts_page_components.cpp
+modules/ui_shared/src/ui/screens/contacts/contacts_state.cpp
+modules/ui_shared/src/ui/screens/contacts/contacts_team_snapshot_source.cpp
+modules/ui_shared/src/ui/screens/energy_sweep/energy_sweep_page_runtime.cpp
+modules/ui_shared/src/ui/screens/energy_sweep/energy_sweep_page_shell.cpp
+modules/ui_shared/src/ui/screens/extensions/extensions_page_runtime.cpp
+modules/ui_shared/src/ui/screens/network/network_page_shell.cpp
+modules/ui_shared/src/ui/screens/tracker/tracker_page_components.cpp
+platform/esp/arduino_common/src/platform_ui_firmware_update_runtime.cpp
+platform/linux/uconsole/src/uconsole_desktop_shell.cpp
+platform/nrf52/arduino_common/src/chat/infra/meshtastic/meshtastic_radio_adapter.cpp
+platform/esp/arduino_common/src/rnode_kiss/rnode_kiss_service.cpp

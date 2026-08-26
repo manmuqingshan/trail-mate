@@ -12,6 +12,7 @@
 #include "driver/sdmmc_default_configs.h"
 #include "driver/sdmmc_host.h"
 #include "esp_err.h"
+#include "esp_ldo_regulator.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "platform/esp/idf_common/bsp_runtime.h"
@@ -21,8 +22,6 @@
 #include "platform/esp/idf_common/sx126x_radio.h"
 #include "platform/esp/idf_common/wireless_companion/c6_companion.h"
 #include "platform/ui/device_runtime.h"
-#include "sd_pwr_ctrl.h"
-#include "sd_pwr_ctrl_by_on_chip_ldo.h"
 
 namespace
 {
@@ -32,7 +31,7 @@ constexpr uint32_t kI2cTimeoutMs = 1000;
 constexpr uint32_t kI2cOwnerDiagnosticIntervalMs = 2000;
 constexpr uint32_t kPowerButtonDebounceMs = 30;
 constexpr uint32_t kPowerButtonLongPressMs = 1800;
-constexpr int kSdLdoChannel = 4;
+constexpr int kExternal3v3LdoChannel = 4;
 constexpr int kExternal3v3Mv = 3300;
 constexpr uint8_t kBatteryRegVoltage = 0x08;
 constexpr uint8_t kBatteryRegCurrent = 0x0C;
@@ -68,8 +67,7 @@ constexpr uint32_t kRadioTxPollIntervalMs = 10;
 constexpr uint32_t kCompanionPollIntervalMs = 50;
 constexpr uint32_t kRadioIrqTxDone = 0x0001;
 constexpr uint32_t kRadioIrqTimeout = 0x0200;
-sd_pwr_ctrl_handle_t s_external_3v3_pwr_ctrl_handle = nullptr;
-bool s_external_3v3_ready = false;
+esp_ldo_channel_handle_t s_external_3v3_ldo_handle = nullptr;
 bool s_keyboard_backlight_ready = false;
 constexpr ledc_mode_t kKeyboardBacklightSpeedMode = LEDC_LOW_SPEED_MODE;
 constexpr ledc_timer_t kKeyboardBacklightTimer = LEDC_TIMER_1;
@@ -115,29 +113,43 @@ TickType_t radio_tx_timeout_ticks(size_t len)
 
 bool ensure_external_3v3_power_control()
 {
-    if (s_external_3v3_pwr_ctrl_handle == nullptr)
-    {
-        sd_pwr_ctrl_ldo_config_t ldo_config{};
-        ldo_config.ldo_chan_id = kSdLdoChannel;
-        if (sd_pwr_ctrl_new_on_chip_ldo(&ldo_config, &s_external_3v3_pwr_ctrl_handle) != ESP_OK)
-        {
-            ESP_LOGE(kTag, "Failed to create shared LDO4 power control handle");
-            return false;
-        }
-    }
-    if (!s_external_3v3_ready)
+    if (s_external_3v3_ldo_handle != nullptr)
     {
         const esp_err_t err =
-            sd_pwr_ctrl_set_io_voltage(s_external_3v3_pwr_ctrl_handle, kExternal3v3Mv);
+            esp_ldo_channel_adjust_voltage(s_external_3v3_ldo_handle, kExternal3v3Mv);
         if (err != ESP_OK)
         {
-            ESP_LOGE(kTag, "Failed to enable shared LDO4 at %dmV: %s",
-                     kExternal3v3Mv, esp_err_to_name(err));
+            ESP_LOGE(kTag,
+                     "Failed to adjust P4 LDO4 to %dmV: %s",
+                     kExternal3v3Mv,
+                     esp_err_to_name(err));
             return false;
         }
-        s_external_3v3_ready = true;
-        ESP_LOGI(kTag, "Shared LDO4 enabled at %dmV", kExternal3v3Mv);
+        return true;
     }
+
+    // This matches LilyGO's current T-Display-P4 driver.  LDO4 is the
+    // board-level 3.3V domain needed before probing P2's XL9555; SDMMC gets
+    // its board power through XL9535 and must not own this LDO as an SD VDD
+    // power-control handle.
+    esp_ldo_channel_config_t ldo_config{};
+    ldo_config.chan_id = kExternal3v3LdoChannel;
+    ldo_config.voltage_mv = kExternal3v3Mv;
+    ldo_config.flags.adjustable = 1;
+    ldo_config.flags.owned_by_hw = 1;
+    ldo_config.flags.bypass = 1;
+    const esp_err_t err = esp_ldo_acquire_channel(&ldo_config, &s_external_3v3_ldo_handle);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(kTag,
+                 "Failed to acquire P4 LDO4 at %dmV: %s",
+                 kExternal3v3Mv,
+                 esp_err_to_name(err));
+        s_external_3v3_ldo_handle = nullptr;
+        return false;
+    }
+
+    ESP_LOGI(kTag, "P4 LDO4 acquired at %dmV for board 3.3V", kExternal3v3Mv);
     return true;
 }
 
@@ -487,8 +499,7 @@ uint8_t TDisplayP4Board::keyboardGetBrightness()
 
 bool TDisplayP4Board::ensureKeyboardLdo4Power()
 {
-    // P2 is powered by LDO4.  The XL9535-controlled external rail below is
-    // for board peripherals and must not make keyboard detection conditional.
+    // The official P4 driver acquires LDO4 before it probes P2's XL9555.
     return ensure_external_3v3_power_control();
 }
 
@@ -584,7 +595,6 @@ bool TDisplayP4Board::recoverExternal3v3ForKeyboardAttach(uint32_t off_ms,
         ESP_LOGE(kTag, "Failed to reassert external 3.3V rail for keyboard recovery");
         return false;
     }
-    s_external_3v3_ready = true;
     vTaskDelay(pdMS_TO_TICKS(settle_ms));
 
     if (gps_wake_state_known)
@@ -1377,7 +1387,6 @@ bool TDisplayP4Board::mountSdCard(const char* mount_point, size_t max_files)
     {
         return false;
     }
-    host.pwr_ctrl_handle = s_external_3v3_pwr_ctrl_handle;
 
     sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
     slot_config.width = 4;
