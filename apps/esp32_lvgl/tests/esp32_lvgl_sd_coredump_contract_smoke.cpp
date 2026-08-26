@@ -357,72 +357,27 @@ int main(int argc, char** argv)
                     "app::AppTasks::resumeRadioTasks();"));
     assert(contains(idf_app_facade,
                     "deferred_radio_apply_slots_[kDeferredRadioApplySlotCount]{};"));
-    assert(contains(t_display_p4_runtime, "constexpr uint8_t kXl9555TMixRfEnableMask"));
-    assert(contains(t_display_p4_runtime, "constexpr uint8_t kXl9555TMixRfSwitch0Mask"));
-    assert(contains(t_display_p4_runtime, "constexpr uint8_t kXl9555TMixRfSwitch1Mask"));
-    assert(contains(t_display_p4_runtime, "constexpr uint8_t kXl9555Led1Mask"));
-    assert(contains(t_display_p4_runtime, "constexpr uint8_t kXl9555Led2Mask"));
-    assert(contains(t_display_p4_runtime, "constexpr uint8_t kXl9555Led3Mask"));
-    assert(contains(t_display_p4_runtime, "kXl9555KeyboardOutputMask"));
-    assert(contains(t_display_p4_runtime, "kXl9555KeyboardIdleHighMask"));
-    assert(contains(t_display_p4_runtime, "bool configure_keyboard_expander_outputs()"));
-    assert(contains(t_display_p4_runtime,
-                    "config &= static_cast<uint8_t>(~kXl9555KeyboardOutputMask);"));
-    assert(contains(t_display_p4_runtime,
-                    "output = static_cast<uint8_t>(preserved_output | "
-                    "kXl9555KeyboardIdleHighMask);"));
-    assert(contains(t_display_p4_runtime,
-                    "lv_indev_set_group(s_keyboard_indev, default_group);"));
-    assert(contains(t_display_p4_runtime,
-                    "constexpr uint32_t kKeyboardPollFallbackIntervalMs = 30;"));
-    assert(contains(t_display_p4_runtime,
-                    "constexpr uint32_t kKeyboardAttachRecoveryCooldownMs = 30000;"));
-    assert(contains(t_display_p4_runtime,
-                    "constexpr bool kKeyboardAttachRecoveryAutoEnabled = false;"));
-    assert(contains(t_display_p4_runtime,
-                    "constexpr uint8_t kKeyboardAttachRecoveryProbeCount = 3;"));
-    assert(contains(t_display_p4_runtime, "s_keyboard_last_poll_ticks = 0;"));
-    assert(contains(t_display_p4_runtime,
-                    "T-Display-P4 keyboard interrupt unavailable; using %lums poll fallback"));
-    assert(contains(t_display_p4_runtime, "bool s_keyboard_i2c_pins_swapped = false;"));
-    assert(contains(t_display_p4_runtime, "int keyboard_sda_pin()"));
-    assert(contains(t_display_p4_runtime, "int keyboard_scl_pin()"));
-    assert(contains(t_display_p4_runtime, "keyboard_recover_i2c_bus(\"probe_swapped\")"));
-    assert(contains(t_display_p4_runtime, "keyboard_recover_i2c_bus(\"probe_restore\")"));
-    assert(contains(t_display_p4_runtime,
-                    "T-Display-P4 keyboard I2C responded only with swapped SDA/SCL"));
-    assert(contains(t_display_p4_runtime, "i2c_swap=%d swapped_probe=%d"));
-    assert(contains(t_display_p4_runtime,
-                    "bool keyboard_probe_needs_attach_power_recovery"));
-    assert(contains(t_display_p4_runtime,
-                    "T-Display-P4 keyboard attach recovery attempt=%lu"));
-    assert(contains(t_display_p4_runtime,
-                    "recoverExternal3v3ForKeyboardAttach(kKeyboardAttachRecoveryRailOffMs"));
-    assert(contains(t_display_p4_runtime,
-                    "monitor_power_recovery"));
-    assert(contains(t_display_p4_runtime,
-                    "std::max<TickType_t>(1, pdMS_TO_TICKS(kKeyboardPollFallbackIntervalMs))"));
-    assert(contains(t_display_p4_runtime,
-                    "poll_fallback_ms=%lu"));
-    assert(contains(t_display_p4_runtime,
-                    "constexpr std::size_t kKeyboardEventQueueCapacity = 16;"));
-    assert(contains(t_display_p4_runtime,
-                    "std::array<KeyboardBufferedEvent, kKeyboardEventQueueCapacity> "
-                    "s_keyboard_event_queue"));
-    assert(contains(t_display_p4_runtime, "bool drain_keyboard_fifo_locked()"));
-    assert(contains(t_display_p4_runtime,
-                    "const uint8_t event_count = std::min<uint8_t>(count_reg & 0x0F, "
-                    "kTca8418MaxKeyEvents);"));
-    assert(contains(t_display_p4_runtime,
-                    "return dequeue_keyboard_event(out_key, out_pressed);"));
-    assert(contains(t_display_p4_runtime,
-                    "bool dispatch_keyboard_event_to_focused_textarea(uint32_t key, bool pressed)"));
-    assert(contains(t_display_p4_runtime,
-                    "lv_obj_send_event(textarea, LV_EVENT_KEY, &key_param)"));
-    assert(contains(t_display_p4_runtime,
-                    "lv_obj_send_event(textarea, LV_EVENT_CANCEL, nullptr)"));
-    assert(contains(t_display_p4_runtime, "sync_keyboard_indev_group();"));
-    assert(contains(t_display_p4_runtime, "cycle_keyboard_backlight_from_key();"));
+    const std::string t_display_p4_keyboard = read_file(
+        repo_root /
+        "platform/esp/idf_components/t_display_p4/trail_mate_t_display_p4_keyboard.cpp");
+    const std::size_t keyboard_initialize = position_of(
+        t_display_p4_runtime,
+        "trail_mate_t_display_p4_keyboard_initialize()");
+    const std::size_t create_display = position_of(t_display_p4_runtime, "if (!create_display())");
+    assert(keyboard_initialize < create_display);
+    assert(contains(t_display_p4_keyboard,
+                    "std::unique_ptr<cpp_bus_driver::Xl95x5> s_xl9555;"));
+    assert(contains(t_display_p4_keyboard,
+                    "std::unique_ptr<cpp_bus_driver::Tca8418> s_tca8418;"));
+    assert(contains(t_display_p4_keyboard, "s_xl9555->Init()"));
+    assert(contains(t_display_p4_keyboard, "s_tca8418->Init()"));
+    assert(contains(t_display_p4_keyboard, "reset_tca8418_via_xl9555()"));
+    assert(contains(t_display_p4_keyboard, "SetKeypadScanWindow"));
+    assert(contains(t_display_p4_keyboard, "SetInterruptEnable"));
+    assert(contains(t_display_p4_keyboard, "ClearIrqFlag"));
+    assert(!contains(t_display_p4_runtime, "keyboard_recover_i2c_bus"));
+    assert(!contains(t_display_p4_runtime, "kKeyboardAttachRecovery"));
+    assert(!contains(t_display_p4_runtime, "monitor_power_recovery"));
 
     const std::string lvgl_fs_utils = read_file(
         repo_root / "modules/ui_shared/include/ui/support/lvgl_fs_utils.h");
@@ -530,12 +485,15 @@ int main(int argc, char** argv)
                     "SYS I2C lock timeout requester=%s request_owner=%s at=%s:%d"));
     assert(contains(t_display_p4_board,
                     "owner=%s owner_task=%s held_ms=%lu waiter=%s waiter_task=%s"));
+    assert(contains(t_display_p4_board, "ldo_config.flags.adjustable = 1;"));
+    assert(contains(t_display_p4_board, "ldo_config.flags.owned_by_hw = 0;"));
+    assert(!contains(t_display_p4_board, "ldo_config.flags.bypass"));
     assert(contains(t_display_p4_board,
-                    "bool TDisplayP4Board::recoverExternal3v3ForKeyboardAttach"));
-    assert(contains(t_display_p4_board,
-                    "Keyboard attach recovery cycling external 3.3V rail"));
-    assert(contains(t_display_p4_board,
-                    "Keyboard attach recovery completed external 3.3V rail cycle"));
+                    "return ensure_external_3v3_power_control();"));
+    assert(!contains(t_display_p4_board,
+                     "recoverExternal3v3ForKeyboardAttach"));
+    assert(!contains(t_display_p4_board,
+                     "Keyboard attach recovery"));
     const std::size_t managed_i2c_device = position_of(
         t_display_p4_board,
         "i2c_master_dev_handle_t TDisplayP4Board::getManagedSystemI2cDevice");

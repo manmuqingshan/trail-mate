@@ -128,16 +128,17 @@ bool ensure_external_3v3_power_control()
         return true;
     }
 
-    // This matches LilyGO's current T-Display-P4 driver.  LDO4 is the
-    // board-level 3.3V domain needed before probing P2's XL9555; SDMMC gets
-    // its board power through XL9535 and must not own this LDO as an SD VDD
-    // power-control handle.
+    // LDO4 supplies the P2 keyboard connector directly. Keep ownership in
+    // software so the requested 3.3 V setting reaches that rail. LilyGO's
+    // current generic P4 helper sets owned_by_hw, which defers this channel
+    // to eFuse control and does not match the working K270 board sequence.
+    // adjustable remains enabled because the board's P4 consumers share this
+    // held channel and may explicitly re-confirm its fixed 3.3 V setting.
     esp_ldo_channel_config_t ldo_config{};
     ldo_config.chan_id = kExternal3v3LdoChannel;
     ldo_config.voltage_mv = kExternal3v3Mv;
     ldo_config.flags.adjustable = 1;
-    ldo_config.flags.owned_by_hw = 1;
-    ldo_config.flags.bypass = 1;
+    ldo_config.flags.owned_by_hw = 0;
     const esp_err_t err = esp_ldo_acquire_channel(&ldo_config, &s_external_3v3_ldo_handle);
     if (err != ESP_OK)
     {
@@ -149,7 +150,9 @@ bool ensure_external_3v3_power_control()
         return false;
     }
 
-    ESP_LOGI(kTag, "P4 LDO4 acquired at %dmV for board 3.3V", kExternal3v3Mv);
+    ESP_LOGI(kTag,
+             "P4 LDO4 software-owned at %dmV for board/P2 3.3V",
+             kExternal3v3Mv);
     return true;
 }
 
@@ -499,12 +502,9 @@ uint8_t TDisplayP4Board::keyboardGetBrightness()
 
 bool TDisplayP4Board::ensureKeyboardLdo4Power()
 {
-    // The official P4 start-up has two parts before it reaches P2: it acquires
-    // LDO4 and it leaves the XL9535 external 3.3 V gate asserted.  Keyboard
-    // attach is deliberately independent of a historical cold-boot latch, so
-    // perform the same two board-owned operations immediately before probing
-    // the XL9555.  This does not alter any non-P4 board power path.
-    return ensureExternal3v3Power();
+    // P2 is wired to LDO4 rather than the XL9535-switched peripheral rail.
+    // Do not turn a keyboard probe into a board-wide external-rail recovery.
+    return ensure_external_3v3_power_control();
 }
 
 bool TDisplayP4Board::ensureExternal3v3Power()
@@ -530,90 +530,6 @@ bool TDisplayP4Board::ensureExternal3v3Power()
         ESP_LOGE(kTag, "Failed to assert external 3.3V rail through XL9535");
         return false;
     }
-    return true;
-}
-
-bool TDisplayP4Board::recoverExternal3v3ForKeyboardAttach(uint32_t off_ms,
-                                                          uint32_t settle_ms)
-{
-    if (!ensure_external_3v3_power_control())
-    {
-        return false;
-    }
-
-    if (!expander_ready_)
-    {
-        if ((!started_ && begin() != 0) || (!expander_ready_ && !initializeExpander()))
-        {
-            ESP_LOGE(kTag, "Failed to prepare XL9535 for keyboard 3.3V recovery");
-            return false;
-        }
-    }
-
-    const auto& io = ioExpanderPins();
-    const auto& p = profile();
-    if (!expanderPinMode(io.power_3v3, true))
-    {
-        ESP_LOGE(kTag, "Failed to configure external 3.3V rail for keyboard recovery");
-        return false;
-    }
-
-    bool gps_wake_was_active = false;
-    bool gps_wake_state_known = false;
-    if (io.gps_wake >= 0)
-    {
-        gps_wake_state_known =
-            expanderReadActive(io.gps_wake, &gps_wake_was_active, p.gps_wake_active_high);
-        (void)expanderPinMode(io.gps_wake, true);
-        (void)expanderWriteActive(io.gps_wake, false, p.gps_wake_active_high);
-    }
-
-    bool c6_was_active = false;
-    bool c6_state_known = false;
-    if (io.c6_enable >= 0)
-    {
-        c6_state_known =
-            expanderReadActive(io.c6_enable, &c6_was_active, p.c6_enable_active_high);
-        (void)expanderPinMode(io.c6_enable, true);
-        (void)expanderWriteActive(io.c6_enable, false, p.c6_enable_active_high);
-    }
-
-    ESP_LOGW(kTag,
-             "Keyboard attach recovery cycling external 3.3V rail off_ms=%lu settle_ms=%lu gps_known=%u gps_was_active=%u c6_known=%u c6_was_active=%u",
-             static_cast<unsigned long>(off_ms),
-             static_cast<unsigned long>(settle_ms),
-             gps_wake_state_known ? 1U : 0U,
-             gps_wake_was_active ? 1U : 0U,
-             c6_state_known ? 1U : 0U,
-             c6_was_active ? 1U : 0U);
-
-    if (!expanderWriteActive(io.power_3v3, false, p.power_3v3_active_high))
-    {
-        ESP_LOGE(kTag, "Failed to deassert external 3.3V rail for keyboard recovery");
-        return false;
-    }
-    vTaskDelay(pdMS_TO_TICKS(off_ms));
-
-    if (!expanderWriteActive(io.power_3v3, true, p.power_3v3_active_high))
-    {
-        ESP_LOGE(kTag, "Failed to reassert external 3.3V rail for keyboard recovery");
-        return false;
-    }
-    vTaskDelay(pdMS_TO_TICKS(settle_ms));
-
-    if (gps_wake_state_known)
-    {
-        (void)expanderWriteActive(io.gps_wake, gps_wake_was_active, p.gps_wake_active_high);
-    }
-    if (c6_state_known)
-    {
-        (void)expanderWriteActive(io.c6_enable, c6_was_active, p.c6_enable_active_high);
-    }
-
-    ESP_LOGW(kTag,
-             "Keyboard attach recovery completed external 3.3V rail cycle gps_restored=%u c6_restored=%u",
-             gps_wake_state_known ? 1U : 0U,
-             c6_state_known ? 1U : 0U);
     return true;
 }
 
