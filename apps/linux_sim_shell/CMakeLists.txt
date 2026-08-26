@@ -56,6 +56,17 @@ if(BUILD_TESTING)
     find_package(SQLite3 QUIET)
     find_package(OpenSSL QUIET)
 
+    add_executable(trailmate_calculator_engine_smoke
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/tests/test_calculator_engine.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/src/ui/screens/calculator/calculator_engine.cpp")
+    target_include_directories(trailmate_calculator_engine_smoke
+        PRIVATE
+            "${TRAIL_MATE_REPO_ROOT}/modules/ui_shared/include")
+    target_compile_features(trailmate_calculator_engine_smoke
+        PRIVATE cxx_std_17)
+    add_test(NAME trailmate_calculator_engine_smoke
+             COMMAND trailmate_calculator_engine_smoke)
+
     add_executable(trailmate_linux_sim_app_shell_smoke
         tests/linux_sim_app_shell_smoke.cpp)
     target_link_libraries(trailmate_linux_sim_app_shell_smoke

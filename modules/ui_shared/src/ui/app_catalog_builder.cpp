@@ -15,6 +15,12 @@
 #else
 #define TRAIL_MATE_USE_MONO_SCREEN_240X320 0
 #endif
+#if defined(ARDUINO_T_LORA_PAGER) || defined(ARDUINO_T_DECK) || \
+    defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+#define TRAIL_MATE_ENABLE_CALCULATOR_APP 1
+#else
+#define TRAIL_MATE_ENABLE_CALCULATOR_APP 0
+#endif
 #if TRAIL_MATE_USE_MONO_SCREEN_240X320
 #include "ui/mono/screens/screen_240x320/screen_app.h"
 #if defined(TRAIL_MATE_TDECK_PRO_A7682E) || +defined(TRAIL_MATE_MONO_SCREEN_240X320_CELLULAR)
@@ -37,6 +43,9 @@
 #endif
 
 #include "ui/screens/chat/chat_page_shell.h"
+#if TRAIL_MATE_ENABLE_CALCULATOR_APP
+#include "ui/screens/calculator/calculator_page_shell.h"
+#endif
 #include "ui/screens/contacts/contacts_page_shell.h"
 #include "ui/screens/energy_sweep/energy_sweep_page_shell.h"
 #include "ui/screens/extensions/extensions_page_shell.h"
@@ -74,6 +83,7 @@ constexpr bool kTab5SkipSkyPlot = false;
 extern "C"
 {
     extern const lv_image_dsc_t Chat;
+    extern const lv_image_dsc_t calc;
     extern const lv_image_dsc_t gps_icon;
     extern const lv_image_dsc_t Satellite;
     extern const lv_image_dsc_t contact;
@@ -212,6 +222,12 @@ ui::CallbackAppScreen s_tracker_app("tracker", "Tracker", CATALOG_ICON(tracker_i
                                     tracker::ui::shell::enter,
                                     tracker::ui::shell::exit,
                                     &s_menu_host);
+#if TRAIL_MATE_ENABLE_CALCULATOR_APP
+ui::CallbackAppScreen s_calculator_app("calculator", "Calculator", CATALOG_ICON(calc),
+                                       calculator::ui::shell::enter,
+                                       calculator::ui::shell::exit,
+                                       &s_menu_host);
+#endif
 #if !defined(TRAIL_MATE_ENABLE_SSTV) || TRAIL_MATE_ENABLE_SSTV
 ui::CallbackAppScreen s_sstv_app("sstv", "SSTV", CATALOG_ICON(sstv),
                                  sstv_page::ui::shell::enter,
@@ -460,6 +476,9 @@ AppCatalog build(const FeatureFlags& flags)
             add(&s_team_app);
 #endif
         }
+#if TRAIL_MATE_ENABLE_CALCULATOR_APP
+        add(&s_calculator_app);
+#endif
         if (flags.profile == CatalogProfile::IdfDefault && flags.include_tracker)
         {
             add(&s_tracker_app);
