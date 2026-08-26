@@ -44,6 +44,8 @@ enum class KeyAction : uint8_t
     SecondLayer,
     ToggleAngle,
     ToggleSign,
+    CursorLeft,
+    CursorRight,
     Backspace,
     ClearEntry,
     AllClear,
@@ -61,6 +63,8 @@ enum class KeyAction : uint8_t
     Pi,
     Answer,
     Percent,
+    OpenParenthesis,
+    CloseParenthesis,
     Equals,
     Add,
     Subtract,
@@ -130,6 +134,12 @@ void applyAction(KeyAction action)
     case KeyAction::ToggleSign:
         s_ui.engine.toggleSign();
         break;
+    case KeyAction::CursorLeft:
+        s_ui.engine.moveCursorLeft();
+        break;
+    case KeyAction::CursorRight:
+        s_ui.engine.moveCursorRight();
+        break;
     case KeyAction::Backspace:
         s_ui.engine.backspace();
         break;
@@ -162,7 +172,13 @@ void applyAction(KeyAction action)
         s_ui.engine.inputAnswer();
         break;
     case KeyAction::Percent:
-        s_ui.engine.apply(Function::Percent);
+        s_ui.engine.inputPercent();
+        break;
+    case KeyAction::OpenParenthesis:
+        s_ui.engine.insertOpenParenthesis();
+        break;
+    case KeyAction::CloseParenthesis:
+        s_ui.engine.insertCloseParenthesis();
         break;
     case KeyAction::Equals:
         s_ui.engine.equals();
@@ -189,13 +205,13 @@ void applyAction(KeyAction action)
         s_ui.engine.beginFunction(Function::Tan);
         break;
     case KeyAction::Square:
-        s_ui.engine.apply(Function::Square);
+        s_ui.engine.beginFunction(Function::Square);
         break;
     case KeyAction::SquareRoot:
-        s_ui.engine.apply(Function::SquareRoot);
+        s_ui.engine.beginFunction(Function::SquareRoot);
         break;
     case KeyAction::Reciprocal:
-        s_ui.engine.apply(Function::Reciprocal);
+        s_ui.engine.beginFunction(Function::Reciprocal);
         break;
     case KeyAction::Asin:
         s_ui.engine.beginFunction(Function::Asin);
@@ -207,10 +223,10 @@ void applyAction(KeyAction action)
         s_ui.engine.beginFunction(Function::Atan);
         break;
     case KeyAction::NaturalLog:
-        s_ui.engine.apply(Function::NaturalLog);
+        s_ui.engine.beginFunction(Function::NaturalLog);
         break;
     case KeyAction::CommonLog:
-        s_ui.engine.apply(Function::CommonLog);
+        s_ui.engine.beginFunction(Function::CommonLog);
         break;
     case KeyAction::Power:
         s_ui.engine.selectOperation(Operation::Power);
@@ -250,12 +266,30 @@ bool handleKeyboard(uint32_t key)
     case '/':
         applyAction(KeyAction::Divide);
         return true;
+    case '^':
+        applyAction(KeyAction::Power);
+        return true;
+    case '%':
+        applyAction(KeyAction::Percent);
+        return true;
+    case '(':
+        applyAction(KeyAction::OpenParenthesis);
+        return true;
+    case ')':
+        applyAction(KeyAction::CloseParenthesis);
+        return true;
     case '=':
     case LV_KEY_ENTER:
         applyAction(KeyAction::Equals);
         return true;
     case LV_KEY_BACKSPACE:
         applyAction(KeyAction::Backspace);
+        return true;
+    case LV_KEY_LEFT:
+        applyAction(KeyAction::CursorLeft);
+        return true;
+    case LV_KEY_RIGHT:
+        applyAction(KeyAction::CursorRight);
         return true;
     case LV_KEY_ESC:
         requestExit();
@@ -428,8 +462,8 @@ void updateUi()
                                 0);
     lv_label_set_text(s_ui.footer,
                       s_ui.engine.secondLayer()
-                          ? "Fn: primary  |  S/C/T: inverse  |  =: calculate"
-                          : "tan -> 75 -> =  |  Fn: 2nd  |  M: DEG/RAD");
+                          ? "< >: cursor  |  A: ANS  |  Fn: primary"
+                          : "< >: cursor  |  ( ) group  |  =: calculate");
     updateFunctionRow();
 }
 
@@ -518,9 +552,9 @@ void buildPage(lv_obj_t* parent)
 
     const std::array<KeySpec, 25> keypad = {{{KeyAction::SecondLayer, "2ND", kAmber},
                                                {KeyAction::ToggleAngle, "MODE", kControlBg},
-                                               {KeyAction::ToggleSign, "+/-", kControlBg},
+                                               {KeyAction::CursorLeft, "<", kControlBg},
+                                               {KeyAction::CursorRight, ">", kControlBg},
                                                {KeyAction::Backspace, "DEL", kControlBg},
-                                               {KeyAction::AllClear, "AC", kDangerBg},
                                                {KeyAction::Digit7, "7", kKeyBg},
                                                {KeyAction::Digit8, "8", kKeyBg},
                                                {KeyAction::Digit9, "9", kKeyBg},
@@ -534,12 +568,12 @@ void buildPage(lv_obj_t* parent)
                                                {KeyAction::Digit1, "1", kKeyBg},
                                                {KeyAction::Digit2, "2", kKeyBg},
                                                {KeyAction::Digit3, "3", kKeyBg},
-                                               {KeyAction::Percent, "%", kControlBg},
-                                               {KeyAction::ClearEntry, "CE", kControlBg},
+                                               {KeyAction::OpenParenthesis, "(", kControlBg},
+                                               {KeyAction::CloseParenthesis, ")", kControlBg},
                                                {KeyAction::Digit0, "0", kKeyBg},
                                                {KeyAction::Pi, "PI", kControlBg},
                                                {KeyAction::Decimal, ".", kKeyBg},
-                                               {KeyAction::Answer, "ANS", kControlBg},
+                                               {KeyAction::AllClear, "AC", kDangerBg},
                                                {KeyAction::Equals, "=", kAmber}}};
     const lv_coord_t keypad_margin = layout.outer_margin;
     const lv_coord_t keypad_width =

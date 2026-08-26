@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace calculator::ui::model
@@ -36,9 +37,9 @@ enum class Function : uint8_t
     Percent,
 };
 
-// Fixed-size calculator state intended for an embedded page.  It deliberately
-// has no dynamic allocation: the keypad can be used while radio and map tasks
-// are active without adding heap churn to the Pager UI.
+// Fixed-size scientific expression editor for embedded pages. It deliberately
+// avoids heap allocation so the calculator can run beside radio and map tasks
+// without adding allocation churn to the Pager UI.
 class Engine
 {
   public:
@@ -47,17 +48,25 @@ class Engine
     void allClear();
     void clearEntry();
     void backspace();
+    void moveCursorLeft();
+    void moveCursorRight();
     void inputDigit(char digit);
     void inputDecimalPoint();
     void inputPi();
     void inputAnswer();
+    void inputPercent();
+    void insertOpenParenthesis();
+    void insertCloseParenthesis();
     void toggleSign();
     void selectOperation(Operation operation);
     void equals();
-    // Starts an editable function argument when no number is being entered.
-    // If the user has already entered a number, the function is applied to it
-    // immediately, which supports both familiar scientific-calculator flows.
+
+    // Inserts an editable function call such as tan() and leaves the cursor
+    // inside its parentheses. It does not evaluate until = is pressed.
     void beginFunction(Function function);
+
+    // Keeps a compact direct-apply operation for non-text input clients and
+    // engine tests. The calculator page itself uses beginFunction().
     void apply(Function function);
     void toggleAngleMode();
     void toggleSecondLayer();
@@ -70,34 +79,30 @@ class Engine
     double value() const;
 
   private:
-    static constexpr uint8_t kEntryCapacity = 24;
-    static constexpr uint8_t kDisplayCapacity = 32;
-    static constexpr uint8_t kHistoryCapacity = 48;
+    static constexpr size_t kExpressionCapacity = 72;
+    static constexpr size_t kDisplayCapacity = kExpressionCapacity + 12;
+    static constexpr size_t kHistoryCapacity = kExpressionCapacity + 16;
 
-    double accumulator_ = 0.0;
     double value_ = 0.0;
     double answer_ = 0.0;
-    Operation pending_operation_ = Operation::Add;
-    Function pending_function_ = Function::Sin;
     AngleMode angle_mode_ = AngleMode::Degrees;
-    bool has_pending_operation_ = false;
-    bool has_pending_function_ = false;
-    bool entering_ = false;
-    bool replace_entry_ = true;
-    bool after_equals_ = false;
     bool second_layer_ = false;
     bool error_ = false;
-    char entry_[kEntryCapacity]{};
+    bool showing_result_ = false;
+    bool replace_on_next_input_ = true;
+    size_t expression_length_ = 1;
+    size_t cursor_ = 1;
+    char expression_[kExpressionCapacity] = "0";
     mutable char display_[kDisplayCapacity]{};
     mutable char history_[kHistoryCapacity]{};
 
-    double currentValue() const;
-    void setEntryValue(double value);
+    void prepareForInsertion();
+    bool insertText(const char* text);
+    void insertPaired(const char* prefix);
+    void eraseRange(size_t offset, size_t length);
+    void setExpressionToValue(double value);
     void setError(const char* message);
-    bool resolvePending(double operand);
-    bool commitPendingFunction();
-    bool applyFunction(Function function, double input, double* output) const;
-    void beginEntryIfNeeded();
+    bool evaluateExpression(double* output) const;
 };
 
 } // namespace calculator::ui::model
