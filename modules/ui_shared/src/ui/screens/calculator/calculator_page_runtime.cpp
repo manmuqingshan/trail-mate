@@ -45,6 +45,7 @@ enum class KeyAction : uint8_t
     ToggleAngle,
     ToggleSign,
     Backspace,
+    ClearEntry,
     AllClear,
     Digit0,
     Digit1,
@@ -132,6 +133,9 @@ void applyAction(KeyAction action)
     case KeyAction::Backspace:
         s_ui.engine.backspace();
         break;
+    case KeyAction::ClearEntry:
+        s_ui.engine.clearEntry();
+        break;
     case KeyAction::AllClear:
         s_ui.engine.allClear();
         break;
@@ -176,13 +180,13 @@ void applyAction(KeyAction action)
         s_ui.engine.selectOperation(Operation::Divide);
         break;
     case KeyAction::Sin:
-        s_ui.engine.apply(Function::Sin);
+        s_ui.engine.beginFunction(Function::Sin);
         break;
     case KeyAction::Cos:
-        s_ui.engine.apply(Function::Cos);
+        s_ui.engine.beginFunction(Function::Cos);
         break;
     case KeyAction::Tan:
-        s_ui.engine.apply(Function::Tan);
+        s_ui.engine.beginFunction(Function::Tan);
         break;
     case KeyAction::Square:
         s_ui.engine.apply(Function::Square);
@@ -194,13 +198,13 @@ void applyAction(KeyAction action)
         s_ui.engine.apply(Function::Reciprocal);
         break;
     case KeyAction::Asin:
-        s_ui.engine.apply(Function::Asin);
+        s_ui.engine.beginFunction(Function::Asin);
         break;
     case KeyAction::Acos:
-        s_ui.engine.apply(Function::Acos);
+        s_ui.engine.beginFunction(Function::Acos);
         break;
     case KeyAction::Atan:
-        s_ui.engine.apply(Function::Atan);
+        s_ui.engine.beginFunction(Function::Atan);
         break;
     case KeyAction::NaturalLog:
         s_ui.engine.apply(Function::NaturalLog);
@@ -424,8 +428,8 @@ void updateUi()
                                 0);
     lv_label_set_text(s_ui.footer,
                       s_ui.engine.secondLayer()
-                          ? "Fn: primary  |  S/C/T: inverse  |  Esc: back"
-                          : "Fn: 2nd  |  S/C/T: trig  |  M: DEG/RAD  |  Esc: back");
+                          ? "Fn: primary  |  S/C/T: inverse  |  =: calculate"
+                          : "tan -> 75 -> =  |  Fn: 2nd  |  M: DEG/RAD");
     updateFunctionRow();
 }
 
@@ -531,7 +535,7 @@ void buildPage(lv_obj_t* parent)
                                                {KeyAction::Digit2, "2", kKeyBg},
                                                {KeyAction::Digit3, "3", kKeyBg},
                                                {KeyAction::Percent, "%", kControlBg},
-                                               {KeyAction::Equals, "=", kAmber},
+                                               {KeyAction::ClearEntry, "CE", kControlBg},
                                                {KeyAction::Digit0, "0", kKeyBg},
                                                {KeyAction::Pi, "PI", kControlBg},
                                                {KeyAction::Decimal, ".", kKeyBg},

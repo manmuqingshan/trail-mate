@@ -57,6 +57,21 @@ int main()
     expectNear(engine.value(), 30.0, 1.0e-8);
 
     engine.allClear();
+    engine.beginFunction(Function::Tan);
+    assert(std::strcmp(engine.historyText(), "tan(") == 0);
+    enterNumber(engine, "75");
+    assert(std::strcmp(engine.historyText(), "tan(75") == 0);
+    engine.equals();
+    expectNear(engine.value(), 3.732050807568877, 1.0e-8);
+    assert(std::strcmp(engine.historyText(), "tan(75)") == 0);
+
+    engine.allClear();
+    enterNumber(engine, "45");
+    engine.beginFunction(Function::Tan);
+    expectNear(engine.value(), 1.0, 1.0e-8);
+    assert(std::strcmp(engine.historyText(), "tan(45)") == 0);
+
+    engine.allClear();
     engine.toggleAngleMode();
     engine.inputPi();
     engine.selectOperation(Operation::Divide);

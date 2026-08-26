@@ -54,6 +54,10 @@ class Engine
     void toggleSign();
     void selectOperation(Operation operation);
     void equals();
+    // Starts an editable function argument when no number is being entered.
+    // If the user has already entered a number, the function is applied to it
+    // immediately, which supports both familiar scientific-calculator flows.
+    void beginFunction(Function function);
     void apply(Function function);
     void toggleAngleMode();
     void toggleSecondLayer();
@@ -74,8 +78,10 @@ class Engine
     double value_ = 0.0;
     double answer_ = 0.0;
     Operation pending_operation_ = Operation::Add;
+    Function pending_function_ = Function::Sin;
     AngleMode angle_mode_ = AngleMode::Degrees;
     bool has_pending_operation_ = false;
+    bool has_pending_function_ = false;
     bool entering_ = false;
     bool replace_entry_ = true;
     bool after_equals_ = false;
@@ -83,12 +89,13 @@ class Engine
     bool error_ = false;
     char entry_[kEntryCapacity]{};
     mutable char display_[kDisplayCapacity]{};
-    char history_[kHistoryCapacity]{};
+    mutable char history_[kHistoryCapacity]{};
 
     double currentValue() const;
     void setEntryValue(double value);
     void setError(const char* message);
     bool resolvePending(double operand);
+    bool commitPendingFunction();
     bool applyFunction(Function function, double input, double* output) const;
     void beginEntryIfNeeded();
 };

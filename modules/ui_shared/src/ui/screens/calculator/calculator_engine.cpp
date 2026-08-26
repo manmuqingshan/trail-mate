@@ -102,6 +102,7 @@ void Engine::allClear()
     answer_ = 0.0;
     pending_operation_ = Operation::Add;
     has_pending_operation_ = false;
+    has_pending_function_ = false;
     entering_ = false;
     replace_entry_ = true;
     after_equals_ = false;
@@ -134,6 +135,12 @@ void Engine::backspace()
     }
     if (!entering_ || replace_entry_)
     {
+        if (has_pending_function_)
+        {
+            has_pending_function_ = false;
+            std::snprintf(history_, sizeof(history_), "%s", "FUNCTION CANCELLED");
+            return;
+        }
         clearEntry();
         return;
     }
@@ -325,6 +332,7 @@ void Engine::setError(const char* message)
 {
     error_ = true;
     has_pending_operation_ = false;
+    has_pending_function_ = false;
     entering_ = false;
     replace_entry_ = true;
     after_equals_ = false;
@@ -334,6 +342,10 @@ void Engine::setError(const char* message)
 void Engine::selectOperation(Operation operation)
 {
     if (error_)
+    {
+        return;
+    }
+    if (!commitPendingFunction())
     {
         return;
     }
@@ -359,8 +371,24 @@ void Engine::selectOperation(Operation operation)
 
 void Engine::equals()
 {
-    if (error_ || !has_pending_operation_)
+    if (error_)
     {
+        return;
+    }
+    const bool resolved_function = has_pending_function_;
+    if (!commitPendingFunction())
+    {
+        return;
+    }
+    if (!has_pending_operation_)
+    {
+        if (resolved_function)
+        {
+            entering_ = false;
+            replace_entry_ = true;
+            after_equals_ = true;
+            answer_ = value_;
+        }
         return;
     }
     if (!resolvePending(currentValue()))
@@ -373,6 +401,34 @@ void Engine::equals()
     after_equals_ = true;
     answer_ = value_;
     std::snprintf(history_, sizeof(history_), "%s", "RESULT");
+}
+
+void Engine::beginFunction(Function function)
+{
+    if (error_)
+    {
+        return;
+    }
+    if (has_pending_function_ && !commitPendingFunction())
+    {
+        return;
+    }
+
+    // `75`, then `tan` remains a one-key calculation.  In contrast, an
+    // idle display (or a display waiting for an operand) starts `tan(` and
+    // leaves its argument editable until = or an operator is pressed.
+    if ((entering_ && !replace_entry_) || after_equals_)
+    {
+        apply(function);
+        return;
+    }
+
+    pending_function_ = function;
+    has_pending_function_ = true;
+    entering_ = false;
+    replace_entry_ = true;
+    after_equals_ = false;
+    std::snprintf(entry_, sizeof(entry_), "%s", "0");
 }
 
 bool Engine::applyFunction(Function function, double input, double* output) const
@@ -464,6 +520,10 @@ void Engine::apply(Function function)
     {
         return;
     }
+    if (has_pending_function_ && !commitPendingFunction())
+    {
+        return;
+    }
     const double input = currentValue();
     double output = 0.0;
     if (!applyFunction(function, input, &output) || !isFinite(output))
@@ -475,6 +535,31 @@ void Engine::apply(Function function)
     formatValue(input, input_text, sizeof(input_text));
     std::snprintf(history_, sizeof(history_), "%s(%s)", functionName(function), input_text);
     setEntryValue(output);
+}
+
+bool Engine::commitPendingFunction()
+{
+    if (!has_pending_function_)
+    {
+        return true;
+    }
+
+    const Function function = pending_function_;
+    const double input = currentValue();
+    double output = 0.0;
+    if (!applyFunction(function, input, &output) || !isFinite(output))
+    {
+        setError("MATH ERROR");
+        return false;
+    }
+
+    char input_text[kDisplayCapacity]{};
+    formatValue(input, input_text, sizeof(input_text));
+    has_pending_function_ = false;
+    setEntryValue(output);
+    value_ = output;
+    std::snprintf(history_, sizeof(history_), "%s(%s)", functionName(function), input_text);
+    return true;
 }
 
 void Engine::toggleAngleMode()
@@ -505,6 +590,17 @@ const char* Engine::displayText() const
 
 const char* Engine::historyText() const
 {
+    if (has_pending_function_)
+    {
+        if (!entering_ || replace_entry_)
+        {
+            std::snprintf(history_, sizeof(history_), "%s(", functionName(pending_function_));
+        }
+        else
+        {
+            std::snprintf(history_, sizeof(history_), "%s(%s", functionName(pending_function_), entry_);
+        }
+    }
     return history_;
 }
 
