@@ -6,15 +6,16 @@
 #include <memory>
 
 #include "boards/t_display_p4/t_display_p4_board.h"
-#include "esp_log.h"
 #include "bus/i2c/software_i2c.h"
 #include "chip/i2c/tca8418.h"
 #include "chip/i2c/xl95x5.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "ui/app_runtime.h"
 #include "ui/menu/menu_runtime.h"
+#include "ui/ui_common.h"
 
 extern "C" void trail_mate_idf_note_user_activity(void);
 
@@ -32,6 +33,7 @@ constexpr uint32_t kPollIntervalMs = 30;
 constexpr uint32_t kI2cFailureBackoffMs = 500;
 constexpr uint32_t kI2cFailureLogIntervalMs = 2000;
 constexpr uint8_t kTca8418FifoDepth = 10;
+constexpr uint32_t kAltDoublePressMs = 350;
 
 constexpr uint32_t kKeyCaps = 0x8B;
 constexpr uint32_t kKeyAlt = 0x8C;
@@ -75,6 +77,7 @@ bool s_fn = false;
 lv_timer_t* s_poll_timer = nullptr;
 uint32_t s_next_i2c_attempt_ms = 0;
 uint32_t s_last_i2c_failure_log_ms = 0;
+uint32_t s_last_alt_press_ms = 0;
 std::array<uint32_t, kEventQueueCapacity> s_event_queue{};
 size_t s_event_queue_head = 0;
 size_t s_event_queue_count = 0;
@@ -178,6 +181,7 @@ bool initialize_controller()
     s_event_queue_count = 0;
     s_next_i2c_attempt_ms = 0;
     s_last_i2c_failure_log_ms = 0;
+    s_last_alt_press_ms = 0;
     board.setKeyboardReady(true);
     // GPIO47 is the keyboard backlight's SY7200A PWM/enable pin.  Arm it at
     // zero duty immediately after detection, matching Meck's safe boot-off
@@ -225,6 +229,18 @@ uint32_t translate_key(uint8_t key_number)
         return 0;
     }
     case kKeyAlt:
+    {
+        const uint32_t now = lv_tick_get();
+        if (s_last_alt_press_ms != 0 &&
+            static_cast<uint32_t>(now - s_last_alt_press_ms) <= kAltDoublePressMs)
+        {
+            ui_take_screenshot_to_sd();
+            s_last_alt_press_ms = 0;
+            return 0;
+        }
+        s_last_alt_press_ms = now;
+        return 0;
+    }
     case kKeyCtrl:
     case kKeyF11:
     case kKeyRecord:

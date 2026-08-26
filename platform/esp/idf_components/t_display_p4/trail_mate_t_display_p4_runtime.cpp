@@ -468,7 +468,6 @@ void note_touch_activity(bool pressed)
     }
 }
 
-
 void touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data)
 {
     (void)indev;
@@ -525,7 +524,6 @@ bool create_touch_indev()
     return true;
 }
 
-
 void app_lifecycle_ui_timer_cb(lv_timer_t* timer)
 {
     (void)timer;
@@ -569,7 +567,6 @@ bool start_app_lifecycle_ui_timer()
              static_cast<unsigned>(kAppLifecycleUiEventsPerTick));
     return true;
 }
-
 
 bool create_panel()
 {

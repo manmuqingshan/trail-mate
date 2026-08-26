@@ -417,17 +417,17 @@ void updateFunctionRow()
 {
     const bool second = s_ui.engine.secondLayer();
     const std::array<KeySpec, 6> primary = {{{KeyAction::Sin, "sin", kFunctionBg},
-                                              {KeyAction::Cos, "cos", kFunctionBg},
-                                              {KeyAction::Tan, "tan", kFunctionBg},
-                                              {KeyAction::Square, "x^2", kFunctionBg},
-                                              {KeyAction::SquareRoot, "sqrt", kFunctionBg},
-                                              {KeyAction::Reciprocal, "1/x", kFunctionBg}}};
+                                             {KeyAction::Cos, "cos", kFunctionBg},
+                                             {KeyAction::Tan, "tan", kFunctionBg},
+                                             {KeyAction::Square, "x^2", kFunctionBg},
+                                             {KeyAction::SquareRoot, "sqrt", kFunctionBg},
+                                             {KeyAction::Reciprocal, "1/x", kFunctionBg}}};
     const std::array<KeySpec, 6> secondary = {{{KeyAction::Asin, "sin-1", kFunctionBg},
-                                                {KeyAction::Acos, "cos-1", kFunctionBg},
-                                                {KeyAction::Atan, "tan-1", kFunctionBg},
-                                                {KeyAction::NaturalLog, "ln", kFunctionBg},
-                                                {KeyAction::CommonLog, "log", kFunctionBg},
-                                                {KeyAction::Power, "x^y", kFunctionBg}}};
+                                               {KeyAction::Acos, "cos-1", kFunctionBg},
+                                               {KeyAction::Atan, "tan-1", kFunctionBg},
+                                               {KeyAction::NaturalLog, "ln", kFunctionBg},
+                                               {KeyAction::CommonLog, "log", kFunctionBg},
+                                               {KeyAction::Power, "x^y", kFunctionBg}}};
     const auto& specs = second ? secondary : primary;
     for (size_t index = 0; index < specs.size(); ++index)
     {
@@ -531,11 +531,11 @@ void buildPage(lv_obj_t* parent)
     const lv_coord_t function_width =
         (layout.content_width - function_margin * 2 - function_gap * 5) / 6;
     const std::array<KeySpec, 6> initial_functions = {{{KeyAction::Sin, "sin", kFunctionBg},
-                                                          {KeyAction::Cos, "cos", kFunctionBg},
-                                                          {KeyAction::Tan, "tan", kFunctionBg},
-                                                          {KeyAction::Square, "x^2", kFunctionBg},
-                                                          {KeyAction::SquareRoot, "sqrt", kFunctionBg},
-                                                          {KeyAction::Reciprocal, "1/x", kFunctionBg}}};
+                                                       {KeyAction::Cos, "cos", kFunctionBg},
+                                                       {KeyAction::Tan, "tan", kFunctionBg},
+                                                       {KeyAction::Square, "x^2", kFunctionBg},
+                                                       {KeyAction::SquareRoot, "sqrt", kFunctionBg},
+                                                       {KeyAction::Reciprocal, "1/x", kFunctionBg}}};
     for (size_t index = 0; index < initial_functions.size(); ++index)
     {
         s_ui.function_buttons[index] = createButton(
@@ -551,30 +551,30 @@ void buildPage(lv_obj_t* parent)
     }
 
     const std::array<KeySpec, 25> keypad = {{{KeyAction::SecondLayer, "2ND", kAmber},
-                                               {KeyAction::ToggleAngle, "MODE", kControlBg},
-                                               {KeyAction::CursorLeft, "<", kControlBg},
-                                               {KeyAction::CursorRight, ">", kControlBg},
-                                               {KeyAction::Backspace, "DEL", kControlBg},
-                                               {KeyAction::Digit7, "7", kKeyBg},
-                                               {KeyAction::Digit8, "8", kKeyBg},
-                                               {KeyAction::Digit9, "9", kKeyBg},
-                                               {KeyAction::Divide, "/", kOperatorBg},
-                                               {KeyAction::Multiply, "x", kOperatorBg},
-                                               {KeyAction::Digit4, "4", kKeyBg},
-                                               {KeyAction::Digit5, "5", kKeyBg},
-                                               {KeyAction::Digit6, "6", kKeyBg},
-                                               {KeyAction::Subtract, "-", kOperatorBg},
-                                               {KeyAction::Add, "+", kOperatorBg},
-                                               {KeyAction::Digit1, "1", kKeyBg},
-                                               {KeyAction::Digit2, "2", kKeyBg},
-                                               {KeyAction::Digit3, "3", kKeyBg},
-                                               {KeyAction::OpenParenthesis, "(", kControlBg},
-                                               {KeyAction::CloseParenthesis, ")", kControlBg},
-                                               {KeyAction::Digit0, "0", kKeyBg},
-                                               {KeyAction::Pi, "PI", kControlBg},
-                                               {KeyAction::Decimal, ".", kKeyBg},
-                                               {KeyAction::AllClear, "AC", kDangerBg},
-                                               {KeyAction::Equals, "=", kAmber}}};
+                                             {KeyAction::ToggleAngle, "MODE", kControlBg},
+                                             {KeyAction::CursorLeft, "<", kControlBg},
+                                             {KeyAction::CursorRight, ">", kControlBg},
+                                             {KeyAction::Backspace, "DEL", kControlBg},
+                                             {KeyAction::Digit7, "7", kKeyBg},
+                                             {KeyAction::Digit8, "8", kKeyBg},
+                                             {KeyAction::Digit9, "9", kKeyBg},
+                                             {KeyAction::Divide, "/", kOperatorBg},
+                                             {KeyAction::Multiply, "x", kOperatorBg},
+                                             {KeyAction::Digit4, "4", kKeyBg},
+                                             {KeyAction::Digit5, "5", kKeyBg},
+                                             {KeyAction::Digit6, "6", kKeyBg},
+                                             {KeyAction::Subtract, "-", kOperatorBg},
+                                             {KeyAction::Add, "+", kOperatorBg},
+                                             {KeyAction::Digit1, "1", kKeyBg},
+                                             {KeyAction::Digit2, "2", kKeyBg},
+                                             {KeyAction::Digit3, "3", kKeyBg},
+                                             {KeyAction::OpenParenthesis, "(", kControlBg},
+                                             {KeyAction::CloseParenthesis, ")", kControlBg},
+                                             {KeyAction::Digit0, "0", kKeyBg},
+                                             {KeyAction::Pi, "PI", kControlBg},
+                                             {KeyAction::Decimal, ".", kKeyBg},
+                                             {KeyAction::AllClear, "AC", kDangerBg},
+                                             {KeyAction::Equals, "=", kAmber}}};
     const lv_coord_t keypad_margin = layout.outer_margin;
     const lv_coord_t keypad_width =
         (layout.content_width - keypad_margin * 2 - layout.keypad_gap * 4) / 5;
@@ -583,14 +583,14 @@ void buildPage(lv_obj_t* parent)
         const lv_coord_t row = static_cast<lv_coord_t>(index / 5);
         const lv_coord_t column = static_cast<lv_coord_t>(index % 5);
         s_ui.keypad_buttons[index] = createButton(s_ui.root,
-                                                   keypad[index].action,
-                                                   keypad[index].label,
-                                                   keypad[index].color,
-                                                   layout.content_x + keypad_margin +
-                                                       column * (keypad_width + layout.keypad_gap),
-                                                   layout.keypad_y + row * (layout.keypad_button_height + layout.keypad_gap),
-                                                   keypad_width,
-                                                   layout.keypad_button_height);
+                                                  keypad[index].action,
+                                                  keypad[index].label,
+                                                  keypad[index].color,
+                                                  layout.content_x + keypad_margin +
+                                                      column * (keypad_width + layout.keypad_gap),
+                                                  layout.keypad_y + row * (layout.keypad_button_height + layout.keypad_gap),
+                                                  keypad_width,
+                                                  layout.keypad_button_height);
     }
 
     s_ui.footer = lv_label_create(s_ui.root);

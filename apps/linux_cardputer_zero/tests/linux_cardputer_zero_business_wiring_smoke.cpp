@@ -174,10 +174,13 @@ int main(int argc, char** argv)
     assert(contains(menu_runtime,
                     "#else\n        openMenuHelpModal();\n        return true;\n#endif"));
 
-    const std::string t_display_p4_runtime = read_file(
-        repo_root / "platform/esp/idf_components/t_display_p4/trail_mate_t_display_p4_runtime.cpp");
-    assert(contains(t_display_p4_runtime, "kAltDoublePressMs"));
-    assert(contains(t_display_p4_runtime, "ui_take_screenshot_to_sd();"));
+    // The P4 keyboard adapter owns physical-key behavior. Keep the Alt
+    // double-press screenshot shortcut with that adapter rather than the
+    // display runtime, which owns the panel and touch lifecycle only.
+    const std::string t_display_p4_keyboard = read_file(
+        repo_root / "platform/esp/idf_components/t_display_p4/trail_mate_t_display_p4_keyboard.cpp");
+    assert(contains(t_display_p4_keyboard, "kAltDoublePressMs"));
+    assert(contains(t_display_p4_keyboard, "ui_take_screenshot_to_sd();"));
 
     const std::string gps_runtime = read_file(
         repo_root / "modules/ui_shared/src/ui/screens/gps/gps_page_runtime.cpp");
