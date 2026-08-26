@@ -203,6 +203,8 @@ logs/
 *.log.*
 
 # Temporary files
+/tmp/
+**/Testing/Temporary/
 *.tmp
 *.temp
 *.bak

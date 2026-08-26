@@ -2,7 +2,8 @@ include("${CMAKE_CURRENT_LIST_DIR}/../ESP_IDF_COMPONENT_SOURCES.cmake")
 
 # GCC 14's O2 inlining cannot prove std::sort's bounded 8-entry range here.
 # Keep the diagnostic, but do not make this specific false positive fatal on P4.
-if(TRAIL_MATE_IDF_TARGET STREQUAL "t_display_p4_tft")
+if(TRAIL_MATE_IDF_TARGET STREQUAL "t_display_p4_tft" OR
+   TRAIL_MATE_IDF_TARGET STREQUAL "t_display_p4_amoled")
     set_source_files_properties(
         "${TRAILMATE_ROOT}/modules/core_chat/src/delivery/chat_message_ledger.cpp"
         PROPERTIES COMPILE_OPTIONS "-Wno-error=array-bounds")

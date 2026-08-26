@@ -44,16 +44,15 @@ Primary source reference:
 
 ## Display Runtime Baseline
 
-The official `.tmp/T-Display-P4` LVGL demo uses a full-screen RGB565 draw
-buffer allocated from `SPIRAM | 8BIT | DMA`, a 1 ms LVGL tick, and direct DPI
-panel flush callbacks. The TrailMate IDF runtime keeps the panel timing and pin
-facts aligned with that demo, uses a 1 ms LVGL tick, allocates RGB565 draw
-buffers from PSRAM with DMA capability, enables the ESP32-P4 PPA rotation path,
-and keeps the LVGL draw buffer full-screen so that worst-case invalidation and
-rotation never exceed the PPA output buffer. If real-device animation still
-feels slower than the official demo after functional bring-up, tune this
-display-runtime policy in `platform/esp/idf_components/t_display_p4` rather than
-changing board pin facts.
+The official T-Display-P4 LVGL baseline uses an independent RGB565 draw buffer,
+direct DPI-panel flush callbacks, and the ESP32-P4 PPA for rotation. TrailMate
+uses the same ownership model: `esp_lvgl_port` allocates an independent
+`SPIRAM | DMA` LVGL buffer and a cache-line-aligned PPA output buffer, renders
+dirty areas in `PARTIAL` mode, rotates those areas in PPA, then submits them to
+the DPI panel. The DPI driver has `num_fbs = 0`; it is not an application-owned
+front/back swapchain. LVGL flush completion comes from DSI
+`on_color_trans_done`, not a refresh-boundary callback. The complete invariant
+is documented in `docs/engineering/t-display-p4-display-runtime-architecture.md`.
 
 ## Keyboard Runtime Policy
 

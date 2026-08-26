@@ -1,11 +1,20 @@
+set(LILYGO_CPP_BUS_DRIVER_DIR
+    "${CMAKE_SOURCE_DIR}/platform/esp/third_party/lilygo_cpp_bus_driver")
+
 idf_component_register(
     SRCS
         "trail_mate_t_display_p4_runtime.cpp"
-        "p4_dsi_rotating_presenter.cpp"
+        "trail_mate_t_display_p4_keyboard.cpp"
         "t_display_p4_audio_runtime.cpp"
         "${CMAKE_SOURCE_DIR}/boards/t_display_p4/src/runtime_support.cpp"
         "hi8561_driver.c"
         "rm69a10_driver.c"
+        "${LILYGO_CPP_BUS_DRIVER_DIR}/src/tool.cpp"
+        "${LILYGO_CPP_BUS_DRIVER_DIR}/src/bus/bus_guide.cpp"
+        "${LILYGO_CPP_BUS_DRIVER_DIR}/src/bus/i2c/software_i2c.cpp"
+        "${LILYGO_CPP_BUS_DRIVER_DIR}/src/chip/chip_guide.cpp"
+        "${LILYGO_CPP_BUS_DRIVER_DIR}/src/chip/i2c/tca8418.cpp"
+        "${LILYGO_CPP_BUS_DRIVER_DIR}/src/chip/i2c/xl95x5.cpp"
     INCLUDE_DIRS
         "include"
         "include/bsp"
@@ -13,6 +22,7 @@ idf_component_register(
     PRIV_INCLUDE_DIRS
         "${CMAKE_SOURCE_DIR}/boards/t_display_p4/include"
         "${CMAKE_SOURCE_DIR}/platform/shared/include"
+        "${LILYGO_CPP_BUS_DRIVER_DIR}/src"
     REQUIRES
         esp_lcd
         esp_lvgl_port
