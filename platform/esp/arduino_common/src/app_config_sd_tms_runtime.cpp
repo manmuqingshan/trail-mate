@@ -468,6 +468,30 @@ void requestWorkingConfigSync()
     }
 }
 
+WorkingConfigSyncResult syncPendingWorkingConfig()
+{
+    if (!s_sync_pending)
+    {
+        return WorkingConfigSyncResult::Synchronized;
+    }
+    if (!s_working_config || s_repair_required)
+    {
+        return WorkingConfigSyncResult::Failed;
+    }
+    if (!sd_available())
+    {
+        return WorkingConfigSyncResult::Deferred;
+    }
+    if (!syncWorkingConfig(*s_working_config))
+    {
+        return WorkingConfigSyncResult::Failed;
+    }
+
+    s_sync_pending = false;
+    s_next_sync_attempt_ms = 0U;
+    return WorkingConfigSyncResult::Synchronized;
+}
+
 void serviceWorkingConfig()
 {
     if (!s_sync_pending || !s_working_config || s_repair_required)
@@ -480,10 +504,8 @@ void serviceWorkingConfig()
     {
         return;
     }
-    if (syncWorkingConfig(*s_working_config))
+    if (syncPendingWorkingConfig() == WorkingConfigSyncResult::Synchronized)
     {
-        s_sync_pending = false;
-        s_next_sync_attempt_ms = 0U;
         return;
     }
     s_next_sync_attempt_ms = now_ms + 1000U;
