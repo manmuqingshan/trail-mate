@@ -54,16 +54,33 @@ int main(int argc, char** argv)
     const std::string service = function_body(sd_runtime, "void serviceWorkingConfig()");
     assert(contains(service, "syncPendingWorkingConfig()"));
 
+    const std::string time_runtime = read_file(
+        repo_root / "modules/core_sys/include/platform/ui/time_runtime.h");
+    assert(contains(time_runtime, "enum class TimezoneProfilePersistenceResult"));
+    assert(contains(time_runtime, "set_timezone_profile_id_and_persist(int profile_id)"));
+
+    const std::string esp_time_runtime = read_file(
+        repo_root / "platform/esp/arduino_common/src/platform_ui_time_runtime.cpp");
+    assert(contains(esp_time_runtime, "app_config_sd_tms_runtime.h"));
+    const std::string persist_timezone = function_body(
+        esp_time_runtime,
+        "TimezoneProfilePersistenceResult set_timezone_profile_id_and_persist(int profile_id)");
+    assert(contains(persist_timezone, "requestWorkingConfigSync()"));
+    assert(contains(persist_timezone, "syncPendingWorkingConfig()"));
+    assert(contains(persist_timezone, "TimezoneProfilePersistenceResult::Deferred"));
+    assert(contains(persist_timezone, "set_timezone_profile_id(previous_profile_id)"));
+
     const std::string settings = read_file(
         repo_root / "modules/ui_shared/src/ui/screens/settings/settings_page_components.cpp");
-    assert(contains(settings, "app_config_sd_tms_runtime.h"));
+    assert(!contains(settings, "app_config_sd_tms_runtime.h"));
     const std::string timezone_branch = settings.substr(
         settings.find("if (id == settings::ui::SettingId::TimezoneProfile)"),
         settings.find("modal_close();", settings.find("if (id == settings::ui::SettingId::TimezoneProfile)")) -
             settings.find("if (id == settings::ui::SettingId::TimezoneProfile)"));
-    assert(contains(timezone_branch, "requestWorkingConfigSync()"));
-    assert(contains(timezone_branch, "syncPendingWorkingConfig()"));
-    assert(contains(timezone_branch, "WorkingConfigSyncResult::Failed"));
+    assert(contains(timezone_branch, "set_timezone_profile_id_and_persist(payload->value)"));
+    assert(contains(timezone_branch, "TimezoneProfilePersistenceResult::Failed"));
+    assert(!contains(timezone_branch, "requestWorkingConfigSync()"));
+    assert(!contains(timezone_branch, "syncPendingWorkingConfig()"));
     assert(contains(timezone_branch, "rebuild_active_app = true"));
     assert(!contains(timezone_branch, "restart_now = true"));
     assert(!contains(timezone_branch, "platform_restart()"));

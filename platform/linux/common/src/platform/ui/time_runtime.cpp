@@ -130,6 +130,12 @@ void set_timezone_profile_id(int profile_id)
     ::platform::ui::settings_store::put_int(kSettingsNs, kTimezoneOffsetKey, profile->standard_offset_min);
 }
 
+TimezoneProfilePersistenceResult set_timezone_profile_id_and_persist(int profile_id)
+{
+    set_timezone_profile_id(profile_id);
+    return TimezoneProfilePersistenceResult::Persisted;
+}
+
 ::time_t apply_timezone_offset(::time_t utc_seconds)
 {
     if (!timezone_setting_configured())

@@ -1,5 +1,7 @@
 #include "platform/ui/time_runtime.h"
 
+#include "platform/esp/arduino_common/app_config_sd_tms_runtime.h"
+#include "platform/ui/timezone_profile.h"
 #include "ui/ui_common.h"
 
 #include <sys/time.h>
@@ -36,6 +38,36 @@ int timezone_profile_id()
 void set_timezone_profile_id(int profile_id)
 {
     ui_set_timezone_profile_id(profile_id);
+}
+
+TimezoneProfilePersistenceResult set_timezone_profile_id_and_persist(int profile_id)
+{
+    const int previous_profile_id = timezone_profile_id();
+    const int previous_offset_min = timezone_offset_min();
+    set_timezone_profile_id(profile_id);
+
+    ::app::sd_tms::requestWorkingConfigSync();
+    switch (::app::sd_tms::syncPendingWorkingConfig())
+    {
+    case ::app::sd_tms::WorkingConfigSyncResult::Synchronized:
+        return TimezoneProfilePersistenceResult::Persisted;
+
+    case ::app::sd_tms::WorkingConfigSyncResult::Deferred:
+        return TimezoneProfilePersistenceResult::Deferred;
+
+    case ::app::sd_tms::WorkingConfigSyncResult::Failed:
+        if (::platform::ui::time::timezone_profile_id_is_fixed(previous_profile_id))
+        {
+            set_timezone_offset_min(previous_offset_min);
+        }
+        else
+        {
+            set_timezone_profile_id(previous_profile_id);
+        }
+        return TimezoneProfilePersistenceResult::Failed;
+    }
+
+    return TimezoneProfilePersistenceResult::Failed;
 }
 
 ::time_t apply_timezone_offset(::time_t utc_seconds)

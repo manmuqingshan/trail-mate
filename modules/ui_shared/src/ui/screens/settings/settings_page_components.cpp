@@ -59,10 +59,6 @@
 #include "ui/widgets/top_bar.h"
 #include "ui_presentation/settings/settings_model.h"
 
-#if defined(ARDUINO_ARCH_ESP32)
-#include "platform/esp/arduino_common/app_config_sd_tms_runtime.h"
-#endif
-
 #if UI_SHARED_TOUCH_IME_ENABLED
 #include "ui/LV_Helper.h"
 #endif
@@ -4215,41 +4211,23 @@ static void on_option_clicked(lv_event_t* e)
     }
     if (id == settings::ui::SettingId::TimezoneProfile)
     {
-#if defined(ARDUINO_ARCH_ESP32)
-        const int previous_profile_id = ::platform::ui::time::timezone_profile_id();
-        const int previous_offset_min = ::platform::ui::time::timezone_offset_min();
-#endif
-        ::platform::ui::time::set_timezone_profile_id(payload->value);
+        const auto persistence_result =
+            ::platform::ui::time::set_timezone_profile_id_and_persist(payload->value);
         g_settings.timezone_profile_id = ::platform::ui::time::timezone_profile_id();
         g_settings.timezone_offset_min = ::platform::ui::time::timezone_offset_min();
-#if defined(ARDUINO_ARCH_ESP32)
-        ::app::sd_tms::requestWorkingConfigSync();
-        const auto sync_result = ::app::sd_tms::syncPendingWorkingConfig();
-        if (sync_result == ::app::sd_tms::WorkingConfigSyncResult::Failed)
+        if (persistence_result == ::platform::ui::time::TimezoneProfilePersistenceResult::Failed)
         {
-            if (::platform::ui::time::timezone_profile_id_is_fixed(previous_profile_id))
-            {
-                ::platform::ui::time::set_timezone_offset_min(previous_offset_min);
-            }
-            else
-            {
-                ::platform::ui::time::set_timezone_profile_id(previous_profile_id);
-            }
-            g_settings.timezone_profile_id = ::platform::ui::time::timezone_profile_id();
-            g_settings.timezone_offset_min = ::platform::ui::time::timezone_offset_min();
             *payload->item->enum_value = g_settings.timezone_profile_id;
             update_item_value(*payload->widget);
             ::ui::feedback::show_notice(::ui::i18n::tr("Unable to save time zone"), 3000);
         }
-        else if (sync_result == ::app::sd_tms::WorkingConfigSyncResult::Deferred)
-        {
-            ::ui::feedback::show_notice(
-                ::ui::i18n::tr("Time zone saved locally; SD sync pending"), 3000);
-            rebuild_active_app = true;
-        }
         else
-#endif
         {
+            if (persistence_result == ::platform::ui::time::TimezoneProfilePersistenceResult::Deferred)
+            {
+                ::ui::feedback::show_notice(
+                    ::ui::i18n::tr("Time zone saved locally; SD sync pending"), 3000);
+            }
             rebuild_active_app = true;
         }
     }
