@@ -38,6 +38,12 @@ void set_timezone_profile_id(int profile_id)
     ui_set_timezone_profile_id(profile_id);
 }
 
+TimezoneProfilePersistenceResult set_timezone_profile_id_and_persist(int profile_id)
+{
+    set_timezone_profile_id(profile_id);
+    return TimezoneProfilePersistenceResult::Persisted;
+}
+
 time_t apply_timezone_offset(time_t utc_seconds)
 {
     return ui_apply_timezone_offset(utc_seconds);

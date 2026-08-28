@@ -38,6 +38,18 @@ void bindWorkingConfig(const AppConfig& config);
 void requestWorkingConfigSync();
 void serviceWorkingConfig();
 
+// A caller that must not continue until the current working configuration is
+// durable can use this after a settings-store change.  It preserves the
+// deferred retry when no SD card is available, while reporting an actual
+// storage or repair failure to the caller.
+enum class WorkingConfigSyncResult : uint8_t
+{
+    Synchronized,
+    Deferred,
+    Failed,
+};
+WorkingConfigSyncResult syncPendingWorkingConfig();
+
 // Streams and validates a fresh canonical TMS document before a recoverable
 // replacement of /trailmate/config.tms.
 bool syncWorkingConfig(const AppConfig& config);
