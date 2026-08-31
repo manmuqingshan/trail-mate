@@ -253,6 +253,21 @@ void standby(Session* session)
     }
 }
 
+RadioIrqMasks radioIrqMasks()
+{
+#if defined(ARDUINO_LILYGO_LORA_LR1121)
+    return {RADIOLIB_LR11X0_IRQ_TX_DONE,
+            RADIOLIB_LR11X0_IRQ_RX_DONE,
+            RADIOLIB_LR11X0_IRQ_TIMEOUT};
+#elif defined(RADIOLIB_SX126X_IRQ_TX_DONE)
+    return {RADIOLIB_SX126X_IRQ_TX_DONE,
+            RADIOLIB_SX126X_IRQ_RX_DONE,
+            RADIOLIB_SX126X_IRQ_TIMEOUT};
+#else
+    return {};
+#endif
+}
+
 int startTransmit(Session* session, const uint8_t* data, size_t size)
 {
     ::boards::tlora_pager::TLoRaPagerBoard* board = resolveBoard(session);
@@ -261,6 +276,12 @@ int startTransmit(Session* session, const uint8_t* data, size_t size)
         return -1;
     }
     return board->startRadioTransmit(data, size);
+}
+
+int finishTransmit(Session* session)
+{
+    ::boards::tlora_pager::TLoRaPagerBoard* board = resolveBoard(session);
+    return board ? board->finishRadioTransmit() : -1;
 }
 
 int startReceive(Session* session)
@@ -430,11 +451,22 @@ void standby(Session* session)
     (void)session;
 }
 
+RadioIrqMasks radioIrqMasks()
+{
+    return {};
+}
+
 int startTransmit(Session* session, const uint8_t* data, size_t size)
 {
     (void)session;
     (void)data;
     (void)size;
+    return -1;
+}
+
+int finishTransmit(Session* session)
+{
+    (void)session;
     return -1;
 }
 

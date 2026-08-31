@@ -14,6 +14,13 @@ struct Session
     bool codec_open = false;
 };
 
+struct RadioIrqMasks
+{
+    uint32_t tx_done = 0;
+    uint32_t rx_done = 0;
+    uint32_t tx_timeout = 0;
+};
+
 bool isSupported();
 bool tryAcquire(Session* out_session);
 Session acquire();
@@ -34,7 +41,9 @@ void codecSetGain(Session* session, float db_value);
 void codecSetMute(Session* session, bool enabled);
 
 void standby(Session* session);
+RadioIrqMasks radioIrqMasks();
 int startTransmit(Session* session, const uint8_t* data, size_t size);
+int finishTransmit(Session* session);
 int startReceive(Session* session);
 uint32_t getRadioIrqFlags(Session* session);
 void clearRadioIrqFlags(Session* session, uint32_t flags);

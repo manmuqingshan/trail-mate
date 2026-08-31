@@ -239,9 +239,25 @@ void standby(Session* session)
     }
 }
 
+RadioIrqMasks radioIrqMasks()
+{
+    return {0x0001u, 0x0002u, 0x0200u};
+}
+
 int startTransmit(Session* session, const uint8_t* data, size_t size)
 {
     return resolve_state(session) ? radio().startTransmit(data, size) : -1;
+}
+
+int finishTransmit(Session* session)
+{
+    if (!resolve_state(session))
+    {
+        return -1;
+    }
+    radio().clearIrqFlags(0xFFFFu);
+    radio().standby();
+    return 0;
 }
 
 int startReceive(Session* session)
@@ -398,11 +414,22 @@ void standby(Session* session)
     (void)session;
 }
 
+RadioIrqMasks radioIrqMasks()
+{
+    return {};
+}
+
 int startTransmit(Session* session, const uint8_t* data, size_t size)
 {
     (void)session;
     (void)data;
     (void)size;
+    return -1;
+}
+
+int finishTransmit(Session* session)
+{
+    (void)session;
     return -1;
 }
 

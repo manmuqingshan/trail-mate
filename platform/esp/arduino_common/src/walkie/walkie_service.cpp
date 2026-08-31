@@ -50,8 +50,7 @@ constexpr uint8_t kRxQuietFramesToZero = 5;
 
 constexpr uint32_t kStatusUpdateDecay = 3;
 constexpr uint32_t kRxLogIntervalMs = 1000;
-constexpr uint32_t kWalkieIrqTxDone = 0x0001;
-constexpr uint32_t kWalkieIrqRxDone = 0x0002;
+constexpr uint32_t kTxPacketTimeoutMs = 500;
 constexpr int kWalkieRadioOk = 0;
 
 TaskHandle_t s_task = nullptr;
@@ -347,6 +346,8 @@ void walkie_task(void*)
     size_t tx_frame_head = 0;
     size_t tx_frame_tail = 0;
     bool tx_in_flight = false;
+    uint32_t tx_started_ms = 0;
+    const walkie_runtime::RadioIrqMasks radio_irq_masks = walkie_runtime::radioIrqMasks();
 
     while (!s_stop_requested)
     {
@@ -372,6 +373,7 @@ void walkie_task(void*)
             tx_frame_head = 0;
             tx_frame_tail = 0;
             tx_in_flight = false;
+            tx_started_ms = 0;
             if (tx_mode)
             {
                 walkie_runtime::standby(&s_runtime_session);
@@ -421,10 +423,26 @@ void walkie_task(void*)
                 if (tx_in_flight)
                 {
                     uint32_t flags = walkie_runtime::getRadioIrqFlags(&s_runtime_session);
-                    if (flags & kWalkieIrqTxDone)
+                    const bool tx_done = (flags & radio_irq_masks.tx_done) != 0;
+                    const bool tx_timed_out = (flags & radio_irq_masks.tx_timeout) != 0;
+                    const bool tx_elapsed =
+                        (now_ms() - tx_started_ms) >= kTxPacketTimeoutMs;
+                    if (tx_done || tx_timed_out || tx_elapsed)
                     {
-                        walkie_runtime::clearRadioIrqFlags(&s_runtime_session, flags);
+                        const int finish_state = walkie_runtime::finishTransmit(&s_runtime_session);
+                        if (!tx_done)
+                        {
+                            std::printf("[WALKIE] tx timeout irq=0x%08lx elapsed=%lu finish=%d\n",
+                                        static_cast<unsigned long>(flags),
+                                        static_cast<unsigned long>(now_ms() - tx_started_ms),
+                                        finish_state);
+                        }
+                        else if (finish_state != kWalkieRadioOk)
+                        {
+                            std::printf("[WALKIE] finishTransmit failed state=%d\n", finish_state);
+                        }
                         tx_in_flight = false;
+                        tx_started_ms = 0;
                     }
                 }
 
@@ -453,6 +471,7 @@ void walkie_task(void*)
                     if (tx_state == kWalkieRadioOk)
                     {
                         tx_in_flight = true;
+                        tx_started_ms = now_ms();
                     }
                     else
                     {
@@ -497,7 +516,7 @@ void walkie_task(void*)
         }
 
         uint32_t irq = walkie_runtime::getRadioIrqFlags(&s_runtime_session);
-        if (irq & kWalkieIrqRxDone)
+        if (irq & radio_irq_masks.rx_done)
         {
             int len = walkie_runtime::getPacketLength(&s_runtime_session, true);
             last_rx_len = len;

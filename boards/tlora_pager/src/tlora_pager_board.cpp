@@ -2001,6 +2001,17 @@ int TLoRaPagerBoard::startRadioTransmit(const uint8_t* data, size_t len)
     return RADIOLIB_ERR_SPI_WRITE_FAILED;
 }
 
+int TLoRaPagerBoard::finishRadioTransmit()
+{
+    int rc = RADIOLIB_ERR_SPI_WRITE_FAILED;
+    if (withSharedSpiRadioAccess("radio_tx_finish", pdMS_TO_TICKS(50), [&]()
+                                 { rc = radio_.finishTransmit(); }))
+    {
+        return rc;
+    }
+    return RADIOLIB_ERR_SPI_WRITE_FAILED;
+}
+
 #if defined(ARDUINO_LILYGO_LORA_SX1262)
 static void apply_tx_power(SX1262Access& radio, int8_t tx_power)
 {

@@ -337,6 +337,7 @@ class TLoRaPagerBoard : public BoardBase,
                           const uint8_t* sync_word, size_t sync_word_len, uint8_t crc_len);
     int restoreLoRaRadio();
     int startRadioTransmit(const uint8_t* data, size_t len);
+    int finishRadioTransmit();
 
     // GpsBoard
     void setGPSOnline(bool online) override { setGPSOnlineInternal(online); }
