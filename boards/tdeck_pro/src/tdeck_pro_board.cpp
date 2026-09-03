@@ -36,7 +36,15 @@ constexpr uint8_t kFlushLogLimit = 8;
 constexpr uint8_t kEpdRefreshLogLimit = 12;
 constexpr uint16_t kEpdPartialAlignment = 8;
 constexpr uint32_t kEpdCoalesceDelayMs = 40;
-constexpr uint32_t kEpdMinimumRefreshIntervalMs = 750;
+// Startup and page-transition drawing can invalidate multiple areas while the
+// panel is still recovering. Keep those bursts on the panel-safe cadence until
+// the UI has been quiet long enough to enter interactive steady state.
+constexpr uint32_t kEpdStartupRefreshSettleMs = 750;
+constexpr uint32_t kEpdSteadyStateIdleMs = 3000;
+// The panel's waveform has completed when renderEpd() returns, but back-to-back
+// partial waveforms during startup still destabilize the controller. Keep this
+// intentionally short; full refreshes remain lifecycle-driven.
+constexpr uint32_t kEpdPartialRefreshSettleMs = 200;
 constexpr uint32_t kRadioTxMaxTimeoutMs = 120000;
 constexpr uint16_t kCst328InfoCommand = 0xD101;
 constexpr uint16_t kCst328InfoOffset = 0xD1F4;
@@ -822,6 +830,7 @@ void TDeckProBoard::mergeDirtyRegion(uint16_t x,
         dirty_x2_ = x2;
         dirty_y2_ = y2;
         dirty_since_ms_ = now_ms;
+        last_dirty_change_ms_ = now_ms;
         dirty_region_pending_ = true;
         return;
     }
@@ -842,6 +851,12 @@ void TDeckProBoard::mergeDirtyRegion(uint16_t x,
     {
         dirty_y2_ = y2;
     }
+
+    // Extend the coalescing window from the most recent pixel change. This
+    // keeps LVGL's startup/layout burst out of the EPD's physical waveform
+    // path and presents one stable final state instead.
+    dirty_since_ms_ = now_ms;
+    last_dirty_change_ms_ = now_ms;
 }
 
 void TDeckProBoard::clearDirtyRegion()
@@ -934,7 +949,10 @@ DisplayTransferResult TDeckProBoard::servicePendingEpd(uint32_t now_ms, bool for
         {
             return DisplayTransferResult::Busy;
         }
-        if (!epd_first_frame_pending_ && now_ms - last_epd_refresh_ms_ < kEpdMinimumRefreshIntervalMs)
+        const uint32_t refresh_settle_ms = epd_fast_partial_mode_enabled_
+                                               ? kEpdPartialRefreshSettleMs
+                                               : kEpdStartupRefreshSettleMs;
+        if (!epd_first_frame_pending_ && now_ms - last_epd_refresh_ms_ < refresh_settle_ms)
         {
             return DisplayTransferResult::Busy;
         }
@@ -958,6 +976,7 @@ DisplayTransferResult TDeckProBoard::servicePendingEpd(uint32_t now_ms, bool for
     epd_first_frame_pending_ = false;
     if (full_refresh)
     {
+        epd_fast_partial_mode_enabled_ = false;
         epd_force_full_refresh_ = false;
     }
 
@@ -980,6 +999,11 @@ DisplayTransferResult TDeckProBoard::servicePendingEpd(uint32_t now_ms, bool for
 
 void TDeckProBoard::serviceDisplay(uint32_t now_ms)
 {
+    if (!epd_fast_partial_mode_enabled_ && !dirty_region_pending_ &&
+        !epd_first_frame_pending_ && now_ms - last_dirty_change_ms_ >= kEpdSteadyStateIdleMs)
+    {
+        epd_fast_partial_mode_enabled_ = true;
+    }
     (void)servicePendingEpd(now_ms, false);
 }
 

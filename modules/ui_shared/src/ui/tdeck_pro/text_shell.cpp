@@ -448,8 +448,15 @@ void set_visible(bool visible)
 {
     if (valid(s_state.menu_panel))
     {
+        const bool was_visible = !lv_obj_has_flag(s_state.menu_panel, LV_OBJ_FLAG_HIDDEN);
         if (visible)
         {
+            if (!was_visible)
+            {
+                // Returning from an app to the text menu is a physical EPD
+                // lifecycle boundary, just like entering the app.
+                requestLvglFullRefresh();
+            }
             lv_obj_clear_flag(s_state.menu_panel, LV_OBJ_FLAG_HIDDEN);
             if (menu_g != nullptr && lv_group_get_focused(menu_g) == nullptr && s_state.row_count > 0)
             {

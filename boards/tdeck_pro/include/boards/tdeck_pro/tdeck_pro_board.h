@@ -188,9 +188,11 @@ class TDeckProBoard : public BoardBase,
     uint16_t dirty_x2_ = 0;
     uint16_t dirty_y2_ = 0;
     uint32_t dirty_since_ms_ = 0;
+    uint32_t last_dirty_change_ms_ = 0;
     uint32_t last_epd_refresh_ms_ = 0;
     bool dirty_region_pending_ = false;
     bool epd_first_frame_pending_ = true;
+    bool epd_fast_partial_mode_enabled_ = false;
     bool epd_force_full_refresh_ = true;
     uint16_t touch_raw_width_ = static_cast<uint16_t>(kBoardProfile.screen_width);
     uint16_t touch_raw_height_ = static_cast<uint16_t>(kBoardProfile.screen_height);

@@ -78,6 +78,15 @@ All coordinates are in physical 240x320 pixels.
   rotation, and an adapted page's entry/exit lifecycle boundary. Focus moves,
   action updates, dirty-area size, and a count of partial refreshes must never
   promote an update to a full waveform.
+- Ordinary EPD changes are coalesced for 40 ms so one input burst produces one
+  physical update. Once that window closes, a partial refresh is submitted
+  after a controller-settle interval. Startup and the period following any
+  full waveform remain on a 750 ms panel-safe cadence until the UI has had no
+  pixel changes for 3 seconds. The settled interactive state then uses a
+  200 ms partial-refresh interval. This prevents startup and transition
+  waveform storms without applying the former 750 ms throttle to ordinary
+  interaction. Neither interval may promote an update to a full waveform or
+  become a generic page-transition delay.
 
 ## Generic adapted capability pages
 
