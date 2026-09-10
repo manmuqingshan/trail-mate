@@ -32,6 +32,21 @@ target_link_libraries(trailmate_esp32_lvgl_app_shell
 target_compile_features(trailmate_esp32_lvgl_app_shell PUBLIC cxx_std_17)
 
 if(BUILD_TESTING)
+    add_executable(trailmate_wio_tracker_l2_runtime_config_smoke
+        tests/wio_tracker_l2_runtime_config_smoke.cpp
+        src/esp32_lvgl_runtime_config.cpp
+        "${TRAIL_MATE_REPO_ROOT}/modules/product_composition/src/target_ux_binding.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/product_composition/src/target_profile.cpp")
+    target_link_libraries(trailmate_wio_tracker_l2_runtime_config_smoke PRIVATE trailmate_ui_lvgl_ux_packs)
+    target_include_directories(trailmate_wio_tracker_l2_runtime_config_smoke PRIVATE
+        "${CMAKE_CURRENT_LIST_DIR}/src"
+        "${TRAIL_MATE_REPO_ROOT}/modules/product_composition/include")
+    target_compile_definitions(trailmate_wio_tracker_l2_runtime_config_smoke PRIVATE
+        ARDUINO_WIO_TRACKER_L2=1)
+    target_compile_features(trailmate_wio_tracker_l2_runtime_config_smoke PRIVATE cxx_std_17)
+    add_test(NAME trailmate_wio_tracker_l2_runtime_config_smoke
+             COMMAND trailmate_wio_tracker_l2_runtime_config_smoke)
+
     add_executable(trailmate_esp32_lvgl_app_shell_smoke
         tests/esp32_lvgl_app_shell_smoke.cpp)
     target_link_libraries(trailmate_esp32_lvgl_app_shell_smoke

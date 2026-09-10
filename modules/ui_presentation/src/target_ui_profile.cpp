@@ -8,6 +8,14 @@ namespace
 {
 
 constexpr TargetUiProfile kTargetUiProfiles[] = {
+    {"deck_touch_ui",
+     "deck_touch",
+     320, 240,
+     DisplayClass::WideLandscape,
+     InputClass::TouchOnly,
+     LayoutClass::DeckWide,
+     true, false, false, true, false, true, false, false,
+     "deck_full_manifest", "deck_wide"},
     {"tab5_touch_ui",
      "tab5",
      0,

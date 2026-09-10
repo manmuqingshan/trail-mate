@@ -12,6 +12,7 @@
       "+<esp32_lvgl_arduino_app_registry.cpp>",
       "+<esp32_lvgl_arduino_app_runtime_access.cpp>",
       "+<esp32_lvgl_arduino_entry.cpp>",
+      "+<esp32_lvgl_runtime_config.cpp>",
       "+<esp32_lvgl_arduino_loop_runtime.cpp>",
       "+<esp32_lvgl_arduino_startup_runtime.cpp>"
     ],
@@ -25,6 +26,7 @@
       "-I../../modules/core_gps/include",
       "-I../../modules/core_team/include",
       "-I../../modules/ui_presentation/include",
+      "-I../../modules/product_composition/include",
       "-I../../modules/chat_presentation_adapters/include",
       "-I../../modules/ui_chat_runtime/include",
       "-I../../modules/ui_map_runtime/include",
@@ -36,6 +38,9 @@
     ]
   },
   "dependencies": [
+    {
+      "name": "product_composition"
+    },
     {
       "name": "core_device"
     },

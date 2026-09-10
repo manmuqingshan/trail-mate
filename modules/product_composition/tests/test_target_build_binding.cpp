@@ -8,11 +8,11 @@ int main()
     std::size_t count = 0;
     const auto* all = product_composition::allTargetBuildBindings(&count);
     assert(all != nullptr);
-    assert(count == 11);
+    assert(count == 12);
 
     const auto* bindings = product_composition::esp32LvglTargetBuildBindings(&count);
     assert(bindings != nullptr);
-    assert(count == 6);
+    assert(count == 7);
 
     const auto* tab5 = product_composition::findTargetBuildBinding("tab5");
     assert(tab5 != nullptr);
@@ -40,6 +40,12 @@ int main()
     const auto* deck = product_composition::findTargetBuildBinding("tdeck");
     assert(deck != nullptr);
     assert(std::strcmp(deck->build_entrypoint, "builds/esp_idf") == 0);
+
+    const auto* wio = product_composition::findTargetBuildBinding("wio_tracker_l2");
+    assert(wio != nullptr && wio->sdkconfig_defaults == nullptr);
+    assert(std::strcmp(wio->build_entrypoint, "platformio.ini") == 0);
+    assert(std::strcmp(wio->app_shell, "apps/esp32_lvgl") == 0);
+    assert(std::strcmp(wio->status, "platformio") == 0);
 
     const auto* watch = product_composition::findTargetBuildBinding("twatch");
     assert(watch != nullptr);

@@ -6,6 +6,7 @@
 #include "board/BoardBase.h"
 #include "display/DisplayConfig.h"
 #include "esp32_lvgl_arduino_app_runtime_access.h"
+#include "esp32_lvgl_runtime_config.h"
 #include "platform/esp/arduino_common/debug/sd_debug_log.h"
 #include "platform/esp/arduino_common/display_runtime.h"
 #include "platform/esp/arduino_common/startup_support.h"
@@ -13,10 +14,13 @@
 #include "platform/ui/screen_brightness_steps.h"
 #include "platform/ui/settings_store.h"
 #include "platform/ui/usb_support_runtime.h"
+#include "product_composition/target_ux_binding.h"
 #include "ui/app_registry.h"
 #include "ui/app_runtime.h"
 #include "ui/startup_shell.h"
 #include "ui/ui_boot.h"
+#include "ui_lvgl_ux_packs/common/input_layout.h"
+#include "ui_lvgl_ux_packs/ux/ux_pack_registry.h"
 
 namespace
 {
@@ -45,9 +49,23 @@ void applyStartupBrightness(const char* stage)
                   static_cast<unsigned>(brightness));
 }
 
-void initializeShell()
+bool initializeShell()
 {
     ui::startup_shell::Hooks hooks{};
+    const auto* binding = trailmate::apps::esp32_lvgl::esp32LvglRuntimeUxBinding();
+    if (binding)
+    {
+        const auto* pack = ui_lvgl_ux::findUxPackById(binding->active_ux_pack_id);
+        if (!pack)
+        {
+            Serial.println("[BOOT][UI] selected UX pack unavailable");
+            ui::startup_shell::setBootLogLine("UI profile unavailable");
+            return false;
+        }
+        hooks.ux_pack_id = pack->id();
+        ui_lvgl_ux::configureInputLayout(pack->profile());
+        Serial.printf("[BOOT][UI] target=%s ux=%s\n", binding->target_id, hooks.ux_pack_id);
+    }
     hooks.messaging = &app::messagingFacade();
     hooks.apps = ui::appCatalog();
     hooks.set_max_brightness = []()
@@ -57,6 +75,7 @@ void initializeShell()
     hooks.show_main_menu = menu_show;
     hooks.watch_face = ui::startup_shell::defaultWatchFaceHooks();
     ui::startup_shell::initializeShell(hooks);
+    return true;
 }
 
 void finishStartup(bool waking_from_sleep)
@@ -184,7 +203,7 @@ void run()
     }
 
     ui::startup_shell::setBootLogLine("Building main menu...");
-    initializeShell();
+    if (!initializeShell()) return;
     ui::startup_shell::setBootLogLine("Startup complete");
     finishStartup(waking_from_sleep);
     // Storage recovery is armed only after the boot UI is finalized. The

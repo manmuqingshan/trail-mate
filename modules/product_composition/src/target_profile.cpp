@@ -7,6 +7,32 @@ namespace product_composition
 namespace
 {
 
+constexpr TargetProfile kWioTrackerL2Target = {
+    "wio_tracker_l2",
+    "wio_tracker_l2",
+    "platformio.ini",
+    "apps/esp32_lvgl",
+    "deck_touch",
+    "deck_touch_ui",
+    "deck_full_manifest",
+    "deck_wide",
+    TargetPlatform::PlatformIo,
+    TargetRenderer::Lvgl,
+    TargetSupportStatus::PendingHardwareValidation,
+    true,
+    true,
+    false,
+    false,
+    true,
+    true,
+    true,
+    false,
+    false,
+    BleBackend::Local,
+    WirelessCompanionKind::None,
+    DisplayOrientationPolicy::LandscapeLocked,
+};
+
 constexpr TargetProfile kTargetProfiles[] = {
     {
         "tab5",
@@ -283,6 +309,7 @@ constexpr TargetProfile kTargetProfiles[] = {
         WirelessCompanionKind::None,
         DisplayOrientationPolicy::LandscapeLocked,
     },
+    kWioTrackerL2Target,
 };
 
 } // namespace
@@ -322,6 +349,7 @@ const TargetProfile* esp32LvglTargetProfiles(std::size_t* count)
         kTargetProfiles[3],
         kTargetProfiles[4],
         kTargetProfiles[5],
+        kWioTrackerL2Target,
     };
 
     if (count != nullptr)

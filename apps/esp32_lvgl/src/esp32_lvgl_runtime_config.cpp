@@ -1,6 +1,7 @@
 #include "esp32_lvgl_runtime_config.h"
 
 #include "product_composition/target_profile.h"
+#include "product_composition/target_ux_binding.h"
 
 #if __has_include("sdkconfig.h")
 #include "sdkconfig.h"
@@ -11,7 +12,17 @@ namespace trailmate::apps::esp32_lvgl
 
 const Esp32LvglRuntimeConfig& esp32LvglRuntimeConfig()
 {
-#if defined(TRAIL_MATE_ESP_BOARD_TAB5)
+#if defined(ARDUINO_WIO_TRACKER_L2)
+    static const Esp32LvglRuntimeConfig kConfig = {
+        "wio_tracker_l2",
+        "trail-mate-wio-tracker-l2",
+        "Wio Tracker L2",
+        "wio_l2_app_loop",
+        10,
+        12288,
+        5,
+    };
+#elif defined(TRAIL_MATE_ESP_BOARD_TAB5)
     static const Esp32LvglRuntimeConfig kConfig = {
         "tab5",
         "trail-mate-tab5",
@@ -65,6 +76,11 @@ const product_composition::TargetProfile* esp32LvglRuntimeTargetProfile()
 bool hasEsp32LvglRuntimeTargetProfile()
 {
     return esp32LvglRuntimeTargetProfile() != nullptr;
+}
+
+const product_composition::TargetUxBinding* esp32LvglRuntimeUxBinding()
+{
+    return product_composition::findTargetUxBinding(esp32LvglRuntimeConfig().target_id);
 }
 
 } // namespace trailmate::apps::esp32_lvgl

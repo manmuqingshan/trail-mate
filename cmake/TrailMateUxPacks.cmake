@@ -33,6 +33,7 @@ function(trailmate_add_ui_lvgl_ux_packs target_name)
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_lvgl_ux_packs/src/runtime/lvgl_descriptor_renderer_probe.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_lvgl_ux_packs/src/packs/cardputer_compact_ux_pack.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_lvgl_ux_packs/src/packs/compatibility_ux_pack.cpp"
+        "${TRAIL_MATE_REPO_ROOT}/modules/ui_lvgl_ux_packs/src/packs/deck_touch_ux_pack.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_lvgl_ux_packs/src/packs/uconsole_desktop_ux_pack.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_lvgl_ux_packs/src/packs/tiny_node_status_ux_pack.cpp"
         "${TRAIL_MATE_REPO_ROOT}/modules/ui_lvgl_ux_packs/src/packs/t_display_p4_touch_ux_pack.cpp"

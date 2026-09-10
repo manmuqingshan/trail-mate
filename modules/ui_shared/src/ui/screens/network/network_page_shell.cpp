@@ -18,6 +18,7 @@
 #include "ui/screens/network/micron_markup_contract.h"
 #include "ui/ui_common.h"
 #include "ui/widgets/top_bar.h"
+#include "ui_lvgl_ux_packs/common/touch_text_editor.h"
 
 #include <array>
 #include <cctype>
@@ -2756,6 +2757,7 @@ void emit_micron_field(lv_obj_t* row,
         return;
     }
     lv_obj_t* field = lv_textarea_create(row);
+    ::ui::widgets::attach_touch_text_editor(field);
     lv_textarea_set_one_line(field, true);
     lv_textarea_set_text(field, data ? data : "");
     lv_textarea_set_password_mode(field, masked);
@@ -5468,6 +5470,7 @@ void create_browser_panel(lv_obj_t* parent)
     const lv_coord_t rail_button_size = profile.dense ? 20 : 22;
 
     g_state.address_area = lv_textarea_create(g_state.browser_toolbar);
+    ::ui::widgets::attach_touch_text_editor(g_state.address_area);
     lv_textarea_set_one_line(g_state.address_area, true);
     lv_textarea_set_max_length(g_state.address_area,
                                static_cast<uint16_t>(sizeof(g_state.current_address) - 1U));

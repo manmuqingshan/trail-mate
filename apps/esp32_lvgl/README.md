@@ -72,3 +72,13 @@ src/esp32_lvgl_runtime_config.*
 
 `apps/esp32_lvgl` must not compile
 `esp_idf_legacy_implementation_adapter.cpp`.
+
+## Active Arduino route
+
+Root PlatformIO and `variants/*/envs` invoke `src/main.cpp`, which delegates to
+this shell's `esp32_lvgl_arduino_entry`, startup and loop sources. The Arduino
+library manifest now also compiles `esp32_lvgl_runtime_config.cpp`. Startup
+resolves the target's explicit UX binding before constructing the main UI.
+The L2 target selects `deck_touch`; existing targets without a binding keep
+their previously contained path. Build metadata, SDK execution and widget
+trees remain outside the app shell.

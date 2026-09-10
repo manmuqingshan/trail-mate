@@ -1,0 +1,129 @@
+target: "wio_tracker_l2"
+status: "reviewed"
+
+# This is a model/binding review, not a runtime readiness snapshot. "present"
+# records manufacturer hardware presence; each adapter must establish readiness.
+product:
+  family: "trail-mate"
+  form_factor: "touch_handheld"
+  interaction_class: "embedded_lvgl"
+
+platform:
+  kind: "esp32"
+  sdk: "arduino_esp32"
+  memory_tier: "psram"
+  filesystem: "sdfat_and_internal_flash"
+  dynamic_allocation: "bounded_psram_preferred"
+
+board:
+  id: "wio_tracker_l2"
+  package: "boards/wio_tracker_l2"
+  hardware_validation: "pending"
+
+runtime:
+  scheduler: "freertos"
+  ui_thread: "arduino_loop"
+  radio_thread: "existing_esp_mesh_runtime"
+  gps_thread: "existing_esp_gps_runtime"
+  isr_policy: "defer_to_owner"
+  lock_policy: "separate_i2c_radio_audio_and_filesystem_owners"
+
+ui:
+  shell: "apps/esp32_lvgl"
+  renderer: "lvgl"
+  presentation_model_host: "esp32"
+  ux_pack: "deck_touch"
+  ui_profile: "deck_touch_ui"
+  page_manifest: "deck_full_manifest"
+  layout_profile: "deck_wide"
+  input_model: "touch_only"
+  text_input: "shared_ime_in_compact_touch_editor"
+  orientation: "landscape_locked"
+
+execution:
+  app_host: "esp32"
+  mesh_core_host: "esp32"
+  gps_core_host: "esp32"
+  phone_core_host: "esp32"
+  hostlink_core_host: "esp32"
+  ui_host: "esp32"
+  wireless_companion: "none"
+
+authorities:
+  identity: "esp32"
+  peer_key_store: "esp32"
+  node_store: "esp32"
+  message_store: "esp32"
+  location: "esp32"
+  time: "esp32"
+  config: "esp32"
+  device_status: "esp32"
+  ui_state: "esp32"
+
+capabilities:
+  lora: {state: "present", endpoint_host: "esp32", mode: "local_radio"}
+  gps: {state: "present", endpoint_host: "esp32", mode: "local_uart"}
+  display: {state: "present", endpoint_host: "esp32"}
+  input: {state: "present", endpoint_host: "esp32"}
+  storage: {state: "present", endpoint_host: "esp32"}
+  battery: {state: "present", endpoint_host: "esp32"}
+  network: {state: "present", endpoint_host: "esp32"}
+  ble:
+    state: "present"
+    endpoint_host: "esp32"
+    enabled_by_default: false
+    note: "Inherits the existing Arduino product BLE build policy."
+  audio:
+    state: "present"
+    endpoint_host: "esp32"
+    playback: true
+    capture: false
+
+capability_bindings:
+  board_io:
+    board_provider: "wio_tracker_l2"
+    platform_driver: "platform/esp/wio_tracker_l2"
+  lora:
+    board_provider: "wio_tracker_l2.radio"
+    platform_driver: "SX1262_on_dedicated_SPI"
+    protocol_consumers: ["core_mesh", "core_chat"]
+  gps:
+    board_provider: "wio_tracker_l2.gps"
+    platform_driver: "L76K_UART"
+    protocol_consumers: ["core_gps"]
+  storage:
+    board_provider: "wio_tracker_l2.sdmmc"
+    platform_driver: "ArduinoSdmmcBlockDevice"
+    runtime_owner: "existing_ESP_SdFat_and_storage_maintenance"
+  audio:
+    board_provider: "wio_tracker_l2.speaker"
+    platform_driver: "ES8311_I2S"
+    runtime_owner: "single_platform_playback_owner"
+
+protocols:
+  meshtastic: {enabled: true, runtime_owner: "shared_protocol_runtime"}
+  meshcore: {enabled: true, runtime_owner: "shared_protocol_runtime"}
+  reticulum: {enabled: true, runtime_owner: "existing_reticulum_runtime"}
+  selection: "one_active_product_protocol"
+
+storage:
+  backend: "existing_SdFat_contract_over_1bit_SDMMC"
+  config: "existing_ConfigPersistenceRuntime_and_TMS_working_configuration"
+  messages: "existing_protocol_partitioned_stores_and_ledgers"
+  node_store: "existing_protocol_partitioned_stores"
+  map_storage: "existing_map_runtime"
+
+race_policy:
+  app_to_ui: "snapshot"
+  radio_to_app: "event_queue"
+  gps_to_app: "event_queue"
+  ui_update: "ui_owner_only"
+  store_access: "existing_storage_owner_and_filesystem_mutex"
+  display_radio_sd: "separate_QSPI_SPI_and_SDMMC_buses"
+  shared_display_spi_gate: false
+
+build:
+  entrypoint: "platformio.ini"
+  app: "apps/esp32_lvgl"
+  platformio_envs: ["wio_tracker_l2"]
+  hardware_validation: "pending"

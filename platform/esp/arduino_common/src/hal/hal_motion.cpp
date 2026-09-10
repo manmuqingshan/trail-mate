@@ -52,12 +52,18 @@ void HalMotion::removeCallback(uint8_t sensor_id, SensorDataParseCallback callba
 
 void HalMotion::attachInterrupt(void (*isr)())
 {
+#if defined(SENSOR_INT) && SENSOR_INT >= 0
     ::attachInterrupt(digitalPinToInterrupt(SENSOR_INT), isr, RISING);
+#else
+    (void)isr;
+#endif
 }
 
 void HalMotion::detachInterrupt()
 {
+#if defined(SENSOR_INT) && SENSOR_INT >= 0
     ::detachInterrupt(digitalPinToInterrupt(SENSOR_INT));
+#endif
 }
 
 void HalMotion::update()

@@ -45,6 +45,7 @@
 #include "ui/widgets/busy_overlay.h"
 #include "ui/widgets/reticulum_ping_overlay.h"
 #include "ui/widgets/top_bar.h"
+#include "ui_lvgl_ux_packs/common/touch_text_editor.h"
 
 #include <cctype>
 #include <cmath>
@@ -1939,6 +1940,7 @@ static void open_add_edit_modal(bool is_edit)
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
 
     g_contacts_state.add_edit_textarea = lv_textarea_create(win);
+    ::ui::widgets::attach_touch_text_editor(g_contacts_state.add_edit_textarea);
     lv_textarea_set_one_line(g_contacts_state.add_edit_textarea, true);
     lv_textarea_set_max_length(g_contacts_state.add_edit_textarea, 12);
     lv_obj_set_width(g_contacts_state.add_edit_textarea, LV_PCT(100));
@@ -2057,6 +2059,7 @@ static void open_reticulum_group_config_modal()
     lv_obj_align(name_label, LV_ALIGN_TOP_LEFT, 0, 28);
 
     g_contacts_state.reticulum_group_name_textarea = lv_textarea_create(win);
+    ::ui::widgets::attach_touch_text_editor(g_contacts_state.reticulum_group_name_textarea);
     lv_textarea_set_one_line(g_contacts_state.reticulum_group_name_textarea, true);
     lv_textarea_set_max_length(g_contacts_state.reticulum_group_name_textarea,
                                chat::kReticulumGroupNameMaxLen - 1);
@@ -2069,6 +2072,7 @@ static void open_reticulum_group_config_modal()
     lv_obj_align(destination_label, LV_ALIGN_TOP_LEFT, 0, 78);
 
     g_contacts_state.reticulum_group_destination_textarea = lv_textarea_create(win);
+    ::ui::widgets::attach_touch_text_editor(g_contacts_state.reticulum_group_destination_textarea);
     lv_textarea_set_one_line(g_contacts_state.reticulum_group_destination_textarea, true);
     lv_textarea_set_max_length(g_contacts_state.reticulum_group_destination_textarea, 48);
     lv_obj_set_width(g_contacts_state.reticulum_group_destination_textarea, LV_PCT(100));

@@ -27,8 +27,9 @@ namespace widgets
 class ImeWidget
 {
   public:
-    void init(lv_obj_t* parent, lv_obj_t* textarea);
+    void init(lv_obj_t* parent, lv_obj_t* textarea, bool force_touch_keyboard = false);
     void detach();
+    void activate();
 
     enum class Mode
     {
@@ -84,6 +85,8 @@ class ImeWidget
     Mode mode_ = Mode::EN;
     std::string committed_text_;
     bool touch_keyboard_enabled_ = false;
+    bool editor_keyboard_ = false;
+    bool touch_shift_ = false;
     int candidate_window_start_ = 0;
     int script_input_index_ = 0;
 };

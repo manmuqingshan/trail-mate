@@ -4,6 +4,7 @@
 #include "ui/components/two_pane_styles.h"
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
+#include "ui_lvgl_ux_packs/common/touch_text_editor.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -234,6 +235,7 @@ bool open(State& state, lv_obj_t* parent, const Config& config)
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
 
     state.textarea = lv_textarea_create(panel);
+    ::ui::widgets::attach_touch_text_editor(state.textarea);
     lv_textarea_set_one_line(state.textarea, true);
     lv_textarea_set_max_length(state.textarea,
                                config.max_length < kMaxSearchText ? config.max_length

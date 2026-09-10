@@ -343,6 +343,8 @@ const char* firmware_target_id()
     return "tdeck-pro-pcm512a";
 #elif defined(ARDUINO_T_DECK)
     return "tdeck";
+#elif defined(ARDUINO_WIO_TRACKER_L2)
+    return "wio-tracker-l2";
 #elif defined(ARDUINO_T_LORA_PAGER) && defined(ARDUINO_LILYGO_LORA_SX1262)
     return "tlora-pager-sx1262";
 #elif defined(ARDUINO_T_LORA_PAGER) && defined(ARDUINO_LILYGO_LORA_LR1121)
