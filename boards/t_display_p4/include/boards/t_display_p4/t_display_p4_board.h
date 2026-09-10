@@ -106,6 +106,10 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
     static constexpr const BoardProfile::LoRaModulePins& loraModulePins() { return profile().lora; }
     static constexpr const BoardProfile::IoExpanderPins& ioExpanderPins() { return profile().io_expander; }
     static constexpr const BoardProfile::KeyboardModule& keyboardModule() { return profile().keyboard; }
+    static constexpr bool supportsKeyboardBacklight()
+    {
+        return profile().supports_keyboard_module && keyboardModule().backlight >= 0;
+    }
     static constexpr const BoardProfile::PanelGeometry& activePanel()
     {
         return configuredPanelType() == DisplayPanelType::Rm69a10 ? profile().rm69a10_panel
@@ -132,8 +136,8 @@ class TDisplayP4Board final : public BoardBase, public LoraBoard
     bool hasKeyboard() override;
     void keyboardSetBrightness(uint8_t level) override;
     uint8_t keyboardGetBrightness() override;
-    // The P2 keyboard module is supplied directly by the ESP32-P4 LDO4.
-    // It must not depend on the XL9535-switched board peripheral rail.
+    // LDO4 supplies VDDPST_5 (GPIO39-48), including keyboard I2C and PWM pins.
+    // The connector's module supply is ESP_3V3, a separate electrical domain.
     bool ensureKeyboardLdo4Power();
     bool ensureExternal3v3Power();
     bool configureBatteryGaugeCapacity(uint16_t design_capacity_mah,

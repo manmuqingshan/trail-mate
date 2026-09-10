@@ -75,6 +75,7 @@ constexpr ledc_channel_t kKeyboardBacklightChannel = LEDC_CHANNEL_1;
 constexpr ledc_timer_bit_t kKeyboardBacklightResolution = LEDC_TIMER_10_BIT;
 constexpr uint32_t kKeyboardBacklightFrequencyHz = 20000;
 constexpr uint32_t kKeyboardBacklightMaxDuty = (1U << 10U) - 1U;
+constexpr uint8_t kKeyboardStartupBrightness = (DEVICE_MAX_BRIGHTNESS_LEVEL * 30U + 50U) / 100U;
 
 struct ExpanderPinLocation
 {
@@ -128,12 +129,11 @@ bool ensure_external_3v3_power_control()
         return true;
     }
 
-    // LDO4 supplies the P2 keyboard connector directly. Keep ownership in
-    // software so the requested 3.3 V setting reaches that rail. LilyGO's
-    // current generic P4 helper sets owned_by_hw, which defers this channel
-    // to eFuse control and does not match the working K270 board sequence.
-    // adjustable remains enabled because the board's P4 consumers share this
-    // held channel and may explicitly re-confirm its fixed 3.3 V setting.
+    // LDO4 supplies VDDPST_5 (GPIO39-48), including SD and keyboard signals.
+    // The keyboard connector itself is supplied by ESP_3V3. Keep software
+    // ownership of this I/O domain so its requested 3.3 V level is explicit.
+    // The board holds the channel for its lifetime; consumers may re-confirm
+    // its voltage without acquiring a competing adjustable channel.
     esp_ldo_channel_config_t ldo_config{};
     ldo_config.chan_id = kExternal3v3LdoChannel;
     ldo_config.voltage_mv = kExternal3v3Mv;
@@ -151,7 +151,7 @@ bool ensure_external_3v3_power_control()
     }
 
     ESP_LOGI(kTag,
-             "P4 LDO4 software-owned at %dmV for board/P2 3.3V",
+             "P4 LDO4 software-owned at %dmV for GPIO39-48 I/O domain",
              kExternal3v3Mv);
     return true;
 }
@@ -349,6 +349,12 @@ uint32_t TDisplayP4Board::begin(uint32_t disable_hw_init)
     }
 
     started_ = buses_ok && expander_ok && power_ok;
+    if (started_)
+    {
+        // GPIO47 PWM is independent of the XL9555/TCA8418 input path. A failed
+        // keypad probe must not disable the accessory's backlight controls.
+        keyboardSetBrightness(kKeyboardStartupBrightness);
+    }
     return started_ ? 0 : 1;
 }
 
@@ -411,7 +417,9 @@ void TDisplayP4Board::softwareShutdown()
         (void)expanderWriteActive(io.c6_enable, false, p.c6_enable_active_high);
         (void)expanderWriteActive(io.screen_rst, true, !p.screen_reset_active_low);
         (void)expanderWriteActive(io.touch_rst, true, !p.touch_reset_active_low);
-        (void)expanderWriteActive(io.power_3v3, false, p.power_3v3_active_high);
+        // LilyGO's P4 V1.0 power sequence requires this rail to stay enabled,
+        // including while the CPU sleeps, to avoid reset/download-mode locks.
+        (void)expanderWriteActive(io.power_3v3, true, p.power_3v3_active_high);
     }
 
     vTaskDelay(pdMS_TO_TICKS(50));
@@ -452,13 +460,18 @@ bool TDisplayP4Board::hasKeyboard()
 void TDisplayP4Board::keyboardSetBrightness(uint8_t level)
 {
     keyboard_brightness_ = std::min<uint8_t>(level, DEVICE_MAX_BRIGHTNESS_LEVEL);
-    if (!keyboard_ready_ || keyboardModule().backlight < 0)
+    if (!supportsKeyboardBacklight())
     {
         return;
     }
 
     if (!s_keyboard_backlight_ready)
     {
+        if (!ensureKeyboardLdo4Power())
+        {
+            ESP_LOGE(kTag, "Failed to prepare keyboard backlight I/O power");
+            return;
+        }
         ledc_timer_config_t timer_config{};
         timer_config.speed_mode = kKeyboardBacklightSpeedMode;
         timer_config.duty_resolution = kKeyboardBacklightResolution;
@@ -502,8 +515,8 @@ uint8_t TDisplayP4Board::keyboardGetBrightness()
 
 bool TDisplayP4Board::ensureKeyboardLdo4Power()
 {
-    // P2 is wired to LDO4 rather than the XL9535-switched peripheral rail.
-    // Do not turn a keyboard probe into a board-wide external-rail recovery.
+    // Prepare the keyboard signals' I/O voltage domain, not the connector's
+    // separate ESP_3V3 supply or the XL9535-switched peripheral rail.
     return ensure_external_3v3_power_control();
 }
 
@@ -1698,6 +1711,21 @@ bool TDisplayP4Board::runColdBootPowerSequence()
     const auto& io = ioExpanderPins();
     const auto& p = profile();
 
+    // Preload the output latches before enabling their drivers. In particular,
+    // XL9535's power-on HIGH latch must never briefly disable the active-low
+    // 3.3 V rail when IO0 changes from input to output on P4 V1.0.
+    if (!expanderWriteActive(io.power_3v3, true, p.power_3v3_active_high) ||
+        !expanderWriteActive(io.gps_wake, false, p.gps_wake_active_high) ||
+        !expanderWriteActive(io.c6_enable, false, p.c6_enable_active_high) ||
+        !expanderWriteActive(io.p4_vcca, true, p.p4_vcca_active_high) ||
+        !expanderWriteActive(io.power_5v, true, p.power_5v_active_high) ||
+        !expanderWriteActive(io.screen_rst, true, !p.screen_reset_active_low) ||
+        !expanderWriteActive(io.touch_rst, true, !p.touch_reset_active_low))
+    {
+        ESP_LOGE(kTag, "Failed to preload P4 power/reset output levels");
+        return false;
+    }
+
     if (!expanderPinMode(io.screen_rst, true) ||
         !expanderPinMode(io.touch_rst, true) ||
         !expanderPinMode(io.touch_int, false) ||
@@ -1710,20 +1738,8 @@ bool TDisplayP4Board::runColdBootPowerSequence()
         return false;
     }
 
-    (void)expanderWriteActive(io.screen_rst, true, !p.screen_reset_active_low);
-    (void)expanderWriteActive(io.touch_rst, true, !p.touch_reset_active_low);
-    (void)expanderWriteActive(io.gps_wake, false, p.gps_wake_active_high);
-    (void)expanderWriteActive(io.c6_enable, false, p.c6_enable_active_high);
-    (void)expanderWriteActive(io.p4_vcca, true, p.p4_vcca_active_high);
-
-    (void)expanderWriteActive(io.power_5v, true, p.power_5v_active_high);
-    (void)expanderWriteActive(io.power_3v3, true, p.power_3v3_active_high);
-    vTaskDelay(pdMS_TO_TICKS(200));
-    (void)expanderWriteActive(io.power_5v, false, p.power_5v_active_high);
-    (void)expanderWriteActive(io.power_3v3, false, p.power_3v3_active_high);
-    vTaskDelay(pdMS_TO_TICKS(200));
-    (void)expanderWriteActive(io.power_5v, true, p.power_5v_active_high);
-    (void)expanderWriteActive(io.power_3v3, true, p.power_3v3_active_high);
+    // Keep the board rails stable. LilyGO documents that switching the P4 V1.0
+    // 3.3 V rail off can leave peripherals mis-reset or lock P4 in download mode.
     vTaskDelay(pdMS_TO_TICKS(200));
 
     (void)expanderWriteActive(io.screen_rst, false, !p.screen_reset_active_low);
