@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Sample route</name><Placemark><name>Sample route</name><LineString><altitudeMode>absolute</altitudeMode><coordinates>
+121.4737,31.2304,842
+121.4750,31.2320,855
+121.4770,31.2340,888
+121.4800,31.2350,920
+121.4830,31.2370,960
+121.4860,31.2390,1010
+121.4900,31.2410,1040
+121.4920,31.2440,980
+121.4890,31.2420,940
+121.4850,31.2390,905
+121.4810,31.2360,875
+121.4770,31.2330,852
+121.4737,31.2304,842
+</coordinates></LineString></Placemark></Document></kml>

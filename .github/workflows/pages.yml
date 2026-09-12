@@ -6,6 +6,19 @@ on:
       - main
     paths:
       - site/**
+      - tools/web_simulator/**
+      - tests/site/**
+      - modules/ui_shared/**
+      - modules/ui_lvgl_ux_packs/**
+      - modules/ui_presentation/**
+      - modules/ui_map_runtime/**
+      - modules/ui_gps_runtime/**
+      - modules/core_sys/**
+      - modules/core_chat/**
+      - modules/core_team/**
+      - platform/shared/**
+      - platform/linux/common/**
+      - docs/reticulum/pages/**
       - packs/**
       - docs/images/**
       - scripts/build_pack_repository.py
@@ -53,6 +66,25 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6
 
+      - name: Verify website localization
+        run: |
+          node site/i18n/check-catalogs.mjs
+          node --test tests/site/i18n-runtime.test.mjs tests/site/i18n-all-locales.test.mjs tests/site/i18n-markup.test.mjs
+          node --test tests/site/i18n-packs.test.mjs
+
+      - name: Install pinned Emscripten SDK
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/trail-mate-emsdk"
+          "$RUNNER_TEMP/trail-mate-emsdk/emsdk" install 4.0.10
+          "$RUNNER_TEMP/trail-mate-emsdk/emsdk" activate 4.0.10
+
+      - name: Build and verify native firmware previews
+        run: |
+          source "$RUNNER_TEMP/trail-mate-emsdk/emsdk_env.sh"
+          emcmake cmake -S tools/web_simulator -B build/web-simulator -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/web-simulator --parallel 4
+          node tests/site/native-ui.test.mjs
+
       - name: Verify locale packs
         run: python tools/validate_locale_packs.py --pack-root packs
 
@@ -60,6 +92,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/prepare_pages_site.py --site-root site --repo ${{ github.repository }}
+
+      - name: Build Animal Island UI components
+        working-directory: site
+        run: |
+          npm ci --ignore-scripts
+          npm run build:components
+          rm -rf node_modules
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v5

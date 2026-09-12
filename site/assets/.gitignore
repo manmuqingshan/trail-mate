@@ -1,4 +1,9 @@
 *
+!device/
+!device/lilygo/
+!device/lilygo/*.svg
+!device/seeed/
+!device/seeed/*.svg
 !.gitignore
 !animal-island/
 !animal-island/dividers/

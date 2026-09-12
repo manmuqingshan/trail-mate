@@ -15,28 +15,32 @@
       rel="stylesheet"
     >
     <link rel="icon" type="image/png" href="./assets/showcase/brand-logo.png">
+    <link rel="stylesheet" href="./components-dist/components.css">
     <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="./explorer.css?v=reading-surfaces-4">
     <script
       type="module"
       src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"
     ></script>
     <script type="module" src="./main.js"></script>
+    <script type="module" src="./components-dist/components.js?v=manufacturer-all"></script>
+    <script type="module" src="./native-explorer.js"></script>
   </head>
   <body>
     <div class="page-shell">
       <header class="topbar">
-        <a class="brand" href="./" aria-label="Trail Mate homepage">
+        <a class="brand" href="./" data-i18n-aria="document.title" aria-label="Trail Mate">
           <img
             class="brand-logo"
             src="./assets/showcase/brand-logo.png"
-            alt="Trail Mate logo"
+            alt=""
             width="608"
             height="400"
           >
           <span class="brand-text">Trail Mate</span>
         </a>
 
-        <div class="top-actions" aria-label="Global actions">
+        <div class="top-actions">
           <a class="top-link" href="https://github.com/vicliu624/trail-mate" data-i18n="top.github">
             GitHub
           </a>
@@ -46,38 +50,31 @@
           <a class="top-link top-link-strong" href="#webflasher" data-i18n="top.flash">
             Flash
           </a>
-          <div class="language-toggle" role="group" aria-label="Language">
-            <button class="lang-button is-active" type="button" data-lang-choice="en" aria-pressed="true">
-              EN
-            </button>
+          <div class="language-toggle" role="group" data-i18n-aria="common.language" aria-label="Language">
+            <select id="site-language" data-i18n-aria="common.language" aria-label="Language">
+              <option value="en">English</option>
+              <option value="zh-Hans">简体中文</option>
+              <option value="zh-Hant-TW">繁體中文（台灣）</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+              <option value="fr">Français</option>
+              <option value="de">Deutsch</option>
+              <option value="es">Español</option>
+              <option value="it">Italiano</option>
+              <option value="ru">Русский</option>
+              <option value="ar">العربية</option>
+            </select>
           </div>
         </div>
       </header>
 
       <div class="content-shell">
-        <aside class="sidebar" aria-label="Site navigation">
+        <aside class="sidebar" data-i18n-aria="side.label" aria-label="Site navigation">
           <p class="sidebar-label" data-i18n="side.label">Product Map</p>
           <nav class="side-nav">
             <a href="#overview" data-i18n="side.overview">Overview</a>
+            <a href="#explorer" data-i18n="side.explorer">Interactive guide</a>
             <a href="#capabilities" data-i18n="side.capabilities">Capabilities</a>
-            <details class="nav-group" open>
-              <summary data-i18n="side.devices">Devices</summary>
-              <button class="side-device is-active" type="button" data-device-nav="tlora-pager-sx1262">
-                <span>T-LoRa Pager SX1262</span>
-              </button>
-              <button class="side-device" type="button" data-device-nav="tlora-pager-lr1121">
-                <span>T-LoRa Pager LR1121</span>
-              </button>
-              <button class="side-device" type="button" data-device-nav="tdeck">
-                <span>T-Deck</span>
-              </button>
-              <button class="side-device" type="button" data-device-nav="lilygo-twatch-s3">
-                <span>T-Watch-S3</span>
-              </button>
-              <button class="side-device" type="button" data-device-nav="gat562-mesh-evb-pro">
-                <span>GAT562 EVB Pro</span>
-              </button>
-            </details>
             <a href="#features" data-i18n="side.features">Feature Walkthrough</a>
             <a href="#languages" data-i18n="side.languages">Language Packs</a>
             <a href="#webflasher" data-i18n="side.flasher">Web Flasher</a>
@@ -88,63 +85,70 @@
         <main class="main-content">
           <section class="hero" id="overview">
             <div class="hero-copy">
-              <p class="eyebrow" data-i18n="hero.eyebrow">Offline Maps + LoRa for the Field</p>
+              <p class="eyebrow" data-i18n="intro.eyebrow">TOOLS FOR THE FIELD</p>
               <h1>Trail Mate</h1>
-              <p class="hero-tagline" data-i18n="hero.tagline">
-                Carry maps, messages, and teammate positions on a small LoRa device.
+              <p class="hero-tagline" data-i18n="intro.tagline">
+                Maps, communication and coordination for the outdoors.
               </p>
-              <p class="lede" data-i18n="hero.lede">
-                Trail Mate helps hikers and field groups stay oriented when cell service is gone: browse offline maps
-                from SD, send LoRa messages, check GPS health, and keep team movement visible on compact handhelds.
+              <p class="lede" data-i18n="intro.text">
+                Carry maps, record your route and coordinate with your group. Basic Meshtastic and MeshCore support lets you contact compatible terminals nearby; protocol coverage follows practical outdoor needs.
               </p>
               <div class="hero-actions">
-                <a class="button button-primary" href="#webflasher" data-i18n="hero.primaryAction">
-                  Open Web Flasher
+                <a class="button button-primary" href="#explorer" data-i18n="intro.try">
+                  Try the device ↓
                 </a>
                 <a
                   class="button button-secondary"
-                  href="https://github.com/vicliu624/trail-mate"
-                  data-i18n="hero.secondaryAction"
+                  href="#webflasher"
+                  data-i18n="intro.install"
                 >
-                  View Repository
+                  Get the firmware ↗
                 </a>
               </div>
             </div>
 
             <div class="hero-visual">
-              <div class="hero-screen">
-                <img
-                  src="./assets/showcase/home-main.png"
-                  alt="Trail Mate main menu screenshot"
-                  loading="eager"
-                >
-              </div>
+              <span class="hero-compass" aria-hidden="true">⌖</span>
+              <p class="eyebrow" data-i18n="intro.cardLabel">ON YOUR DEVICE</p>
+              <h3 data-i18n="intro.cardTitle">Prepare for your next trip.</h3>
+              <p data-i18n="intro.cardText">Load maps and routes, check positioning and test communication with your group before departure.</p>
               <div class="hero-note hero-note-release">
                 <p class="feature-kicker" data-i18n="hero.releaseKicker">Latest Release</p>
                 <p class="hero-note-value" data-release-version>Waiting for first tagged release</p>
               </div>
-              <div class="hero-note hero-note-proof">
-                <p class="feature-kicker" data-i18n="hero.proofKicker">Device Photos</p>
-                <p class="hero-note-value" data-i18n="hero.proofText">
-                  Screenshots are grouped by device so you can tell which screens match the hardware you plan to carry.
-                </p>
-              </div>
             </div>
           </section>
 
-          <section class="overview-ribbon" aria-label="Project overview">
+          <section id="explorer" data-i18n-aria="explorer.title" aria-label="Interactive device guide">
+            <h2>Explore Pager and T-Deck</h2>
+            <p>Enable JavaScript to use the interactive guide. Product information, setup links and hardware notes remain available below.</p>
+          </section>
+
+          <section class="story-section" id="design-purpose">
+            <h2 data-i18n="purpose.title">Built for outdoor use.</h2>
+            <p data-i18n="purpose.communication">Trail Mate implements basic Meshtastic and MeshCore communication so you can contact nearby compatible terminals to exchange information, ask for help, or coordinate outdoors.</p>
+            <p data-i18n="purpose.scope">This is selective protocol support, not a complete implementation or feature parity with either ecosystem's native firmware. Advanced radio features unrelated to outdoor use are outside Trail Mate's scope. Protocol work is guided by practical field needs.</p>
+          </section>
+          <section class="product-principles" data-i18n-aria="purpose.title" aria-label="Why Trail Mate exists">
+            <article><span class="principle-no" data-i18n="principle.identity.number">01 / IDENTITY</span><h3 data-i18n="principle.identity.title">Identity in your hands.</h3><p data-i18n="principle.identity.body">Device identity can exist independently of cloud accounts and phone numbers. Keep your contacts and conversations on personally controlled hardware.</p></article>
+            <article><span class="principle-no" data-i18n="principle.connection.number">02 / CONNECTION</span><h3 data-i18n="principle.connection.title">Choose your network.</h3><p data-i18n="principle.connection.body">Select Meshtastic, MeshCore or Reticulum. One protocol is active at a time. Meshtastic and MeshCore support focuses on basic outdoor communication, rather than complete protocol feature coverage.</p></article>
+            <article><span class="principle-no" data-i18n="principle.resources.number">03 / LOCAL RESOURCES</span><h3 data-i18n="principle.resources.title">Prepare maps and routes.</h3><p data-i18n="principle.resources.body">Keep maps, contacts and recorded tracks on the device. Prepare the resources you need before departure; desktop tools can help manage maps and routes.</p></article>
+            <article><span class="principle-no" data-i18n="principle.team.number">04 / TEAM AWARENESS</span><h3 data-i18n="principle.team.title">Know where your group is.</h3><p data-i18n="principle.team.body">On-device TAK brings together members, positions, waypoints, tracks and team messages. Public discovery, contact positions, team positions and local tracks remain distinct.</p></article>
+          </section>
+
+          <section class="overview-ribbon" data-i18n-aria="side.overview" aria-label="Project overview">
             <p class="overview-copy" data-i18n="overview.copy">
               Built for days when a phone is not enough: keep maps on SD, send messages without mobile networks,
               record tracks, check signal and GPS, and install extra language packs when you need them.
             </p>
-            <div class="overview-tags" aria-label="Core capabilities">
+            <div class="overview-tags" data-i18n-aria="side.capabilities" aria-label="Core capabilities">
               <span data-i18n="tag.maps">Offline Maps</span>
               <span data-i18n="tag.gnss">GNSS Diagnostics</span>
               <span data-i18n="tag.chat">Mesh Chat</span>
               <span data-i18n="tag.team">Team Mode</span>
               <span data-i18n="tag.languages">Language Packs</span>
               <span data-i18n="tag.scan">Protocol Probe</span>
-              <span data-i18n="tag.usb">PC Link</span>
+              <span data-i18n="tag.usb">USB storage</span>
             </div>
           </section>
 
@@ -220,146 +224,67 @@
                 <h2 data-i18n="devices.title">Pick the device you are holding.</h2>
               </div>
               <p class="section-note" data-i18n="devices.note">
-                Choose the exact hardware before flashing. Some boards look similar but need different firmware.
+                Pager and T-Deck are the two complete screen experiences. T-Echo-Lite remains a supported manual-flash target.
               </p>
             </div>
 
-            <div class="device-browser">
-              <div class="device-switcher" role="tablist" aria-label="Supported devices">
-                <button class="device-tab is-active" type="button" data-device-target="tlora-pager-sx1262">
-                  <span>T-LoRa Pager SX1262</span>
-                  <small>ESP32-S3</small>
-                </button>
-                <button class="device-tab" type="button" data-device-target="tlora-pager-lr1121">
-                  <span>T-LoRa Pager LR1121</span>
-                  <small>ESP32-S3</small>
-                </button>
-                <button class="device-tab" type="button" data-device-target="tdeck">
-                  <span>T-Deck</span>
-                  <small>ESP32-S3</small>
-                </button>
-                <button class="device-tab" type="button" data-device-target="lilygo-twatch-s3">
-                  <span>T-Watch-S3</span>
-                  <small>ESP32-S3</small>
-                </button>
-                <button class="device-tab" type="button" data-device-target="gat562-mesh-evb-pro">
-                  <span>GAT562 EVB Pro</span>
-                  <small>nRF52</small>
-                </button>
-              </div>
-
-              <article class="device-stage" aria-live="polite">
-                <div class="device-stage-header">
-                  <div>
-                    <p class="feature-kicker" data-device-kicker>ESP32-S3</p>
-                    <h3 data-device-title>LilyGo T-LoRa Pager SX1262</h3>
-                    <p class="device-summary" data-device-summary>
-                      Keyboard Pager with the most complete screenshots, field testing, and broadest Trail Mate UI coverage.
-                    </p>
-                  </div>
-                  <div class="device-status-card">
-                    <span data-device-status>Mature keyboard target</span>
-                  </div>
-                </div>
-
-                <div class="device-showcase">
-                  <figure class="device-main-shot">
-                    <img
-                      src="./assets/showcase/home-main.png"
-                      alt="T-LoRa Pager home launcher"
-                      data-device-main-image
-                    >
-                    <figcaption data-device-main-caption>Home launcher</figcaption>
-                  </figure>
-
-                  <div class="device-detail-panel">
-                    <p class="feature-kicker" data-i18n="devices.interactionKicker">What To Know</p>
-                    <ul class="device-interactions" data-device-interactions></ul>
-                  </div>
-                </div>
-
-                <div class="device-thumb-grid" data-device-thumbs></div>
-              </article>
+            <div id="device-brand-selector"></div>
+            <div class="device-support-grid" data-i18n-aria="side.devices" aria-label="Devices" tabindex="0">
+              <article class="device-support-card" data-brand="lilygo"><img src="./assets/device/lilygo/lilygo-tlora-pager.svg" alt="T-LoRa Pager" loading="lazy" width="96" height="112"><div><h3>T-LoRa Pager</h3><p>SX1262 / LR1121</p><a href="https://lilygo.cc/products/t-lora-pager" class="device-buy-icon"><img src="./assets/animal-island/icons/shopping-bag.svg" alt="" width="36" height="36"><span class="sr-only" data-i18n="devices.buy">Official store ↗</span></a></div></article>
+              <article class="device-support-card" data-brand="lilygo"><img src="./assets/device/lilygo/t-deck.svg" alt="T-Deck" loading="lazy" width="96" height="112"><div><h3>T-Deck</h3><p>LILYGO T-Deck Plus</p><a href="https://lilygo.cc/products/t-deck-plus-1" class="device-buy-icon"><img src="./assets/animal-island/icons/shopping-bag.svg" alt="" width="36" height="36"><span class="sr-only" data-i18n="devices.buy">Official store ↗</span></a></div></article>
+              <article class="device-support-card" data-brand="lilygo"><img src="./assets/device/lilygo/t-echo-lite-kit.svg" alt="T-Echo-Lite Kit" loading="lazy" width="96" height="112"><div><h3>T-Echo-Lite</h3><p>LILYGO T-Echo-Lite Kit</p><a href="https://lilygo.cc/products/t-echo-lite-kit" class="device-buy-icon"><img src="./assets/animal-island/icons/shopping-bag.svg" alt="" width="36" height="36"><span class="sr-only" data-i18n="devices.buy">Official store ↗</span></a></div></article>
+              <article class="device-support-card" data-brand="seeed" hidden><img src="./assets/device/seeed/Wio%20Tracker%20L2.svg" alt="Wio Tracker L2" loading="lazy" width="96" height="112"><div><h3>Wio Tracker L2</h3><p>Seeed Studio · 3.2″</p><span data-i18n="devices.unreleased">Not yet on sale</span><button class="device-buy-icon" disabled><img src="./assets/animal-island/icons/shopping-bag.svg" alt="" width="36" height="36"><span class="sr-only" data-i18n="devices.unreleased">Not yet on sale</span></button></div></article>
             </div>
           </section>
 
           <div class="animal-divider animal-divider-teal" aria-hidden="true"></div>
 
-          <section class="story-stack" id="features" aria-label="Feature walkthrough">
+          <section class="story-stack" id="features" data-i18n-aria="side.features" aria-label="Feature walkthrough">
             <article class="story-section">
-              <div class="story-copy">
-                <p class="eyebrow" data-i18n="features.navEyebrow">Navigation</p>
-                <h2 data-i18n="features.navTitle">Carry maps without cell service.</h2>
-                <p class="story-lede" data-i18n="features.navLead">
-                  Put map tiles on the SD card before the trip, then browse OSM, terrain, and satellite layers from the
-                  device. GPS screens help you understand whether the current fix is trustworthy.
-                </p>
-              </div>
-              <div class="story-media">
-                <figure class="shot">
-                  <img src="./assets/showcase/nav-map-osm.png" alt="Offline OSM map view" loading="lazy">
-                </figure>
-                <figure class="shot">
-                  <img src="./assets/showcase/nav-map-terrain.png" alt="Terrain map layer" loading="lazy">
-                </figure>
-                <figure class="shot">
-                  <img src="./assets/showcase/nav-map-satellite.png" alt="Satellite map layer" loading="lazy">
-                </figure>
-                <figure class="shot">
-                  <img src="./assets/showcase/nav-skyplot.png" alt="GNSS sky plot screen" loading="lazy">
-                </figure>
-              </div>
+              <p class="eyebrow" data-i18n="story.navigation.label">NAVIGATION &amp; SURVEYING</p>
+              <h2 data-i18n="story.navigation.title">Read the terrain. Understand the route.</h2>
+              <p data-i18n="story.navigation.text">Offline maps show the surrounding terrain. GNSS diagnostics help assess positioning quality; track recording preserves your path. KML routes provide elevation and waypoint context.</p>
+              <ul><li data-i18n="story.navigation.item1">OSM, terrain, satellite and contour layers</li><li data-i18n="story.navigation.item2">Route elevation, waypoint previews and GPX export</li><li data-i18n="story.navigation.item3">Scientific calculator for distance, slope and height estimates</li></ul>
+              <a class="guide-doc" href="?feature=calculator#explorer" data-i18n="story.navigation.link">Try field calculations ↗</a>
             </article>
+            <article class="story-section">
+              <p class="eyebrow" data-i18n="story.communication.label">COMMUNICATION &amp; COORDINATION</p>
+              <h2 data-i18n="story.communication.title">Stay in contact with your group.</h2>
+              <p data-i18n="story.communication.text">Choose a network, keep your contacts and check message delivery. Pair a team nearby using ESP-NOW, then share positions, assembly points and messages over LoRa.</p>
+              <ul><li data-i18n="story.communication.item1">Basic Meshtastic / MeshCore communication, or Reticulum/LXMF</li><li data-i18n="story.communication.item2">Saved contacts and conversation history</li><li data-i18n="story.communication.item3">On-device TAK; FSK/Codec2 voice on supported hardware</li></ul>
+              <a class="guide-doc" href="?feature=team#explorer" data-i18n="story.communication.link">Explore team coordination ↗</a>
+            </article>
+            <article class="story-section">
+              <p class="eyebrow" data-i18n="story.tools.label">FIELD TOOLS &amp; CONNECTIONS</p>
+              <h2 data-i18n="story.tools.title">Connect with your other tools.</h2>
+              <p data-i18n="story.tools.text">Browse Reticulum Micron services through Nomad Network. Use MQTT when a gateway is available, and prepare map regions and routes with Trail Mate Center.</p>
+              <ul><li data-i18n="story.tools.item1">Protocol Probe distinguishes observed and confirmed evidence</li><li data-i18n="story.tools.item2">SSTV reception on supported hardware</li><li data-i18n="story.tools.item3">Extensions, language packs and USB storage</li></ul>
+              <a class="guide-doc" href="https://github.com/vicliu624/trail-mate-center" data-i18n="story.tools.link">Explore Trail Mate Center ↗</a>
+            </article>
+          </section>
 
-            <article class="story-section">
-              <div class="story-copy">
-                <p class="eyebrow" data-i18n="features.commEyebrow">Communication</p>
-                <h2 data-i18n="features.commTitle">Stay in touch when phones stop helping.</h2>
-                <p class="story-lede" data-i18n="features.commLead">
-                  Write messages on the device, retry failed sends from the message bubble, and keep team conversations
-                  separate from ordinary channel traffic.
-                </p>
-              </div>
-              <div class="story-media">
-                <figure class="shot">
-                  <img src="./assets/showcase/chat-compose.png" alt="Message compose interface" loading="lazy">
-                </figure>
-                <figure class="shot">
-                  <img src="./assets/showcase/chat-messages.png" alt="Message history screen" loading="lazy">
-                </figure>
-                <figure class="shot">
-                  <img src="./assets/showcase/chat-contacts.png" alt="Contacts screen" loading="lazy">
-                </figure>
-                <figure class="shot">
-                  <img src="./assets/showcase/team-map.png" alt="Team map interface" loading="lazy">
-                </figure>
-              </div>
-            </article>
+          <section class="field-preparation" id="prepare">
+            <p class="eyebrow" data-i18n="prepare.label">BEFORE DEPARTURE</p>
+            <h2 data-i18n="prepare.title">Set up for your trip.</h2>
+            <ol>
+              <li><strong data-i18n="prepare.hardware">Match the hardware.</strong><p data-i18n="prepare.hardwareText">Choose the exact board and radio variant, flash its firmware and check the available peripherals. Pager SX1262 and LR1121 use separate builds.</p></li>
+              <li><strong data-i18n="prepare.resources">Prepare maps and routes.</strong><p data-i18n="prepare.resourcesText">Load your map region, import KML routes and install the language packs you need. Prepare map regions and route corridors with Trail Mate Center.</p><a href="https://github.com/vicliu624/trail-mate-center">Trail Mate Center ↗</a></li>
+              <li><strong data-i18n="prepare.team">Test communication with your group.</strong><p data-i18n="prepare.teamText">Choose a protocol and compatible radio settings. Check contacts and GNSS, pair the team nearby, and exchange a test message before departure.</p></li>
+            </ol>
+            <p><a href="https://github.com/vicliu624/trail-mate/wiki" data-i18n="prepare.guide">Setup guide: file paths, hardware controls and device-specific instructions ↗</a></p>
+          </section>
 
-            <article class="story-section">
-              <div class="story-copy">
-                <p class="eyebrow" data-i18n="features.toolsEyebrow">Field Utilities</p>
-                <h2 data-i18n="features.toolsTitle">Bring a few field tools with you.</h2>
-                <p class="story-lede" data-i18n="features.toolsLead">
-                  Use signal scanning, SSTV receive, USB data exchange, and track views when you need to inspect the
-                  environment or recover data.
-                </p>
-              </div>
-              <div class="story-media">
-                <figure class="shot">
-                  <img src="./assets/showcase/utility-spectrum.png" alt="Sub-GHz energy sweep view" loading="lazy">
-                </figure>
-                <figure class="shot">
-                  <img src="./assets/showcase/utility-sstv-page.jpg" alt="SSTV receiver screen" loading="lazy">
-                </figure>
-                <figure class="shot">
-                  <img src="./assets/showcase/utility-data-exchange.png" alt="USB data exchange screen" loading="lazy">
-                </figure>
-                <figure class="shot">
-                  <img src="./assets/showcase/utility-tracker.png" alt="Tracker overview screen" loading="lazy">
-                </figure>
-              </div>
-            </article>
+          <section class="survey-section" id="field-calculator">
+            <p class="eyebrow" data-i18n="survey.eyebrow">WHY A SCIENTIFIC CALCULATOR?</p>
+            <h2 data-i18n="survey.title">Calculations for field surveying.</h2>
+            <p data-i18n="survey.purpose">The scientific calculator supports outdoor surveying: estimate height differences, convert slope distances to horizontal distances, and calculate slope angles or gradients from your measurements.</p>
+            <div class="survey-examples">
+              <article><span data-i18n="survey.height">01 / HEIGHT DIFFERENCE</span><h3 data-i18n="survey.heightTitle">Estimate a height.</h3><p data-i18n="survey.heightText">At a horizontal distance of 30 m and an elevation angle of 35°, the height above the observation level is 30 × tan(35°) ≈ 21.01 m.</p><p data-i18n="survey.heightNote">For tree height, add instrument height when the tree base and your footing are level; otherwise account for the ground elevation difference.</p></article>
+              <article><span data-i18n="survey.distance">02 / DISTANCE COMPONENTS</span><h3 data-i18n="survey.distanceTitle">Convert slope distance.</h3><p data-i18n="survey.distanceText">A straight 100 m segment at 20° has a horizontal distance of 100 × cos(20°) ≈ 93.97 m and a rise of 100 × sin(20°) ≈ 34.20 m.</p><p data-i18n="survey.distanceNote">Calculate curved routes or changing slopes segment by segment.</p></article>
+              <article><span data-i18n="survey.slope">03 / SLOPE</span><h3 data-i18n="survey.slopeTitle">Calculate the gradient.</h3><p data-i18n="survey.slopeText">A 12 m rise over a 40 m horizontal run gives atan(12 ÷ 40) ≈ 16.70°, or a 30% grade. Degrees and percent grade are different units.</p></article>
+            </div>
+            <p data-i18n="survey.functions">Supports sin, cos, tan, inverse trigonometric functions, powers, roots and logarithms, with DEG/RAD modes. Enter measured angles and distances; the calculator does not measure them.</p>
+            <a class="button button-primary" href="?feature=calculator#explorer" data-i18n="survey.try">Try the calculator ↗</a>
           </section>
 
           <div class="animal-divider animal-divider-teal" aria-hidden="true"></div>
@@ -387,12 +312,7 @@
 
               <article class="language-highlight">
                 <p class="feature-kicker" data-i18n="languages.catalogKicker">Pack List</p>
-                <h3>
-                  <span data-pack-count>0</span>
-                  <span data-i18n="languages.bundleSuffix">bundles covering</span>
-                  <span data-locale-count>0</span>
-                  <span data-i18n="languages.localeSuffix">available locales.</span>
-                </h3>
+                <h3 data-pack-summary></h3>
                 <p data-i18n="languages.catalogText">
                   Language packs can include translations, fonts, and keyboard layouts. Install them from the device
                   instead of rebuilding firmware.
@@ -433,68 +353,18 @@
             </div>
 
             <div class="install-grid">
+              <label id="install-target-label" for="install-target" data-i18n="install.choose">Device and radio variant</label>
+              <select id="install-target">
+                <option value="tlora-pager-sx1262">T-LoRa Pager · SX1262</option>
+                <option value="tlora-pager-lr1121">T-LoRa Pager · LR1121</option>
+                <option value="tdeck">T-Deck</option>
+                <option value="t-echo-lite">T-Echo-Lite</option>
+              </select>
               <article class="board-card" data-board-id="tlora-pager-sx1262">
-                <p class="board-chip">ESP32-S3</p>
-                <h3>LilyGo T-LoRa Pager SX1262</h3>
-                <p class="board-copy" data-i18n="install.pagerCopy">SX1262 radio build for the keyboard Pager. Do not use this card for LR1121 hardware.</p>
-                <div class="board-install" data-install-slot>
-                  <p class="board-hint" data-i18n="install.checking">Checking firmware...</p>
-                </div>
-                <a class="release-link" data-release-link href="https://github.com/vicliu624/trail-mate/releases" data-i18n="install.openRelease">
-                  Open latest release
-                </a>
-              </article>
-
-              <article class="board-card" data-board-id="tlora-pager-lr1121">
-                <p class="board-chip">ESP32-S3</p>
-                <h3>LilyGo T-LoRa Pager LR1121</h3>
-                <p class="board-copy" data-i18n="install.pagerLr1121Copy">LR1121 radio build for the Sub-GHz + 2.4 GHz keyboard Pager. Do not flash this onto SX1262 hardware.</p>
-                <div class="board-install" data-install-slot>
-                  <p class="board-hint" data-i18n="install.checking">Checking firmware...</p>
-                </div>
-                <a class="release-link" data-release-link href="https://github.com/vicliu624/trail-mate/releases" data-i18n="install.openRelease">
-                  Open latest release
-                </a>
-              </article>
-
-              <article class="board-card" data-board-id="tdeck">
-                <p class="board-chip">ESP32-S3</p>
-                <h3>LilyGo T-Deck</h3>
-                <p class="board-copy" data-i18n="install.tdeckCopy">Keyboard + touch build tuned for the T-Deck layout.</p>
-                <div class="board-install" data-install-slot>
-                  <p class="board-hint" data-i18n="install.checking">Checking firmware...</p>
-                </div>
-                <a class="release-link" data-release-link href="https://github.com/vicliu624/trail-mate/releases" data-i18n="install.openRelease">
-                  Open latest release
-                </a>
-              </article>
-
-              <article class="board-card" data-board-id="lilygo-twatch-s3">
-                <p class="board-chip">ESP32-S3</p>
-                <h3>LilyGo T-Watch-S3</h3>
-                <p class="board-copy" data-i18n="install.twatchCopy">Touch-first watch build for compact field experiments.</p>
-                <div class="board-install" data-install-slot>
-                  <p class="board-hint" data-i18n="install.checking">Checking firmware...</p>
-                </div>
-                <a class="release-link" data-release-link href="https://github.com/vicliu624/trail-mate/releases" data-i18n="install.openRelease">
-                  Open latest release
-                </a>
-              </article>
-
-              <article class="board-card board-card-muted">
-                <p class="board-chip">nRF52</p>
-                <h3>GAT562 Mesh EVB Pro</h3>
-                <p class="board-copy" data-i18n="install.gatCopy">
-                  Browser flashing is not available for the nRF52 board yet. Use the downloaded firmware file for manual flashing.
-                </p>
-                <div class="board-install">
-                  <p class="board-hint" data-i18n="install.gatHint">
-                    Download the packaged firmware from the latest GitHub release.
-                  </p>
-                </div>
-                <a class="release-link" data-release-link href="https://github.com/vicliu624/trail-mate/releases" data-i18n="install.openRelease">
-                  Open latest release
-                </a>
+                <h3 id="install-target-title">T-LoRa Pager · SX1262</h3>
+                <p id="install-target-copy"></p>
+                <div class="board-install" data-install-slot></div>
+                <a class="release-link" data-release-link href="https://github.com/vicliu624/trail-mate/releases" data-i18n="install.openRelease">Open latest release</a>
               </article>
             </div>
 
@@ -544,6 +414,8 @@
             <a href="https://github.com/vicliu624/trail-mate" data-i18n="footer.repo">Repository</a>
             <a href="https://github.com/vicliu624/trail-mate/releases" data-i18n="footer.releases">Releases</a>
             <a href="https://github.com/vicliu624/trail-mate/wiki" data-i18n="footer.wiki">Wiki</a>
+            <a href="https://guokaigdg.github.io/animal-island-ui/" dir="ltr">Animal Island UI © guokaigdg</a>
+            <a href="https://creativecommons.org/licenses/by-nc/4.0/" dir="ltr">CC BY-NC 4.0</a>
           </div>
         </div>
         <div class="animal-footer-art" aria-hidden="true"></div>
