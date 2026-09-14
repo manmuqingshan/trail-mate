@@ -24,12 +24,15 @@ enum class MapTileLayer : uint8_t
     ContourMinor20,
     ContourMinor10,
     ContourMinor5,
+    Poi,
 };
 
 enum class MapTileFormat : uint8_t
 {
     Unknown,
     Png,
+    Jsonl,
+    PoiRecords,
 };
 
 enum class MapTileStatus : uint8_t
