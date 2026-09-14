@@ -50,18 +50,18 @@ void init_once()
 #endif
 
     lv_style_init(&s_panel_side);
-    lv_style_set_bg_opa(&s_panel_side, LV_OPA_COVER);
-    lv_style_set_bg_color(&s_panel_side, lv_color_hex(kSidePanelBg));
+    lv_style_set_bg_opa(&s_panel_side, LV_OPA_TRANSP);
     lv_style_set_border_width(&s_panel_side, 0);
     lv_style_set_pad_all(&s_panel_side, 3);
     lv_style_set_radius(&s_panel_side, 0);
+    lv_style_set_shadow_width(&s_panel_side, 0);
 
     lv_style_init(&s_panel_main);
-    lv_style_set_bg_opa(&s_panel_main, LV_OPA_COVER);
-    lv_style_set_bg_color(&s_panel_main, lv_color_hex(kMainPanelBg));
+    lv_style_set_bg_opa(&s_panel_main, LV_OPA_TRANSP);
     lv_style_set_border_width(&s_panel_main, 0);
     lv_style_set_pad_all(&s_panel_main, 3);
     lv_style_set_radius(&s_panel_main, 0);
+    lv_style_set_shadow_width(&s_panel_main, 0);
 
     lv_style_init(&s_container_main);
     lv_style_set_bg_opa(&s_container_main, LV_OPA_COVER);

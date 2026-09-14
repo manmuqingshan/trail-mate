@@ -84,6 +84,7 @@ jobs:
           emcmake cmake -S tools/web_simulator -B build/web-simulator -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build/web-simulator --parallel 4
           node tests/site/native-ui.test.mjs
+          node tests/site/two-pane-layout.test.mjs
 
       - name: Verify locale packs
         run: python tools/validate_locale_packs.py --pack-root packs

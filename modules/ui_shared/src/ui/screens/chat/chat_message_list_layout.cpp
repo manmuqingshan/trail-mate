@@ -221,7 +221,7 @@ lv_obj_t* create_filter_panel(lv_obj_t* parent,
     panel_spec.width = metrics.filter_panel_width;
     panel_spec.pad_row = profile.filter_panel_pad_row;
     panel_spec.margin_left = 0;
-    panel_spec.margin_right = profile.large_touch_hitbox ? 8 : kPanelGap;
+    panel_spec.margin_right = 0;
     lv_obj_t* panel = ::ui::components::two_pane_layout::create_side_panel(parent, panel_spec);
 
     lv_obj_t* direct = lv_btn_create(panel);
