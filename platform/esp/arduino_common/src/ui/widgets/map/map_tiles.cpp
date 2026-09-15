@@ -22,7 +22,7 @@
 #include "ui_map_runtime/map_tiles/map_tile_types.h"
 #if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
 #include "platform/esp/arduino_common/map_poi/cjson_poi_parser.h"
-#include "ui_map_runtime/map_poi/poi_snapshot_builder.h"
+#include "ui_map_runtime/map_poi/annotation_layout.h"
 #include "ui_map_runtime/map_poi/poi_tile_source.h"
 #endif
 
@@ -2539,7 +2539,6 @@ static bool apply_poi_tile_event(TileContext& ctx, ui::map_tiles::MapTileAsyncEv
         return false;
     }
     tile->poi_checked = true;
-    tile->poi.reset();
     ++ctx.poi_revision;
     if (event.kind != ui::map_tiles::MapTileAsyncEventKind::Ready ||
         event.payload.format != ui::map_tiles::MapTileFormat::PoiRecords ||
@@ -2555,6 +2554,9 @@ static bool apply_poi_tile_event(TileContext& ctx, ui::map_tiles::MapTileAsyncEv
         return false;
     }
     const auto* header = reinterpret_cast<const ui::map_poi::TileHeader*>(event.payload.data);
+    // Failed reads must not discard a previously valid tile payload. Replace
+    // only after a new typed payload has passed validation (including empty).
+    tile->poi.reset();
     const uint16_t count = header->count;
     ctx.poi_policy_known = true;
     ctx.poi_policy = header->policy;
@@ -3491,30 +3493,60 @@ void map_poi_snapshot(TileContext& ctx, ui::map::MapPoiSnapshot& out)
     out.truncated = false;
     out.candidate_count = 0;
     out.item_count = 0;
+    out.loading = false;
+    out.layout_ready = false;
     if (!out.enabled || !ctx.tiles || !ctx.map_container) return;
+    out.width = static_cast<int16_t>(lv_obj_get_width(ctx.map_container));
+    out.height = static_cast<int16_t>(lv_obj_get_height(ctx.map_container));
+    const int32_t origin_x = ctx.anchor->gps_tile_screen_x + ctx.anchor->gps_offset_x - ctx.anchor->gps_global_pixel_x;
+    const int32_t origin_y = ctx.anchor->gps_tile_screen_y + ctx.anchor->gps_offset_y - ctx.anchor->gps_global_pixel_y;
+    out.view_key = (uint64_t{static_cast<uint32_t>(origin_x)} << 32) | static_cast<uint32_t>(origin_y);
+    out.compatibility_key = (uint64_t{g_map_tile_runtime_generation} << 16) |
+                            (uint64_t{static_cast<uint8_t>(ctx.anchor->z)} << 8) | g_active_map_source;
     for (const auto& tile : *ctx.tiles)
     {
-        if (!tile.visible || tile.z != ctx.anchor->z || !tile.poi) continue;
+        if (!tile.visible || tile.z != ctx.anchor->z) continue;
+        out.loading = out.loading || tile.poi_pending || !tile.poi_checked;
+        if (!tile.poi) continue;
         const auto* header = reinterpret_cast<const ui::map_poi::TileHeader*>(tile.poi.get());
         out.candidate_count += header->count;
         out.truncated = out.truncated || header->truncated;
     }
-    if (!out.items || out.capacity == 0) return;
-    const int width = lv_obj_get_width(ctx.map_container), height = lv_obj_get_height(ctx.map_container);
-    ui::map_poi::SnapshotBuilder builder(out, width, height);
+}
+
+void visit_map_annotations(TileContext& ctx, ui::map_poi::AnnotationConsumer consume, void* user)
+{
+    if (!consume || !ctx.tiles || !ctx.anchor || !ctx.anchor->valid) return;
     for (const auto& tile : *ctx.tiles)
     {
         if (!tile.visible || tile.z != ctx.anchor->z || !tile.poi) continue;
         const auto* header = reinterpret_cast<const ui::map_poi::TileHeader*>(tile.poi.get());
         const auto* records = ui::map_poi::payloadRecords(tile.poi.get());
+        int tile_x = 0, tile_y = 0;
+        if (!tile_screen_pos_xyz(ctx, tile.x, tile.y, tile.z, tile_x, tile_y)) continue;
         for (std::size_t i = 0; i < header->count; ++i)
         {
             const auto& record = records[i];
             int x = 0, y = 0;
-            if (gps_screen_pos(ctx, record.lat, record.lon, x, y)) builder.add(record, x, y);
+            if (!gps_screen_pos(ctx, record.lat, record.lon, x, y)) continue;
+            ui::map_poi::AnnotationCandidate candidate;
+            candidate.key = record.key;
+            candidate.feature_key = record.feature_key;
+            candidate.name = ctx.poi_policy.labels ? record.name : "";
+            candidate.category = record.category;
+            candidate.kind = record.kind;
+            candidate.priority = record.priority;
+            candidate.x = static_cast<int16_t>(std::clamp(x, -32768, 32767));
+            candidate.y = static_cast<int16_t>(std::clamp(y, -32768, 32767));
+            candidate.path_points = record.path_points;
+            for (unsigned p = 0; p < record.path_points; ++p)
+            {
+                candidate.path[p * 2] = static_cast<int16_t>(std::clamp(tile_x + record.path[p * 2], -32768, 32767));
+                candidate.path[p * 2 + 1] = static_cast<int16_t>(std::clamp(tile_y + record.path[p * 2 + 1], -32768, 32767));
+            }
+            consume(user, candidate);
         }
     }
-    builder.finish();
 }
 #endif
 

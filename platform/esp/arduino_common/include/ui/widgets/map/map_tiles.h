@@ -22,6 +22,7 @@
 
 #if defined(ARDUINO_ARCH_ESP32)
 #define TRAIL_MATE_MAP_POI_AVAILABLE 1
+#include "ui_map_runtime/map_poi/annotation_layout.h"
 #include "ui_map_runtime/map_poi/poi_types.h"
 #include "ui_presentation/map/map_poi_snapshot.h"
 #include <memory>
@@ -117,6 +118,7 @@ struct TileContext
 
 #if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
 void map_poi_snapshot(TileContext& ctx, ui::map::MapPoiSnapshot& out);
+void visit_map_annotations(TileContext& ctx, ui::map_poi::AnnotationConsumer consume, void* user);
 #endif
 
 // Core tile functions - implemented in map_tiles.cpp

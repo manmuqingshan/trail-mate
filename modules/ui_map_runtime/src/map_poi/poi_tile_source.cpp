@@ -81,7 +81,9 @@ map_tiles::MapTileReadResult PoiTileSource::read(const map_tiles::MapTileRef& re
         // Parsed records borrow the existing map worker scratch; even overflow
         // parsing uses its extra slot, not a resident or task-stack buffer.
         auto* target = new (buffer + sizeof(TileHeader) + output->count * sizeof(Record)) Record{};
-        if (!parser_.record(reinterpret_cast<char*>(raw + begin), length, *target))
+        if (!parser_.record(reinterpret_cast<char*>(raw + begin), length, *target) ||
+            (policy_.schema_version == 3 && !target->explicit_kind) ||
+            (policy_.schema_version < 3 && target->kind != ui::map::AnnotationKind::Poi))
         {
             if (output->invalid_rows < UINT16_MAX) ++output->invalid_rows;
             continue;

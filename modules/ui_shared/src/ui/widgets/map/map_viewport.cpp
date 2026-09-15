@@ -13,6 +13,7 @@
 #include "ui/widgets/map/map_tiles.h"
 #if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
 #include "ui/widgets/map/poi_overlay.h"
+#include "ui_map_runtime/map_poi/annotation_frame.h"
 #endif
 
 #include <algorithm>
@@ -35,6 +36,11 @@ struct PoiSnapshotDeleter
 {
     void operator()(ui::map::MapPoiItem* data) const noexcept { heap_caps_free(data); }
 };
+void* allocate_annotation_memory(std::size_t bytes, void*)
+{
+    return heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+void release_annotation_memory(void* memory, void*) { heap_caps_free(memory); }
 #endif
 
 struct RuntimeImpl
@@ -65,9 +71,9 @@ struct RuntimeImpl
     ui::map::MapOverlaySnapshot overlay{};
 #if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
     PoiOverlay poi_overlay;
-    ui::map::MapPoiSnapshot poi_snapshot{};
-    std::unique_ptr<ui::map::MapPoiItem, PoiSnapshotDeleter> poi_storage;
+    ui::map_poi::AnnotationFrame annotation_frame{allocate_annotation_memory, release_annotation_memory};
     uint32_t poi_seen_revision = 0;
+    uint64_t poi_font_signature = 0;
     uint32_t poi_allocation_retry_ms = 0;
 #endif
     MapAnchor anchor{};
@@ -675,38 +681,49 @@ void render_overlay(RuntimeImpl& impl)
 #if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
 void refresh_poi_overlay(RuntimeImpl& impl, bool force)
 {
-    if (!force && impl.poi_seen_revision == impl.tile_ctx.poi_revision) return;
-    map_poi_snapshot(impl.tile_ctx, impl.poi_snapshot);
-    if (!impl.poi_snapshot.enabled || impl.poi_snapshot.candidate_count == 0)
+    if (!force && impl.poi_seen_revision == impl.tile_ctx.poi_revision &&
+        impl.poi_font_signature == impl.poi_overlay.font_signature()) return;
+    ui::map::MapPoiSnapshot metadata;
+    map_poi_snapshot(impl.tile_ctx, metadata);
+    if (!metadata.enabled || (metadata.candidate_count == 0 && !metadata.loading))
     {
         impl.poi_overlay.clear();
-        impl.poi_storage.reset();
-        impl.poi_snapshot.items = nullptr;
-        impl.poi_snapshot.capacity = 0;
+        impl.annotation_frame.clear();
         impl.poi_seen_revision = impl.tile_ctx.poi_revision;
+        impl.poi_font_signature = impl.poi_overlay.font_signature();
         return;
     }
-    const auto needed = std::min(impl.poi_snapshot.candidate_count, ui::map::MapPoiSnapshot::kMaxItems);
-    if (impl.poi_snapshot.capacity < needed)
+    const bool same_view = impl.annotation_frame.same_view(metadata);
+    if (!same_view) impl.poi_overlay.clear();
+    if (metadata.candidate_count == 0) return;
+    const uint32_t now = lv_tick_get();
+    if (impl.poi_allocation_retry_ms && static_cast<int32_t>(impl.poi_allocation_retry_ms - now) > 0) return;
+    if (!impl.annotation_frame.begin(metadata.candidate_count, metadata))
     {
-        const uint32_t now = lv_tick_get();
-        if (impl.poi_allocation_retry_ms && static_cast<int32_t>(impl.poi_allocation_retry_ms - now) > 0) return;
-        auto* buffer = static_cast<ui::map::MapPoiItem*>(heap_caps_malloc(needed * sizeof(ui::map::MapPoiItem), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-        if (!buffer)
-        {
-            impl.poi_overlay.clear();
-            impl.poi_allocation_retry_ms = now + 1000U;
-            std::printf("[MapViewport][POI] snapshot PSRAM unavailable\n");
-            return;
-        }
-        for (std::size_t i = 0; i < needed; ++i) new (buffer + i) ui::map::MapPoiItem{};
-        impl.poi_storage.reset(buffer);
-        impl.poi_snapshot.items = buffer;
-        impl.poi_snapshot.capacity = needed;
-        impl.poi_allocation_retry_ms = 0;
-        map_poi_snapshot(impl.tile_ctx, impl.poi_snapshot);
+        impl.poi_allocation_retry_ms = now + 1000U;
+        return;
     }
-    impl.poi_overlay.update(impl.poi_snapshot);
+    visit_map_annotations(
+        impl.tile_ctx, [](void* context, const ui::map_poi::AnnotationCandidate& candidate)
+        { static_cast<ui::map_poi::AnnotationFrame*>(context)->add(candidate); },
+        &impl.annotation_frame);
+    impl.poi_overlay.prepare_text("");
+    for (std::size_t i = 0; i < impl.annotation_frame.candidate_count(); ++i)
+        impl.poi_overlay.prepare_text(impl.annotation_frame.candidates()[i].name);
+    ui::map_poi::AnnotationLayoutOptions options;
+    options.width = metadata.width;
+    options.height = metadata.height;
+    const int zoom = impl.anchor.z;
+    options.max_labels = zoom <= 6 ? 8 : zoom <= 11 ? 16
+                                     : zoom <= 15   ? 24
+                                                    : 32;
+    options.road_reservation = zoom <= 6 ? 0 : zoom <= 11 ? 3
+                                                          : 8;
+    options.place_reservation = zoom <= 11 ? 6 : 2;
+    if (!impl.annotation_frame.finish(options, PoiOverlay::measure_text, &impl.poi_overlay)) return;
+    impl.poi_overlay.update(impl.annotation_frame.snapshot());
+    impl.poi_font_signature = impl.poi_overlay.font_signature();
+    impl.poi_allocation_retry_ms = 0;
     impl.poi_seen_revision = impl.tile_ctx.poi_revision;
 }
 #endif
@@ -1026,9 +1043,7 @@ void clear(Runtime& runtime)
     clear_overlay_layer(*impl);
 #if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
     impl->poi_overlay.clear();
-    impl->poi_storage.reset();
-    impl->poi_snapshot.items = nullptr;
-    impl->poi_snapshot.capacity = 0;
+    impl->annotation_frame.clear();
 #endif
     cleanup_tiles(impl->tile_ctx);
     impl->anchor.valid = false;

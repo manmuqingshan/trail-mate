@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ui_presentation/map/map_annotation_kind.h"
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -11,6 +12,7 @@ struct Policy
 {
     uint32_t enabled_levels = 0;
     bool labels = true;
+    uint8_t schema_version = 1;
     bool enabled(int zoom) const { return zoom >= 0 && zoom <= 18 && (enabled_levels & (1UL << zoom)) != 0; }
 };
 
@@ -18,10 +20,16 @@ struct Record
 {
     char id[48]{};
     char name[80]{};
-    char category[16]{};
+    char category[24]{};
     double lat = 0;
     double lon = 0;
     uint8_t priority = 0;
+    ui::map::AnnotationKind kind = ui::map::AnnotationKind::Poi;
+    bool explicit_kind = false;
+    uint8_t path_points = 0;
+    uint64_t feature_key = 0;
+    uint64_t key = 0;
+    int16_t path[16]{}; // At most eight tile-local points, only used by roads.
 };
 
 // Small header followed by exactly `count` Records in an owned PSRAM buffer.
@@ -39,7 +47,7 @@ struct alignas(8) TileHeader
 };
 
 static_assert(sizeof(TileHeader) <= 32, "POI metadata must stay small");
-static_assert(sizeof(Record) <= 168, "POI records must remain compact");
+static_assert(sizeof(Record) <= 224, "Annotation records must remain bounded and compact");
 static_assert(std::is_trivially_copyable<Record>::value, "POI payload records have no hidden allocations");
 
 inline const Record* payloadRecords(const uint8_t* data)

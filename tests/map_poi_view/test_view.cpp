@@ -1,4 +1,5 @@
 #include "ui/widgets/map/poi_overlay.h"
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <fstream>
@@ -38,7 +39,7 @@ int main(int argc, char** argv)
     auto* root = lv_obj_create(lv_screen_active());
     lv_obj_remove_style_all(root);
     lv_obj_set_size(root, 480, 222);
-    lv_obj_set_style_bg_color(root, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_bg_color(root, lv_color_hex(0x00FF00), 0);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
     lv_obj_update_layout(root);
     const auto initial = lv_obj_get_child_count(root);
@@ -48,6 +49,7 @@ int main(int argc, char** argv)
     std::vector<ui::map::MapPoiItem> items(48);
     ui::map::MapPoiSnapshot snapshot;
     snapshot.enabled = true;
+    snapshot.layout_ready = true;
     snapshot.labels = true;
     snapshot.items = items.data();
     snapshot.capacity = items.size();
@@ -61,7 +63,8 @@ int main(int argc, char** argv)
     }
     overlay.update(snapshot);
     lv_refr_now(display);
-    assert(pixels[25 * 480 + 15] != 0xFFFF); // actual marker rasterisation
+    assert(pixels[25 * 480 + 15] != 0x07E0);                                              // actual marker rasterisation
+    assert(std::count(pixels.begin(), pixels.end(), static_cast<uint16_t>(0xFFBD)) == 0); // no cream label plate
     assert(lv_obj_get_child_count(root) == initial + 1);
     auto* layer = lv_obj_get_child(root, -1);
     assert(lv_obj_get_child_count(layer) == 0); // no hidden label/marker pool
@@ -74,7 +77,7 @@ int main(int argc, char** argv)
     }
     overlay.clear();
     lv_refr_now(display);
-    assert(pixels[25 * 480 + 15] == 0xFFFF);
+    assert(pixels[25 * 480 + 15] == 0x07E0);
     snapshot.enabled = false;
     overlay.update(snapshot);
     lv_refr_now(display);

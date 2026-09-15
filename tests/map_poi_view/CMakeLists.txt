@@ -16,3 +16,32 @@ if(MSVC)
 endif()
 enable_testing()
 add_test(NAME map_poi_view_contract COMMAND map_poi_view_contract)
+add_executable(map_annotation_view_contract test_prepared_frame.cpp
+    ${REPO}/modules/ui_shared/src/ui/widgets/map/poi_overlay.cpp
+    ${REPO}/modules/ui_map_runtime/src/map_poi/annotation_frame.cpp
+    ${REPO}/modules/ui_map_runtime/src/map_poi/annotation_layout.cpp)
+target_include_directories(map_annotation_view_contract BEFORE PRIVATE stubs
+    ${REPO}/modules/ui_shared/include ${REPO}/modules/ui_presentation/include ${REPO}/modules/ui_map_runtime/include)
+target_link_libraries(map_annotation_view_contract PRIVATE lvgl)
+if(MSVC)
+    target_compile_options(map_annotation_view_contract PRIVATE /utf-8 /EHsc)
+endif()
+add_test(NAME map_annotation_view_contract COMMAND map_annotation_view_contract)
+add_executable(map_marker_semantics_contract test_marker_semantics.cpp ${REPO}/modules/ui_shared/src/ui/widgets/map/poi_overlay.cpp)
+target_include_directories(map_marker_semantics_contract BEFORE PRIVATE stubs ${REPO}/modules/ui_shared/include ${REPO}/modules/ui_presentation/include)
+target_link_libraries(map_marker_semantics_contract PRIVATE lvgl)
+add_test(NAME map_marker_semantics_contract COMMAND map_marker_semantics_contract)
+set(CJSON_DIR "" CACHE PATH "cJSON source for package replay")
+if(CJSON_DIR)
+  add_executable(replay_annotation_layout replay_annotation_layout.cpp
+      ${CJSON_DIR}/cJSON.c
+      ${REPO}/platform/esp/arduino_common/src/map_poi/cjson_poi_parser.cpp
+      ${REPO}/modules/ui_map_runtime/src/map_poi/annotation_frame.cpp
+      ${REPO}/modules/ui_map_runtime/src/map_poi/annotation_layout.cpp)
+  target_include_directories(replay_annotation_layout PRIVATE ${CJSON_DIR}
+      ${REPO}/platform/esp/arduino_common/include ${REPO}/modules/ui_map_runtime/include ${REPO}/modules/ui_presentation/include)
+  target_link_libraries(replay_annotation_layout PRIVATE lvgl)
+  if(MSVC)
+    target_compile_options(replay_annotation_layout PRIVATE /utf-8 /EHsc)
+  endif()
+endif()

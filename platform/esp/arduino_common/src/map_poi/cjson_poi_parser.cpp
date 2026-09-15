@@ -73,6 +73,34 @@ void copy_utf8(char* destination, std::size_t capacity, const char* source)
     std::memcpy(destination, source, size);
     destination[size] = '\0';
 }
+
+uint64_t legacy_key(const char* value)
+{
+    uint64_t key = UINT64_C(14695981039346656037);
+    while (*value)
+    {
+        key ^= static_cast<uint8_t>(*value++);
+        key *= UINT64_C(1099511628211);
+    }
+    return key;
+}
+
+bool hex_key(const char* text, uint64_t& key)
+{
+    if (!text || std::strlen(text) != 16) return false;
+    key = 0;
+    for (std::size_t i = 0; i < 16; ++i)
+    {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        unsigned digit;
+        if (c >= '0' && c <= '9') digit = c - '0';
+        else if (c >= 'a' && c <= 'f') digit = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') digit = c - 'A' + 10;
+        else return false;
+        key = (key << 4) | digit;
+    }
+    return true;
+}
 } // namespace
 
 bool CJsonPoiParser::manifest(const char* json, std::size_t size, ::ui::map_poi::Policy& out) const
@@ -82,12 +110,21 @@ bool CJsonPoiParser::manifest(const char* json, std::size_t size, ::ui::map_poi:
     const auto root = parse(json, size);
     if (!root) return false;
     int version = 0;
-    if (!integer(cJSON_GetObjectItemCaseSensitive(root.get(), "version"), version) || (version != 1 && version != 2)) return false;
+    if (!integer(cJSON_GetObjectItemCaseSensitive(root.get(), "version"), version) || (version != 1 && version != 2 && version != 3)) return false;
+    out.schema_version = static_cast<uint8_t>(version);
     auto* index = cJSON_GetObjectItemCaseSensitive(root.get(), "index");
     if (!cJSON_IsObject(index)) return false;
     const char* scheme = string(index, "scheme");
     const char* format = string(index, "format");
     if (!scheme || std::strcmp(scheme, "web-mercator-xyz") != 0 || !format || std::strcmp(format, "jsonl") != 0) return false;
+    if (version == 3)
+    {
+        const char* geometry = string(index, "geometry");
+        int points = 0, margin = 0;
+        if (!geometry || std::strcmp(geometry, "tile-local-pixels") != 0 ||
+            !integer(cJSON_GetObjectItemCaseSensitive(index, "max_path_points"), points) || points != 8 ||
+            !integer(cJSON_GetObjectItemCaseSensitive(index, "tile_margin"), margin) || margin != 32) return false;
+    }
     auto* levels = cJSON_GetObjectItemCaseSensitive(index, "enabled_zoom_levels");
     if (levels)
     {
@@ -121,6 +158,31 @@ bool CJsonPoiParser::record(const char* json, std::size_t size, ::ui::map_poi::R
     const char* id = string(root.get(), "id");
     const char* category = string(root.get(), "type", "t");
     if (!id || !*id || std::strlen(id) >= sizeof(out.id) || !category || !*category || std::strlen(category) >= sizeof(out.category)) return false;
+    const char* kind = string(root.get(), "kind");
+    out.explicit_kind = kind != nullptr;
+    if (kind)
+    {
+        if (std::strcmp(kind, "road") == 0) out.kind = ui::map::AnnotationKind::Road;
+        else if (std::strcmp(kind, "place") == 0) out.kind = ui::map::AnnotationKind::Place;
+        else if (std::strcmp(kind, "poi") != 0) return false;
+        if (!hex_key(id, out.key) || !hex_key(string(root.get(), "feature_id"), out.feature_key)) return false;
+    }
+    else out.key = out.feature_key = legacy_key(id);
+    auto* path = cJSON_GetObjectItemCaseSensitive(root.get(), "path");
+    if (out.kind == ui::map::AnnotationKind::Road)
+    {
+        const int count = cJSON_IsArray(path) ? cJSON_GetArraySize(path) : 0;
+        if (count < 4 || count > 16 || (count % 2) != 0) return false;
+        std::size_t i = 0;
+        for (auto* item = path->child; item; item = item->next)
+        {
+            int value = 0;
+            if (!integer(item, value) || value < -32 || value > 288) return false;
+            out.path[i++] = static_cast<int16_t>(value);
+        }
+        out.path_points = static_cast<uint8_t>(count / 2);
+    }
+    else if (path && !cJSON_IsNull(path)) return false;
     auto* lat = cJSON_GetObjectItemCaseSensitive(root.get(), "lat");
     auto* lon = cJSON_GetObjectItemCaseSensitive(root.get(), "lon");
     if (!cJSON_IsNumber(lat) || !cJSON_IsNumber(lon) || !std::isfinite(lat->valuedouble) || !std::isfinite(lon->valuedouble) ||
@@ -135,6 +197,7 @@ bool CJsonPoiParser::record(const char* json, std::size_t size, ::ui::map_poi::R
     std::strcpy(out.id, id);
     std::strcpy(out.category, category);
     copy_utf8(out.name, sizeof(out.name), string(root.get(), "name", "n"));
+    if (out.kind != ui::map::AnnotationKind::Poi && out.name[0] == '\0') return false;
     return true;
 }
 } // namespace platform::esp::arduino_common::map_poi
