@@ -31,6 +31,10 @@ add_executable(map_marker_semantics_contract test_marker_semantics.cpp ${REPO}/m
 target_include_directories(map_marker_semantics_contract BEFORE PRIVATE stubs ${REPO}/modules/ui_shared/include ${REPO}/modules/ui_presentation/include)
 target_link_libraries(map_marker_semantics_contract PRIVATE lvgl)
 add_test(NAME map_marker_semantics_contract COMMAND map_marker_semantics_contract)
+add_executable(map_font_readiness_contract test_font_readiness.cpp ${REPO}/modules/ui_shared/src/ui/widgets/map/poi_overlay.cpp)
+target_include_directories(map_font_readiness_contract BEFORE PRIVATE stubs ${REPO}/modules/ui_shared/include ${REPO}/modules/ui_presentation/include)
+target_link_libraries(map_font_readiness_contract PRIVATE lvgl)
+add_test(NAME map_font_readiness_contract COMMAND map_font_readiness_contract)
 set(CJSON_DIR "" CACHE PATH "cJSON source for package replay")
 if(CJSON_DIR)
   add_executable(replay_annotation_layout replay_annotation_layout.cpp

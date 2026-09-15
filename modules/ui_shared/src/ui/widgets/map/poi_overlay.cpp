@@ -185,6 +185,40 @@ bool PoiOverlay::measure_text(void* view, const char* text, std::size_t bytes, b
         bytes += 3;
     }
     prefix[bytes] = '\0';
+    // A missing glyph must not be laid out using LVGL's placeholder metrics.
+    // Font loading is requested by prepare_text outside the draw callback;
+    // the shared font-chain signature schedules another layout once it loads.
+    for (std::size_t i = 0; i < bytes;)
+    {
+        const auto lead = static_cast<uint8_t>(prefix[i++]);
+        uint32_t codepoint = lead;
+        unsigned remaining = 0;
+        if (lead >= 0xF0 && lead <= 0xF4)
+        {
+            codepoint = lead & 7U;
+            remaining = 3;
+        }
+        else if (lead >= 0xE0 && lead <= 0xEF)
+        {
+            codepoint = lead & 15U;
+            remaining = 2;
+        }
+        else if (lead >= 0xC2 && lead <= 0xDF)
+        {
+            codepoint = lead & 31U;
+            remaining = 1;
+        }
+        else if (lead >= 0x80) return false;
+        if (i + remaining > bytes) return false;
+        while (remaining--)
+        {
+            const auto next = static_cast<uint8_t>(prefix[i++]);
+            if ((next & 0xC0U) != 0x80U) return false;
+            codepoint = (codepoint << 6) | (next & 63U);
+        }
+        lv_font_glyph_dsc_t glyph{};
+        if (!lv_font_get_glyph_dsc(self->font_, &glyph, codepoint, 0) || glyph.is_placeholder) return false;
+    }
     lv_point_t size{};
     lv_text_get_size(&size, prefix, self->font_, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
     width = static_cast<int16_t>(size.x);
