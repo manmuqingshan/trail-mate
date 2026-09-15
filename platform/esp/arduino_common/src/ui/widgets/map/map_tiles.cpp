@@ -796,7 +796,8 @@ class MapTileEventQueue final : public ui::map_tiles::IMapTileEventSink
             if (event.payload.format == ui::map_tiles::MapTileFormat::PoiRecords)
             {
                 if (ui::map_poi::validPayload(event.payload.data, event.payload.size))
-                    payload = static_cast<uint8_t*>(heap_caps_malloc(event.payload.size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+                    payload = static_cast<uint8_t*>(heap_caps_aligned_alloc(alignof(ui::map_poi::TileHeader), event.payload.size,
+                                                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
                 else allocation_error = -22;
             }
             else
@@ -1291,7 +1292,16 @@ class MapTileAsyncHost final
 
         if (scratch_ == nullptr)
         {
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+            // The worker also constructs typed annotation records. Ordinary
+            // ESP heap allocation only guarantees the allocator's alignment,
+            // which need not satisfy TileHeader's explicit 8-byte alignment.
+            scratch_ = static_cast<uint8_t*>(heap_caps_aligned_alloc(alignof(ui::map_poi::TileHeader),
+                                                                     kMapTileWorkerScratchBytes,
+                                                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+#else
             scratch_ = allocate_tile_payload(kMapTileWorkerScratchBytes);
+#endif
             if (scratch_ == nullptr)
             {
                 if (!scratch_alloc_failed_logged_)

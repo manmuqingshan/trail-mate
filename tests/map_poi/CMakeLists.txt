@@ -13,6 +13,13 @@ target_include_directories(map_poi_contract PRIVATE ${CJSON_DIR}
     ${REPO}/modules/ui_map_runtime/include ${REPO}/modules/ui_presentation/include
     ${REPO}/platform/esp/arduino_common/include)
 enable_testing()
+add_executable(map_poi_alignment_contract test_poi_alignment.cpp ${CJSON_DIR}/cJSON.c
+    ${REPO}/modules/ui_map_runtime/src/map_poi/poi_tile_source.cpp
+    ${REPO}/modules/ui_map_runtime/src/map_tiles/map_tile_resolver.cpp
+    ${REPO}/platform/esp/arduino_common/src/map_poi/cjson_poi_parser.cpp)
+target_include_directories(map_poi_alignment_contract PRIVATE ${CJSON_DIR}
+    ${REPO}/modules/ui_map_runtime/include ${REPO}/modules/ui_presentation/include ${REPO}/platform/esp/arduino_common/include)
+add_test(NAME map_poi_alignment_contract COMMAND map_poi_alignment_contract)
 add_test(NAME map_poi_contract COMMAND map_poi_contract)
 add_executable(map_annotation_parser_contract test_annotation_parser.cpp
     ${CJSON_DIR}/cJSON.c ${REPO}/platform/esp/arduino_common/src/map_poi/cjson_poi_parser.cpp)
