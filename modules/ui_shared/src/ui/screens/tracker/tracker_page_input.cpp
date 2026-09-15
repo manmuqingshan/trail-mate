@@ -61,7 +61,8 @@ static bool is_focusable_list_child(lv_obj_t* obj)
     {
         return false;
     }
-    if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN) || lv_obj_has_state(obj, LV_STATE_DISABLED))
+    if (!lv_obj_has_flag(obj, LV_OBJ_FLAG_CLICKABLE) ||
+        lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN) || lv_obj_has_state(obj, LV_STATE_DISABLED))
     {
         return false;
     }

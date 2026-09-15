@@ -12,7 +12,7 @@ for(const [device,width,height] of [['pager',480,222],['tdeck',320,240],['wio-tr
     onFrame(pointer){framePointer=pointer;},print(){},printErr(){},
   });
   runtime._native_init(device==='pager'?0:1);
-  for(const [page,filterText,contentText,maxTextGap] of [[5,'Direct','Alex',16],[12,'Contacts','No contacts yet',6],[14,'Record','Stopped',5]]) {
+  for(const [page,filterText,contentText,maxTextGap] of [[5,'Direct','Alex',16],[12,'Contacts','No contacts yet',6],[14,'Tracks','Not recording',5]]) {
     runtime._native_open_page(page);
     for(let i=0;i<5;i++)runtime._native_tick(50);
     const snapshot=JSON.parse(runtime.UTF8ToString(runtime._native_snapshot()));

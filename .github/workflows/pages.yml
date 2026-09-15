@@ -85,6 +85,7 @@ jobs:
           cmake --build build/web-simulator --parallel 4
           node tests/site/native-ui.test.mjs
           node tests/site/two-pane-layout.test.mjs
+          node tests/site/tracker-page.test.mjs
 
       - name: Verify locale packs
         run: python tools/validate_locale_packs.py --pack-root packs
