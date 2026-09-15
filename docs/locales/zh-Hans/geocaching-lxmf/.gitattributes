@@ -1,0 +1,3 @@
+# Preserve reference-source checksums and exact XML fixture bytes.
+references/** -text
+examples/*.gpx -text

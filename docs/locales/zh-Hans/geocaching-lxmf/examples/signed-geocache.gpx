@@ -1,0 +1,37 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" xmlns:tm="urn:trailmate:geocaching:gpx:1" xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1" version="1.1" creator="Trail Mate">
+  <wpt lat="30.2500000" lon="120.1500000">
+    <name>Test</name>
+    <cmt>Root</cmt>
+    <desc>Demo
+
+--- Reticulum Geocaching ---
+Cache-ID: 8a77c881525c0de861415bd5b965ff9229eb912ef8b1d08cabc53351a75a2ed5
+Revision: 1
+State: active
+Difficulty: 1.5
+Terrain: 2.0
+Container: small
+Hint: Root</desc>
+    <src>Reticulum Geocaching</src>
+    <sym>Geocache</sym>
+    <type>Geocache|Traditional Cache</type>
+    <extensions>
+      <groundspeak:cache available="True" archived="False">
+        <groundspeak:name>Test</groundspeak:name>
+        <groundspeak:placed_by>Reticulum author f898ac1253a360892fc37bddbbfe90ca343b93cd13c94c0178f1358fb4ed1d85</groundspeak:placed_by>
+        <groundspeak:type>Traditional Cache</groundspeak:type>
+        <groundspeak:container>Small</groundspeak:container>
+        <groundspeak:difficulty>1.5</groundspeak:difficulty>
+        <groundspeak:terrain>2.0</groundspeak:terrain>
+        <groundspeak:short_description html="False">Public cache shared over Reticulum.</groundspeak:short_description>
+        <groundspeak:long_description html="False">Demo</groundspeak:long_description>
+        <groundspeak:encoded_hints>Root</groundspeak:encoded_hints>
+      </groundspeak:cache>
+      <tm:record version="1">
+        <tm:payload encoding="base64">3AAQAcRANYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQDoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuMQQQEFCQ0RFRkdISUpLTE1OTwHAAM4SB8igzkedb2CkVGVzdKREZW1vpFJvb3QDBAIAAA==</tm:payload>
+        <tm:signature encoding="base64">1LJTZ7+IjJWr7PMbhZdyl/ncbINJmoNJpW9oeN6wuKvdAyiUjrIsc5K+vWnBSA7jxfVnSFbhNON0XzTTqTc1CQ==</tm:signature>
+      </tm:record>
+    </extensions>
+  </wpt>
+</gpx>
