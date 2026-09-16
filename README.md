@@ -653,6 +653,9 @@ Trail Mate has benefited from real support from the community and hardware vendo
 - Special thanks to **M5Stack** for supporting the Cardputer Zero adaptation with hardware support.
   Their support helped validate the Cardputer Zero environment against real device constraints and move Trail Mate's Linux portable-device path forward.
 
+- Special thanks to **[Seeed Studio](https://www.seeedstudio.com/)** for supporting Trail Mate with development hardware.
+  Their support helps broaden device compatibility and enables continued development and validation on real hardware.
+
 - Special thanks to **Shenzhen GAT-IOT Technology Co., Ltd.** (https://github.com/gat-iot) for providing hardware support to this project.
   The real devices they supplied have helped Trail Mate carry out development, debugging, and validation on actual hardware, further advancing the implementation and refinement of related features.
 
