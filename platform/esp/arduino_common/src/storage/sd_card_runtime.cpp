@@ -14,6 +14,7 @@
 #ifndef DISABLE_FS_H_WARNING
 #define DISABLE_FS_H_WARNING 1
 #endif
+#include "platform/esp/arduino_common/storage/sdmmc_block_device.h"
 #include <SdFat.h>
 #include <algorithm>
 #include <cstdarg>
@@ -62,7 +63,12 @@ constexpr std::size_t kSdTransferSliceBytes = kSdSectorSize;
 #define TRAIL_MATE_SD_IO_LOG_INTERVAL_MS 1000
 #endif
 
+#if defined(TRAIL_MATE_SDFAT_SDMMC)
+FsVolume s_sdfat;
+ArduinoSdmmcBlockDevice s_sdmmc;
+#else
 SdFs s_sdfat;
+#endif
 SdCardInfo s_info{};
 bool s_sdfat_mounted = false;
 volatile bool s_external_block_owner_active = false;
@@ -465,6 +471,9 @@ bool clear_sdfat()
         (void)s_transient_file->close();
     }
     s_sdfat.end();
+#if defined(TRAIL_MATE_SDFAT_SDMMC)
+    s_sdmmc.end();
+#endif
     // SdFat's Arduino driver ends the shared SPIClass. Restore the exact
     // board mapping recorded for this mount so display/radio users keep a
     // valid bus even when it differs from Arduino's global defaults.
@@ -582,11 +591,19 @@ void record_sdfat_info(uint32_t initialized_spi_hz)
     Serial.println("[SD][mount] info begin");
     s_info = SdCardInfo{};
     s_info.backend = SdCardBackend::SdFat;
+#if defined(TRAIL_MATE_SDFAT_SDMMC)
+    s_info.card_type = s_sdmmc.highCapacity() ? kRuntimeCardSdhc : kRuntimeCardSd;
+#else
     s_info.card_type = card_type_from_sdfat(s_sdfat);
+#endif
     s_info.fat_type = s_sdfat.fatType();
     s_info.initialized_spi_hz = initialized_spi_hz;
     s_info.sector_size = kSdSectorSize;
+#if defined(TRAIL_MATE_SDFAT_SDMMC)
+    auto* card = &s_sdmmc;
+#else
     SdCard* card = s_sdfat.card();
+#endif
     if (card != nullptr)
     {
         s_info.sector_count = static_cast<uint32_t>(card->sectorCount());
@@ -677,6 +694,15 @@ bool mount_sd_card(int sd_cs,
                    const char* mount_point,
                    uint8_t max_files)
 {
+#if defined(TRAIL_MATE_SDFAT_SDMMC)
+    (void)sd_cs;
+    (void)spi_bus;
+    (void)spi_hz;
+    (void)mount_point;
+    (void)max_files;
+    Serial.println("[SD] SPI mount rejected: this target uses SDMMC");
+    return false;
+#else
     (void)mount_point;
     (void)max_files;
     if (!::platform::esp::boards::storageStartupGateSatisfied())
@@ -768,7 +794,32 @@ bool mount_sd_card(int sd_cs,
                   static_cast<unsigned long>(s_info.sector_count),
                   static_cast<unsigned long>(s_info.sector_size));
     return true;
+#endif
 }
+
+#if defined(TRAIL_MATE_SDFAT_SDMMC)
+bool mount_sdmmc_card(int clock, int command, int data0)
+{
+    SdRuntimeOperationGuard operation("sdmmc_mount", sys::runtime::BusAccessPolicy::RecoveryExclusive, 500U);
+    if (!operation.locked() || s_external_block_owner_active) return false;
+    if (s_sdfat_mounted) return true;
+    if (!s_sdmmc.begin(clock, command, data0)) return false;
+    bool mounted = s_sdfat.begin(&s_sdmmc, true, 1);
+    if (!mounted) mounted = s_sdfat.begin(&s_sdmmc, true, 0);
+    if (!mounted || s_sdfat.fatType() == 0)
+    {
+        s_sdfat.end();
+        s_sdmmc.end();
+        reset_info();
+        return false;
+    }
+    s_sdfat_mounted = true;
+    // SPI frequency metadata is inapplicable to the SDMMC transport.
+    record_sdfat_info(0);
+    Serial.printf("[SD] backend=sdfat bus=sdmmc width=1 fs=%s\n", sd_card_filesystem_name());
+    return true;
+}
+#endif
 
 void unmount_sd_card()
 {
@@ -1800,8 +1851,12 @@ bool sd_read_raw(uint32_t lba, uint8_t* buffer)
     }
     if (s_info.backend == SdCardBackend::SdFat)
     {
+#if defined(TRAIL_MATE_SDFAT_SDMMC)
+        result = s_sdmmc.readSector(lba, buffer);
+#else
         result = s_sdfat.card() != nullptr &&
                  s_sdfat.card()->readSector(lba, buffer);
+#endif
         sd_io_end("raw_read", path, start_ms, result, kSdSectorSize);
         return result;
     }
@@ -1828,8 +1883,12 @@ bool sd_write_raw(uint32_t lba, const uint8_t* buffer)
     }
     if (s_info.backend == SdCardBackend::SdFat)
     {
+#if defined(TRAIL_MATE_SDFAT_SDMMC)
+        result = s_sdmmc.writeSector(lba, buffer);
+#else
         result = s_sdfat.card() != nullptr &&
                  s_sdfat.card()->writeSector(lba, buffer);
+#endif
         sd_io_end("raw_write", path, start_ms, result, kSdSectorSize);
         return result;
     }

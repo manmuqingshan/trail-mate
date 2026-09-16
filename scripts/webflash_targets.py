@@ -4,6 +4,18 @@ from typing import Final
 
 WEBFLASH_TARGETS: Final = (
     {
+        "id": "wio-tracker-l2",
+        "env": "wio_tracker_l2",
+        "build_system": "platformio",
+        "name": "Seeed Wio Tracker L2 Pro",
+        "subtitle": "ESP32-S3 handheld with 320x240 touch and on-screen keyboard",
+        "chip_family": "ESP32-S3",
+        "flash_mode": "qio",
+        "flash_freq": "80m",
+        "flash_size": "16MB",
+        "merged_asset_name": "trail-mate-wio-tracker-l2-webflash.bin",
+    },
+    {
         "id": "tlora-pager-sx1262",
         "env": "tlora_pager_sx1262",
         "build_system": "platformio",

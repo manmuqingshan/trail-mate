@@ -90,6 +90,9 @@ jobs:
           - env: tdeck
             project_dir: .
             build_root: .pio/build
+          - env: wio_tracker_l2
+            project_dir: .
+            build_root: .pio/build
           - env: lilygo_twatch_s3
             project_dir: .
             build_root: .pio/build
@@ -140,12 +143,24 @@ jobs:
           if [ -f "${BUILD_DIR}/firmware.bin" ]; then
             SIZE=$(stat -c%s "${BUILD_DIR}/firmware.bin")
             MAX_SIZE=$((0x400000))
+            if [ "${{ matrix.env }}" = "wio_tracker_l2" ]; then
+              MAX_SIZE=$((0x600000))
+            fi
             echo "firmware.bin size=${SIZE} max=${MAX_SIZE}"
             if [ "${SIZE}" -gt "${MAX_SIZE}" ]; then
               echo "firmware.bin exceeds OTA slot size" >&2
               exit 1
             fi
           fi
+
+      - name: Verify compact touch editor with LVGL
+        if: matrix.env == 'wio_tracker_l2'
+        run: |
+          cmake -S modules/ui_lvgl_ux_packs/tests/touch_editor -B .codex-build/wio-touch \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DLVGL_SOURCE_DIR="$PWD/.pio/libdeps/wio_tracker_l2/lvgl"
+          cmake --build .codex-build/wio-touch --parallel 2
+          ctest --test-dir .codex-build/wio-touch --output-on-failure
 
       - name: Prepare and verify nRF52840 UF2
         if: matrix.env == 'gat562_mesh_evb_pro' || matrix.env == 't-echo-lite'
@@ -171,7 +186,7 @@ jobs:
           fi
 
       - name: Prepare web flasher image
-        if: matrix.env == 'tlora_pager_sx1262' || matrix.env == 'tlora_pager_lr1121' || matrix.env == 'tdeck' || matrix.env == 'lilygo_twatch_s3'
+        if: matrix.env == 'tlora_pager_sx1262' || matrix.env == 'tlora_pager_lr1121' || matrix.env == 'tdeck' || matrix.env == 'lilygo_twatch_s3' || matrix.env == 'wio_tracker_l2'
         run: |
           python scripts/prepare_webflash_release.py \
             --env ${{ matrix.env }} \

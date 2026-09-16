@@ -2,6 +2,7 @@
 
 #include "ui_lvgl_ux_packs/packs/cardputer_compact_ux_pack.h"
 #include "ui_lvgl_ux_packs/packs/compatibility_ux_pack.h"
+#include "ui_lvgl_ux_packs/packs/deck_touch_ux_pack.h"
 #include "ui_lvgl_ux_packs/packs/simulator_full_ux_pack.h"
 #include "ui_lvgl_ux_packs/packs/t_display_p4_touch_ux_pack.h"
 #include "ui_lvgl_ux_packs/packs/tiny_node_status_ux_pack.h"
@@ -20,6 +21,7 @@ const IUxPack* findUxPackById(const char* id)
     }
 
     static const CompatibilityUxPack compatibility_pack;
+    static const DeckTouchUxPack deck_touch_pack;
     static const CardputerCompactUxPack cardputer_compact_pack;
     static const UConsoleDesktopUxPack uconsole_desktop_pack;
     static const TinyNodeStatusUxPack tiny_node_status_pack;
@@ -28,6 +30,7 @@ const IUxPack* findUxPackById(const char* id)
 
     const IUxPack* const packs[] = {
         &compatibility_pack,
+        &deck_touch_pack,
         &cardputer_compact_pack,
         &uconsole_desktop_pack,
         &tiny_node_status_pack,

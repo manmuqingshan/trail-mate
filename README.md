@@ -1,10 +1,21 @@
 # 🗺️ Trail Mate
 
+<p align="center">
+  <a href="https://github.com/vicliu624/trail-mate/stargazers"><img src="https://img.shields.io/github/stars/vicliu624/trail-mate?style=flat-square&amp;label=stars&amp;color=4285f4" alt="GitHub stars" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-orange?style=flat-square" alt="License: AGPL-3.0" /></a>
+  <a href="https://github.com/vicliu624/trail-mate/releases"><img src="https://img.shields.io/github/v/release/vicliu624/trail-mate?include_prereleases&amp;sort=semver&amp;style=flat-square&amp;label=version&amp;color=4285f4" alt="Latest release, including prereleases" /></a>
+  <a href="https://github.com/vicliu624/trail-mate/releases"><img src="https://img.shields.io/github/downloads/vicliu624/trail-mate/total?style=flat-square&amp;label=downloads&amp;color=65b821" alt="Total GitHub release asset downloads" /></a>
+  <br />
+  <a href="https://github.com/vicliu624/trail-mate/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/vicliu624/trail-mate/ci.yml?branch=main&amp;style=flat-square&amp;label=CI" alt="CI status on main" /></a>
+  <a href="#-current-device-support--development-status"><img src="https://img.shields.io/badge/platforms-ESP32%20%7C%20nRF52%20%7C%20Linux-00897b?style=flat-square" alt="Platforms: ESP32, nRF52, and Linux" /></a>
+  <a href="https://discord.gg/shkueG4zfc"><img src="https://img.shields.io/badge/Discord-join%20community-5865F2?style=flat-square&amp;logo=discord&amp;logoColor=white" alt="Join the Trail Mate Discord community" /></a>
+</p>
+
 ![trail mate page](docs/images/ChatGPTImage.png)
 
 > An edge-first decentralized communication and situational-awareness system where identity, data, and connectivity choices remain with the user
 
-[English](README.md) | [Join Discord](https://discord.gg/UpDsAz9H3)
+[English](README.md) | [Join Discord](https://discord.gg/shkueG4zfc)
 
 ---
 
@@ -684,7 +695,8 @@ The system architecture, communication protocols, embedded firmware, Linux edge 
 ## Contact
 
 * Email: **[vicliu@outlook.com](mailto:vicliu@outlook.com)**
-* Discord: **[Trail Mate Discord](https://discord.gg/87PVMVUP)**
+* Discord community: **[Trail Mate Discord](https://discord.gg/shkueG4zfc)**
+* Discord personal contact: **`vicliu_63660`** — add this username as a friend in Discord.
 * WeChat: **vicliu890624**
 
 You may contact me for:

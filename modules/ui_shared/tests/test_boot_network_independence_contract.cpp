@@ -31,8 +31,12 @@ int main(int argc, char** argv)
     assert(boot.find("constexpr uint32_t kMinShowMs = 3000;") == std::string::npos);
 
     // The menu is constructed and finalized without a synchronous Wi-Fi call.
-    const std::size_t menu_pos = startup.find("initializeShell();");
-    const std::size_t finish_pos = startup.find("finishStartup(waking_from_sleep);");
+    // Search the startup entry point, not the helper definition. The shell
+    // call may be guarded so failed initialization cannot reach finalization.
+    const std::size_t run_pos = startup.find("void run()");
+    assert(run_pos != std::string::npos);
+    const std::size_t menu_pos = startup.find("initializeShell()", run_pos);
+    const std::size_t finish_pos = startup.find("finishStartup(waking_from_sleep);", run_pos);
     assert(menu_pos != std::string::npos);
     assert(finish_pos != std::string::npos);
     assert(menu_pos < finish_pos);

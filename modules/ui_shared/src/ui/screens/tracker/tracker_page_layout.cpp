@@ -6,6 +6,7 @@
  */
 
 #include "ui/screens/tracker/tracker_page_layout.h"
+#include "ui/components/two_pane_layout.h"
 #include "ui/page/page_profile.h"
 #include "ui/widgets/top_bar.h"
 
@@ -85,19 +86,12 @@ lv_obj_t* create_header(lv_obj_t* root)
 lv_obj_t* create_content(lv_obj_t* root)
 {
     const auto& profile = page_profile();
-    lv_obj_t* content = lv_obj_create(root);
-    lv_obj_set_width(content, LV_PCT(100));
-    lv_obj_set_height(content, 0);
-    lv_obj_set_flex_grow(content, 1);
-    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_left(content, profile.content_pad_left, 0);
-    lv_obj_set_style_pad_right(content, profile.content_pad_right, 0);
-    lv_obj_set_style_pad_top(content, profile.content_pad_top, 0);
-    lv_obj_set_style_pad_bottom(content, profile.content_pad_bottom, 0);
-    lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
-    apply_base_container_style(content);
-    return content;
+    ::ui::components::two_pane_layout::ContentSpec spec;
+    spec.pad_left = profile.content_pad_left;
+    spec.pad_right = profile.content_pad_right;
+    spec.pad_top = profile.content_pad_top;
+    spec.pad_bottom = profile.content_pad_bottom;
+    return ::ui::components::two_pane_layout::create_content_row(root, spec);
 }
 
 lv_obj_t* create_filter_panel(lv_obj_t* content, int width)
@@ -110,9 +104,9 @@ lv_obj_t* create_filter_panel(lv_obj_t* content, int width)
     lv_obj_set_style_pad_all(panel, panel_pad(), LV_PART_MAIN);
     lv_obj_set_style_pad_row(panel, profile.filter_panel_pad_row, LV_PART_MAIN);
     lv_obj_set_style_margin_left(panel, 0, LV_PART_MAIN);
-    lv_obj_set_style_margin_right(panel, panel_gap(), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(panel, lv_color_hex(0xF6E6C6), 0);
+    lv_obj_set_style_margin_right(panel, 0, LV_PART_MAIN);
     apply_base_container_style(panel);
+    lv_obj_set_style_bg_opa(panel, LV_OPA_TRANSP, 0);
     return panel;
 }
 
@@ -165,7 +159,7 @@ lv_obj_t* create_bottom_bar(lv_obj_t* list_panel)
     lv_obj_set_style_pad_right(bar, profile.list_panel_pad_right, LV_PART_MAIN);
     lv_obj_set_style_pad_top(bar, panel_pad(), LV_PART_MAIN);
     lv_obj_set_style_pad_bottom(bar, profile.list_panel_margin_bottom, LV_PART_MAIN);
-    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_SPACE_EVENLY,
+    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_END,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_bg_color(bar, lv_color_hex(0xFAF0D8), 0);

@@ -210,7 +210,6 @@ void focus_main_panel();
 std::string format_list_name(const std::string& name);
 void clear_list_items();
 lv_obj_t* create_list_item_button(const std::string& text, intptr_t user_data, bool checked, bool disabled);
-void append_back_list_item();
 
 void on_back(void*)
 {
@@ -3040,9 +3039,14 @@ lv_obj_t* create_list_item_button(const std::string& text, intptr_t user_data, b
     return btn;
 }
 
-void append_back_list_item()
+void create_empty_state(const std::string& text)
 {
-    create_list_item_button(::ui::i18n::tr("Back"), kBackListItemUserData, false, false);
+    lv_obj_t* label = lv_label_create(g_tracker_state.list_container);
+    lv_obj_set_width(label, LV_PCT(100));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_clear_flag(label, LV_OBJ_FLAG_CLICKABLE);
+    ::ui::i18n::set_content_label_text_raw(label, text.c_str());
+    lv_obj_set_style_text_color(label, lv_color_hex(kPanelTextMuted), 0);
 }
 
 void sync_list_item_checked_states()
@@ -3173,7 +3177,9 @@ void update_record_status()
     const bool recording = platform::ui::tracker::is_recording();
     if (state.mode == TrackerPageState::Mode::Record)
     {
-        ::ui::i18n::set_label_text(state.status_label, recording ? "Recording" : "Stopped");
+        ::ui::i18n::set_label_text(state.status_label, recording ? "Recording" : "Not recording");
+        lv_obj_set_style_text_color(state.status_label,
+                                    lv_color_hex(recording ? 0xC53D32 : kPanelTextMuted), 0);
     }
 }
 
@@ -3183,7 +3189,24 @@ void update_start_stop_button()
     const bool recording = platform::ui::tracker::is_recording();
     if (state.start_stop_label)
     {
-        ::ui::i18n::set_label_text(state.start_stop_label, recording ? "Stop" : "New");
+        ::ui::i18n::set_label_text(state.start_stop_label, recording ? "Stop recording" : "Start recording");
+        int text_width = 0;
+        for (const char* key : {"Start recording", "Stop recording"})
+        {
+            lv_point_t size;
+            lv_text_get_size(&size, ::ui::i18n::tr(key),
+                             lv_obj_get_style_text_font(state.start_stop_label, LV_PART_MAIN),
+                             lv_obj_get_style_text_letter_space(state.start_stop_label, LV_PART_MAIN),
+                             0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+            text_width = std::max<int>(text_width, size.x);
+        }
+        const int inset = lv_obj_get_style_pad_left(state.start_stop_btn, LV_PART_MAIN) +
+                          lv_obj_get_style_pad_right(state.start_stop_btn, LV_PART_MAIN) +
+                          2 * lv_obj_get_style_border_width(state.start_stop_btn, LV_PART_MAIN);
+        lv_obj_set_width(state.start_stop_btn,
+                         std::max<int>(bottom_bar_button_width(), text_width + inset + 2));
+        lv_obj_set_style_max_width(state.start_stop_btn, LV_PCT(100), 0);
+        lv_label_set_long_mode(state.start_stop_label, LV_LABEL_LONG_DOT);
     }
 }
 
@@ -3286,7 +3309,7 @@ void update_record_page()
 
     if (s_record_names.empty())
     {
-        create_list_item_button(s_record_empty_text.c_str(), 0, false, true);
+        create_empty_state(s_record_empty_text);
     }
     else
     {
@@ -3298,7 +3321,6 @@ void update_record_page()
                                     false);
         }
     }
-    append_back_list_item();
 
     lv_obj_add_flag(state.list_container, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(state.list_container, LV_DIR_VER);
@@ -3388,6 +3410,7 @@ void update_route_status()
     {
         return;
     }
+    lv_obj_set_style_text_color(state.status_label, lv_color_hex(kPanelTextMuted), 0);
     lv_obj_set_style_text_font(
         state.status_label, ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()), 0);
     if (state.mode == TrackerPageState::Mode::Route)
@@ -3422,7 +3445,11 @@ void update_route_page()
 
     if (s_route_names.empty())
     {
-        create_list_item_button(s_route_empty_text.c_str(), 0, false, true);
+        create_empty_state(s_route_empty_text);
+        if (platform::ui::device::sd_ready())
+        {
+            create_empty_state(::ui::i18n::tr("Add KML files to the routes folder"));
+        }
     }
     else
     {
@@ -3434,7 +3461,6 @@ void update_route_page()
                                     false);
         }
     }
-    append_back_list_item();
 
     lv_obj_add_flag(state.list_container, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(state.list_container, LV_DIR_VER);
@@ -3541,10 +3567,7 @@ void on_start_stop_clicked(lv_event_t*)
     }
     update_record_status();
     update_start_stop_button();
-    if (was_recording)
-    {
-        schedule_deferred_record_list_refresh(120);
-    }
+    schedule_deferred_record_list_refresh(120);
 }
 
 void on_mode_record_clicked(lv_event_t*)
@@ -4184,7 +4207,7 @@ void init_page(lv_obj_t* parent)
     lv_obj_set_height(state.mode_record_btn, filter_button_height());
     state.mode_record_label = lv_label_create(state.mode_record_btn);
     lv_obj_add_style(state.mode_record_label, &s_btn_label, LV_PART_MAIN);
-    ::ui::i18n::set_label_text(state.mode_record_label, "Record");
+    ::ui::i18n::set_label_text(state.mode_record_label, "Tracks");
     lv_obj_center(state.mode_record_label);
 
     state.mode_route_btn = lv_btn_create(state.filter_panel);
@@ -4192,11 +4215,11 @@ void init_page(lv_obj_t* parent)
     lv_obj_set_height(state.mode_route_btn, filter_button_height());
     state.mode_route_label = lv_label_create(state.mode_route_btn);
     lv_obj_add_style(state.mode_route_label, &s_btn_label, LV_PART_MAIN);
-    ::ui::i18n::set_label_text(state.mode_route_label, "Route");
+    ::ui::i18n::set_label_text(state.mode_route_label, "Routes");
     lv_obj_center(state.mode_route_label);
 
     state.status_label = lv_label_create(state.list_panel);
-    ::ui::i18n::set_label_text(state.status_label, "Stopped");
+    ::ui::i18n::set_label_text(state.status_label, "Not recording");
     lv_obj_set_width(state.status_label, LV_PCT(100));
     lv_obj_set_style_text_font(
         state.status_label, ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()), 0);

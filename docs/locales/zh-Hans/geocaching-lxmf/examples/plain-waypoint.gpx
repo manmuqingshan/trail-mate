@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="Trail Mate design sample">
+  <wpt lat="30.2500000" lon="120.1500000">
+    <name>林间小盒（设计样例）</name>
+    <cmt>留意树根附近；本文件不表示真实宝藏。</cmt>
+    <desc>仅用于格式评审，不是实际寻宝坐标记录。
+
+Difficulty: 1.5
+Terrain: 2.0
+Container: small
+State: active
+Hint: 留意树根附近。</desc>
+    <src>Reticulum Geocaching design sample</src>
+    <sym>Geocache</sym>
+    <type>Geocache|Traditional Cache</type>
+  </wpt>
+</gpx>

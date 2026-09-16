@@ -1,0 +1,8 @@
+{
+  "name": "boards_wio_tracker_l2",
+  "version": "0.1.0",
+  "build": {
+    "includeDir": "include",
+    "srcFilter": "-<*>"
+  }
+}

@@ -20,6 +20,7 @@ namespace ui::page_profile
 {
 namespace
 {
+const PageLayoutProfile* s_active_profile = nullptr;
 
 lv_coord_t fallback_screen_width(lv_obj_t* screen)
 {
@@ -315,6 +316,7 @@ PageLayoutProfile make_default_profile(lv_coord_t width, lv_coord_t height)
 
 const PageLayoutProfile& current()
 {
+    if (s_active_profile) return *s_active_profile;
     static PageLayoutProfile profile = []()
     {
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5)
@@ -338,6 +340,11 @@ const PageLayoutProfile& current()
 #endif
     }();
     return profile;
+}
+
+void set_active_profile(const PageLayoutProfile* profile)
+{
+    s_active_profile = profile;
 }
 
 bool is_dense()

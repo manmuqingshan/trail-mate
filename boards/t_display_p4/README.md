@@ -59,10 +59,32 @@ is documented in `docs/engineering/t-display-p4-display-runtime-architecture.md`
 T-Display-P4 Keyboard is an accessory, not a base-board invariant. Runtime
 probing owns the distinction:
 
-- TCA8418 probe succeeds: register an LVGL keypad input device and suppress the
-  large touch IME keyboard.
+- TCA8418 probe succeeds: enable the P4 adapter's physical-key event routing.
 - TCA8418 probe fails or the module is absent: keep touch input active and show
   the virtual keyboard on large-touch compose surfaces.
+
+Keyboard backlight is an independent GPIO47/SY7200A PWM output. Board startup
+initializes it to approximately 30% brightness even when XL9555/TCA8418 input
+initialization fails. The platform backlight capability/get/set APIs use
+`supportsKeyboardBacklight()`, not `hasKeyboard()`. These APIs do not themselves
+add a touch settings control. Keypad readiness remains independent, and this
+change does not alter the touch IME's physical-input availability check.
+
+LDO4 powers VDDPST_5 (GPIO39-48), including keyboard signals and SD signals.
+The keyboard connector's ESP_3V3 supply is a separate electrical domain.
+
+## Power Runtime Policy
+
+For P4 V1.0, preload safe XL9535 output levels before switching pins to output
+mode and keep the active-low external 3.3 V rail enabled through startup and
+software sleep. LilyGO documents peripheral reset anomalies and download-mode
+lock when this rail is disabled. Screen/touch reset sequencing is separate
+from rail power and must not be implemented by cycling the whole rail.
+
+The accessory's physical power-switch acceptance condition is battery-only
+operation with the host switch held ON: the accessory switch must control host
+on/off as it does with the official complete UI demo. Software deep sleep is
+not equivalent to that hardware behavior; it still requires device validation.
 
 ## What Lives Here
 

@@ -62,6 +62,10 @@ bool mount_sd_card(int sd_cs,
                    uint8_t max_files);
 void unmount_sd_card();
 
+#if defined(TRAIL_MATE_SDFAT_SDMMC)
+bool mount_sdmmc_card(int clock, int command, int data0);
+#endif
+
 bool sd_card_ready();
 bool sd_card_uses_sdfat();
 bool sd_card_is_exfat();

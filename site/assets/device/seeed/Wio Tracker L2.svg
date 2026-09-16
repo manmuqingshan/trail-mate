@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="604" height="804" viewBox="492 55 604 804" role="img" aria-labelledby="title desc">
+  <title id="title">Seeed Wio Tracker L2</title>
+  <desc id="desc">Clean vector illustration of a dark grey landscape device with a long left antenna, ribbed grip and yellow top button. The display is a single solid colour and the background is transparent.</desc>
+  <defs>
+    <g id="grip-rib">
+      <rect width="49" height="8" rx="2" fill="#222627"/>
+      <path d="M1 8H46" fill="none" stroke="#626668" stroke-width="1"/>
+    </g>
+  </defs>
+  <!-- Antenna: smooth silhouette, restrained flat highlights. -->
+  <g id="antenna" stroke-linejoin="round">
+    <path d="M522 467 527 90C527 75 537 65 550 65S575 75 575 90L577 467Z" fill="#202425" stroke="#161a1b" stroke-width="2"/>
+    <path d="M530 115V91Q530 73 543 70Q536 80 536 94V115Z" fill="#74797a"/>
+    <path d="M532 141H541L538 459H528Z" fill="#484e50"/>
+    <path d="M566 141H574L576 461H567Z" fill="#161b1d"/>
+    <path d="M528 120Q550 117 574 120M528 132Q550 130 574 133M528 138H574" fill="none" stroke="#111617" stroke-width="2"/>
+    <path d="M529 123H572" stroke="#565c5e" stroke-width="1.5"/>
+  </g>
+  <g id="top-button">
+    <path d="M896 465V460Q896 456 902 456H928Q934 456 934 460V465Z" fill="#efbf24" stroke="#a88319" stroke-width="1"/>
+    <path d="M901 458H927" stroke="#ffe68a" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  <!-- Enclosure outline and bevels. -->
+  <g id="enclosure" stroke-linejoin="round">
+    <path d="M536 462H1049C1071 462 1086 478 1086 499V813C1086 834 1073 848 1053 848H536C515 848 502 834 502 813V497C502 477 516 462 536 462Z" fill="#292d2e" stroke="#1c2021" stroke-width="2"/>
+    <path d="M536 462H1049Q1072 462 1081 483H537Q520 483 519 501L503 492Q507 465 536 462Z" fill="#515657"/>
+    <path d="M1063 486Q1085 483 1086 501V814Q1086 842 1064 847L1051 829Q1066 826 1066 810V503Q1066 493 1063 486Z" fill="#202425"/>
+    <path d="M519 809Q519 829 539 829H1050L1064 847H536Q509 847 503 822Z" fill="#1c2021"/>
+    <path d="M536 482H1048Q1066 482 1066 502V810Q1066 829 1048 829H537Q519 829 519 811V501Q519 482 536 482Z" fill="#363b3d"/>
+    <path d="M520 500Q520 483 537 483H1049" fill="none" stroke="#74797a" stroke-width="1.5"/>
+    <path d="M615 462 626 483H832L846 462" fill="#4b5052"/>
+    <path d="M626 483 638 513H818L836 483" fill="#3d4345"/>
+    <path d="M616 463 637 514H819L846 463" fill="none" stroke="#5c6365" stroke-width="1.5"/>
+    <path d="M641 799 623 829H854L875 799Z" fill="#3c4244"/>
+    <path d="M623 829 612 847H849L854 829Z" fill="#252a2b"/>
+    <path d="M954 799 978 829H1038L1016 799Z" fill="#3b4042"/>
+    <path d="M641 799 613 847" fill="none" stroke="#202526" stroke-width="2"/>
+  </g>
+  <!-- Left hand grip. -->
+  <g id="left-grip">
+    <path d="M503 497 552 528Q562 533 562 545V775Q562 783 553 789L503 816Z" fill="#3b4143" stroke="#202526" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M504 499 550 530Q559 535 559 545V774Q559 782 551 786" fill="none" stroke="#666d6f" stroke-width="1.5"/>
+    <use href="#grip-rib" x="503" y="544"/>
+    <use href="#grip-rib" x="503" y="570"/>
+    <use href="#grip-rib" x="503" y="596"/>
+    <use href="#grip-rib" x="503" y="622"/>
+    <use href="#grip-rib" x="503" y="648"/>
+    <use href="#grip-rib" x="503" y="674"/>
+    <use href="#grip-rib" x="503" y="700"/>
+    <use href="#grip-rib" x="503" y="726"/>
+    <use href="#grip-rib" x="503" y="752"/>
+    <path d="M518 518V796" stroke="#7a8183" stroke-opacity=".2" stroke-width="1"/>
+  </g>
+  <!-- Recessed bezel surrounds a genuinely uniform, empty display. -->
+  <g id="display-bezel">
+    <rect x="622.333333" y="517" width="368.333334" height="280" rx="7" fill="#1c2021"/>
+    <path d="M629.333333 519H984.666667Q988.666667 519 988.666667 525V789Q988.666667 795 982.666667 795H628.333333" fill="none" stroke="#666e70" stroke-width="2"/>
+    <path d="M627.333333 790V525Q627.333333 522 630.333333 522H982.666667" fill="none" stroke="#0e1415" stroke-width="3"/>
+    <rect id="screen" x="630.333333" y="525" width="353.333334" height="265" fill="#303638"/>
+  </g>
+</svg>

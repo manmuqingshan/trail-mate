@@ -63,6 +63,8 @@ struct PageLayoutProfile
     lv_coord_t ime_keyboard_height = 0;
 
     bool large_touch_hitbox = false;
+    // Small touch-only displays edit text in a full-screen keyboard overlay.
+    bool compact_touch_keyboard = false;
 };
 
 struct ResolvedSize
@@ -79,6 +81,9 @@ PageLayoutProfile make_t_display_p4_profile();
 PageLayoutProfile make_cardputer_zero_profile();
 PageLayoutProfile make_default_profile(lv_coord_t width, lv_coord_t height);
 const PageLayoutProfile& current();
+// App/UX composition supplies a static-lived profile; nullptr retains the
+// existing target's contained compatibility selection.
+void set_active_profile(const PageLayoutProfile* profile);
 bool is_dense();
 
 ResolvedSize resolve_modal_size(lv_coord_t requested_width,

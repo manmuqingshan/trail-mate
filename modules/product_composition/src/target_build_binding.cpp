@@ -7,6 +7,14 @@ namespace product_composition
 namespace
 {
 
+constexpr TargetBuildBinding kWioTrackerL2Build = {
+    "wio_tracker_l2",
+    "platformio.ini",
+    "apps/esp32_lvgl",
+    nullptr,
+    "platformio",
+};
+
 constexpr TargetBuildBinding kTargetBuildBindings[] = {
     {
         "tab5",
@@ -85,6 +93,7 @@ constexpr TargetBuildBinding kTargetBuildBindings[] = {
         nullptr,
         "platformio",
     },
+    kWioTrackerL2Build,
 };
 
 } // namespace
@@ -124,6 +133,7 @@ const TargetBuildBinding* esp32LvglTargetBuildBindings(std::size_t* count)
         kTargetBuildBindings[3],
         kTargetBuildBindings[4],
         kTargetBuildBindings[5],
+        kWioTrackerL2Build,
     };
 
     if (count != nullptr)

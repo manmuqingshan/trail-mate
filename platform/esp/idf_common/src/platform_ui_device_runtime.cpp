@@ -102,7 +102,7 @@ bool supports_screen_brightness()
 bool supports_keyboard_backlight()
 {
 #if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
-    return ::boards::t_display_p4::TDisplayP4Board::instance().hasKeyboard();
+    return ::boards::t_display_p4::TDisplayP4Board::supportsKeyboardBacklight();
 #else
     return false;
 #endif
@@ -163,7 +163,7 @@ uint8_t keyboard_backlight()
 {
 #if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     auto& board = ::boards::t_display_p4::TDisplayP4Board::instance();
-    return board.hasKeyboard() ? board.keyboardGetBrightness() : 0;
+    return board.supportsKeyboardBacklight() ? board.keyboardGetBrightness() : 0;
 #else
     return 0;
 #endif
@@ -178,7 +178,7 @@ void set_keyboard_backlight(uint8_t level)
 {
 #if defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
     auto& board = ::boards::t_display_p4::TDisplayP4Board::instance();
-    if (!board.hasKeyboard())
+    if (!board.supportsKeyboardBacklight())
     {
         return;
     }

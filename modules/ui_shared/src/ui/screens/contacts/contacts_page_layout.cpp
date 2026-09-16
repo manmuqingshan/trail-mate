@@ -164,7 +164,7 @@ void create_filter_panel(lv_obj_t* parent)
     panel_spec.width = profile.filter_panel_width;
     panel_spec.pad_row = profile.filter_panel_pad_row > 0 ? profile.filter_panel_pad_row : kButtonSpacing;
     panel_spec.margin_left = 0;
-    panel_spec.margin_right = is_dense_profile() ? 1 : kPanelGap;
+    panel_spec.margin_right = 0;
     g_contacts_state.filter_panel = ::ui::components::two_pane_layout::create_side_panel(parent, panel_spec);
 
     style::apply_panel_side(g_contacts_state.filter_panel);

@@ -20,6 +20,11 @@
 #include "ui_map_runtime/map_tiles/map_tile_decoder_cache.h"
 #include "ui_map_runtime/map_tiles/map_tile_geometry.h"
 #include "ui_map_runtime/map_tiles/map_tile_types.h"
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+#include "platform/esp/arduino_common/map_poi/cjson_poi_parser.h"
+#include "ui_map_runtime/map_poi/annotation_layout.h"
+#include "ui_map_runtime/map_poi/poi_tile_source.h"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -28,6 +33,10 @@
 #include <cstring> // For memcpy
 #include <esp_heap_caps.h>
 #include <new>
+
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+void MapPoiPayloadDeleter::operator()(uint8_t* data) const noexcept { heap_caps_free(data); }
+#endif
 
 // Use LVGL's decoder API to decode PNG images
 // We'll decode PNG to RGB565 and cache it in RAM to avoid re-decoding on every render
@@ -242,6 +251,10 @@ const char* map_tile_format_name(ui::map_tiles::MapTileFormat format)
     {
     case ui::map_tiles::MapTileFormat::Png:
         return "png";
+    case ui::map_tiles::MapTileFormat::Jsonl:
+        return "jsonl";
+    case ui::map_tiles::MapTileFormat::PoiRecords:
+        return "poi-records";
     case ui::map_tiles::MapTileFormat::Unknown:
     default:
         return "unknown";
@@ -258,6 +271,8 @@ const char* map_tile_layer_name(ui::map_tiles::MapTileLayer layer)
         return "satellite";
     case ui::map_tiles::MapTileLayer::Osm:
         return "osm";
+    case ui::map_tiles::MapTileLayer::Poi:
+        return "poi";
     case ui::map_tiles::MapTileLayer::ContourMajor500:
         return "contour-major-500";
     case ui::map_tiles::MapTileLayer::ContourMajor200:
@@ -775,18 +790,41 @@ class MapTileEventQueue final : public ui::map_tiles::IMapTileEventSink
             event.payload.data != nullptr &&
             event.payload.size > 0)
         {
-            uint8_t* payload = allocate_tile_payload(event.payload.size);
+            uint8_t* payload = nullptr;
+            int allocation_error = -12;
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+            if (event.payload.format == ui::map_tiles::MapTileFormat::PoiRecords)
+            {
+                if (ui::map_poi::validPayload(event.payload.data, event.payload.size))
+                    payload = static_cast<uint8_t*>(heap_caps_aligned_alloc(alignof(ui::map_poi::TileHeader), event.payload.size,
+                                                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+                else allocation_error = -22;
+            }
+            else
+#endif
+                payload = allocate_tile_payload(event.payload.size);
             if (payload == nullptr)
             {
-                log_map_tile_event_failure("payload_alloc", owned, -12);
+                log_map_tile_event_failure("payload_alloc", owned, allocation_error);
                 owned.kind = ui::map_tiles::MapTileAsyncEventKind::Failed;
-                owned.error = -12;
+                owned.error = allocation_error;
                 owned.payload = {};
                 owned.payload_size = 0;
             }
             else
             {
-                std::memcpy(payload, event.payload.data, event.payload.size);
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+                if (event.payload.format == ui::map_tiles::MapTileFormat::PoiRecords)
+                {
+                    const auto* source_header = reinterpret_cast<const ui::map_poi::TileHeader*>(event.payload.data);
+                    new (payload) ui::map_poi::TileHeader(*source_header);
+                    const auto* records = ui::map_poi::payloadRecords(event.payload.data);
+                    for (std::size_t i = 0; i < source_header->count; ++i)
+                        new (payload + sizeof(ui::map_poi::TileHeader) + i * sizeof(ui::map_poi::Record)) ui::map_poi::Record(records[i]);
+                }
+                else
+#endif
+                    std::memcpy(payload, event.payload.data, event.payload.size);
                 owned.payload.data = payload;
                 owned.payload.size = event.payload.size;
                 owned.payload.format = event.payload.format;
@@ -872,6 +910,9 @@ class EspMapTileWorkerBackend final : public ui::map_tiles::IMapTileWorkerBacken
         uint8_t* buffer,
         std::size_t capacity) override
     {
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+        if (ref.layer == ui::map_tiles::MapTileLayer::Poi) return poi_source_.read(ref, buffer, capacity);
+#endif
         ui::map_tiles::MapTileReadResult result{};
         result.format = ui::map_tiles::mapTileFormatForLayer(ref.layer);
         if (map_tile_availability_memory().knownMissing(ref))
@@ -907,8 +948,20 @@ class EspMapTileWorkerBackend final : public ui::map_tiles::IMapTileWorkerBacken
         }
     }
 
+    void resetMetadata()
+    {
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+        poi_source_.reset();
+#endif
+    }
+
   private:
     ui::map_tiles::IMapTileSource& source_;
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+    SdMapTileFileSystem poi_files_;
+    platform::esp::arduino_common::map_poi::CJsonPoiParser poi_parser_;
+    ui::map_poi::PoiTileSource poi_source_{poi_files_, poi_parser_, "/"};
+#endif
 };
 
 class LvglDecodedTileCache final : public ui::map_tiles::IMapTileDecoderCache
@@ -1239,7 +1292,16 @@ class MapTileAsyncHost final
 
         if (scratch_ == nullptr)
         {
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+            // The worker also constructs typed annotation records. Ordinary
+            // ESP heap allocation only guarantees the allocator's alignment,
+            // which need not satisfy TileHeader's explicit 8-byte alignment.
+            scratch_ = static_cast<uint8_t*>(heap_caps_aligned_alloc(alignof(ui::map_poi::TileHeader),
+                                                                     kMapTileWorkerScratchBytes,
+                                                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+#else
             scratch_ = allocate_tile_payload(kMapTileWorkerScratchBytes);
+#endif
             if (scratch_ == nullptr)
             {
                 if (!scratch_alloc_failed_logged_)
@@ -1254,6 +1316,7 @@ class MapTileAsyncHost final
 
         if (worker_ == nullptr)
         {
+            backend_.resetMetadata();
             worker_ = new (std::nothrow)
                 ui::map_tiles::MapTileWorker(backend_,
                                              events_,
@@ -1955,7 +2018,7 @@ static MapTile& ensure_tile(TileContext& ctx, int x, int y, int z, int priority)
     t.contour_retry_not_before_ms = 0;
     t.cached_img = NULL; // No cached image initially
     t.contour_cached_img = NULL;
-    ctx.tiles->push_back(t);
+    ctx.tiles->push_back(std::move(t));
     return ctx.tiles->back();
 }
 
@@ -2463,6 +2526,91 @@ static bool request_contour_tile_async(MapTile& tile)
     return false;
 }
 
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+static bool apply_poi_tile_event(TileContext& ctx, ui::map_tiles::MapTileAsyncEvent& event)
+{
+    MapTile* tile = find_tile(ctx, static_cast<int>(event.tile.x), static_cast<int>(event.tile.y), event.tile.z);
+    if (!tile || !tile->visible || !ctx.anchor || event.tile.z != ctx.anchor->z)
+    {
+        if (tile)
+        {
+            tile->poi_pending = false;
+            tile->poi_retry_not_before_ms = 0;
+        }
+        release_tile_payload(event);
+        return false;
+    }
+    tile->poi_pending = false;
+    tile->poi_retry_not_before_ms = 0;
+    if (event.kind == ui::map_tiles::MapTileAsyncEventKind::RetryLater)
+    {
+        tile->poi_retry_not_before_ms = sys::millis_now() + kMapTileLayerBusyBackoffMs;
+        release_tile_payload(event);
+        return false;
+    }
+    tile->poi_checked = true;
+    ++ctx.poi_revision;
+    if (event.kind != ui::map_tiles::MapTileAsyncEventKind::Ready ||
+        event.payload.format != ui::map_tiles::MapTileFormat::PoiRecords ||
+        !ui::map_poi::validPayload(event.payload.data, event.payload.size))
+    {
+        if (event.error == -12)
+        {
+            tile->poi_checked = false;
+            tile->poi_retry_not_before_ms = sys::millis_now() + kMapTileLayerTransientBackoffMs;
+        }
+        log_map_tile_event_failure("poi_payload", event, event.error);
+        release_tile_payload(event);
+        return false;
+    }
+    const auto* header = reinterpret_cast<const ui::map_poi::TileHeader*>(event.payload.data);
+    // Failed reads must not discard a previously valid tile payload. Replace
+    // only after a new typed payload has passed validation (including empty).
+    tile->poi.reset();
+    const uint16_t count = header->count;
+    ctx.poi_policy_known = true;
+    ctx.poi_policy = header->policy;
+    ctx.poi_available = header->manifest_valid;
+    if (count && ctx.poi_available && ctx.poi_policy.enabled(event.tile.z))
+    {
+        // Transfer the event's exact-size PSRAM allocation to the tile record.
+        // No second allocation, fixed 200-record cache, or internal-RAM fallback.
+        tile->poi.reset(const_cast<uint8_t*>(event.payload.data));
+        event.payload.data = nullptr;
+        event.payload.size = 0;
+    }
+    std::printf("[MapViewport][POI] z=%u x=%lu y=%lu available=%d enabled=%d records=%u\n",
+                static_cast<unsigned>(event.tile.z), static_cast<unsigned long>(event.tile.x),
+                static_cast<unsigned long>(event.tile.y), ctx.poi_available, ctx.poi_policy.enabled(event.tile.z),
+                tile->poi ? count : 0);
+    release_tile_payload(event);
+    return true;
+}
+
+static void request_visible_poi_tile(TileContext& ctx)
+{
+    if (!ctx.tiles || !ctx.anchor || !ctx.anchor->valid) return;
+    if (ctx.poi_policy_known && (!ctx.poi_available || !ctx.poi_policy.enabled(ctx.anchor->z))) return;
+    MapTile* best = nullptr;
+    const uint32_t now = sys::millis_now();
+    for (auto& tile : *ctx.tiles)
+    {
+        if (!tile.visible || tile.z != ctx.anchor->z || tile.map_source != g_active_map_source ||
+            tile.poi_checked ||
+            (tile.poi_retry_not_before_ms && static_cast<int32_t>(tile.poi_retry_not_before_ms - now) > 0)) continue;
+        // A full event queue can drop completion. Reuse the retry deadline as
+        // an in-flight lease so that a dropped event cannot stall this tile.
+        tile.poi_pending = false;
+        if (!best || tile.priority < best->priority) best = &tile;
+    }
+    if (!best) return;
+    ui::map_tiles::MapTileRef ref{ui::map_tiles::MapTileLayer::Poi, static_cast<uint8_t>(best->z),
+                                  static_cast<uint32_t>(best->x), static_cast<uint32_t>(best->y)};
+    best->poi_pending = map_tile_async_host().request(ref, g_map_tile_runtime_generation, ui::map_tiles::MapTileInteractionMode::Idle);
+    best->poi_retry_not_before_ms = now + (best->poi_pending ? 10000U : kMapTileLayerBusyBackoffMs);
+}
+#endif
+
 static bool apply_map_tile_event(TileContext& ctx, ui::map_tiles::MapTileAsyncEvent& event)
 {
     if (event.generation != g_map_tile_runtime_generation)
@@ -2472,6 +2620,9 @@ static bool apply_map_tile_event(TileContext& ctx, ui::map_tiles::MapTileAsyncEv
         return false;
     }
 
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+    if (event.tile.layer == ui::map_tiles::MapTileLayer::Poi) return apply_poi_tile_event(ctx, event);
+#endif
     const bool is_contour = ui::map_tiles::mapTileLayerIsContour(event.tile.layer);
     if (!is_contour && map_source_for_layer(event.tile.layer) != g_active_map_source)
     {
@@ -2933,6 +3084,17 @@ static void layout_loaded_tile_objects(TileContext& ctx)
 static void evict_cache(TileContext& ctx)
 {
     if (!ctx.tiles) return;
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+    for (auto& tile : *ctx.tiles)
+    {
+        if (!tile.visible && tile.poi)
+        {
+            tile.poi.reset();
+            tile.poi_checked = false;
+            ++ctx.poi_revision;
+        }
+    }
+#endif
 
     const size_t obj_limit = tile_object_cache_limit(ctx);
     const size_t record_limit = tile_record_limit(ctx);
@@ -3323,9 +3485,80 @@ void tile_loader_step(TileContext& ctx)
             }
         }
     }
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+    if (static_cast<int32_t>(sys::millis_now() - start_ms) < static_cast<int32_t>(budget_ms)) request_visible_poi_tile(ctx);
+#endif
     update_visible_map_data_flag(ctx);
     rebuild_render_queue(ctx);
 }
+
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+void map_poi_snapshot(TileContext& ctx, ui::map::MapPoiSnapshot& out)
+{
+    out.header.valid = ctx.poi_policy_known && ctx.poi_available;
+    out.header.version = 1;
+    out.header.generated_at_ms = sys::millis_now();
+    out.labels = ctx.poi_policy.labels;
+    out.enabled = out.header.valid && ctx.anchor && ctx.anchor->valid && ctx.poi_policy.enabled(ctx.anchor->z);
+    out.truncated = false;
+    out.candidate_count = 0;
+    out.item_count = 0;
+    out.loading = false;
+    out.layout_ready = false;
+    if (!out.enabled || !ctx.tiles || !ctx.map_container) return;
+    out.width = static_cast<int16_t>(lv_obj_get_width(ctx.map_container));
+    out.height = static_cast<int16_t>(lv_obj_get_height(ctx.map_container));
+    const int32_t origin_x = ctx.anchor->gps_tile_screen_x + ctx.anchor->gps_offset_x - ctx.anchor->gps_global_pixel_x;
+    const int32_t origin_y = ctx.anchor->gps_tile_screen_y + ctx.anchor->gps_offset_y - ctx.anchor->gps_global_pixel_y;
+    out.view_key = (uint64_t{static_cast<uint32_t>(origin_x)} << 32) | static_cast<uint32_t>(origin_y);
+    out.compatibility_key = (uint64_t{g_map_tile_runtime_generation} << 16) |
+                            (uint64_t{static_cast<uint8_t>(ctx.anchor->z)} << 8) | g_active_map_source;
+    for (const auto& tile : *ctx.tiles)
+    {
+        if (!tile.visible || tile.z != ctx.anchor->z) continue;
+        out.loading = out.loading || tile.poi_pending || !tile.poi_checked;
+        if (!tile.poi) continue;
+        const auto* header = reinterpret_cast<const ui::map_poi::TileHeader*>(tile.poi.get());
+        out.candidate_count += header->count;
+        out.truncated = out.truncated || header->truncated;
+    }
+}
+
+void visit_map_annotations(TileContext& ctx, ui::map_poi::AnnotationConsumer consume, void* user)
+{
+    if (!consume || !ctx.tiles || !ctx.anchor || !ctx.anchor->valid) return;
+    for (const auto& tile : *ctx.tiles)
+    {
+        if (!tile.visible || tile.z != ctx.anchor->z || !tile.poi) continue;
+        const auto* header = reinterpret_cast<const ui::map_poi::TileHeader*>(tile.poi.get());
+        const auto* records = ui::map_poi::payloadRecords(tile.poi.get());
+        int tile_x = 0, tile_y = 0;
+        if (!tile_screen_pos_xyz(ctx, tile.x, tile.y, tile.z, tile_x, tile_y)) continue;
+        for (std::size_t i = 0; i < header->count; ++i)
+        {
+            const auto& record = records[i];
+            int x = 0, y = 0;
+            if (!gps_screen_pos(ctx, record.lat, record.lon, x, y)) continue;
+            ui::map_poi::AnnotationCandidate candidate;
+            candidate.key = record.key;
+            candidate.feature_key = record.feature_key;
+            candidate.name = ctx.poi_policy.labels ? record.name : "";
+            candidate.category = record.category;
+            candidate.kind = record.kind;
+            candidate.priority = record.priority;
+            candidate.x = static_cast<int16_t>(std::clamp(x, -32768, 32767));
+            candidate.y = static_cast<int16_t>(std::clamp(y, -32768, 32767));
+            candidate.path_points = record.path_points;
+            for (unsigned p = 0; p < record.path_points; ++p)
+            {
+                candidate.path[p * 2] = static_cast<int16_t>(std::clamp(tile_x + record.path[p * 2], -32768, 32767));
+                candidate.path[p * 2 + 1] = static_cast<int16_t>(std::clamp(tile_y + record.path[p * 2 + 1], -32768, 32767));
+            }
+            consume(user, candidate);
+        }
+    }
+}
+#endif
 
 /**
  * Initialize tile context
@@ -3358,6 +3591,11 @@ void init_tile_context(TileContext& ctx, lv_obj_t* map_container, MapAnchor* anc
 void cleanup_tiles(TileContext& ctx)
 {
     if (!ctx.tiles) return;
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+    ctx.poi_policy_known = false;
+    ctx.poi_available = false;
+    ++ctx.poi_revision;
+#endif
 
     for (auto& tile : *ctx.tiles)
     {

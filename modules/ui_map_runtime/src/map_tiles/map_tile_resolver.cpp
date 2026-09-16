@@ -55,8 +55,7 @@ const char* contourLayerDir(MapTileLayer layer)
 
 const char* extensionFor(MapTileLayer layer)
 {
-    (void)layer;
-    return "png";
+    return layer == MapTileLayer::Poi ? "jsonl" : "png";
 }
 
 bool writePath(char* out_path,
@@ -191,8 +190,7 @@ MapTileLayer mapTileContourLayerForZoom(int zoom, bool* out_supported)
 
 MapTileFormat mapTileFormatForLayer(MapTileLayer layer)
 {
-    (void)layer;
-    return MapTileFormat::Png;
+    return layer == MapTileLayer::Poi ? MapTileFormat::Jsonl : MapTileFormat::Png;
 }
 
 bool mapTileLayerIsContour(MapTileLayer layer)
@@ -231,6 +229,8 @@ bool MapTileResolver::resolvePath(const MapTileRef& ref,
                                   char* out_path,
                                   std::size_t out_size) const
 {
+    if (ref.layer == MapTileLayer::Poi)
+        return writePath(out_path, out_size, root_prefix_, "maps/poi", "index", ref.z, ref.x, ref.y, extensionFor(ref.layer));
     if (mapTileLayerIsContour(ref.layer))
     {
         return writePath(out_path,
@@ -259,6 +259,8 @@ bool MapTileResolver::resolveDirectory(MapTileLayer layer,
                                        char* out_path,
                                        std::size_t out_size) const
 {
+    if (layer == MapTileLayer::Poi)
+        return writeDirectory(out_path, out_size, root_prefix_, "maps/poi", "index");
     if (mapTileLayerIsContour(layer))
     {
         return writeDirectory(out_path,

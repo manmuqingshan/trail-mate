@@ -10,6 +10,7 @@
 #include "ui/localization.h"
 #include "ui/page/page_profile.h"
 #include "ui/widgets/ime/ime_input_mode_descriptor.h"
+#include "ui_lvgl_ux_packs/common/touch_text_editor.h"
 
 #if UI_SHARED_TOUCH_IME_ENABLED
 #include "ui/LV_Helper.h"
@@ -142,6 +143,30 @@ static const char* kTouchEnMap[] = {
     "a", "s", "d", "f", "g", "h", "j", "k", "l", "Enter", "\n",
     "z", "x", "c", "v", "b", "n", "m", ",", ".", "?", "\n",
     "Space", ""};
+
+static const char* kCompactTouchEnMap[] = {
+    "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "\n",
+    "a", "s", "d", "f", "g", "h", "j", "k", "l", "\n",
+    "Shift", "z", "x", "c", "v", "b", "n", "m", "Bksp", "\n",
+    ",", ".", "Space", "?", "Enter", ""};
+
+static const char* kCompactTouchUpperMap[] = {
+    "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "\n",
+    "A", "S", "D", "F", "G", "H", "J", "K", "L", "\n",
+    "Shift", "Z", "X", "C", "V", "B", "N", "M", "Bksp", "\n",
+    ",", ".", "Space", "?", "Enter", ""};
+
+static const char* kCompactTouchNumMap[] = {
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
+    "@", "#", "$", "%", "&", "*", "-", "_", "=", "\n",
+    "Shift", "/", ":", ";", "(", ")", "+", "!", "Bksp", "\n",
+    "'", "\"", "Space", ".", "Enter", ""};
+
+static const char* kCompactTouchSymbolMap[] = {
+    "[", "]", "{", "}", "<", ">", "\\", "|", "~", "^", "\n",
+    "@", "#", "$", "%", "&", "*", "-", "_", "=", "\n",
+    "Shift", "/", ":", ";", "(", ")", "+", "!", "Bksp", "\n",
+    "'", "`", "Space", ".", "Enter", ""};
 
 static const char* kTouchNumMap[] = {
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "Bksp", "\n",
@@ -329,8 +354,10 @@ extern "C" bool ui_ime_is_active()
     return s_active_ime != nullptr;
 }
 
-void ImeWidget::init(lv_obj_t* parent, lv_obj_t* textarea)
+void ImeWidget::init(lv_obj_t* parent, lv_obj_t* textarea, bool force_touch_keyboard)
 {
+    editor_keyboard_ = force_touch_keyboard;
+    touch_shift_ = false;
     textarea_ = textarea;
     ime_.setEnabled(false);
     mode_ = Mode::EN;
@@ -348,7 +375,7 @@ void ImeWidget::init(lv_obj_t* parent, lv_obj_t* textarea)
 
 #if UI_SHARED_TOUCH_IME_ENABLED
     touch_keyboard_enabled_ =
-        profile.large_touch_hitbox && profile.ime_keyboard_height > 0 && !hardware_keyboard_available();
+        (profile.large_touch_hitbox || force_touch_keyboard) && profile.ime_keyboard_height > 0 && !hardware_keyboard_available();
     if (touch_keyboard_enabled_)
     {
         init_touch_ui(parent);
@@ -361,7 +388,10 @@ void ImeWidget::init(lv_obj_t* parent, lv_obj_t* textarea)
     }
 
     refresh_labels();
+    if (!editor_keyboard_) attach_touch_text_editor(textarea_, this);
 }
+
+void ImeWidget::activate() { s_active_ime = this; }
 
 void ImeWidget::init_compact_ui(lv_obj_t* parent)
 {
@@ -424,16 +454,15 @@ void ImeWidget::init_compact_ui(lv_obj_t* parent)
 void ImeWidget::init_touch_ui(lv_obj_t* parent)
 {
     const auto& profile = ::ui::page_profile::current();
-    const lv_coord_t nav_button_width = std::max<lv_coord_t>(
-        48,
-        ::ui::page_profile::resolve_compact_button_min_width());
+    const bool compact = profile.compact_touch_keyboard;
+    const lv_coord_t nav_button_width = compact ? 24 : std::max<lv_coord_t>(48, ::ui::page_profile::resolve_compact_button_min_width());
 
     container_ = lv_obj_create(parent);
     lv_obj_set_size(container_, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(container_, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(container_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(container_, 0, 0);
-    lv_obj_set_style_pad_row(container_, 8, 0);
+    lv_obj_set_style_pad_row(container_, compact ? 2 : 8, 0);
     lv_obj_set_style_bg_opa(container_, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(container_, 0, 0);
     lv_obj_clear_flag(container_, LV_OBJ_FLAG_SCROLLABLE);
@@ -442,9 +471,9 @@ void ImeWidget::init_touch_ui(lv_obj_t* parent)
     lv_obj_set_size(top_row_, LV_PCT(100), profile.ime_bar_height);
     lv_obj_set_flex_flow(top_row_, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(top_row_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_left(top_row_, 8, 0);
-    lv_obj_set_style_pad_right(top_row_, 8, 0);
-    lv_obj_set_style_pad_column(top_row_, 10, 0);
+    lv_obj_set_style_pad_left(top_row_, compact ? 2 : 8, 0);
+    lv_obj_set_style_pad_right(top_row_, compact ? 2 : 8, 0);
+    lv_obj_set_style_pad_column(top_row_, compact ? 3 : 10, 0);
     lv_obj_set_style_bg_color(top_row_, lv_color_hex(0xFFF0D3), 0);
     lv_obj_set_style_bg_opa(top_row_, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(top_row_, 1, 0);
@@ -492,7 +521,7 @@ void ImeWidget::init_touch_ui(lv_obj_t* parent)
     lv_obj_set_flex_flow(candidate_row_, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(candidate_row_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(candidate_row_, 0, 0);
-    lv_obj_set_style_pad_column(candidate_row_, 8, 0);
+    lv_obj_set_style_pad_column(candidate_row_, compact ? 2 : 8, 0);
     lv_obj_set_style_bg_opa(candidate_row_, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(candidate_row_, 0, 0);
     lv_obj_clear_flag(candidate_row_, LV_OBJ_FLAG_SCROLLABLE);
@@ -528,9 +557,9 @@ void ImeWidget::init_touch_ui(lv_obj_t* parent)
     lv_obj_set_style_bg_opa(keyboard_matrix_, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(keyboard_matrix_, 1, LV_PART_MAIN);
     lv_obj_set_style_border_color(keyboard_matrix_, lv_color_hex(0xD9B06A), LV_PART_MAIN);
-    lv_obj_set_style_pad_all(keyboard_matrix_, 6, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(keyboard_matrix_, 6, LV_PART_ITEMS);
-    lv_obj_set_style_pad_column(keyboard_matrix_, 6, LV_PART_ITEMS);
+    lv_obj_set_style_pad_all(keyboard_matrix_, compact ? 2 : 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(keyboard_matrix_, compact ? 2 : 6, LV_PART_ITEMS);
+    lv_obj_set_style_pad_column(keyboard_matrix_, compact ? 2 : 6, LV_PART_ITEMS);
     lv_obj_set_style_text_font(
         keyboard_matrix_, ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font()), LV_PART_ITEMS);
     lv_obj_set_style_text_color(keyboard_matrix_, lv_color_hex(0x3A2A1A), LV_PART_ITEMS);
@@ -549,6 +578,8 @@ void ImeWidget::init_touch_ui(lv_obj_t* parent)
 
 void ImeWidget::detach()
 {
+    if (!editor_keyboard_ && textarea_ && lv_obj_is_valid(textarea_))
+        attach_touch_text_editor(textarea_, nullptr);
     container_ = nullptr;
     top_row_ = nullptr;
     toggle_btn_ = nullptr;
@@ -854,6 +885,10 @@ void ImeWidget::sync_textarea()
         return;
     }
     lv_textarea_set_text(textarea_, committed_text_.c_str());
+    // LVGL enforces the field's length and accepted-character constraints.
+    // Keep composition state equal to that accepted text, so Backspace does
+    // not consume an invisible rejected character.
+    committed_text_ = lv_textarea_get_text(textarea_);
     refresh_textarea_content_font(textarea_);
     lv_textarea_set_cursor_pos(textarea_, LV_TEXTAREA_CURSOR_LAST);
     lv_obj_add_state(textarea_, LV_STATE_FOCUSED);
@@ -885,10 +920,12 @@ void ImeWidget::refresh_touch_keyboard()
         return;
     }
     const char* const* map = kTouchEnMap;
+    const bool compact = ::ui::page_profile::current().compact_touch_keyboard;
+    if (compact) map = touch_shift_ && mode_ == Mode::EN ? kCompactTouchUpperMap : kCompactTouchEnMap;
     const lv_font_t* font = ::ui::fonts::localized_font(::ui::fonts::ui_chrome_font());
     if (mode_ == Mode::NUM)
     {
-        map = kTouchNumMap;
+        map = compact ? (touch_shift_ ? kCompactTouchSymbolMap : kCompactTouchNumMap) : kTouchNumMap;
     }
     else if (direct_keyboard_mode())
     {
@@ -907,6 +944,17 @@ void ImeWidget::refresh_touch_keyboard()
     }
     lv_obj_set_style_text_font(keyboard_matrix_, font, LV_PART_ITEMS);
     lv_btnmatrix_set_map(keyboard_matrix_, map);
+    if (compact)
+    {
+        uint32_t button = 0;
+        for (size_t index = 0; map[index][0]; ++index)
+        {
+            if (std::strcmp(map[index], "\n") == 0) continue;
+            const bool wide = std::strcmp(map[index], "Shift") == 0 ||
+                              std::strcmp(map[index], "Bksp") == 0;
+            lv_buttonmatrix_set_button_width(keyboard_matrix_, button++, wide ? 2 : 1);
+        }
+    }
 }
 
 void ImeWidget::refresh_touch_candidates()
@@ -917,6 +965,12 @@ void ImeWidget::refresh_touch_candidates()
     }
 
     const bool show_candidates = pinyin_mode() && ime_.hasBuffer();
+    const auto& profile = ::ui::page_profile::current();
+    if (profile.compact_touch_keyboard && keyboard_matrix_)
+    {
+        lv_obj_set_height(keyboard_matrix_, profile.ime_keyboard_height +
+                                                (show_candidates ? 0 : profile.ime_candidate_button_height + 2));
+    }
     if (!show_candidates)
     {
         lv_obj_add_flag(candidate_row_, LV_OBJ_FLAG_HIDDEN);
@@ -1163,6 +1217,12 @@ void ImeWidget::on_touch_key_event(lv_event_t* e)
     }
 
     const char* token = lv_btnmatrix_get_btn_text(self->keyboard_matrix_, button_id);
+    if (token && std::strcmp(token, "Shift") == 0)
+    {
+        self->touch_shift_ = !self->touch_shift_;
+        self->refresh_touch_keyboard();
+        return;
+    }
     if (self->direct_keyboard_mode() && !touch_token_is_action(token))
     {
         (void)self->handle_text_token(token);

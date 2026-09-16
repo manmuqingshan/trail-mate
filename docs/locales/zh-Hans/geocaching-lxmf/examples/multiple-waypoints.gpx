@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="Trail Mate design sample">
+  <wpt lat="30.2500000" lon="120.1500000">
+    <name>样例一：中文与转义</name>
+    <cmt>树根 &amp; 石块 &lt;示意&gt;</cmt>
+    <desc>第一个独立点；用于批量导入格式评审。</desc>
+    <src>Reticulum Geocaching design sample</src>
+    <sym>Geocache</sym>
+    <type>Geocache|Traditional Cache</type>
+  </wpt>
+  <wpt lat="-30.2500000" lon="-179.9999999">
+    <name>样例二：南纬与日期线附近</name>
+    <desc>第二个独立点；用于负坐标和精度评审，不是真实宝藏。</desc>
+    <src>Reticulum Geocaching design sample</src>
+    <sym>Geocache</sym>
+    <type>Geocache|Traditional Cache</type>
+  </wpt>
+</gpx>

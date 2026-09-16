@@ -20,6 +20,18 @@
 #define TILE_CACHE_LIMIT 12
 #define TILE_RECORD_LIMIT 48
 
+#if defined(ARDUINO_ARCH_ESP32)
+#define TRAIL_MATE_MAP_POI_AVAILABLE 1
+#include "ui_map_runtime/map_poi/annotation_layout.h"
+#include "ui_map_runtime/map_poi/poi_types.h"
+#include "ui_presentation/map/map_poi_snapshot.h"
+#include <memory>
+struct MapPoiPayloadDeleter
+{
+    void operator()(uint8_t* data) const noexcept;
+};
+#endif
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -54,6 +66,12 @@ struct DecodedTileCache
 // Map tile structure
 struct MapTile
 {
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+    std::unique_ptr<uint8_t, MapPoiPayloadDeleter> poi;
+    bool poi_checked = false;
+    bool poi_pending = false;
+    uint32_t poi_retry_not_before_ms = 0;
+#endif
     int32_t x;             // Tile X coordinate (wrapped, max 262,143 at zoom 18)
     int32_t y;             // Tile Y coordinate (clamped, max 262,143 at zoom 18)
     int z;                 // Zoom level (0-18)
@@ -90,7 +108,18 @@ struct TileContext
     bool* has_map_data;         // Global: any tile ever loaded
     bool* has_visible_map_data; // Viewport: current visible tiles have PNG
     bool runtime_acquired = false;
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+    ui::map_poi::Policy poi_policy{};
+    bool poi_policy_known = false;
+    bool poi_available = false;
+    uint32_t poi_revision = 0;
+#endif
 };
+
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+void map_poi_snapshot(TileContext& ctx, ui::map::MapPoiSnapshot& out);
+void visit_map_annotations(TileContext& ctx, ui::map_poi::AnnotationConsumer consume, void* user);
+#endif
 
 // Core tile functions - implemented in map_tiles.cpp
 

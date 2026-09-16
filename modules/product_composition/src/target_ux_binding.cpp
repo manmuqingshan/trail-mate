@@ -13,6 +13,7 @@ constexpr TargetUxBinding kTargetUxBindings[] = {
     {"t_display_p4_amoled", "t_display_p4_touch", "t_display_p4_touch", nullptr, true},
     {"tlora_pager", "pager_compact", "compatibility", "compatibility", false},
     {"tdeck", "deck_full", "compatibility", "compatibility", false},
+    {"wio_tracker_l2", "deck_touch", "deck_touch", nullptr, true},
     {"twatch", "watch_compact", "compatibility", "compatibility", false},
     {"uconsole", "uconsole_desktop", "uconsole_desktop", nullptr, true},
     {"linux_sim", "simulator_full", "simulator_full", nullptr, true},

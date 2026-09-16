@@ -130,7 +130,7 @@ bool initialize_controller()
     auto& board = boards::t_display_p4::TDisplayP4Board::instance();
     if (!board.ensureKeyboardLdo4Power())
     {
-        ESP_LOGW(kTag, "P4 keyboard cannot enable P2 LDO4 at 3300mV");
+        ESP_LOGW(kTag, "P4 keyboard cannot prepare GPIO45/46 I/O domain at 3300mV");
         return false;
     }
     vTaskDelay(pdMS_TO_TICKS(kPowerSettleMs));
@@ -183,10 +183,8 @@ bool initialize_controller()
     s_last_i2c_failure_log_ms = 0;
     s_last_alt_press_ms = 0;
     board.setKeyboardReady(true);
-    // GPIO47 is the keyboard backlight's SY7200A PWM/enable pin.  Arm it at
-    // zero duty immediately after detection, matching Meck's safe boot-off
-    // state instead of leaving the pin unconfigured until the LilyGO key.
-    board.keyboardSetBrightness(0);
+    // Board startup owns the independent GPIO47 backlight. Input detection
+    // must neither gate that output nor reset a brightness already selected.
     ESP_LOGI(kTag,
              "P4 keyboard ready P2=(sda=%d,scl=%d,int=%d,backlight=%d) XL9555=0x%02X TCA8418=0x%02X matrix=%dx%d poll=%lums",
              keyboard.sda,

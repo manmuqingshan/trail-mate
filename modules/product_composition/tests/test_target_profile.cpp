@@ -8,11 +8,11 @@ int main()
     std::size_t count = 0;
     const auto* all = product_composition::allTargetProfiles(&count);
     assert(all != nullptr);
-    assert(count == 11);
+    assert(count == 12);
 
     const auto* profiles = product_composition::esp32LvglTargetProfiles(&count);
     assert(profiles != nullptr);
-    assert(count == 6);
+    assert(count == 7);
 
     const auto* tab5 = product_composition::findTargetProfile("tab5");
     assert(tab5 != nullptr);
@@ -72,6 +72,16 @@ int main()
     assert(deck->has_keyboard);
     assert(deck->has_trackball);
     assert(deck->ble_backend == product_composition::BleBackend::Local);
+
+    const auto* wio = product_composition::findTargetProfile("wio_tracker_l2");
+    assert(wio != nullptr && wio->has_display && wio->has_touch);
+    assert(!wio->has_keyboard && !wio->has_trackball && !wio->has_motion_sensor);
+    assert(wio->has_lora && wio->has_gps && wio->has_audio);
+    assert(wio->platform == product_composition::TargetPlatform::PlatformIo);
+    assert(wio->status == product_composition::TargetSupportStatus::PendingHardwareValidation);
+    assert(std::strcmp(wio->page_manifest_id, deck->page_manifest_id) == 0);
+    assert(std::strcmp(wio->ui_profile_id, "deck_touch_ui") == 0);
+    assert(std::strcmp(wio->ux_pack_id, "deck_touch") == 0);
 
     const auto* watch = product_composition::findTargetProfile("twatch");
     assert(watch != nullptr);

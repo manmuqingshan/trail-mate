@@ -5,7 +5,8 @@
 namespace product_composition
 {
 struct TargetProfile;
-}
+struct TargetUxBinding;
+} // namespace product_composition
 
 namespace trailmate::apps::esp32_lvgl
 {
@@ -23,6 +24,7 @@ struct Esp32LvglRuntimeConfig
 
 const Esp32LvglRuntimeConfig& esp32LvglRuntimeConfig();
 const product_composition::TargetProfile* esp32LvglRuntimeTargetProfile();
+const product_composition::TargetUxBinding* esp32LvglRuntimeUxBinding();
 bool hasEsp32LvglRuntimeTargetProfile();
 
 } // namespace trailmate::apps::esp32_lvgl

@@ -8,13 +8,21 @@ int main()
     std::size_t count = 0;
     const auto* bindings = product_composition::allTargetUxBindings(&count);
     assert(bindings != nullptr);
-    assert(count == 11);
+    assert(count == 12);
 
     const auto* tab5 = product_composition::findTargetUxBinding("tab5");
     assert(tab5 != nullptr);
     assert(std::strcmp(tab5->desired_ux_pack_id, "tab5_touch") == 0);
     assert(std::strcmp(tab5->active_ux_pack_id, "compatibility") == 0);
     assert(!tab5->final_ux_pack_available);
+
+    const auto* wio = product_composition::findTargetUxBinding("wio_tracker_l2");
+    const auto* deck = product_composition::findTargetUxBinding("tdeck");
+    assert(wio && deck);
+    assert(std::strcmp(wio->desired_ux_pack_id, "deck_touch") == 0);
+    assert(std::strcmp(wio->active_ux_pack_id, "deck_touch") == 0);
+    assert(wio->final_ux_pack_available && wio->fallback_ux_pack_id == nullptr);
+    assert(std::strcmp(deck->active_ux_pack_id, "compatibility") == 0);
 
     const auto* tft = product_composition::findTargetUxBinding("t_display_p4_tft");
     assert(tft != nullptr);

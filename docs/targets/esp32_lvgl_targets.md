@@ -16,6 +16,7 @@ UX Pack presents.
 | `t_display_p4_tft` | `t_display_p4` | ESP32-P4 + ESP32-C6 | `builds/esp_idf` | `apps/esp32_lvgl` | `t_display_p4_touch` | active |
 | `t_display_p4_amoled` | `t_display_p4` | ESP32-P4 + ESP32-C6 | `builds/esp_idf` | `apps/esp32_lvgl` | `t_display_p4_touch` | active |
 | `tdeck` | `tdeck` | ESP32-S3 | `builds/esp_idf` | `apps/esp32_lvgl` | `deck_full` | planned |
+| `wio_tracker_l2` | `wio_tracker_l2` | ESP32-S3 | root PlatformIO | `apps/esp32_lvgl` | `deck_touch` | pending hardware validation |
 | `tdeck_pro` | `tdeck_pro` | ESP32-S3 | `builds/esp_idf` | `apps/esp32_lvgl` | `deck_full` | planned |
 | `tlora_pager` | `tlora_pager` | ESP32 family | `builds/esp_idf` | `apps/esp32_lvgl` | `pager_compact` | planned |
 | `twatchs3` | `twatchs3` | ESP32-S3 | `builds/esp_idf` | `apps/esp32_lvgl` | `watch_quick` | planned |

@@ -8,7 +8,7 @@ int main()
     std::size_t count = 0;
     const auto* profiles = ui::presentation::allTargetUiProfiles(&count);
     assert(profiles != nullptr);
-    assert(count == 8);
+    assert(count == 9);
 
     const auto* tab5 = ui::presentation::findTargetUiProfile("tab5_touch_ui");
     assert(tab5 != nullptr);
@@ -20,6 +20,13 @@ int main()
     assert(deck != nullptr);
     assert(deck->has_physical_keyboard);
     assert(deck->has_trackball);
+
+    const auto* touch = ui::presentation::findTargetUiProfile("deck_touch_ui");
+    assert(touch && touch->input_class == ui::presentation::InputClass::TouchOnly);
+    assert(touch->screen_width == 320 && touch->screen_height == 240);
+    assert(touch->has_soft_keyboard && touch->has_touch);
+    assert(!touch->has_physical_keyboard && !touch->has_trackball);
+    assert(std::strcmp(touch->page_manifest_id, deck->page_manifest_id) == 0);
 
     const auto* uconsole = ui::presentation::findTargetUiProfile("uconsole_desktop_ui");
     assert(uconsole != nullptr);

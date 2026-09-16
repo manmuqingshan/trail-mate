@@ -66,11 +66,14 @@ lv_obj_t* create_content_row(lv_obj_t* parent, const ContentSpec& spec)
     lv_obj_set_height(content, 0);
     lv_obj_set_flex_grow(content, 1);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_ROW);
+    // Do not inherit the theme's column gap between the two panes.
+    lv_obj_set_style_pad_column(content, 0, 0);
     lv_obj_set_flex_align(content,
                           LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_START);
-    lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_opa(content, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(content, lv_color_hex(two_pane_styles::kMainPanelBg), 0);
     lv_obj_set_style_pad_left(content, spec.pad_left, 0);
     lv_obj_set_style_pad_right(content, spec.pad_right, 0);
     lv_obj_set_style_pad_top(content, spec.pad_top, 0);

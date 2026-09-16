@@ -11,6 +11,7 @@ Current responsibilities:
 
 Boundary note:
 
-- code that directly owns a specific board's peripherals, display buses, PMU wiring, LoRa wiring, GPS wiring, touch/keyboard/NFC, display panel setup, or board singleton instances belongs under `boards/<name>/*`
+- existing device implementations under `boards/<name>/*` retain their contained locations; their presence is not a rule for new targets
+- following `docs/specification/POST_REFACTOR_ARCHITECTURE_FREEZE.md`, new board facts belong under `boards/<name>/*`, while new SDK objects, driver execution and scheduling belong in explicit platform adapter packages (for example `platform/esp/wio_tracker_l2`)
 - platform-neutral board contracts now live under `platform/shared/include/board/*`
 - code that is intentionally shared across multiple ESP boards but still platform-specific belongs here

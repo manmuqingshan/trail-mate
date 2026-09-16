@@ -11,6 +11,8 @@
 #include "boards/tdeck_pro/platform_esp_board_runtime.h"
 #elif defined(ARDUINO_T_DECK)
 #include "boards/tdeck/platform_esp_board_runtime.h"
+#elif defined(ARDUINO_WIO_TRACKER_L2)
+#include "platform/esp/wio_tracker_l2/board_runtime_bindings.h"
 #elif defined(ARDUINO_T_WATCH_S3)
 #include "boards/twatchs3/platform_esp_board_runtime.h"
 #else
@@ -116,7 +118,7 @@ BoardIdentity defaultIdentity()
 BoardStorageCapabilities storageCapabilities()
 {
 #if defined(TRAIL_MATE_ESP_BOARD_TAB5) || \
-    defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
+    defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4) || defined(ARDUINO_WIO_TRACKER_L2)
     return {StorageBusTopology::Sdmmc};
 #elif defined(ARDUINO_T_DECK_PRO) || defined(ARDUINO_T_DECK) || \
     defined(ARDUINO_T_LORA_PAGER)

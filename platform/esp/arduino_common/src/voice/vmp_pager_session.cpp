@@ -5,7 +5,7 @@
 
 #include "platform/esp/arduino_common/voice/vmp_pager_session.h"
 
-#if defined(ARDUINO_T_LORA_PAGER) || defined(ARDUINO_T_DECK)
+#if defined(ARDUINO_T_LORA_PAGER) || defined(ARDUINO_T_DECK) || defined(ARDUINO_WIO_TRACKER_L2)
 
 #include "platform/esp/arduino_common/storage/storage_runtime.h"
 #include "platform/esp/arduino_common/voice/vmp_control_runtime.h"
@@ -61,7 +61,7 @@ constexpr uint8_t kReadyProbeCount = 3U;
 constexpr uint32_t kOutboundTaskStackBytes = 8U * 1024U;
 constexpr UBaseType_t kOutboundTaskPriority = 4U;
 constexpr uint32_t kPlaybackTaskStackBytes = 8U * 1024U;
-#if defined(ARDUINO_T_DECK)
+#if defined(ARDUINO_T_DECK) || defined(ARDUINO_WIO_TRACKER_L2)
 // Codec2's transient state and PCM live in PSRAM, but the decoder's nested
 // call frames remain on this FreeRTOS stack. The 4 KiB T-Deck variant trips
 // its canary on the first Codec2-1300 decode; use the Pager-proven 8 KiB
@@ -457,7 +457,7 @@ class PagerReceiveSession final
             return false;
         }
 
-#if defined(ARDUINO_T_DECK)
+#if defined(ARDUINO_T_DECK) || defined(ARDUINO_WIO_TRACKER_L2)
         // The task stack is allocated by xTaskCreatePinnedToCore below. Check
         // its full internal-RAM budget before copying media or creating the
         // task, so playback is skipped rather than putting UI allocations

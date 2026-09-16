@@ -11,7 +11,12 @@
 #include "platform/ui/device_runtime.h"
 #include "ui/localization.h"
 #include "ui/widgets/map/map_tiles.h"
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+#include "ui/widgets/map/poi_overlay.h"
+#include "ui_map_runtime/map_poi/annotation_frame.h"
+#endif
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -25,6 +30,18 @@
 
 namespace ui::widgets::map
 {
+
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+struct PoiSnapshotDeleter
+{
+    void operator()(ui::map::MapPoiItem* data) const noexcept { heap_caps_free(data); }
+};
+void* allocate_annotation_memory(std::size_t bytes, void*)
+{
+    return heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+void release_annotation_memory(void* memory, void*) { heap_caps_free(memory); }
+#endif
 
 struct RuntimeImpl
 {
@@ -52,6 +69,13 @@ struct RuntimeImpl
     Widgets widgets{};
     Model model{};
     ui::map::MapOverlaySnapshot overlay{};
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+    PoiOverlay poi_overlay;
+    ui::map_poi::AnnotationFrame annotation_frame{allocate_annotation_memory, release_annotation_memory};
+    uint32_t poi_seen_revision = 0;
+    uint64_t poi_font_signature = 0;
+    uint32_t poi_allocation_retry_ms = 0;
+#endif
     MapAnchor anchor{};
     std::vector<MapTile> tiles{};
     ui::map_tiles::MapTileRenderQueue render_queue{};
@@ -654,6 +678,56 @@ void render_overlay(RuntimeImpl& impl)
     }
 }
 
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+void refresh_poi_overlay(RuntimeImpl& impl, bool force)
+{
+    if (!force && impl.poi_seen_revision == impl.tile_ctx.poi_revision &&
+        impl.poi_font_signature == impl.poi_overlay.font_signature()) return;
+    ui::map::MapPoiSnapshot metadata;
+    map_poi_snapshot(impl.tile_ctx, metadata);
+    if (!metadata.enabled || (metadata.candidate_count == 0 && !metadata.loading))
+    {
+        impl.poi_overlay.clear();
+        impl.annotation_frame.clear();
+        impl.poi_seen_revision = impl.tile_ctx.poi_revision;
+        impl.poi_font_signature = impl.poi_overlay.font_signature();
+        return;
+    }
+    const bool same_view = impl.annotation_frame.same_view(metadata);
+    if (!same_view) impl.poi_overlay.clear();
+    if (metadata.candidate_count == 0) return;
+    const uint32_t now = lv_tick_get();
+    if (impl.poi_allocation_retry_ms && static_cast<int32_t>(impl.poi_allocation_retry_ms - now) > 0) return;
+    if (!impl.annotation_frame.begin(metadata.candidate_count, metadata))
+    {
+        impl.poi_allocation_retry_ms = now + 1000U;
+        return;
+    }
+    visit_map_annotations(
+        impl.tile_ctx, [](void* context, const ui::map_poi::AnnotationCandidate& candidate)
+        { static_cast<ui::map_poi::AnnotationFrame*>(context)->add(candidate); },
+        &impl.annotation_frame);
+    impl.poi_overlay.prepare_text("");
+    for (std::size_t i = 0; i < impl.annotation_frame.candidate_count(); ++i)
+        impl.poi_overlay.prepare_text(impl.annotation_frame.candidates()[i].name);
+    ui::map_poi::AnnotationLayoutOptions options;
+    options.width = metadata.width;
+    options.height = metadata.height;
+    const int zoom = impl.anchor.z;
+    options.max_labels = zoom <= 6 ? 8 : zoom <= 11 ? 16
+                                     : zoom <= 15   ? 24
+                                                    : 32;
+    options.road_reservation = zoom <= 6 ? 0 : zoom <= 11 ? 3
+                                                          : 8;
+    options.place_reservation = zoom <= 11 ? 6 : 2;
+    if (!impl.annotation_frame.finish(options, PoiOverlay::measure_text, &impl.poi_overlay)) return;
+    impl.poi_overlay.update(impl.annotation_frame.snapshot());
+    impl.poi_font_signature = impl.poi_overlay.font_signature();
+    impl.poi_allocation_retry_ms = 0;
+    impl.poi_seen_revision = impl.tile_ctx.poi_revision;
+}
+#endif
+
 void loader_timer_cb(lv_timer_t* timer)
 {
     auto* impl = static_cast<RuntimeImpl*>(lv_timer_get_user_data(timer));
@@ -682,6 +756,9 @@ void loader_timer_cb(lv_timer_t* timer)
     if (!impl->loader_paused)
     {
         tile_loader_step(impl->tile_ctx);
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+        refresh_poi_overlay(*impl, false);
+#endif
     }
 
     uint8_t missing_source = 0;
@@ -773,6 +850,9 @@ Widgets create(Runtime& runtime, lv_obj_t* parent, uint32_t loader_interval_ms)
     lv_obj_set_pos(impl->widgets.tile_layer, 0, 0);
     make_plain(impl->widgets.tile_layer);
 
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+    impl->poi_overlay.create(impl->widgets.root);
+#endif
     impl->widgets.overlay_layer = lv_obj_create(impl->widgets.root);
     lv_obj_set_size(impl->widgets.overlay_layer, LV_PCT(100), LV_PCT(100));
     lv_obj_set_pos(impl->widgets.overlay_layer, 0, 0);
@@ -903,6 +983,9 @@ void apply_model(Runtime& runtime, const Model& model)
                      static_cast<unsigned>(impl->model.coord_system));
     refresh_tiles(*impl, "apply_model", true);
     render_overlay(*impl);
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+    refresh_poi_overlay(*impl, true);
+#endif
 }
 
 void apply_model_lightweight(Runtime& runtime, const Model& model)
@@ -929,6 +1012,9 @@ void apply_model_lightweight(Runtime& runtime, const Model& model)
                      static_cast<unsigned>(impl->model.coord_system));
     translate_loaded_tiles(*impl, dx, dy);
     translate_children(impl->widgets.overlay_layer, dx, dy);
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+    impl->poi_overlay.translate(dx, dy);
+#endif
     impl->drag_preview_active = true;
 }
 
@@ -955,6 +1041,10 @@ void clear(Runtime& runtime)
     impl->model.focus_point = GeoPoint{};
     impl->overlay = ui::map::MapOverlaySnapshot{};
     clear_overlay_layer(*impl);
+#if defined(TRAIL_MATE_MAP_POI_AVAILABLE)
+    impl->poi_overlay.clear();
+    impl->annotation_frame.clear();
+#endif
     cleanup_tiles(impl->tile_ctx);
     impl->anchor.valid = false;
     impl->drag_preview_active = false;

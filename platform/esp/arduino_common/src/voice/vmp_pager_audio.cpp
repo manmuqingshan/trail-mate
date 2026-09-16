@@ -763,6 +763,41 @@ PlaybackResult PagerCodec2Audio::play(const uint8_t* encoded_media,
 
 } // namespace platform::esp::arduino_common::voice::vmp_audio
 
+#elif defined(ARDUINO_WIO_TRACKER_L2)
+
+#include "platform/esp/wio_tracker_l2/wio_tracker_l2_board.h"
+
+namespace platform::esp::arduino_common::voice::vmp_audio
+{
+bool PagerCodec2Audio::isSupported() const
+{
+    return ::boards::wio_tracker_l2::WioTrackerL2Board::instance().isVoicePlaybackReady();
+}
+bool PagerCodec2Audio::canCapture() const { return false; }
+CaptureResult PagerCodec2Audio::capture(const volatile bool*)
+{
+    clearEncodedMedia();
+    return CaptureResult::Unsupported;
+}
+const uint8_t* PagerCodec2Audio::encodedMedia() const { return nullptr; }
+std::size_t PagerCodec2Audio::encodedMediaSize() const { return 0; }
+bool PagerCodec2Audio::hasEncodedMedia() const { return false; }
+void PagerCodec2Audio::clearEncodedMedia()
+{
+    std::memset(encoded_media_, 0, sizeof(encoded_media_));
+    encoded_media_size_ = 0;
+}
+PlaybackResult PagerCodec2Audio::play(const uint8_t* data, std::size_t size,
+                                      chat::voice::vmp::Codec codec, uint8_t volume)
+{
+    if (!data || !size || size > kMaximumEncodedBytes || size % kCodec2BytesPerFrame ||
+        codec != chat::voice::vmp::Codec::Codec2_1300) return PlaybackResult::InvalidMedia;
+    auto& board = ::boards::wio_tracker_l2::WioTrackerL2Board::instance();
+    if (!board.isVoicePlaybackReady()) return PlaybackResult::Unsupported;
+    return board.playCodec2Voice(data, size, volume) ? PlaybackResult::Complete : PlaybackResult::AudioBusy;
+}
+} // namespace platform::esp::arduino_common::voice::vmp_audio
+
 #else
 
 namespace platform::esp::arduino_common::voice::vmp_audio

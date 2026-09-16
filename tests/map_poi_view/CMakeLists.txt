@@ -1,0 +1,51 @@
+cmake_minimum_required(VERSION 3.20)
+project(map_poi_view_contract LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(REPO "${CMAKE_CURRENT_LIST_DIR}/../..")
+set(LVGL_DIR "" CACHE PATH "LVGL 9.4 source directory")
+set(LV_BUILD_CONF_PATH "${CMAKE_CURRENT_LIST_DIR}/lv_conf.h" CACHE PATH "" FORCE)
+set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
+set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
+add_subdirectory(${LVGL_DIR} lvgl)
+add_executable(map_poi_view_contract test_view.cpp ${REPO}/modules/ui_shared/src/ui/widgets/map/poi_overlay.cpp)
+target_include_directories(map_poi_view_contract BEFORE PRIVATE stubs ${REPO}/modules/ui_shared/include ${REPO}/modules/ui_presentation/include)
+target_link_libraries(map_poi_view_contract PRIVATE lvgl)
+if(MSVC)
+    target_compile_options(map_poi_view_contract PRIVATE /utf-8 /EHsc)
+endif()
+enable_testing()
+add_test(NAME map_poi_view_contract COMMAND map_poi_view_contract)
+add_executable(map_annotation_view_contract test_prepared_frame.cpp
+    ${REPO}/modules/ui_shared/src/ui/widgets/map/poi_overlay.cpp
+    ${REPO}/modules/ui_map_runtime/src/map_poi/annotation_frame.cpp
+    ${REPO}/modules/ui_map_runtime/src/map_poi/annotation_layout.cpp)
+target_include_directories(map_annotation_view_contract BEFORE PRIVATE stubs
+    ${REPO}/modules/ui_shared/include ${REPO}/modules/ui_presentation/include ${REPO}/modules/ui_map_runtime/include)
+target_link_libraries(map_annotation_view_contract PRIVATE lvgl)
+if(MSVC)
+    target_compile_options(map_annotation_view_contract PRIVATE /utf-8 /EHsc)
+endif()
+add_test(NAME map_annotation_view_contract COMMAND map_annotation_view_contract)
+add_executable(map_marker_semantics_contract test_marker_semantics.cpp ${REPO}/modules/ui_shared/src/ui/widgets/map/poi_overlay.cpp)
+target_include_directories(map_marker_semantics_contract BEFORE PRIVATE stubs ${REPO}/modules/ui_shared/include ${REPO}/modules/ui_presentation/include)
+target_link_libraries(map_marker_semantics_contract PRIVATE lvgl)
+add_test(NAME map_marker_semantics_contract COMMAND map_marker_semantics_contract)
+add_executable(map_font_readiness_contract test_font_readiness.cpp ${REPO}/modules/ui_shared/src/ui/widgets/map/poi_overlay.cpp)
+target_include_directories(map_font_readiness_contract BEFORE PRIVATE stubs ${REPO}/modules/ui_shared/include ${REPO}/modules/ui_presentation/include)
+target_link_libraries(map_font_readiness_contract PRIVATE lvgl)
+add_test(NAME map_font_readiness_contract COMMAND map_font_readiness_contract)
+set(CJSON_DIR "" CACHE PATH "cJSON source for package replay")
+if(CJSON_DIR)
+  add_executable(replay_annotation_layout replay_annotation_layout.cpp
+      ${CJSON_DIR}/cJSON.c
+      ${REPO}/platform/esp/arduino_common/src/map_poi/cjson_poi_parser.cpp
+      ${REPO}/modules/ui_map_runtime/src/map_poi/annotation_frame.cpp
+      ${REPO}/modules/ui_map_runtime/src/map_poi/annotation_layout.cpp)
+  target_include_directories(replay_annotation_layout PRIVATE ${CJSON_DIR}
+      ${REPO}/platform/esp/arduino_common/include ${REPO}/modules/ui_map_runtime/include ${REPO}/modules/ui_presentation/include)
+  target_link_libraries(replay_annotation_layout PRIVATE lvgl)
+  if(MSVC)
+    target_compile_options(replay_annotation_layout PRIVATE /utf-8 /EHsc)
+  endif()
+endif()
