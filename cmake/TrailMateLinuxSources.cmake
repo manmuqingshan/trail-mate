@@ -419,6 +419,7 @@ set(TRAIL_MATE_LINUX_UI_SHELL_SOURCES
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/screens/chat/chat_team_workflow.cpp"
     "${TRAIL_MATE_UI_SHARED_SRC_ROOT}/ui/screens/chat/chat_ui_controller.cpp"
     "${TRAIL_MATE_UI_PRESENTATION_SRC_ROOT}/menu/menu_model.cpp"
+    "${TRAIL_MATE_UI_PRESENTATION_SRC_ROOT}/page/page_manifest.cpp"
     "${TRAIL_MATE_UI_PRESENTATION_SRC_ROOT}/screen/screen_binding_registry.cpp"
     "${TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT}/ux/screen_registry.cpp"
     "${TRAIL_MATE_UI_LVGL_UX_PACKS_SRC_ROOT}/ux/input_binding_set.cpp"
