@@ -129,8 +129,10 @@ if(languageElement) {
     const labels=useWebsiteLabels();
     const [value,setValue]=useState(document.documentElement.lang||'en');
     useEffect(()=>{
-      const observer=new MutationObserver(()=>setValue(document.documentElement.lang));
+      const sync=()=>setValue(document.documentElement.lang||'en');
+      const observer=new MutationObserver(sync);
       observer.observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
+      sync();
       return ()=>observer.disconnect();
     },[]);
     return <Select options={locales.map(locale=>({key:locale.id,label:locale.name}))} value={value} aria-label={labels.language} onChange={key=>{

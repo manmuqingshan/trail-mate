@@ -141,7 +141,13 @@ body[data-variant=C] #native-guide { grid-column:2; display:grid; grid-template-
 @media(max-width:1200px) { .content-shell { grid-template-columns:145px minmax(0,1fr); gap:24px; } .native-layout { grid-template-columns:150px minmax(0,1fr); } #native-navigation { grid-row:1/3; } #native-guide { grid-column:2; } .hero { gap:24px; } }
 @media(max-width:1000px) { .content-shell { display:block; } .sidebar { position:static; max-height:none; padding:0; margin-bottom:20px; } .sidebar-label,.nav-group { display:none; } .side-nav { display:flex; flex-wrap:wrap; gap:4px; } .side-nav>a { padding:7px 10px; font-size:11px; } .product-principles { grid-template-columns:repeat(2,1fr); } .story-stack,.survey-examples { grid-template-columns:1fr; } .hero-visual { padding:22px; } }
 @media(max-width:700px) { .page-shell { width:calc(100% - 24px); } .topbar { top:4px; padding:8px; } .top-actions { gap:0; } .top-link { padding:0 8px; font-size:11px; } .brand-logo { width:36px; } .brand-text { font-size:13px; } .hero { display:block; padding:15px 0; } .hero-visual { display:none; } .hero h1 { font-size:64px; } .hero-tagline { max-width:24ch; } .explorer-heading { display:block; } .explorer-heading>p { font-size:12px; } .demo-badge { display:none; } .explorer-toolbar { gap:5px; } .explorer-toolbar button { padding:8px; font-size:11px; } .native-layout,body[data-variant=B] .native-layout,body[data-variant=C] .native-layout { display:flex; flex-direction:column; padding:16px 0; background:transparent; } #native-navigation { max-height:165px; width:100%; border-bottom:1px solid var(--guide-line); } #native-page-list { display:flex; flex-wrap:wrap; gap:3px; } #native-page-list button { width:auto; padding:6px; font-size:10px; } #native-page-list small { display:none; } .feature-search input { max-width:220px; } .native-stage { width:100%; } .native-scroll { min-height:0; padding:10px 0; } #native-guide,body[data-variant=B] #native-guide,body[data-variant=C] #native-guide { display:block; padding:0 6px; } .native-caption { font-size:10px; } .native-inputs button { padding:7px; } .capability-grid,.field-preparation ol { grid-template-columns:1fr; } .device-interactions { display:block; } .product-principles { gap:20px; } .field-preparation { padding:22px; } .prototype-switcher { font-size:9px; gap:5px; } body[data-variant=C] #native-page-list button,body[data-variant=C] .native-caption,body[data-variant=C] .native-scenarios label { color:var(--guide-ink); } }
-@media(prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } *,*::before,*::after { transition:none!important; animation:none!important; } }
+@media(prefers-reduced-motion:reduce) {
+  html { scroll-behavior:auto; }
+  *,*::before,*::after { transition:none!important; animation:none!important; }
+  /* Select's entry animation normally reveals the mounted list. Keep expanded
+     menus visible when motion is disabled, without depending on library hashes. */
+  [role="combobox"][aria-expanded="true"] + [role="listbox"] { opacity:1; }
+}
 
 /* Animal Island visual language: the surrounding guide uses the same warm,
    friendly system as the reference library. Native LVGL pixels stay untouched. */
@@ -165,7 +171,6 @@ body::after { content:""; position:fixed; inset:auto 0 0; height:96px; z-index:-
 .top-link,.lang-button { color:var(--animal-muted); border-radius:50px; }
 .top-link:hover,.lang-button:hover { background:#e6f9f6; color:var(--animal-body); }
 .top-link-strong { background:var(--animal-teal); border-color:#4de2da; box-shadow:0 5px 0 var(--animal-teal-dark); }
-.language-toggle { border:2px solid #d4c9b4; background:#fffbe7; }
 .lang-button.is-active { background:#f7cd67; color:var(--animal-brown); }
 .sidebar { background:#fffdf4; padding:20px 12px; border:2px solid #c4b89e; border-radius:24px; box-shadow:0 4px 0 #d8ccb5; }
 .sidebar-label { color:#72532f; font-weight:800; }
