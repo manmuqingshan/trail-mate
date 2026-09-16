@@ -251,7 +251,6 @@ function renderPackCatalog() {
 
 async function setLanguage(language) {
   await setLocale(language);
-  localStorage.setItem("trail-mate-language", getLocale());
   const url=new URL(location.href);
   url.searchParams.set("lang",getLocale());
   history.replaceState(null,"",url);
@@ -302,8 +301,9 @@ document.querySelector('#site-language').replaceChildren(...locales.map(locale=>
   return option;
 }));
 const urlLanguage = urlParams.get("lang");
-const savedLanguage = localStorage.getItem("trail-mate-language");
-await setLanguage(urlLanguage ?? savedLanguage ?? 'en');
+// A plain site URL always starts in English. Explicit language links preserve
+// the visitor's selection without carrying a stale preference into new visits.
+await setLanguage(urlLanguage ?? 'en');
 document.querySelector('#site-language').addEventListener('change',event=>setLanguage(event.target.value));
 loadReleaseData();
 loadPackCatalog();
