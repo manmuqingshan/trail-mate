@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "lvgl.h"
+#include "platform/ui/screen_runtime.h"
 #include "sys/clock.h"
 #include "ui/localization.h"
 
@@ -43,7 +44,21 @@ void set_label_texts(int unread)
     }
     if (s_hint_label != nullptr)
     {
-        ::ui::i18n::set_label_text(s_hint_label, "Press SPACE to resume");
+        switch (::platform::ui::screen::resume_method())
+        {
+        case ::platform::ui::screen::ResumeMethod::SwipeUp:
+            ::ui::i18n::set_label_text(
+                s_hint_label,
+                "Swipe up to resume");
+            break;
+
+        case ::platform::ui::screen::ResumeMethod::SpaceKey:
+        default:
+            ::ui::i18n::set_label_text(
+                s_hint_label,
+                "Press SPACE to resume");
+            break;
+        }
     }
 }
 

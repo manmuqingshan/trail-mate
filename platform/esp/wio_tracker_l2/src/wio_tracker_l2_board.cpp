@@ -356,18 +356,52 @@ uint8_t WioTrackerL2Board::getPoint(int16_t* x, int16_t* y, uint8_t count)
     return 1;
 }
 
-DisplayTransferResult WioTrackerL2Board::transferPixels(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* pixels)
+DisplayTransferResult WioTrackerL2Board::transferPixels(
+    uint16_t x,
+    uint16_t y,
+    uint16_t w,
+    uint16_t h,
+    uint16_t* pixels)
 {
-    if (!display_ready_) return DisplayTransferResult::Failed;
-    if (!pixels || x2 < x1 || y2 < y1 || x2 >= width() || y2 >= height()) return DisplayTransferResult::Failed;
-    s_display.pushImage(x1, y1, x2 - x1 + 1, y2 - y1 + 1, pixels);
+    if (!display_ready_)
+    {
+        return DisplayTransferResult::Failed;
+    }
+
+    if (pixels == nullptr || w == 0 || h == 0)
+    {
+        return DisplayTransferResult::Failed;
+    }
+
+    if (x >= width() ||
+        y >= height() ||
+        static_cast<uint32_t>(x) + w > width() ||
+        static_cast<uint32_t>(y) + h > height())
+    {
+        return DisplayTransferResult::Failed;
+    }
+
+    const uint32_t pixel_count =
+        static_cast<uint32_t>(w) *
+        static_cast<uint32_t>(h);
+
+    s_display.startWrite();
+    s_display.setAddrWindow(x, y, w, h);
+    s_display.writePixels(pixels, pixel_count, true);
+    s_display.endWrite();
     s_display.waitDMA();
+
     return DisplayTransferResult::Completed;
 }
 
-void WioTrackerL2Board::pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* pixels)
+void WioTrackerL2Board::pushColors(
+    uint16_t x,
+    uint16_t y,
+    uint16_t w,
+    uint16_t h,
+    uint16_t* pixels)
 {
-    (void)transferPixels(x1, y1, x2, y2, pixels);
+    (void)transferPixels(x, y, w, h, pixels);
 }
 
 void WioTrackerL2Board::enterScreenSleep()

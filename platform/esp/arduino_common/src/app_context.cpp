@@ -959,7 +959,7 @@ void AppContext::getEffectiveUserInfo(char* out_long, size_t long_len,
     input.node_id = getSelfNodeId();
     input.configured_long_name = config_.node_name;
     input.configured_short_name = config_.short_name;
-    input.fallback_long_prefix = "lilygo";
+    input.fallback_long_prefix = "TM";
     input.fallback_ble_prefix = "TrailMate";
     input.allow_short_hex_fallback = true;
 

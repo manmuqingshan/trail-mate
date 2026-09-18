@@ -6,6 +6,12 @@
 namespace platform::ui::screen
 {
 
+enum class ResumeMethod : std::uint8_t
+{
+    SpaceKey,
+    SwipeUp,
+};
+
 struct Hooks
 {
     bool (*format_time)(char* out, std::size_t out_len) = nullptr;
@@ -33,5 +39,9 @@ void wake_for_modal();
 void record_activity();
 void disable_sleep();
 void enable_sleep();
+// Explicit user intent to dismiss the screen saver and return to
+// the UI/page that was active before sleep.
+void request_resume();
+ResumeMethod resume_method();
 
 } // namespace platform::ui::screen

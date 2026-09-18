@@ -386,7 +386,8 @@ Pairing init failed	配对初始化失败
 Pairing not available	当前无法配对
 Pairing not ready	配对尚未就绪
 Press Back to exit USB mode	按返回键退出 USB 模式
-Press SPACE to resume	按 SPACE 唤醒屏幕
+Press SPACE to resume	按 SPACE 继续
+Swipe up to resume	上滑以继续
 RallyTo	集结到
 Route configured	已配置路线
 Route: %s	路线:%s

@@ -3336,8 +3336,8 @@ bool MtAdapter::sendNodeInfoTo(uint32_t dest, bool want_response, ChannelId chan
     identity_input.node_id = node_id_;
     identity_input.configured_long_name = user_long_name_.c_str();
     identity_input.configured_short_name = user_short_name_.c_str();
-    identity_input.fallback_long_prefix = "lilygo";
-    identity_input.fallback_ble_prefix = "lilygo";
+    identity_input.fallback_long_prefix = "TM";
+    identity_input.fallback_ble_prefix = "TrailMate";
     identity_input.allow_short_hex_fallback = true;
     (void)chat::runtime::resolveEffectiveSelfIdentity(identity_input, &identity);
 

@@ -68,8 +68,8 @@ class WioTrackerL2Board final : public BoardBase,
     // LovyanGFX owns its transport buffers; keep the large LVGL buffers in PSRAM.
     bool useDMA() override { return false; }
     uint8_t getPoint(int16_t* x, int16_t* y, uint8_t count) override;
-    void pushColors(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* pixels) override;
-    DisplayTransferResult transferPixels(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t* pixels) override;
+    void pushColors(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t* pixels) override;
+    DisplayTransferResult transferPixels(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t* pixels) override;
 
     bool isRadioOnline() const override { return radio_ready_; }
     int transmitRadio(const uint8_t* data, size_t len) override;

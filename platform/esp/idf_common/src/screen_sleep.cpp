@@ -349,7 +349,7 @@ void handle_input()
 
 void handle_confirm_input()
 {
-    (void)post_event(Event::ConfirmInput);
+    request_resume();
 }
 
 void handle_input_release()
@@ -375,6 +375,16 @@ void disable_sleep()
 void enable_sleep()
 {
     (void)post_event(Event::EnableSleep);
+}
+
+void request_resume()
+{
+    (void)post_event(Event::ConfirmInput);
+}
+
+ResumeMethod resume_method()
+{
+    return ResumeMethod::SpaceKey;
 }
 
 } // namespace platform::ui::screen
