@@ -15,7 +15,7 @@
 #else
 #define TRAIL_MATE_USE_MONO_SCREEN_240X320 0
 #endif
-#if defined(ARDUINO_T_LORA_PAGER) || defined(ARDUINO_T_DECK) || \
+#if defined(ARDUINO_T_LORA_PAGER) || defined(ARDUINO_T_DECK)  || defined(ARDUINO_WIO_TRACKER_L2) || \
     defined(TRAIL_MATE_ESP_BOARD_T_DISPLAY_P4)
 #define TRAIL_MATE_ENABLE_CALCULATOR_APP 1
 #else
