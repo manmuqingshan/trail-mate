@@ -771,7 +771,7 @@ namespace platform::esp::arduino_common::voice::vmp_audio
 {
 bool PagerCodec2Audio::isSupported() const
 {
-    return ::boards::wio_tracker_l2::WioTrackerL2Board::instance().isVoicePlaybackReady();
+    return true;
 }
 bool PagerCodec2Audio::canCapture() const { return false; }
 CaptureResult PagerCodec2Audio::capture(const volatile bool*)
@@ -793,7 +793,6 @@ PlaybackResult PagerCodec2Audio::play(const uint8_t* data, std::size_t size,
     if (!data || !size || size > kMaximumEncodedBytes || size % kCodec2BytesPerFrame ||
         codec != chat::voice::vmp::Codec::Codec2_1300) return PlaybackResult::InvalidMedia;
     auto& board = ::boards::wio_tracker_l2::WioTrackerL2Board::instance();
-    if (!board.isVoicePlaybackReady()) return PlaybackResult::Unsupported;
     return board.playCodec2Voice(data, size, volume) ? PlaybackResult::Complete : PlaybackResult::AudioBusy;
 }
 } // namespace platform::esp::arduino_common::voice::vmp_audio

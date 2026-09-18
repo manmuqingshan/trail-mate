@@ -103,6 +103,7 @@ class WioTrackerL2Board final : public BoardBase,
     bool initializeDisplay();
     bool initializeBacklight();
     bool initializeAudio();
+    bool ensureAudioReady();
     void playTone();
     bool writeExpander(ExpanderPin pin, bool high);
     void writeBacklight(uint8_t level);
