@@ -51,7 +51,7 @@ class WioTrackerL2Board final : public BoardBase,
     bool ensureSDReady() override;
     void uninstallSD() override;
 
-    void setGPSReceiverInitConfig(const gps::GpsReceiverInitConfig& config) override 
+    void setGPSReceiverInitConfig(const gps::GpsReceiverInitConfig& config) override
     {
         gps_config_ = config;
         gps_config_.profile = 1;
