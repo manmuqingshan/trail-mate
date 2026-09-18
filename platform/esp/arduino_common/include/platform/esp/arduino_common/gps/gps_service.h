@@ -49,6 +49,8 @@ class GpsService
     bool isEnabled() const { return !gps_disabled_ && user_enabled_; }
     bool isPowered() const { return gps_powered_; }
     uint32_t getLastMotionMs() const;
+    void acquirePowerLease(const char* reason);
+    void releasePowerLease(const char* reason);
 
   private:
     GpsService() = default;
@@ -104,6 +106,7 @@ class GpsService
     HalGpsAdapter gps_adapter_{};
     HalMotionAdapter motion_adapter_{};
     GpsJitterFilter jitter_filter_{};
+    uint32_t power_lease_count_ = 0;
 };
 
 } // namespace gps

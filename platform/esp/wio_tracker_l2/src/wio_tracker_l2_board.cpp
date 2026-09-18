@@ -478,14 +478,54 @@ void WioTrackerL2Board::uninstallSD() { platform::esp::arduino_common::storage::
 
 bool WioTrackerL2Board::initGPS()
 {
-    if (!writeExpander(ExpanderPin::GpsPower, true) || !writeExpander(ExpanderPin::GpsReset, true)) return false;
+    if (!writeExpander(ExpanderPin::GpsPower, true))
+    {
+        Serial.println("[WioL2][GPS] power enable failed");
+        return false;
+    }
+
+    // L76K reset is active HIGH on Wio Tracker L2.
+    if (!writeExpander(ExpanderPin::GpsReset, true))
+    {
+        Serial.println("[WioL2][GPS] reset assert failed");
+        return false;
+    }
+
     delay(10);
-    if (!writeExpander(ExpanderPin::GpsReset, false)) return false;
-    const uint32_t baud = gps_config_.baud >= 9600 && gps_config_.baud <= 115200 ? gps_config_.baud : 9600;
+
+    if (!writeExpander(ExpanderPin::GpsReset, false))
+    {
+        Serial.println("[WioL2][GPS] reset release failed");
+        return false;
+    }
+
+    // Give L76K time to leave reset before opening the UART.
+    delay(100);
+
+    const uint32_t baud =
+        gps_config_.baud >= 4800 &&
+                gps_config_.baud <= 115200
+            ? gps_config_.baud
+            : 9600;
+
     Serial1.end();
-    Serial1.begin(baud, SERIAL_8N1, gpio::kGpsRx, gpio::kGpsTx);
+    Serial1.begin(
+        baud,
+        SERIAL_8N1,
+        gpio::kGpsRx,
+        gpio::kGpsTx);
+
+    delay(20);
+
     gps_.attach(&Serial1);
     gps_ready_ = true;
+
+    Serial.printf(
+        "[WioL2][GPS] L76K ready baud=%lu rx=%d tx=%d protocol=nmea\n",
+        static_cast<unsigned long>(baud),
+        gpio::kGpsRx,
+        gpio::kGpsTx);
+
     return true;
 }
 

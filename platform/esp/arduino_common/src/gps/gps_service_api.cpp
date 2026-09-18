@@ -173,4 +173,14 @@ double calculate_map_resolution(int zoom, double lat)
     return resolution;
 }
 
+void gps_acquire_power_lease(const char* reason)
+{
+    GpsService::getInstance().acquirePowerLease(reason);
+}
+
+void gps_release_power_lease(const char* reason)
+{
+    GpsService::getInstance().releasePowerLease(reason);
+}
+
 } // namespace gps
