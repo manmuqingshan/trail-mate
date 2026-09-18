@@ -70,13 +70,13 @@ GpsService& GpsService::getInstance()
     return *instance;
 }
 
-void GpsService::begin(GpsBoard& gps_board, MotionBoard& motion_board,
+void GpsService::begin(GpsBoard& gps_board, MotionBoard* motion_board,
                        uint32_t disable_hw_init, uint32_t gps_interval_ms,
                        const MotionConfig& motion_config,
                        const GpsReceiverInitConfig& receiver_init_config)
 {
     gps_board_ = &gps_board;
-    motion_board_ = &motion_board;
+    motion_board_ = motion_board;
     receiver_init_config_ = receiver_init_config;
     gps_board_->setGPSReceiverInitConfig(receiver_init_config_);
     gps_adapter_.begin(gps_board);
@@ -95,7 +95,10 @@ void GpsService::begin(GpsBoard& gps_board, MotionBoard& motion_board,
         Serial.printf("[GPS] service starting reason=adapter_not_ready_waiting_retry\n");
     }
 
-    motion_adapter_.begin(motion_board);
+    if (motion_board_ != nullptr)
+    {
+        motion_adapter_.begin(*motion_board_);
+    }
 
     gps_data_mutex_ = xSemaphoreCreateMutex();
     if (gps_data_mutex_ == NULL)
@@ -127,7 +130,11 @@ void GpsService::begin(GpsBoard& gps_board, MotionBoard& motion_board,
         log_d("GPS data collection task created successfully (interval: %lu ms)", runtime_state_.requestedCollectionIntervalMs());
     }
 
-    const bool motion_control_enabled = motion_policy_.begin(motion_adapter_, motion_config_);
+    bool motion_control_enabled = false;
+    if (motion_board_ != nullptr)
+    {
+        motion_control_enabled = motion_policy_.begin(motion_adapter_, motion_config_);
+    }
     runtime_state_.setMotionControlEnabled(motion_control_enabled, millis());
 
     if (motion_control_enabled && motion_task_handle_ == nullptr)
@@ -399,6 +406,13 @@ void GpsService::setMotionConfig(const MotionConfig& config)
     }
 
     motion_config_ = normalizeMotionConfig(config);
+    if (motion_board_ == nullptr)
+    {
+        runtime_state_.setMotionControlEnabled(
+            false,
+            millis());
+        return;
+    }
 
     const bool motion_control_enabled = motion_policy_.begin(motion_adapter_, motion_config_);
     runtime_state_.setMotionControlEnabled(motion_control_enabled, millis());
