@@ -386,20 +386,9 @@ DisplayTransferResult WioTrackerL2Board::transferPixels(
         static_cast<uint32_t>(h);
 
     s_display.startWrite();
-
-    s_display.setAddrWindow(
-        x,
-        y,
-        w,
-        h);
-
-    s_display.writePixels(
-        pixels,
-        pixel_count,
-        true);      // RGB565 byte swap
-
+    s_display.setAddrWindow(x, y, w, h);
+    s_display.writePixels(pixels, pixel_count, true);
     s_display.endWrite();
-
     s_display.waitDMA();
 
     return DisplayTransferResult::Completed;
