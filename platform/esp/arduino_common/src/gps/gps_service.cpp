@@ -1131,18 +1131,13 @@ void GpsService::updateMotionState(uint32_t now_ms)
     const GpsPowerInputs power_inputs = runtime_state_.makePowerInputs(
         motion_policy_.isEnabled(), motion_config_.idle_timeout_ms, motion_policy_.lastMotionMs());
 
-    const GpsPowerDecision decision =
-    decideGpsPower(power_inputs, now_ms);
+    const GpsPowerDecision decision = decideGpsPower(power_inputs, now_ms);
 
-    runtime_state_.setMotionControlArmedMs(
-        decision.motion_control_armed_ms);
+    runtime_state_.setMotionControlArmedMs(decision.motion_control_armed_ms);
 
-    const bool lease_requires_power =
-        power_lease_count_ > 0;
+    const bool lease_requires_power = power_lease_count_ > 0;
 
-    const bool should_enable_gps =
-        lease_requires_power ||
-        decision.should_enable_gps;
+    const bool should_enable_gps = lease_requires_power || decision.should_enable_gps;
 
     if (should_enable_gps && !gps_powered_)
     {

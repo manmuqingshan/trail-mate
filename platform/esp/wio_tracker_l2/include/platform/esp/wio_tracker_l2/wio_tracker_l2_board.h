@@ -54,12 +54,10 @@ class WioTrackerL2Board final : public BoardBase,
     void setGPSReceiverInitConfig(const gps::GpsReceiverInitConfig& config) override 
     {
         gps_config_ = config;
-
-        // Wio Tracker L2 uses a fixed onboard Quectel L76K.
-        gps_config_.profile = 1;      // NMEA Passive
-        gps_config_.rxm_policy = 1;   // Skip
-        gps_config_.gnss_policy = 1;  // Skip
-        gps_config_.nmea_policy = 1;  // Skip
+        gps_config_.profile = 1;
+        gps_config_.rxm_policy = 1;
+        gps_config_.gnss_policy = 1;
+        gps_config_.nmea_policy = 1;
 
         if (gps_config_.baud == 0)
         {
