@@ -257,7 +257,11 @@ uint32_t WioTrackerL2Board::begin(uint32_t disable_hw_init)
     if (started_) return display_ready_ ? 0 : 1;
     s_i2c_mutex = xSemaphoreCreateRecursiveMutexStatic(&s_i2c_mutex_storage);
     s_radio_mutex = xSemaphoreCreateRecursiveMutexStatic(&s_radio_mutex_storage);
-    if (!s_i2c_mutex || !s_radio_mutex || !Wire.begin(gpio::kI2cSda, gpio::kI2cScl, i2c::kFrequencyHz)) return 1;
+    s_audio_mutex = xSemaphoreCreateRecursiveMutexStatic(&s_audio_mutex_storage);
+    if (!s_i2c_mutex || !s_radio_mutex || !s_audio_mutex || !Wire.begin(gpio::kI2cSda, gpio::kI2cScl, i2c::kFrequencyHz))
+    {
+        return 1;
+    }
     Wire.setTimeOut(50);
     if (!initializePower()) return 1;
     backlight_ready_ = initializeBacklight();
@@ -267,12 +271,11 @@ uint32_t WioTrackerL2Board::begin(uint32_t disable_hw_init)
     const int radio_result = radio_.begin(869.525, 250.0, 11, 5, 0x2B, 14, 16, 1.8);
     radio_ready_ = radio_result == RADIOLIB_ERR_NONE;
     if (radio_ready_) radio_.setDio2AsRfSwitch(true);
-    audio_ready_ = initializeAudio();
     if ((disable_hw_init & NO_HW_GPS) == 0) initGPS();
     if ((disable_hw_init & NO_HW_SD) == 0) installSD();
     started_ = true;
-    Serial.printf("[WioL2] display=%d touch=%d backlight=%d radio=%d (rc=%d) audio=%d\n",
-                  display_ready_, touch_ready_, backlight_ready_, radio_ready_, radio_result, audio_ready_);
+    Serial.printf("[WioL2] display=%d touch=%d backlight=%d radio=%d (rc=%d)\n",
+                  display_ready_, touch_ready_, backlight_ready_, radio_ready_, radio_result);
     return display_ready_ ? 0 : 1;
 }
 
@@ -478,14 +481,54 @@ void WioTrackerL2Board::uninstallSD() { platform::esp::arduino_common::storage::
 
 bool WioTrackerL2Board::initGPS()
 {
-    if (!writeExpander(ExpanderPin::GpsPower, true) || !writeExpander(ExpanderPin::GpsReset, true)) return false;
+    if (!writeExpander(ExpanderPin::GpsPower, true))
+    {
+        Serial.println("[WioL2][GPS] power enable failed");
+        return false;
+    }
+
+    // L76K reset is active HIGH on Wio Tracker L2.
+    if (!writeExpander(ExpanderPin::GpsReset, true))
+    {
+        Serial.println("[WioL2][GPS] reset assert failed");
+        return false;
+    }
+
     delay(10);
-    if (!writeExpander(ExpanderPin::GpsReset, false)) return false;
-    const uint32_t baud = gps_config_.baud >= 9600 && gps_config_.baud <= 115200 ? gps_config_.baud : 9600;
+
+    if (!writeExpander(ExpanderPin::GpsReset, false))
+    {
+        Serial.println("[WioL2][GPS] reset release failed");
+        return false;
+    }
+
+    // Give L76K time to leave reset before opening the UART.
+    delay(100);
+
+    const uint32_t baud =
+        gps_config_.baud >= 4800 &&
+                gps_config_.baud <= 115200
+            ? gps_config_.baud
+            : 9600;
+
     Serial1.end();
-    Serial1.begin(baud, SERIAL_8N1, gpio::kGpsRx, gpio::kGpsTx);
+    Serial1.begin(
+        baud,
+        SERIAL_8N1,
+        gpio::kGpsRx,
+        gpio::kGpsTx);
+
+    delay(20);
+
     gps_.attach(&Serial1);
     gps_ready_ = true;
+
+    Serial.printf(
+        "[WioL2][GPS] L76K ready baud=%lu rx=%d tx=%d protocol=nmea\n",
+        static_cast<unsigned long>(baud),
+        gpio::kGpsRx,
+        gpio::kGpsTx);
+
     return true;
 }
 
@@ -637,8 +680,6 @@ bool WioTrackerL2Board::isCharging()
 
 bool WioTrackerL2Board::initializeAudio()
 {
-    s_audio_mutex = xSemaphoreCreateRecursiveMutexStatic(&s_audio_mutex_storage);
-    if (!s_audio_mutex) return false;
     i2s_config_t config{};
     config.mode = static_cast<i2s_mode_t>(I2S_MODE_MASTER | I2S_MODE_TX);
     config.sample_rate = kAudioSampleRate;
@@ -682,9 +723,50 @@ bool WioTrackerL2Board::initializeAudio()
     return ready;
 }
 
+bool WioTrackerL2Board::ensureAudioReady()
+{
+    if (audio_ready_)
+    {
+        return true;
+    }
+
+    BusLock lock(s_audio_mutex, 1000);
+
+    if (!lock)
+    {
+        return false;
+    }
+
+    // Another caller may have initialized it while we were waiting.
+    if (audio_ready_)
+    {
+        return true;
+    }
+
+    audio_ready_ = initializeAudio();
+
+    if (!audio_ready_)
+    {
+        Serial.println("[WioL2] audio initialization failed");
+    }
+
+    return audio_ready_;
+}
+
 void WioTrackerL2Board::playMessageTone()
 {
-    if (!audio_ready_ || tone_volume_ == 0 || s_tone_pending.exchange(true)) return;
+    if (tone_volume_ == 0 ||
+        s_tone_pending.exchange(true))
+    {
+        return;
+    }
+
+    if (!ensureAudioReady())
+    {
+        s_tone_pending.store(false);
+        return;
+    }
+
     const BaseType_t created = xTaskCreate(
         [](void*)
         {
@@ -692,8 +774,16 @@ void WioTrackerL2Board::playMessageTone()
             s_tone_pending.store(false);
             vTaskDelete(nullptr);
         },
-        "wio_alert", 4096, nullptr, 2, nullptr);
-    if (created != pdPASS) s_tone_pending.store(false);
+        "wio_alert",
+        4096,
+        nullptr,
+        2,
+        nullptr);
+
+    if (created != pdPASS)
+    {
+        s_tone_pending.store(false);
+    }
 }
 
 void WioTrackerL2Board::playTone()
@@ -722,6 +812,10 @@ void WioTrackerL2Board::playTone()
 bool WioTrackerL2Board::playCodec2Voice(const uint8_t* data, size_t size, uint8_t volume)
 {
     if (!audio_ready_ || !data || size == 0 || size > 875 || size % 7 != 0) return false;
+    if (!ensureAudioReady())
+    {
+        return false;
+    }
     if (!::platform::esp::common::memory::admit("wio_voice", 0, 0, 96U * 1024U,
                                                 48U * 1024U, 16U * 1024U, 256U * 1024U)) return false;
     BusLock lock(s_audio_mutex, 0);

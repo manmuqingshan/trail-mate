@@ -51,7 +51,19 @@ class WioTrackerL2Board final : public BoardBase,
     bool ensureSDReady() override;
     void uninstallSD() override;
 
-    void setGPSReceiverInitConfig(const gps::GpsReceiverInitConfig& config) override { gps_config_ = config; }
+    void setGPSReceiverInitConfig(const gps::GpsReceiverInitConfig& config) override
+    {
+        gps_config_ = config;
+        gps_config_.profile = 1;
+        gps_config_.rxm_policy = 1;
+        gps_config_.gnss_policy = 1;
+        gps_config_.nmea_policy = 1;
+
+        if (gps_config_.baud == 0)
+        {
+            gps_config_.baud = 9600;
+        }
+    }
     gps::GpsReceiverProtocol getGPSReceiverProtocol() const override { return gps::GpsReceiverProtocol::Nmea; }
     bool initGPS() override;
     void deinitGPS() override;
@@ -91,6 +103,7 @@ class WioTrackerL2Board final : public BoardBase,
     bool initializeDisplay();
     bool initializeBacklight();
     bool initializeAudio();
+    bool ensureAudioReady();
     void playTone();
     bool writeExpander(ExpanderPin pin, bool high);
     void writeBacklight(uint8_t level);

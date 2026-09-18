@@ -117,12 +117,12 @@ void set_motion_sensor_id(uint8_t sensor_id)
 
 void acquire_power_lease(const char* reason)
 {
-    (void)reason;
+    ::gps::gps_acquire_power_lease(reason);
 }
 
 void release_power_lease(const char* reason)
 {
-    (void)reason;
+    ::gps::gps_release_power_lease(reason);
 }
 
 void suspend_runtime()

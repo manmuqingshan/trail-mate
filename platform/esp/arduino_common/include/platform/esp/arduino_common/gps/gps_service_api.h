@@ -36,4 +36,7 @@ TaskHandle_t gps_get_task_handle();
 // Calculate map resolution (meters per pixel) at given zoom and latitude
 double calculate_map_resolution(int zoom, double lat);
 
+void gps_acquire_power_lease(const char* reason);
+void gps_release_power_lease(const char* reason);
+
 } // namespace gps

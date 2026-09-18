@@ -70,13 +70,13 @@ GpsService& GpsService::getInstance()
     return *instance;
 }
 
-void GpsService::begin(GpsBoard& gps_board, MotionBoard& motion_board,
+void GpsService::begin(GpsBoard& gps_board, MotionBoard* motion_board,
                        uint32_t disable_hw_init, uint32_t gps_interval_ms,
                        const MotionConfig& motion_config,
                        const GpsReceiverInitConfig& receiver_init_config)
 {
     gps_board_ = &gps_board;
-    motion_board_ = &motion_board;
+    motion_board_ = motion_board;
     receiver_init_config_ = receiver_init_config;
     gps_board_->setGPSReceiverInitConfig(receiver_init_config_);
     gps_adapter_.begin(gps_board);
@@ -95,7 +95,10 @@ void GpsService::begin(GpsBoard& gps_board, MotionBoard& motion_board,
         Serial.printf("[GPS] service starting reason=adapter_not_ready_waiting_retry\n");
     }
 
-    motion_adapter_.begin(motion_board);
+    if (motion_board_ != nullptr)
+    {
+        motion_adapter_.begin(*motion_board_);
+    }
 
     gps_data_mutex_ = xSemaphoreCreateMutex();
     if (gps_data_mutex_ == NULL)
@@ -127,7 +130,11 @@ void GpsService::begin(GpsBoard& gps_board, MotionBoard& motion_board,
         log_d("GPS data collection task created successfully (interval: %lu ms)", runtime_state_.requestedCollectionIntervalMs());
     }
 
-    const bool motion_control_enabled = motion_policy_.begin(motion_adapter_, motion_config_);
+    bool motion_control_enabled = false;
+    if (motion_board_ != nullptr)
+    {
+        motion_control_enabled = motion_policy_.begin(motion_adapter_, motion_config_);
+    }
     runtime_state_.setMotionControlEnabled(motion_control_enabled, millis());
 
     if (motion_control_enabled && motion_task_handle_ == nullptr)
@@ -399,6 +406,13 @@ void GpsService::setMotionConfig(const MotionConfig& config)
     }
 
     motion_config_ = normalizeMotionConfig(config);
+    if (motion_board_ == nullptr)
+    {
+        runtime_state_.setMotionControlEnabled(
+            false,
+            millis());
+        return;
+    }
 
     const bool motion_control_enabled = motion_policy_.begin(motion_adapter_, motion_config_);
     runtime_state_.setMotionControlEnabled(motion_control_enabled, millis());
@@ -454,7 +468,7 @@ void GpsService::applyGnssConfig()
     {
         send_gnss = false;
     }
-#elif defined(ARDUINO_T_DECK)
+#elif defined(ARDUINO_T_DECK) || defined(ARDUINO_WIO_TRACKER_L2)
     if ((send_rxm || send_gnss) && !canSendReceiverUbxConfig("applyGnssConfig"))
     {
         send_rxm = false;
@@ -524,7 +538,7 @@ void GpsService::applyInternalNmeaConfig()
         giveGpsUartLock();
         return;
     }
-#elif defined(ARDUINO_T_DECK)
+#elif defined(ARDUINO_T_DECK) || defined(ARDUINO_WIO_TRACKER_L2)
     if (!canSendReceiverUbxConfig("applyInternalNmeaConfig"))
     {
         giveGpsUartLock();
@@ -566,7 +580,7 @@ void GpsService::giveGpsUartLock()
 
 bool GpsService::canSendReceiverUbxConfig(const char* source) const
 {
-#if defined(ARDUINO_T_DECK)
+#if defined(ARDUINO_T_DECK) || defined(ARDUINO_WIO_TRACKER_L2)
     if (gps_board_ == nullptr)
     {
         return false;
@@ -1134,7 +1148,10 @@ void GpsService::updateMotionState(uint32_t now_ms)
     const GpsPowerDecision decision = decideGpsPower(power_inputs, now_ms);
 
     runtime_state_.setMotionControlArmedMs(decision.motion_control_armed_ms);
-    const bool should_enable_gps = decision.should_enable_gps;
+
+    const bool lease_requires_power = power_lease_count_ > 0;
+
+    const bool should_enable_gps = lease_requires_power || decision.should_enable_gps;
 
     if (should_enable_gps && !gps_powered_)
     {
@@ -1145,6 +1162,52 @@ void GpsService::updateMotionState(uint32_t now_ms)
     {
         setGPSPowerState(false);
     }
+}
+
+void GpsService::acquirePowerLease(const char* reason)
+{
+    if (gps_disabled_ || !user_enabled_)
+    {
+        return;
+    }
+
+    if (!takeGpsUartLock())
+    {
+        return;
+    }
+
+    ++power_lease_count_;
+
+    Serial.printf(
+        "[GPS] power lease acquire reason=%s count=%lu\n",
+        reason ? reason : "unknown",
+        static_cast<unsigned long>(power_lease_count_));
+
+    giveGpsUartLock();
+
+    updateMotionState(millis());
+}
+
+void GpsService::releasePowerLease(const char* reason)
+{
+    if (!takeGpsUartLock())
+    {
+        return;
+    }
+
+    if (power_lease_count_ > 0)
+    {
+        --power_lease_count_;
+    }
+
+    Serial.printf(
+        "[GPS] power lease release reason=%s count=%lu\n",
+        reason ? reason : "unknown",
+        static_cast<unsigned long>(power_lease_count_));
+
+    giveGpsUartLock();
+
+    updateMotionState(millis());
 }
 
 } // namespace gps

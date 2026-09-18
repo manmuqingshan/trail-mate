@@ -59,14 +59,14 @@ void init_gps_runtime(GpsBoard* gps_board,
                       uint32_t disable_hw_init,
                       const app::AppConfig& config)
 {
-    if (!gps_board || !motion_board)
+    if (!gps_board)
     {
         return;
     }
 
     auto& gps_service = gps::GpsService::getInstance();
     gps_service.begin(*gps_board,
-                      *motion_board,
+                      motion_board,
                       disable_hw_init,
                       config.gps_interval_ms,
                       config.motion_config,
