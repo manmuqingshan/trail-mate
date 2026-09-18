@@ -90,7 +90,7 @@ void handle_input()
 
 void handle_confirm_input()
 {
-    s_machine.dispatch(platform::ui::screen_power::Event::ConfirmInput, now_ms());
+    request_resume();
 }
 
 void handle_input_release()
@@ -116,6 +116,16 @@ void disable_sleep()
 void enable_sleep()
 {
     s_machine.dispatch(platform::ui::screen_power::Event::EnableSleep, now_ms());
+}
+
+void request_resume()
+{
+    s_machine.dispatch(platform::ui::screen_power::Event::ConfirmInput, now_ms());
+}
+
+ResumeMethod resume_method()
+{
+    return ResumeMethod::SpaceKey;
 }
 
 } // namespace platform::ui::screen

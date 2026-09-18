@@ -948,48 +948,162 @@ static void disp_flush(lv_display_t* disp_drv, const lv_area_t* area, uint8_t* c
 }
 
 #ifdef USING_INPUT_DEV_TOUCHPAD
+
+#if defined(ARDUINO_WIO_TRACKER_L2)
+constexpr int16_t kScreenResumeSwipeMinY = 60;
+constexpr int16_t kScreenResumeSwipeMaxX = 80;
+#endif
+
 static void touchpad_read(lv_indev_t* drv, lv_indev_data_t* data)
 {
-    static int16_t x, y;
+    static int16_t x = 0;
+    static int16_t y = 0;
     static bool was_touched = false;
+
+#if defined(ARDUINO_WIO_TRACKER_L2)
+    static bool resume_swipe_tracking = false;
+    static int16_t resume_start_x = 0;
+    static int16_t resume_start_y = 0;
+    static int16_t resume_last_x = 0;
+    static int16_t resume_last_y = 0;
+#endif
+
 #if defined(ARDUINO_T_DECK_PRO)
     static bool debug_touch_active = false;
 #endif
-    auto* plane = (LilyGo_Display*)lv_indev_get_user_data(drv);
-    uint8_t touched = plane->getPoint(&x, &y, 1);
+
+    auto* plane =
+        static_cast<LilyGo_Display*>(lv_indev_get_user_data(drv));
+
+    const uint8_t touched =
+        plane->getPoint(&x, &y, 1);
+
     if (touched)
     {
 #if defined(ARDUINO_T_DECK_PRO)
         if (!debug_touch_active)
         {
-            Serial.printf("[DEBUG-touch-a7682e] down lvgl=%d,%d\n", x, y);
+            Serial.printf(
+                "[DEBUG-touch-a7682e] down lvgl=%d,%d\n",
+                x,
+                y);
+
             debug_touch_active = true;
         }
 #endif
+
+        const bool touch_started = !was_touched;
         was_touched = true;
+
         input::MorseEngine::notifyTouch();
-        if (::platform::ui::screen::is_sleeping() ||
-            ::platform::ui::screen::is_saver_active())
+
+        const bool screen_power_active =
+            ::platform::ui::screen::is_sleeping() ||
+            ::platform::ui::screen::is_saver_active();
+
+        if (screen_power_active)
         {
+#if defined(ARDUINO_WIO_TRACKER_L2)
+            if (touch_started)
+            {
+                resume_swipe_tracking = true;
+
+                resume_start_x = x;
+                resume_start_y = y;
+
+                resume_last_x = x;
+                resume_last_y = y;
+            }
+            else if (resume_swipe_tracking)
+            {
+                resume_last_x = x;
+                resume_last_y = y;
+            }
+#endif
+
+            // Any touch wakes Sleeping -> WakePreview and refreshes the
+            // preview timeout. The touch is consumed by the screen-power
+            // layer and must not reach the underlying UI.
             ::platform::ui::screen::handle_input();
+
             data->state = LV_INDEV_STATE_REL;
             return;
         }
+
+#if defined(ARDUINO_WIO_TRACKER_L2)
+        // If the screen left the saver state while the finger is still down,
+        // discard any unfinished resume gesture so it cannot leak into the
+        // normal UI path.
+        resume_swipe_tracking = false;
+#endif
+
         ::platform::ui::screen::record_activity();
+
         data->point.x = x;
         data->point.y = y;
         data->state = LV_INDEV_STATE_PR;
         return;
     }
+
     if (was_touched)
     {
         was_touched = false;
+
+#if defined(ARDUINO_WIO_TRACKER_L2)
+        bool resumed = false;
+
+        if (resume_swipe_tracking)
+        {
+            const int16_t delta_y =
+                static_cast<int16_t>(
+                    resume_start_y - resume_last_y);
+
+            const int16_t delta_x =
+                static_cast<int16_t>(
+                    std::abs(
+                        static_cast<int>(
+                            resume_last_x - resume_start_x)));
+
+            const bool swipe_up =
+                delta_y >= kScreenResumeSwipeMinY &&
+                delta_x <= kScreenResumeSwipeMaxX;
+
+            if (swipe_up)
+            {
+                Serial.printf(
+                    "[ScreenPower][Touch] resume swipe "
+                    "start=(%d,%d) end=(%d,%d) dx=%d dy=%d\n",
+                    resume_start_x,
+                    resume_start_y,
+                    resume_last_x,
+                    resume_last_y,
+                    delta_x,
+                    delta_y);
+
+                ::platform::ui::screen::request_resume();
+                resumed = true;
+            }
+
+            resume_swipe_tracking = false;
+        }
+
+        if (!resumed)
+        {
+            ::platform::ui::screen::handle_input_release();
+        }
+#else
         ::platform::ui::screen::handle_input_release();
+#endif
     }
+
 #if defined(ARDUINO_T_DECK_PRO)
     if (debug_touch_active)
     {
-        Serial.printf("[DEBUG-touch-a7682e] up lvgl=%d,%d\n", x, y);
+        Serial.printf(
+            "[DEBUG-touch-a7682e] up lvgl=%d,%d\n",
+            x,
+            y);
+
         debug_touch_active = false;
     }
 #endif
@@ -1109,8 +1223,9 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
         }
     }
 
-    // Screen power transitions consume the input event before normal keyboard
-    // dispatch. Space resumes the page and focus preserved at sleep time.
+    // Screen-power input is consumed before normal keyboard dispatch.
+    // Space is the keyboard resume gesture and restores the page/focus
+    // that was active before sleep.
     if (::platform::ui::screen::is_sleeping() ||
         ::platform::ui::screen::is_saver_active())
     {
@@ -1118,7 +1233,7 @@ static void keypad_read(lv_indev_t* drv, lv_indev_data_t* data)
         {
             if (!from_nav && key == ' ')
             {
-                ::platform::ui::screen::handle_confirm_input();
+                ::platform::ui::screen::request_resume();
             }
             else
             {
