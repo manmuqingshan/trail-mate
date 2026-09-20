@@ -4,6 +4,7 @@
  */
 
 #include "ui/widgets/map/map_viewport.h"
+#include "ui/widgets/map/map_diagnostics.h"
 
 #include "app/app_config.h"
 #include "app/app_config_changes.h"
@@ -322,10 +323,11 @@ void gesture_surface_event_cb(lv_event_t* e)
 
         if (impl->gesture_dragging)
         {
-            if (lv_indev_t* indev = resolve_event_indev(e))
-            {
-                lv_indev_stop_processing(indev);
-            }
+            // This is an object callback, not an input-device interceptor.
+            // stop_processing persists across PRESSING in LVGL 9.4 and can
+            // swallow the following RELEASED before it reaches this object.
+            // Consume only this event's bubbling; preserve the release lifecycle.
+            lv_event_stop_bubbling(e);
             MAP_VIEWPORT_LOG("drag_update root=%p dx=%d dy=%d\n",
                              impl->widgets.root,
                              static_cast<int>(point.x - impl->gesture_start.x),
@@ -348,10 +350,10 @@ void gesture_surface_event_cb(lv_event_t* e)
 
         if (impl->gesture_dragging)
         {
-            if (lv_indev_t* indev = resolve_event_indev(e))
-            {
-                lv_indev_stop_processing(indev);
-            }
+            lv_event_stop_bubbling(e);
+            MAP_DIAG("[MAPD][gesture-end] t=%lu code=%d dx=%d dy=%d\n",
+                     static_cast<unsigned long>(lv_tick_get()), static_cast<int>(code),
+                     static_cast<int>(point.x - impl->gesture_start.x), static_cast<int>(point.y - impl->gesture_start.y));
             MAP_VIEWPORT_LOG("drag_end root=%p dx=%d dy=%d code=%d\n",
                              impl->widgets.root,
                              static_cast<int>(point.x - impl->gesture_start.x),
@@ -731,11 +733,24 @@ void refresh_poi_overlay(RuntimeImpl& impl, bool force)
 void loader_timer_cb(lv_timer_t* timer)
 {
     auto* impl = static_cast<RuntimeImpl*>(lv_timer_get_user_data(timer));
-    if (!impl || !is_runtime_alive(*impl) || !impl->model.focus_point.valid ||
-        impl->gesture_pressed || impl->gesture_dragging || impl->drag_preview_active)
+#if TRAIL_MATE_MAP_DIAGNOSTICS
+    static uint32_t last_diagnostic_ms = 0;
+    if (impl && lv_tick_get() - last_diagnostic_ms >= 2000U)
+    {
+        last_diagnostic_ms = lv_tick_get();
+        MAP_DIAG("[MAPD][heartbeat] t=%lu alive=%d focus=%d pressed=%d dragging=%d preview=%d paused=%d z=%d pan=%d,%d records=%u\n",
+                 static_cast<unsigned long>(last_diagnostic_ms), is_runtime_alive(*impl), impl->model.focus_point.valid,
+                 impl->gesture_pressed, impl->gesture_dragging, impl->drag_preview_active, impl->loader_paused,
+                 impl->model.zoom, impl->model.pan_x, impl->model.pan_y, static_cast<unsigned>(impl->tiles.size()));
+    }
+#endif
+    if (!impl || !is_runtime_alive(*impl) || !impl->model.focus_point.valid)
     {
         return;
     }
+
+    tile_loader_maintenance(impl->tile_ctx);
+    if (impl->gesture_pressed || impl->gesture_dragging || impl->drag_preview_active) return;
 
     const uint32_t now_ms = lv_tick_get();
     if (impl->last_loader_active_log_ms == 0 ||
@@ -969,6 +984,9 @@ void apply_model(Runtime& runtime, const Model& model)
     }
     RuntimeImpl* impl = runtime.impl_;
     impl->drag_preview_active = false;
+    MAP_DIAG("[MAPD][commit-view] t=%lu focus=%.7f,%.7f z=%d pan=%d,%d source=%u\n",
+             static_cast<unsigned long>(lv_tick_get()), model.focus_point.lat, model.focus_point.lon,
+             model.zoom, model.pan_x, model.pan_y, static_cast<unsigned>(model.map_source));
     impl->model = model;
     impl->model.map_source = sanitize_map_source(impl->model.map_source);
     MAP_VIEWPORT_LOG("apply_model focus_valid=%d lat=%.7f lon=%.7f zoom=%d pan=%d,%d src=%u contour=%d coord=%u\n",
@@ -998,6 +1016,9 @@ void apply_model_lightweight(Runtime& runtime, const Model& model)
     RuntimeImpl* impl = runtime.impl_;
     const int dx = model.pan_x - impl->model.pan_x;
     const int dy = model.pan_y - impl->model.pan_y;
+    if (!impl->drag_preview_active)
+        MAP_DIAG("[MAPD][preview-begin] t=%lu z=%d pan=%d,%d\n",
+                 static_cast<unsigned long>(lv_tick_get()), model.zoom, model.pan_x, model.pan_y);
     impl->model = model;
     impl->model.map_source = sanitize_map_source(impl->model.map_source);
     MAP_VIEWPORT_LOG("apply_model_lightweight focus_valid=%d lat=%.7f lon=%.7f zoom=%d pan=%d,%d src=%u contour=%d coord=%u\n",

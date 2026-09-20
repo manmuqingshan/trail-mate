@@ -138,37 +138,37 @@ bool hardware_keyboard_available()
 }
 
 #if UI_SHARED_TOUCH_IME_ENABLED
-static const char* kTouchEnMap[] = {
+static const char* const kTouchEnMap[] = {
     "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "Bksp", "\n",
     "a", "s", "d", "f", "g", "h", "j", "k", "l", "Enter", "\n",
     "z", "x", "c", "v", "b", "n", "m", ",", ".", "?", "\n",
     "Space", ""};
 
-static const char* kCompactTouchEnMap[] = {
+static const char* const kCompactTouchEnMap[] = {
     "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "\n",
     "a", "s", "d", "f", "g", "h", "j", "k", "l", "\n",
     "Shift", "z", "x", "c", "v", "b", "n", "m", "Bksp", "\n",
     ",", ".", "Space", "?", "Enter", ""};
 
-static const char* kCompactTouchUpperMap[] = {
+static const char* const kCompactTouchUpperMap[] = {
     "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "\n",
     "A", "S", "D", "F", "G", "H", "J", "K", "L", "\n",
     "Shift", "Z", "X", "C", "V", "B", "N", "M", "Bksp", "\n",
     ",", ".", "Space", "?", "Enter", ""};
 
-static const char* kCompactTouchNumMap[] = {
+static const char* const kCompactTouchNumMap[] = {
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
     "@", "#", "$", "%", "&", "*", "-", "_", "=", "\n",
     "Shift", "/", ":", ";", "(", ")", "+", "!", "Bksp", "\n",
     "'", "\"", "Space", ".", "Enter", ""};
 
-static const char* kCompactTouchSymbolMap[] = {
+static const char* const kCompactTouchSymbolMap[] = {
     "[", "]", "{", "}", "<", ">", "\\", "|", "~", "^", "\n",
     "@", "#", "$", "%", "&", "*", "-", "_", "=", "\n",
     "Shift", "/", ":", ";", "(", ")", "+", "!", "Bksp", "\n",
     "'", "`", "Space", ".", "Enter", ""};
 
-static const char* kTouchNumMap[] = {
+static const char* const kTouchNumMap[] = {
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "Bksp", "\n",
     "-", "/", ":", ";", "(", ")", "$", "&", "@", "Enter", "\n",
     ".", ",", "?", "!", "'", "\"", "%", "+", "\n",
