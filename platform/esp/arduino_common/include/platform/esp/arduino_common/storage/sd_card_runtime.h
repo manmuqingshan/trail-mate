@@ -1,5 +1,6 @@
 #pragma once
 
+#include "platform/esp/arduino_common/storage/sd_transport_config.h"
 #include <cstddef>
 #include <cstdint>
 
@@ -63,6 +64,8 @@ bool mount_sd_card(int sd_cs,
 void unmount_sd_card();
 
 #if defined(TRAIL_MATE_SDFAT_SDMMC)
+bool mount_sd_card(const SdmmcSdConfig& config);
+// Compatibility for existing one-bit callers; new boards use typed config.
 bool mount_sdmmc_card(int clock, int command, int data0);
 #endif
 
@@ -109,6 +112,14 @@ struct SdFileReadResult
     std::size_t bytes_read = 0;
     uint64_t file_size = 0;
     int32_t error = -1;
+    uint32_t lock_wait_ms = 0;
+    uint32_t open_ms = 0;
+    uint32_t read_ms = 0;
+    uint32_t block_calls = 0;
+    uint32_t block_sectors = 0;
+    uint32_t block_max_sectors = 0;
+    uint32_t block_us = 0;
+    bool block_timing_available = false;
 };
 
 // Reads a file through bounded device-owned transactions. Callers receive a
