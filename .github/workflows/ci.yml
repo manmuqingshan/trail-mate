@@ -47,6 +47,9 @@ jobs:
           ctest --test-dir .codex-build/map-tile-pipeline --output-on-failure
           python3 tests/map_tile_pipeline/test_ui_contract.py
 
+      - name: Verify Settings navigation contract
+        run: python3 tests/settings_navigation/test_contract.py
+
       - name: Verify ESP stack hygiene
         run: python3 scripts/check_esp_stack_hygiene.py
 
@@ -179,7 +182,7 @@ jobs:
           cmake --build .codex-build/wio-touch --parallel 2
           ctest --test-dir .codex-build/wio-touch --output-on-failure
 
-      - name: Verify map gesture release with LVGL
+      - name: Verify map gestures and settings navigation with LVGL
         if: matrix.env == 'wio_tracker_l2'
         run: |
           cmake -S tests/map_gesture -B .codex-build/map-gesture \
