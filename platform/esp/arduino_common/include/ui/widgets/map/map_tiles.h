@@ -58,7 +58,7 @@ struct DecodedTileCache
     int32_t x, y, z;                   // Tile coordinates
     uint8_t map_source;                // Base map source (OSM/Terrain/Satellite)
     ui::map_tiles::MapTileLayer layer; // Base or contour layer represented by this cache entry
-    lv_image_dsc_t* img_dsc;           // Decoded image descriptor (RGB565 data in RAM)
+    lv_image_dsc_t* img_dsc;           // Owned decoded image view (decoder-native pixel format)
     uint32_t last_used_ms;             // For LRU eviction
     uint8_t lvgl_ref_count;            // Number of live LVGL image objects referencing img_dsc
 };

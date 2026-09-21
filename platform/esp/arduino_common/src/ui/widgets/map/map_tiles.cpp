@@ -8,6 +8,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lvgl.h"
+#include "platform/esp/arduino_common/map_tiles/lvgl_tile_image.h"
 #include "platform/esp/arduino_common/map_tiles/map_tile_command_queue.h"
 #include "platform/esp/arduino_common/map_tiles/map_tile_event_queue.h"
 #include "platform/esp/arduino_common/storage/sd_card_runtime.h"
@@ -43,7 +44,7 @@ void MapPoiPayloadDeleter::operator()(uint8_t* data) const noexcept { heap_caps_
 #endif
 
 // Use LVGL's decoder API to decode PNG images
-// We'll decode PNG to RGB565 and cache it in RAM to avoid re-decoding on every render
+// Cache the decoder's native pixel format to avoid re-decoding on every render.
 // This approach uses LVGL's built-in decoder, avoiding direct lodepng dependency
 
 // Debug logging control
@@ -495,7 +496,17 @@ lv_image_dsc_t* decode_payload_to_image_desc(const ui::map_tiles::MapTileRef& re
         return nullptr;
     }
 
-    lv_image_dsc_t* img_dsc = static_cast<lv_image_dsc_t*>(lv_malloc(sizeof(lv_image_dsc_t)));
+    // Session metadata must not turn a PSRAM optimization into internal heap
+    // growth. ESP's lv_free ultimately calls heap_caps_free for this storage.
+    lv_image_dsc_t* img_dsc = platform::esp::map_tiles::LvglTileImage::capture(
+        decoder_dsc, [](size_t size) -> void*
+        {
+#if HAS_PSRAM
+            return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+            return lv_malloc(size);
+#endif
+        });
     if (img_dsc == NULL)
     {
         log_map_tile_decode_failure("alloc_desc",
@@ -506,31 +517,6 @@ lv_image_dsc_t* decode_payload_to_image_desc(const ui::map_tiles::MapTileRef& re
         close_decoder();
         return nullptr;
     }
-    std::memset(img_dsc, 0, sizeof(lv_image_dsc_t));
-
-    uint8_t* img_data = static_cast<uint8_t*>(lv_malloc(data_size));
-    if (img_data == NULL)
-    {
-        log_map_tile_decode_failure("alloc_pixels",
-                                    ref,
-                                    payload_format,
-                                    data_size,
-                                    -12);
-        lv_free(img_dsc);
-        close_decoder();
-        return nullptr;
-    }
-
-    std::memcpy(img_data, decoded_buf->data, data_size);
-    img_dsc->header.magic = LV_IMAGE_HEADER_MAGIC;
-    img_dsc->header.w = decoded_buf->header.w;
-    img_dsc->header.h = decoded_buf->header.h;
-    img_dsc->header.cf = decoded_buf->header.cf;
-    img_dsc->header.flags = 0;
-    img_dsc->header.stride = decoded_buf->header.stride;
-    img_dsc->data_size = data_size;
-    img_dsc->data = img_data;
-
     close_decoder();
     return img_dsc;
 }
@@ -927,12 +913,7 @@ class LvglDecodedTileCache final : public ui::map_tiles::IMapTileDecoderCache
     {
         if (slot.img_dsc != NULL)
         {
-            lv_image_cache_drop(slot.img_dsc);
-            if (slot.img_dsc->data != NULL)
-            {
-                lv_free((void*)slot.img_dsc->data);
-            }
-            lv_free(slot.img_dsc);
+            platform::esp::map_tiles::LvglTileImage::destroy(slot.img_dsc);
             slot.img_dsc = NULL;
         }
     }
