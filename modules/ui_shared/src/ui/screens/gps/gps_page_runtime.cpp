@@ -30,9 +30,12 @@ using Projection = gps::ui::shell::Projection;
 #include "ui/widgets/route_image_strip.h"
 #include "ui/widgets/top_bar.h"
 #include "ui_gps_runtime/gps_page_runtime_pump.h"
+#include "ui_map_runtime/map_geo_coordinates.h"
 #include "ui_map_runtime/map_overlay_snapshot_source.h"
 #include "ui_presentation/gps/gps_status_model.h"
+#include "ui_presentation/map/map_location_request.h"
 #include "ui_presentation/map/map_overlay_snapshot.h"
+#include "ui_presentation/map/map_target_request.h"
 #include "ui_presentation/map/map_workspace_model.h"
 
 #include <algorithm>
@@ -152,9 +155,15 @@ enum class MapControlAction : uint8_t
     Help,
     Route,
     TeamMember,
+    PickLocation,
+    CancelLocation,
 };
 
 const Host* s_host = nullptr;
+::ui::map::MapLocationRequest* s_location_request = nullptr;
+::ui::map::MapTargetRequest* s_target_request = nullptr;
+lv_obj_t* s_map_pick_btn = nullptr;
+lv_obj_t* s_map_cancel_btn = nullptr;
 lv_obj_t* s_root = nullptr;
 lv_timer_t* s_timer = nullptr;
 ::ui::widgets::TopBar s_top_bar;
@@ -315,8 +324,17 @@ lv_obj_t* create_map_control_button(lv_obj_t* parent,
 void sync_map_route_image_strip();
 void refresh_route_image_storage_state(bool include_cache_state);
 
+::ui::map::MapWorkspaceModel& map_workspace_model();
+
 void request_exit()
 {
+    if (s_location_request)
+    {
+        auto& model = map_workspace_model();
+        if (model.locationSelection().state == ::ui::map::MapLocationSelectionState::Selecting &&
+            !model.cancelLocationSelection().ok) return;
+        s_location_request->result = model.locationSelection();
+    }
     if (s_host)
     {
         ::ui::page::request_exit(s_host);
@@ -408,7 +426,8 @@ void sync_workspace_viewport_from_renderer()
 
 bool sync_workspace_center_from_screen()
 {
-    if (app::configFacade().readConfig().map_coord_system != 0)
+    const auto coordinate_system = app::configFacade().readConfig().map_coord_system;
+    if (coordinate_system != 0 && !s_location_request && !s_target_request)
     {
         return false;
     }
@@ -419,13 +438,15 @@ bool sync_workspace_center_from_screen()
         return false;
     }
 
+    if ((s_location_request || s_target_request) && !::ui::map_geo::inverse(center.lat, center.lon, coordinate_system, center.lat, center.lon))
+        return false;
+
     auto& model = map_workspace_model();
     auto viewport = model.viewport();
     viewport.center_lat = center.lat;
     viewport.center_lon = center.lon;
     viewport.zoom = current_map_zoom();
-    (void)model.setViewport(viewport);
-    return true;
+    return model.setViewport(viewport).ok;
 }
 
 bool commit_pending_map_pan_from_screen()
@@ -452,7 +473,9 @@ bool commit_pending_map_pan_from_screen()
     const auto& config = app::configFacade().readConfig();
 
     ::ui::widgets::map::Model model{};
-    const bool has_viewport_center = has_valid_viewport_center(snapshot.viewport);
+    const bool has_viewport_center = has_valid_viewport_center(snapshot.viewport) ||
+                                     ((s_location_request || s_target_request) && snapshot.viewport.zoom != 0 &&
+                                      ::ui::map_geo::valid(snapshot.viewport.center_lat, snapshot.viewport.center_lon));
     model.focus_point.valid = true;
     model.focus_point.lat = has_viewport_center
                                 ? snapshot.viewport.center_lat
@@ -524,6 +547,11 @@ bool format_current_gps_map_title(char* out, size_t out_len)
 
 void update_map_top_bar_title()
 {
+    if (s_location_request)
+    {
+        ::ui::widgets::top_bar_set_title(s_top_bar, ::ui::i18n::tr("Choose on map"));
+        return;
+    }
     if (s_projection != Projection::Map)
     {
         ::ui::widgets::top_bar_set_title(s_top_bar, ::ui::i18n::tr("GPS"));
@@ -579,6 +607,7 @@ void set_button_label(lv_obj_t* btn, const char* text)
 
 void clear_map_controls()
 {
+    s_map_pick_btn = s_map_cancel_btn = nullptr;
     s_map_viewport = nullptr;
     s_map_control_bar = nullptr;
     s_map_zoom_label = nullptr;
@@ -1689,6 +1718,7 @@ void sync_map_notice_overlay()
 
 void sync_map_context_buttons(const ::ui::map::MapWorkspaceSnapshot& snapshot)
 {
+    if (s_location_request) return;
     if (!s_map_info_visible)
     {
         set_hidden(s_map_route_btn, true);
@@ -1765,6 +1795,14 @@ void sync_map_control_labels(const ::ui::map::MapWorkspaceSnapshot& snapshot)
 {
     if (!s_map_control_bar || !lv_obj_is_valid(s_map_control_bar))
     {
+        return;
+    }
+
+    if (s_location_request)
+    {
+        char zoom_buf[8]{};
+        std::snprintf(zoom_buf, sizeof(zoom_buf), "Z%d", static_cast<int>(current_map_zoom()));
+        set_compact_label(s_map_zoom_label, zoom_buf);
         return;
     }
 
@@ -3174,17 +3212,21 @@ void refresh_view()
 
     ui_update_top_bar_battery(s_top_bar);
     update_map_top_bar_title();
-    update_route_deviation_state();
+    if (!s_location_request) update_route_deviation_state();
 
     sync_workspace_layers_from_renderer();
     auto snapshot = map_workspace_model().snapshot();
     (void)map_overlay_source().buildMapOverlaySnapshot(*s_overlay_snapshot);
-    append_route_image_overlay(*s_overlay_snapshot);
-    append_track_overlay(*s_overlay_snapshot);
+    if (!s_location_request)
+    {
+        append_route_image_overlay(*s_overlay_snapshot);
+        append_track_overlay(*s_overlay_snapshot);
+    }
     if (!s_map_info_visible)
     {
         keep_only_current_position_overlay(*s_overlay_snapshot);
     }
+    if (s_target_request) s_target_request->appendOverlay(*s_overlay_snapshot);
 
     if (snapshot.header.valid)
     {
@@ -3910,11 +3952,52 @@ void on_map_control_clicked(lv_event_t* e)
         break;
     case MapControlAction::TeamMember:
         break;
+    case MapControlAction::PickLocation:
+        consume_key_event(e);
+        // Commit the rendered crosshair centre (including pending pan) before
+        // asking the shared workspace model to produce a result.
+        if (s_location_request && sync_workspace_center_from_screen() && map_workspace_model().pickLocation().ok)
+            request_exit();
+        else show_toast(::ui::i18n::tr("Invalid location"), 2000);
+        break;
+    case MapControlAction::CancelLocation:
+        consume_key_event(e);
+        request_exit();
+        break;
     }
 }
 
 bool handle_map_key(uint32_t key, lv_event_t* e)
 {
+    // Selection exposes only pan/zoom/current-position, not unrelated route,
+    // track or layer dialogs which could replace the temporary selection.
+    if (s_location_request)
+    {
+        switch (key)
+        {
+        case 'a':
+        case 'A':
+        case LV_KEY_LEFT:
+        case 'd':
+        case 'D':
+        case LV_KEY_RIGHT:
+        case 'w':
+        case 'W':
+        case LV_KEY_UP:
+        case 's':
+        case 'S':
+        case LV_KEY_DOWN:
+        case 'q':
+        case 'Q':
+        case 'e':
+        case 'E':
+        case 'c':
+        case 'C':
+            break;
+        default:
+            return false;
+        }
+    }
     if (::ui::widgets::route_image_strip::handle_key(s_route_image_strip, key))
     {
         consume_key_event(e);
@@ -4075,6 +4158,8 @@ void add_map_controls_to_group(lv_group_t* group)
     {
         return;
     }
+    if (s_map_pick_btn) lv_group_add_obj(group, s_map_pick_btn);
+    if (s_map_cancel_btn) lv_group_add_obj(group, s_map_cancel_btn);
     if (s_map_zoom_out_btn) lv_group_add_obj(group, s_map_zoom_out_btn);
     if (s_map_zoom_in_btn) lv_group_add_obj(group, s_map_zoom_in_btn);
     if (s_map_center_btn) lv_group_add_obj(group, s_map_center_btn);
@@ -4138,6 +4223,13 @@ void create_map_control_bar(lv_obj_t* viewport)
         kMapControlButtonMediumWidth,
         "Pos",
         MapControlAction::Center);
+    if (s_location_request)
+    {
+        s_map_pick_btn = create_map_control_button(s_map_control_bar, 66, ::ui::i18n::tr("Pick"), MapControlAction::PickLocation);
+        s_map_cancel_btn = create_map_control_button(s_map_control_bar, 66, ::ui::i18n::tr("Cancel"), MapControlAction::CancelLocation);
+        lv_obj_move_foreground(s_map_control_bar);
+        return;
+    }
     s_map_layer_btn = create_map_control_button(
         s_map_control_bar,
         kMapControlButtonMediumWidth,
@@ -4349,12 +4441,36 @@ void create_map_content(lv_obj_t* content)
         bind_map_key_handler(map_widgets.root);
     }
     create_map_control_bar(viewport);
+    if (s_location_request)
+    {
+        // The crosshair is a viewport sibling, not part of the panned tile or
+        // annotation layer. It never owns or requests map tiles.
+        auto* crosshair = lv_obj_create(viewport);
+        lv_obj_remove_style_all(crosshair);
+        lv_obj_set_size(crosshair, 22, 22);
+        lv_obj_center(crosshair);
+        lv_obj_remove_flag(crosshair, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(crosshair, LV_OBJ_FLAG_SCROLLABLE);
+        for (unsigned axis = 0; axis < 2; ++axis)
+        {
+            auto* line = lv_obj_create(crosshair);
+            lv_obj_remove_style_all(line);
+            lv_obj_set_size(line, axis ? 2 : 22, axis ? 22 : 2);
+            lv_obj_set_style_bg_color(line, lv_color_hex(0x6B4A1E), 0);
+            lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
+            lv_obj_center(line);
+            lv_obj_remove_flag(line, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_remove_flag(line, LV_OBJ_FLAG_SCROLLABLE);
+        }
+        refresh_view();
+        return;
+    }
     create_map_altitude_overlay(viewport);
     create_route_elevation_profile_overlay(viewport);
     create_map_notice_overlay(viewport);
     create_map_context_rail(viewport);
 
-    if (route_context_available())
+    if (!s_target_request && route_context_available())
     {
         (void)load_configured_route_overlay(false);
     }
@@ -4365,6 +4481,11 @@ void create_map_content(lv_obj_t* content)
 
 namespace gps::ui::runtime
 {
+
+void set_marker_binding(const ::ui::map::MapMarkerBinding* binding)
+{
+    ::ui::widgets::map::set_marker_binding(s_map_runtime, binding);
+}
 
 bool is_available()
 {
@@ -4390,10 +4511,19 @@ bool load_map_track_file(const char* path, bool show_fail_toast)
     return load_map_track_file_impl(path, show_fail_toast);
 }
 
-void enter(const shell::Host* host, lv_obj_t* parent, shell::Projection projection)
+void enter(const shell::Host* host, lv_obj_t* parent, shell::Projection projection,
+           ::ui::map::MapLocationRequest* location, ::ui::map::MapTargetRequest* target)
 {
+    if (location) location->result = {0.0, 0.0, ::ui::map::MapLocationSelectionState::Cancelled};
+    if (target) target->entered = false;
+    if (target && (location || projection != Projection::Map || !target->valid())) return;
     if (projection == Projection::Map && !ensure_overlay_snapshot())
     {
+        return;
+    }
+    if (target && !target->focus(map_workspace_model(), gps_ui::kDefaultZoom).ok)
+    {
+        release_overlay_snapshot();
         return;
     }
 
@@ -4403,6 +4533,8 @@ void enter(const shell::Host* host, lv_obj_t* parent, shell::Projection projecti
         s_gps_power_lease_active = true;
     }
     s_host = host;
+    s_location_request = projection == Projection::Map ? location : nullptr;
+    s_target_request = target;
     s_projection = projection;
     clear_gps_status_labels();
     clear_map_controls();
@@ -4419,7 +4551,31 @@ void enter(const shell::Host* host, lv_obj_t* parent, shell::Projection projecti
     }
     if (s_projection == Projection::Map)
     {
-        sync_workspace_viewport_from_renderer();
+        if (s_target_request)
+        {
+            s_map_zoom = map_workspace_model().viewport().zoom;
+            s_map_pan_x = s_map_pan_y = 0;
+        }
+        else
+        {
+            sync_workspace_viewport_from_renderer();
+        }
+        if (s_location_request)
+        {
+            auto& model = map_workspace_model();
+            if (location->has_initial_viewport)
+            {
+                auto initial = location->initial_viewport;
+                if (::ui::map_geo::valid(initial.center_lat, initial.center_lon))
+                {
+                    if (initial.zoom == 0) initial.zoom = gps_ui::kDefaultZoom;
+                    (void)model.setViewport(initial);
+                    s_map_zoom = initial.zoom;
+                    s_map_pan_x = s_map_pan_y = 0;
+                }
+            }
+            if (model.beginLocationSelection().ok) location->result = model.locationSelection();
+        }
     }
 
     lv_group_t* prev_group = lv_group_get_default();
@@ -4441,7 +4597,7 @@ void enter(const shell::Host* host, lv_obj_t* parent, shell::Projection projecti
     ::ui::widgets::top_bar_init(s_top_bar, s_root, top_bar_config);
     ::ui::widgets::top_bar_set_title(
         s_top_bar,
-        ::ui::i18n::tr(s_projection == Projection::GpsStatus ? "GPS" : "Map"));
+        ::ui::i18n::tr(s_location_request ? "Choose on map" : (s_projection == Projection::GpsStatus ? "GPS" : "Map")));
     ::ui::widgets::top_bar_set_back_callback(s_top_bar, on_back, nullptr);
     if (s_top_bar.back_btn)
     {
@@ -4482,9 +4638,11 @@ void enter(const shell::Host* host, lv_obj_t* parent, shell::Projection projecti
         if (app_g)
         {
             add_map_controls_to_group(app_g);
+            if (s_map_pick_btn) lv_group_focus_obj(s_map_pick_btn);
         }
     }
     gps_runtime_pump().setActive(true);
+    if (s_target_request) s_target_request->entered = true;
     if (!s_timer)
     {
         s_timer = lv_timer_create(refresh_timer_cb, 750, nullptr);
@@ -4494,6 +4652,17 @@ void enter(const shell::Host* host, lv_obj_t* parent, shell::Projection projecti
 void exit(lv_obj_t* parent)
 {
     (void)parent;
+    if (s_target_request) s_target_request->entered = false;
+    s_target_request = nullptr;
+
+    if (s_location_request)
+    {
+        auto& model = map_workspace_model();
+        if (model.locationSelection().state == ::ui::map::MapLocationSelectionState::Selecting)
+            (void)model.cancelLocationSelection();
+        s_location_request->result = model.locationSelection();
+        s_location_request = nullptr;
+    }
 
     if (s_timer)
     {

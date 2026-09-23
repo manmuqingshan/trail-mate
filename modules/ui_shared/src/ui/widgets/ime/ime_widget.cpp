@@ -912,6 +912,46 @@ void ImeWidget::setText(const char* text)
     refresh_labels();
 }
 
+bool ImeWidget::captureEditState(char* text, std::size_t capacity, ImeEditState& out) const
+{
+    if (!textarea_ || (!text && capacity)) return false;
+    const char* accepted = lv_textarea_get_text(textarea_);
+    const auto bytes = std::strlen(accepted);
+    if ((text && bytes >= capacity) || ime_.buffer().size() >= sizeof(out.composition)) return false;
+    out = {};
+    out.cursor = lv_textarea_get_cursor_pos(textarea_);
+    out.script_index = script_input_index_;
+    out.candidate_index = ime_.candidateIndex();
+    out.candidate_window = candidate_window_start_;
+    out.mode = static_cast<uint8_t>(mode_);
+    out.shift = touch_shift_;
+    if (pinyin_mode()) std::strcpy(out.composition, ime_.buffer().c_str());
+    if (text) std::memcpy(text, accepted, bytes + 1);
+    return true;
+}
+
+bool ImeWidget::restoreEditState(const char* text, const ImeEditState& state)
+{
+    if (!textarea_ || !text || state.mode > static_cast<uint8_t>(Mode::NUM) ||
+        !std::memchr(state.composition, '\0', sizeof(state.composition))) return false;
+    // text may alias textarea_'s buffer; setMode can replace that buffer.
+    // Take ownership through setText before changing input mode.
+    setText(text);
+    script_input_index_ = state.script_index;
+    setMode(static_cast<Mode>(state.mode)); // Validates the available script list.
+    if (pinyin_mode())
+    {
+        for (const char* letter = state.composition; *letter; ++letter) ime_.appendLetter(*letter);
+        if (state.candidate_index >= 0) ime_.moveCandidate(state.candidate_index);
+        candidate_window_start_ = std::max(0, std::min(state.candidate_window,
+                                                       static_cast<int>(ime_.candidates().size())));
+    }
+    touch_shift_ = state.shift;
+    refresh_labels();
+    lv_textarea_set_cursor_pos(textarea_, static_cast<int32_t>(state.cursor));
+    return true;
+}
+
 #if UI_SHARED_TOUCH_IME_ENABLED
 void ImeWidget::refresh_touch_keyboard()
 {

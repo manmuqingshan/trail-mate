@@ -16,10 +16,12 @@
 #ifndef DISABLE_FS_H_WARNING
 #define DISABLE_FS_H_WARNING 1
 #endif
+#include "platform/esp/arduino_common/storage/sd_file_lifetime.h"
 #include "platform/esp/arduino_common/storage/sd_file_probe.h"
 #include "platform/esp/arduino_common/storage/sdmmc_block_device.h"
 #include <SdFat.h>
 #include <algorithm>
+#include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -73,6 +75,8 @@ ArduinoSdmmcBlockDevice s_sdmmc;
 SdFs s_sdfat;
 #endif
 SdCardInfo s_info{};
+std::atomic<uint32_t> s_media_session{0};
+std::atomic<uint32_t> s_faulted_media_session{0};
 bool s_sdfat_mounted = false;
 volatile bool s_external_block_owner_active = false;
 uint32_t s_last_sd_io_log_ms = 0;
@@ -474,7 +478,7 @@ oflag_t sdfat_open_flags(const char* mode)
 // Returning false preserves the mounted state when the recovery fence cannot
 // be acquired; clearing bookkeeping after an unfenced SPIClass::end() would
 // turn a recoverable Busy condition into a silent bus-ownership violation.
-bool clear_sdfat()
+bool clear_sdfat(bool discard_files = false)
 {
     if (!s_sdfat_mounted)
     {
@@ -490,7 +494,8 @@ bool clear_sdfat()
 
     if (s_transient_file != nullptr && *s_transient_file)
     {
-        (void)s_transient_file->close();
+        if (discard_files) abandon_sd_file(*s_transient_file);
+        else (void)s_transient_file->close();
     }
     s_sdfat.end();
 #if defined(TRAIL_MATE_SDFAT_SDMMC)
@@ -513,6 +518,7 @@ bool clear_sdfat()
 
 void reset_info()
 {
+    ++s_media_session;
     s_info = SdCardInfo{};
 }
 
@@ -609,6 +615,7 @@ bool sd_preflight_go_idle(int sd_cs, SPIClass& spi)
 
 void record_sdfat_info(uint32_t initialized_spi_hz)
 {
+    ++s_media_session;
     const uint32_t info_start_ms = millis();
     Serial.println("[SD][mount] info begin");
     s_info = SdCardInfo{};
@@ -880,6 +887,72 @@ bool sd_card_ready()
            s_info.card_type != kRuntimeCardNone;
 }
 
+uint32_t sd_media_session()
+{
+    return s_media_session.load();
+}
+
+SdMediaStatus sd_probe_media()
+{
+    if (!sd_card_ready() || sd_external_block_owner_active()) return SdMediaStatus::Unavailable;
+    if (s_faulted_media_session.load() == sd_media_session()) return SdMediaStatus::IoError;
+    SdRuntimeOperationGuard guard("sd_media_probe", sys::runtime::BusAccessPolicy::BackgroundWorkerBounded, 0);
+    if (!guard.locked()) return SdMediaStatus::Busy;
+    if (!sd_card_ready() || sd_external_block_owner_active()) return SdMediaStatus::Unavailable;
+    // Access these scalars only under the filesystem mutex. No sector buffer
+    // is permanently resident or placed on an ESP task stack.
+    static uint32_t checked_session = 0;
+    static uint32_t checked_at = 0;
+    static SdMediaStatus previous = SdMediaStatus::Unavailable;
+    const auto session = sd_media_session();
+    const auto now = sys::millis_now();
+    if (checked_session == session)
+    {
+        if (previous == SdMediaStatus::IoError) return previous;
+        if (previous == SdMediaStatus::Ready && static_cast<uint32_t>(now - checked_at) < 1000U) return previous;
+    }
+    auto* scratch = static_cast<uint8_t*>(heap_caps_malloc(kSdSectorSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
+    if (!scratch) return SdMediaStatus::Busy;
+    SdIoErrorScope errors;
+#if defined(TRAIL_MATE_SDFAT_SDMMC)
+    const bool read = s_sdmmc.readSector(0, scratch);
+#else
+    const bool read = s_sdfat.card() && s_sdfat.card()->readSector(0, scratch);
+#endif
+    heap_caps_free(scratch);
+    // The shared-SPI hook acquires its bus lazily during readSector(). A failed
+    // acquisition is not evidence that the physical card is missing.
+    if (guard.busStatus() != sys::runtime::BusAcquireStatus::Acquired) return SdMediaStatus::Busy;
+    checked_session = session;
+    checked_at = now;
+    previous = read && errors.error() == 0 ? SdMediaStatus::Ready : SdMediaStatus::IoError;
+    if (previous == SdMediaStatus::IoError) s_faulted_media_session.store(session);
+    return previous;
+}
+
+bool sd_recover_media()
+{
+    if (sd_external_block_owner_active()) return false;
+    {
+        SdRuntimeOperationGuard guard("sd_media_recovery", sys::runtime::BusAccessPolicy::RecoveryExclusive, 0);
+        if (!guard.locked() || sd_external_block_owner_active()) return false;
+        if (sd_card_ready() && s_faulted_media_session.load() != sd_media_session()) return true;
+        static uint32_t last_attempt = 0;
+        static bool attempted = false;
+        const auto now = sys::millis_now();
+        if (attempted && static_cast<uint32_t>(now - last_attempt) < 3000U) return false;
+        attempted = true;
+        last_attempt = now;
+        // Do not sync old cached metadata against a replacement card. The
+        // cleanup still uses the existing exclusive shared-SPI bus fence.
+        if (!clear_sdfat(true)) return false;
+        reset_info();
+    }
+    // Board policy supplies wiring, power and startup gating. Its mount guard
+    // rechecks ownership if USB acquired the device after cleanup released it.
+    return platform::esp::boards::initializeStorage();
+}
+
 bool sd_card_uses_sdfat()
 {
     return s_info.backend == SdCardBackend::SdFat;
@@ -963,6 +1036,7 @@ bool sd_set_external_block_owner_active(bool active)
     {
         return false;
     }
+    if (s_external_block_owner_active != active) ++s_media_session;
     s_external_block_owner_active = active;
     xSemaphoreGiveRecursive(s_filesystem_mutex);
     return true;
@@ -1267,6 +1341,11 @@ bool sd_remove(const char* path)
 
 bool sd_rename(const char* old_path, const char* new_path)
 {
+    return sd_rename(old_path, new_path, sd_media_session());
+}
+
+bool sd_rename(const char* old_path, const char* new_path, uint32_t expected_session)
+{
     const char* normalized_old = normalize_sd_path(old_path);
     const char* normalized_new = normalize_sd_path(new_path);
     const uint32_t start_ms = sd_io_begin("rename", normalized_old);
@@ -1284,6 +1363,12 @@ bool sd_rename(const char* old_path, const char* new_path)
         sd_io_end("rename", normalized_old, start_ms, false, 0, -2);
         return false;
     }
+    if (expected_session != sd_media_session() || expected_session == s_faulted_media_session.load() ||
+        sd_external_block_owner_active())
+    {
+        sd_io_end("rename", normalized_old, start_ms, false, 0, -1);
+        return false;
+    }
     if (s_info.backend == SdCardBackend::SdFat)
     {
         result = s_sdfat.rename(normalized_old, normalized_new);
@@ -1298,6 +1383,7 @@ class SdRuntimeFile::Impl
 {
   public:
     FsFile sdfat_file;
+    uint32_t session = 0;
     SdCardBackend backend = SdCardBackend::None;
     char path[128]{};
     char mode[8]{};
@@ -1315,6 +1401,11 @@ SdRuntimeFile::~SdRuntimeFile()
 }
 
 bool SdRuntimeFile::open(const char* path, const char* mode)
+{
+    return open(path, mode, sd_media_session());
+}
+
+bool SdRuntimeFile::open(const char* path, const char* mode, uint32_t expected_session)
 {
     close();
     if (impl_ == nullptr || path_empty(path))
@@ -1344,6 +1435,13 @@ bool SdRuntimeFile::open(const char* path, const char* mode)
     }
     if (s_info.backend == SdCardBackend::SdFat)
     {
+        if (expected_session != sd_media_session() || expected_session == s_faulted_media_session.load() ||
+            sd_external_block_owner_active())
+        {
+            sd_io_end("file_open", impl_->path, start_ms, false, 0, -1);
+            return false;
+        }
+        impl_->session = expected_session;
         impl_->sdfat_file = s_sdfat.open(normalized, sdfat_open_flags(mode));
         impl_->backend = impl_->sdfat_file ? SdCardBackend::SdFat : SdCardBackend::None;
         sd_io_end("file_open", impl_->path, start_ms, impl_->backend == SdCardBackend::SdFat);
@@ -1369,7 +1467,7 @@ void SdRuntimeFile::close()
             mutating ? sys::runtime::BusAccessPolicy::DurableCommit
                      : sys::runtime::BusAccessPolicy::BackgroundWorkerBounded,
             mutating ? kSdDurableLockWaitMs : kSdRuntimeLockWaitMs);
-        if (guard.locked())
+        if (guard.locked() && is_open())
         {
             impl_->sdfat_file.close();
             sd_io_end("file_close", impl_->path, start_ms, true);
@@ -1379,6 +1477,9 @@ void SdRuntimeFile::close()
             sd_io_end("file_close", impl_->path, start_ms, false, 0, -2);
         }
     }
+    // A stale/contended handle must not flush from its later destructor or open.
+    // This SdFat configuration owns file state inline and has a non-I/O destructor.
+    abandon_sd_file(impl_->sdfat_file);
     impl_->backend = SdCardBackend::None;
     impl_->path[0] = '\0';
     impl_->mode[0] = '\0';
@@ -1386,7 +1487,9 @@ void SdRuntimeFile::close()
 
 bool SdRuntimeFile::is_open() const
 {
-    return impl_ != nullptr && impl_->backend != SdCardBackend::None;
+    return impl_ != nullptr && impl_->backend != SdCardBackend::None &&
+           impl_->session == sd_media_session() &&
+           impl_->session != s_faulted_media_session.load() && !sd_external_block_owner_active();
 }
 
 int SdRuntimeFile::available() const
@@ -1398,7 +1501,7 @@ int SdRuntimeFile::available() const
     if (impl_->backend == SdCardBackend::SdFat)
     {
         SdRuntimeOperationGuard guard("sd_file_available");
-        if (!guard.locked())
+        if (!guard.locked() || !is_open())
         {
             return 0;
         }
@@ -1417,7 +1520,7 @@ int SdRuntimeFile::read(void* buffer, std::size_t bytes_to_read)
     {
         const uint32_t start_ms = sd_io_begin("file_read", impl_->path, bytes_to_read);
         SdRuntimeOperationGuard guard("sd_file_read");
-        if (!guard.locked())
+        if (!guard.locked() || !is_open())
         {
             sd_io_end("file_read", impl_->path, start_ms, false, bytes_to_read, -2);
             return -1;
@@ -1468,7 +1571,7 @@ int SdRuntimeFile::read_byte()
     if (impl_->backend == SdCardBackend::SdFat)
     {
         SdRuntimeOperationGuard guard("sd_file_read_byte");
-        if (!guard.locked())
+        if (!guard.locked() || !is_open())
         {
             return -1;
         }
@@ -1487,7 +1590,7 @@ std::size_t SdRuntimeFile::read_bytes(char* buffer, std::size_t bytes_to_read)
     {
         const uint32_t start_ms = sd_io_begin("file_read_bytes", impl_->path, bytes_to_read);
         SdRuntimeOperationGuard guard("sd_file_read_bytes");
-        if (!guard.locked())
+        if (!guard.locked() || !is_open())
         {
             sd_io_end("file_read_bytes", impl_->path, start_ms, false, bytes_to_read, -2);
             return 0;
@@ -1544,7 +1647,7 @@ std::size_t SdRuntimeFile::write(const void* buffer, std::size_t bytes_to_write)
             "sd_file_write",
             sys::runtime::BusAccessPolicy::DurableCommit,
             kSdDurableLockWaitMs);
-        if (!guard.locked())
+        if (!guard.locked() || !is_open())
         {
             sd_io_end("file_write", impl_->path, start_ms, false, bytes_to_write, -2);
             return 0;
@@ -1591,7 +1694,7 @@ std::size_t SdRuntimeFile::write_byte(uint8_t value)
             "sd_file_write_byte",
             sys::runtime::BusAccessPolicy::DurableCommit,
             kSdDurableLockWaitMs);
-        if (!guard.locked())
+        if (!guard.locked() || !is_open())
         {
             return 0;
         }
@@ -1626,7 +1729,7 @@ std::size_t SdRuntimeFile::print(double value, int digits)
             "sd_file_print",
             sys::runtime::BusAccessPolicy::DurableCommit,
             kSdDurableLockWaitMs);
-        if (!guard.locked())
+        if (!guard.locked() || !is_open())
         {
             return 0;
         }
@@ -1677,7 +1780,7 @@ bool SdRuntimeFile::seek(uint64_t offset)
     if (impl_->backend == SdCardBackend::SdFat)
     {
         SdRuntimeOperationGuard guard("sd_file_seek");
-        if (!guard.locked())
+        if (!guard.locked() || !is_open())
         {
             return false;
         }
@@ -1695,7 +1798,7 @@ uint64_t SdRuntimeFile::position() const
     if (impl_->backend == SdCardBackend::SdFat)
     {
         SdRuntimeOperationGuard guard("sd_file_position");
-        if (!guard.locked())
+        if (!guard.locked() || !is_open())
         {
             return 0;
         }
@@ -1713,7 +1816,7 @@ uint64_t SdRuntimeFile::size() const
     if (impl_->backend == SdCardBackend::SdFat)
     {
         SdRuntimeOperationGuard guard("sd_file_size");
-        if (!guard.locked())
+        if (!guard.locked() || !is_open())
         {
             return 0;
         }
@@ -1739,7 +1842,7 @@ bool SdRuntimeFile::flush()
             "sd_file_flush",
             sys::runtime::BusAccessPolicy::DurableCommit,
             kSdDurableLockWaitMs);
-        if (!guard.locked())
+        if (!guard.locked() || !is_open())
         {
             sd_io_end("file_flush", impl_->path, start_ms, false, 0, -2);
             return false;
