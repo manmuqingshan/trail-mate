@@ -1,3 +1,4 @@
+#include "platform/esp/arduino_common/storage/sd_file_lifetime.h"
 #include "platform/esp/arduino_common/storage/sd_file_probe.h"
 #include "platform/esp/arduino_common/storage/sd_transfer_policy.h"
 #include "platform/esp/arduino_common/storage/sdmmc_block_device.h"
@@ -27,6 +28,7 @@ namespace
 uint32_t capacity = 0;
 std::unordered_map<uint32_t, std::array<uint8_t, 512>> sectors;
 size_t largest_read = 0, largest_write = 0, read_calls = 0;
+size_t write_calls = 0;
 bool fail_reads = false;
 } // namespace
 
@@ -59,6 +61,7 @@ esp_err_t sdmmc_read_sectors(sdmmc_card_t*, void* out, size_t sector, size_t cou
 }
 esp_err_t sdmmc_write_sectors(sdmmc_card_t*, const void* input, size_t sector, size_t count)
 {
+    ++write_calls;
     CHECK(sector <= capacity && count <= capacity - sector);
     largest_write = std::max(largest_write, count);
     const auto* src = static_cast<const uint8_t*>(input);
@@ -208,6 +211,18 @@ void round_trip(uint8_t fat_type, uint32_t card_sectors)
     device.clearIoError();
     CHECK(probe_sd_path(volume, "/maps/base/not there.png", probe) == SdPathEvidence::Absent);
     CHECK(device.ioError() == ESP_OK);
+    // Dirty file metadata must not be flushed by stale-handle disposal after
+    // a media boundary. Exercise the same helper used by SdRuntimeFile.
+    file = volume.open("abandon.bin", O_CREAT | O_RDWR | O_TRUNC);
+    CHECK(file);
+    CHECK(file.write("pending", 7) == 7);
+    const auto before_abandon_reads = read_calls;
+    const auto before_abandon_writes = write_calls;
+    abandon_sd_file(file);
+    CHECK(!file);
+    CHECK(read_calls == before_abandon_reads && write_calls == before_abandon_writes);
+    CHECK(file.close());
+    CHECK(read_calls == before_abandon_reads && write_calls == before_abandon_writes);
     volume.end();
 }
 
