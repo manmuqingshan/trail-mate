@@ -27,5 +27,6 @@ class WaypointFileStore final : public waypoint::IStore
     uint8_t bytes_[waypoint::kEncodedBytes]{};
     bool ready_ = false;
 };
-static_assert(sizeof(WaypointFileStore) <= 96, "Waypoint store must not retain a database");
+static_assert(sizeof(WaypointFileStore) <= (sizeof(void*) == 4 ? 96 : 104),
+              "Waypoint store must not retain a database");
 } // namespace platform::esp::storage

@@ -44,5 +44,8 @@ class AgendaFileStore final : public agenda::IAgendaStore
     bool ready_ = false;
 };
 
-static_assert(sizeof(AgendaFileStore) <= 288, "Agenda storage adapter exceeded idle RAM budget");
+// Keep the embedded budget unchanged. Native 64-bit tests have wider vtable,
+// transport and path pointers; they still must not retain a record table.
+static_assert(sizeof(AgendaFileStore) <= (sizeof(void*) == 4 ? 288 : 296),
+              "Agenda storage adapter exceeded idle RAM budget");
 } // namespace platform::esp::storage

@@ -176,7 +176,9 @@ constexpr std::size_t kRegistrationBytes = 2 * (sizeof(ui_lvgl_ux::ManifestCompa
 // and a full alignment unit for the previous-tool field instead of hiding the
 // feature's cost outside the Agenda root.
 constexpr std::size_t kMapSelectionBytes = sizeof(ui::map::MapLocationSelection) + alignof(ui::map::MapLocationSelection) + 4 * sizeof(void*);
-static_assert(sizeof(Root) + 2 * sizeof(void*) + kRegistrationBytes + kMapSelectionBytes < 1024,
+// Native LVGL tests compile this composition on a 64-bit host. Their pointer
+// and callback sizes must not relax the 1 KiB budget enforced on ESP targets.
+static_assert(sizeof(Root) + 2 * sizeof(void*) + kRegistrationBytes + kMapSelectionBytes < (sizeof(void*) == 4 ? 1024 : 1280),
               "Agenda root and shared selection state exceeded the idle RAM budget");
 } // namespace
 

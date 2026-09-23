@@ -69,7 +69,8 @@ struct Flow::ReturnContext
 
 Flow::Flow(Host& host) : host_(host)
 {
-    static_assert(sizeof(ReturnContext) < 1024, "UI recovery context must remain below 1 KiB");
+    // Preserve the embedded limit while accounting for native pointer widths.
+    static_assert(sizeof(ReturnContext) < (sizeof(void*) == 4 ? 1024 : 1152), "UI recovery context exceeded its architecture-specific budget");
     host_.map_context = this;
     host_.request_map = requestMap;
     host_.request_target = requestTarget;
